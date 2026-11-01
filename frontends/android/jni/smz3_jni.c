@@ -719,6 +719,8 @@ JNIEXPORT jstring JNICALL NATIVE(countersText)(JNIEnv *env, jclass cls)
 
 JNIEXPORT void JNICALL NATIVE(uiSetWidth)(JNIEnv *env, jclass cls, jint w) { ui_set_width(w); }
 JNIEXPORT jint JNICALL NATIVE(uiWidth)(JNIEnv *env, jclass cls) { return UI_W; }
+JNIEXPORT void JNICALL NATIVE(uiSetHeight)(JNIEnv *env, jclass cls, jint h) { ui_set_height(h); }
+JNIEXPORT jint JNICALL NATIVE(uiHeight)(JNIEnv *env, jclass cls) { return UI_H; }
 
 JNIEXPORT void JNICALL NATIVE(uiWorldJson)(JNIEnv *env, jclass cls, jstring json)
 {

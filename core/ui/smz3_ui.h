@@ -8,12 +8,13 @@
 #include "smz3_daily.h"
 
 #define UI_LADDER_ROWS 30
-#define UI_LADDER_SHOWN 8
+#define UI_LADDER_SHOWN (8 + (UI_H - 240) / 20)
 #define UI_WORLD_GOALS 6
-/* The canvas is 240 high and as wide as the host's screen allows (320 for 4:3 up to 432; the hosts set it with ui_set_width). */
-extern int smz_ui_w;
+/* The canvas is as wide as the host's screen allows (320 for 4:3 up to 432; ui_set_width) and 240 high, taller on a phone held
+ * upright (ui_set_height): the lists use the extra height, the other screens stay a 240 block in the middle. */
+extern int smz_ui_w, smz_ui_h;
 #define UI_W smz_ui_w
-#define UI_H 240
+#define UI_H smz_ui_h
 #define UI_SLOTS 32           /* most slots a frontend can show; each one sets how many it keeps with ui_set_slot_count */
 #define UI_SLOTS_SHOWN 4
 #define UI_MAX_SPRITES 640
@@ -157,6 +158,7 @@ void ui_ladder_add(SmzUi *u, int tab, const char *name, const char *country, int
 void ui_ladder_load_json(SmzUi *u, int tab, const char *json);
 /* Sets the canvas width (clamped to 320..432); the layouts follow it. */
 void ui_set_width(int w);
+void ui_set_height(int h);
 /* The world goals of the month from the server's /api/goals answer (NULL: no connection). */
 void ui_world_load_json(SmzUi *u, const char *json);
 /* The world goals are on screen (the ladder's World tab, or the run list's row under the Daily one): the host refreshes them now and then. */

@@ -474,10 +474,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..9b34b26
+index 0000000..1caabc2
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,732 @@
+@@ -0,0 +1,735 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -546,8 +546,8 @@ index 0000000..9b34b26
 +import android.content.Context
 +import java.io.File
 +
-+private var W = 320f   // the canvas width: 240 high, as wide as the screen's shape allows (Smz3Native.uiSetWidth)
-+private const val H = 240f
++private var W = 320f   // the canvas width: as wide as the screen's shape allows (Smz3Native.uiSetWidth)
++private var H = 240f   // and its height: 240, taller on a phone held upright (Smz3Native.uiSetHeight)
 +private val palette = listOf(
 +    Color(0xFF10141C), Color(0xFF1D2430), Color(0xFF2E4A6B), Color(0xFFE8ECF2), Color(0xFF8793A6), Color(0xFFE9A23B), Color(0xFFE05A4F), Color(0xFF4CC38A), Color(0xFF4FC3F7), Color(0xFF14504A), Color(0xFF1B2F6B), Color(0xFF4B2A7A), Color(0xFF8A6414),
 +    // the rupeergy (the currency) and its second blink frame
@@ -932,18 +932,21 @@ index 0000000..9b34b26
 +    val lastScreen = remember { arrayOf("") }
 +
 +    var canvasW by remember { androidx.compose.runtime.mutableStateOf(W) }
++    var canvasH by remember { androidx.compose.runtime.mutableStateOf(H) }
 +    Box(
 +        modifier.fillMaxSize().background(palette[0]).onSizeChanged { s ->
-+            if (s.height > 0) {
-+                Smz3Native.uiSetWidth((H * s.width / s.height).toInt())
-+                W = Smz3Native.uiWidth().toFloat(); canvasW = W; version++
++            if (s.height > 0 && s.width > 0) {
++                val upright = s.height * 320 > s.width * 240   // taller than 4:3: the canvas grows down instead of leaving bands
++                Smz3Native.uiSetHeight(if (upright) 320 * s.height / s.width else 240)
++                Smz3Native.uiSetWidth(if (upright) 320 else 240 * s.width / s.height)
++                W = Smz3Native.uiWidth().toFloat(); H = Smz3Native.uiHeight().toFloat(); canvasW = W; canvasH = H; version++
 +            }
 +        },
 +        contentAlignment = Alignment.Center,
 +    ) {
 +        Canvas(
 +            Modifier
-+                .aspectRatio(canvasW / H)
++                .aspectRatio(canvasW / canvasH)
 +                .fillMaxSize()
 +                .focusRequester(focus)
 +                .focusable()
@@ -4639,10 +4642,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..987fdea
+index 0000000..3a7c19d
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,115 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -4704,6 +4707,8 @@ index 0000000..987fdea
 +    @JvmStatic external fun uiInit()
 +    @JvmStatic external fun uiSetWidth(w: Int)
 +    @JvmStatic external fun uiWidth(): Int
++    @JvmStatic external fun uiSetHeight(h: Int)
++    @JvmStatic external fun uiHeight(): Int
 +    @JvmStatic external fun uiSetSlot(i: Int, used: Boolean, name: String, summary: String)
 +    @JvmStatic external fun uiSetSprites(game: Int, names: Array<String>)
 +    /** Returns the sound the input makes (UiCue: 0 none, 1 move, 2 tab, 3 select, 4 open, 5 back, 6 confirm). */
@@ -4758,10 +4763,10 @@ index 0000000..987fdea
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..b974a01
+index 0000000..527c9a5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1042 @@
+@@ -0,0 +1,1044 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -4856,7 +4861,8 @@ index 0000000..b974a01
 +    )
 +    private val levelItems = setOf("Sword", "Shield", "Mail", "Gloves")
 +
-+    fun build() {
++    /** intro: the visor boot and the fade from black, for the second screen; a tracker opened over the game shows at once. */
++    fun build(intro: Boolean = true) {
 +        root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 +        tabRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 +        val content = FrameLayout(context)
@@ -4885,8 +4891,9 @@ index 0000000..b974a01
 +        addView(visor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        addView(finishPanel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        select(0)
-+        visor.post { visor.play(root) }   // the tracker boots like a visor when the game opens
 +        applyTheme(theme)
++        if (!intro) return
++        visor.post { visor.play(root) }   // the tracker boots like a visor when the game opens
 +        root.alpha = 0f   // comes up from the black stand-in
 +        root.animate().alpha(1f).setStartDelay(120).setDuration(450).start()
 +    }
@@ -4965,7 +4972,7 @@ index 0000000..b974a01
 +        }
 +        // the game name shrinks to fit its line instead of being cut
 +        game = label(14f, Role.ACCENT).apply {
-+            isSingleLine = true
++            maxLines = 1   // not isSingleLine: its horizontal scrolling turns the auto-size off
 +            setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
 +        }
 +        percent = label(46f, Role.ACCENT).apply { includeFontPadding = false }
@@ -10374,7 +10381,7 @@ index e81c42c..adad263 100644
                      GameScreenLayout.buildConstraintSet(
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..5f29381
+index 0000000..dda2ab1
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 @@ -0,0 +1,479 @@
@@ -10614,7 +10621,7 @@ index 0000000..5f29381
 +        modifier = modifier,
 +        factory = { ctx ->
 +            Smz3TrackerPanel(ctx).also { panel ->
-+                panel.build()
++                panel.build(intro = false)
 +                Smz3Tracker.latest.value?.let { panel.render(it) }
 +                Smz3Tracker.embedded = panel
 +            }

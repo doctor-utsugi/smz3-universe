@@ -7,9 +7,9 @@
 
 #define ROW_H 20
 #define LIST_Y 44
-#define ROWS_SHOWN 7
+#define ROWS_SHOWN (7 + (UI_H - 240) / ROW_H)
 #define GRID_COLS 5
-#define GRID_ROWS 3
+#define GRID_ROWS (3 + (UI_H - 240) / GRID_CELL)
 #define GRID_X 10
 #define GRID_Y 28
 #define GRID_CELL 60
@@ -29,6 +29,8 @@ static void hit(SmzUi *u, int kind, int idx, int x, int y, int w, int h)
 }
 int smz_ui_w = 320;
 void ui_set_width(int w) { smz_ui_w = w < 320 ? 320 : w > 432 ? 432 : w; }
+int smz_ui_h = 240;
+void ui_set_height(int h) { smz_ui_h = h < 240 ? 240 : h > 720 ? 720 : h; }
 
 static void rect(SmzUi *u, int x, int y, int w, int h, int color) { put(u, 0, x, y, w, h, color, 0, NULL); }
 static void text(SmzUi *u, int x, int y, int color, int align, const char *t) { put(u, 1, x, y, 0, 0, color, align, t); }
@@ -171,7 +173,9 @@ static void change(SmzUi *u, int opt, int dir, int big)
 
 /* slot rows on screen: the Daily row takes the first place */
 static int world_row(const SmzUi *u) { return u->ladder_on && u->daily_on; }   /* World goals beside the Daily challenge, in its row */
-static int slots_shown(const SmzUi *u) { return UI_SLOTS_SHOWN - (u->daily_on != 0); }
+static int slots_shown(const SmzUi *u) { return UI_SLOTS_SHOWN + (UI_H - 240) / 47 - (u->daily_on != 0); }
+
+#define SAVED_ROWS (5 + (UI_H - 240) / 38)
 
 static void slot_view(SmzUi *u)
 {
@@ -354,7 +358,7 @@ static const struct { const char *code, *name; } COUNTRIES[] = {
     {"TR","Turkey"}, {"UA","Ukraine"}, {"GB","United Kingdom"}, {"US","United States"}, {"UY","Uruguay"}, {"VE","Venezuela"},
 };
 #define COUNTRY_COUNT ((int)(sizeof COUNTRIES / sizeof COUNTRIES[0]))
-#define COUNTRY_ROWS 8
+#define COUNTRY_ROWS (8 + (UI_H - 240) / 25)
 
 void ui_player_enable(SmzUi *u, int on) { u->player_on = on; }
 
@@ -900,7 +904,7 @@ static void saved_input(SmzUi *u, UiButton b)
         }
     }
     if (u->saved_cursor < u->saved_scroll) u->saved_scroll = u->saved_cursor;
-    if (u->saved_cursor >= u->saved_scroll + 5) u->saved_scroll = u->saved_cursor - 4;
+    if (u->saved_cursor >= u->saved_scroll + SAVED_ROWS) u->saved_scroll = u->saved_cursor - SAVED_ROWS + 1;
 }
 
 static void random_sprite(SmzUi *u, int game)
@@ -1541,8 +1545,12 @@ void ui_draw(SmzUi *u)
     rect(u, 0, 0, UI_W, UI_H, C_BG);
     if (u->screen != UI_LOADCHOICE) u->orb_on = 0;
     /* the screens with a fixed 320 layout (the sprite grid, the start and load choices, the keyboard) are drawn at 320 and centred */
-    int full = UI_W, c0 = u->cmd_count, h0 = u->hit_count;
+    int full = UI_W, full_h = UI_H, c0 = u->cmd_count, h0 = u->hit_count, fixed = 0;   /* fixed: the screen keeps its 240 layout */
     if (u->screen == UI_SPRITES || u->screen == UI_START || u->screen == UI_LOADCHOICE || u->screen == UI_NAME) { pad_x = (full - 320) / 2; smz_ui_w = 320; }
+    /* on a tall canvas only the lists grow; the other screens keep their 240 layout at the top, with the legend at the bottom */
+    int tall = u->screen == UI_SLOTS_SCREEN || u->screen == UI_CREATE || u->screen == UI_SPRITES || u->screen == UI_SAVED
+            || u->screen == UI_RULES || u->screen == UI_COUNTRY || u->screen == UI_LADDER;
+    if (!tall && full_h > 240) { fixed = 1; smz_ui_h = 240; }
     switch (u->screen) {
     case UI_SLOTS_SCREEN: {
         int more = u->slot_count > slots_shown(u);
@@ -1580,7 +1588,8 @@ void ui_draw(SmzUi *u)
         if (more) {
             int x = UI_W - 26;
             if (u->slot_scroll > 0) { rect(u, x, top, 20, 44, C_PANEL); text(u, x + 10, top + 14, C_ACCENT, 1, "^"); hit(u, H_CHEVRON, -1, x, top, 20, 44); }
-            if (u->slot_scroll + shown < u->slot_count) { rect(u, x, 32 + 3 * 47, 20, 44, C_PANEL); text(u, x + 10, 32 + 3 * 47 + 14, C_ACCENT, 1, "v"); hit(u, H_CHEVRON, 1, x, 32 + 3 * 47, 20, 44); }
+            int by = top + (shown - 1) * 47;
+            if (u->slot_scroll + shown < u->slot_count) { rect(u, x, by, 20, 44, C_PANEL); text(u, x + 10, by + 14, C_ACCENT, 1, "v"); hit(u, H_CHEVRON, 1, x, by, 20, 44); }
         }
         legend(u, u->ladder_on ? "A Open  Select Ladder" : "A Open");
         break;
@@ -1740,7 +1749,7 @@ void ui_draw(SmzUi *u)
     case UI_SAVED: {
         snprintf(buf, sizeof buf, "Saved customs  (%d/%d)", u->saved_cursor + 1, u->saved_count);
         title(u, buf);
-        for (int r = 0; r < 5 && u->saved_scroll + r < u->saved_count; r++) {
+        for (int r = 0; r < SAVED_ROWS && u->saved_scroll + r < u->saved_count; r++) {
             int i = u->saved_scroll + r, y = 34 + r * 38;
             char sum[48];
             spec_summary(u, u->saved[i].spec, sum, 33);
@@ -1990,10 +1999,11 @@ void ui_draw(SmzUi *u)
         text(u, UI_W / 2, UI_H / 2 - 6, C_TEXT, 1, u->status);
         break;
     }
-    if (pad_x) {
-        for (int i = c0; i < u->cmd_count; i++) u->cmd[i].x += pad_x;
+    if (pad_x || fixed) {
+        for (int i = c0; i < u->cmd_count; i++) { u->cmd[i].x += pad_x; if (fixed && u->cmd[i].y >= 240 - 16) u->cmd[i].y += full_h - 240; }   /* the legend goes to the bottom */
         for (int i = h0; i < u->hit_count; i++) u->hit[i].x += pad_x;
         pad_x = 0;
     }
     smz_ui_w = full;
+    smz_ui_h = full_h;
 }
