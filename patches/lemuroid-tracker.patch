@@ -4718,10 +4718,10 @@ index 0000000..45574d6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..623ad6b
+index 0000000..c55eb37
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1035 @@
+@@ -0,0 +1,1042 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -4849,6 +4849,13 @@ index 0000000..623ad6b
 +        applyTheme(theme)
 +        root.alpha = 0f   // comes up from the black stand-in
 +        root.animate().alpha(1f).setStartDelay(120).setDuration(450).start()
++    }
++
++    /** Narrow panels (a phone in portrait) get smaller tab labels, so each stays on one line. */
++    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
++        super.onSizeChanged(w, h, oldw, oldh)
++        val size = if (w / density < 430f) 12f else 15f
++        tabs.forEach { it.textSize = size; it.maxLines = 1 }
 +    }
 +
 +    /** Moves [delta] tabs to the right (left when negative), wrapping around. */
@@ -10300,7 +10307,7 @@ index 0000000..4ef5dd6
 +    }
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt
-index e81c42c..d3de90a 100644
+index e81c42c..adad263 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt
 @@ -148,7 +148,20 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
@@ -10314,7 +10321,7 @@ index e81c42c..d3de90a 100644
 +                    Smz3SingleScreen(
 +                        viewModel = viewModel,
 +                        isLandscape = isLandscape,
-+                        touchVisible = touchControllerSettings != null && currentControllerConfig != null && touchControlsVisibleState.value,
++                        touchVisible = touchControllerSettings != null && currentControllerConfig != null && (touchControlsVisibleState.value || com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.forceTouch(localContext)),
 +                        touchSettings = touchControllerSettings,
 +                        leftPad = leftGamePad,
 +                        rightPad = rightGamePad,
@@ -10327,10 +10334,10 @@ index e81c42c..d3de90a 100644
                      GameScreenLayout.buildConstraintSet(
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..93877f7
+index 0000000..0255305
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
-@@ -0,0 +1,439 @@
+@@ -0,0 +1,479 @@
 +package com.swordfish.lemuroid.app.mobile.feature.game
 +
 +import android.content.Context
@@ -10339,6 +10346,8 @@ index 0000000..93877f7
 +import androidx.compose.foundation.background
 +import androidx.compose.foundation.border
 +import androidx.compose.foundation.clickable
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
 +import androidx.compose.foundation.gestures.detectTransformGestures
 +import androidx.compose.foundation.layout.Arrangement
 +import androidx.compose.foundation.layout.Box
@@ -10346,6 +10355,9 @@ index 0000000..93877f7
 +import androidx.compose.foundation.layout.Column
 +import androidx.compose.foundation.layout.Row
 +import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.WindowInsets
++import androidx.compose.foundation.layout.safeDrawing
++import androidx.compose.foundation.layout.windowInsetsPadding
 +import androidx.compose.foundation.layout.fillMaxHeight
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.layout.fillMaxWidth
@@ -10356,6 +10368,7 @@ index 0000000..93877f7
 +import androidx.compose.foundation.layout.width
 +import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.material3.Slider
++import androidx.compose.material3.SliderDefaults
 +import androidx.compose.material3.Text
 +import androidx.compose.runtime.Composable
 +import androidx.compose.runtime.DisposableEffect
@@ -10364,6 +10377,7 @@ index 0000000..93877f7
 +import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberUpdatedState
 +import androidx.compose.runtime.setValue
 +import androidx.compose.ui.Alignment
 +import androidx.compose.ui.Modifier
@@ -10476,7 +10490,7 @@ index 0000000..93877f7
 +        rightPad?.invoke(padScope, boxModifierRight.placed(right) { rightBounds = it }, touchSettings.copy(scale = right.scale, marginX = 0f, marginY = 0f))
 +    }
 +
-+    BoxWithConstraints(Modifier.fillMaxSize()) {
++    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
 +        val portraitGameHeight = maxWidth * (3f / 4f)
 +        if (isLandscape) {
 +            Box(Modifier.fillMaxSize().onGloballyPositioned { onGameBounds(it.boundsInRoot()) })
@@ -10497,8 +10511,17 @@ index 0000000..93877f7
 +                        .background(PANEL, RoundedCornerShape(8.dp))
 +                        .border(1.dp, TAB, RoundedCornerShape(8.dp)),
 +                ) {
-+                    EmbeddedTracker(Modifier.fillMaxSize().padding(top = 2.dp))
-+                    SmallButton("Close", Modifier.align(Alignment.TopEnd).padding(6.dp)) { Smz3ScreenMode.trackerOpen.value = false }
++                    Column(Modifier.fillMaxSize()) {
++                        EmbeddedTracker(Modifier.fillMaxWidth().weight(1f))
++                        Row(
++                            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
++                            horizontalArrangement = Arrangement.SpaceBetween,
++                            verticalAlignment = Alignment.CenterVertically,
++                        ) {
++                            Text("L1 R1 change tab · R3 or B close", color = DIM, fontSize = 12.sp)
++                            SmallButton("Close", Modifier) { Smz3ScreenMode.trackerOpen.value = false }
++                        }
++                    }
 +                }
 +            } else if (touchVisible) {
 +                Box(Modifier.fillMaxSize()) { pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd)) }
@@ -10511,11 +10534,10 @@ index 0000000..93877f7
 +                        .height(portraitGameHeight)
 +                        .onGloballyPositioned { onGameBounds(it.boundsInRoot()) },
 +                )
-+                StatusLine(snapshot)
++                StatusLine(snapshot, toggle = if (!touchVisible) null else if (trackerOpen) "Pad" else "Tracker")
 +                Box(Modifier.fillMaxWidth().weight(1f)) {
 +                    if (!touchVisible || trackerOpen) {
 +                        EmbeddedTracker(Modifier.fillMaxSize())
-+                        if (touchVisible) SmallButton("Pad", Modifier.align(Alignment.BottomCenter).padding(10.dp)) { Smz3ScreenMode.trackerOpen.value = false }
 +                    } else {
 +                        pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd))
 +                    }
@@ -10586,16 +10608,22 @@ index 0000000..93877f7
 +    return "%d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60)
 +}
 +
++/** Percent, time and checks under the game; [toggle] is the label of the button that swaps the touch pad and the tracker. */
 +@Composable
-+private fun StatusLine(s: Smz3Snapshot?) {
++private fun StatusLine(s: Smz3Snapshot?, toggle: String?) {
 +    Row(
-+        Modifier.fillMaxWidth().background(PANEL).padding(horizontal = 12.dp, vertical = 5.dp),
++        Modifier.fillMaxWidth().background(PANEL).padding(horizontal = 12.dp, vertical = 4.dp),
 +        horizontalArrangement = Arrangement.SpaceBetween,
++        verticalAlignment = Alignment.CenterVertically,
 +    ) {
-+        if (s == null) return@Row
-+        Text(percent(s), color = GOLD, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-+        Text(clock(s.elapsedMs), color = TEXT, fontSize = 14.sp)
-+        Text("${s.zeldaCleared + s.metroidCleared}/${s.zeldaTotal + s.metroidTotal}", color = DIM, fontSize = 14.sp)
++        if (s != null) {
++            Text(percent(s), color = GOLD, fontSize = 14.sp, fontWeight = FontWeight.Bold)
++            Text(clock(s.elapsedMs), color = TEXT, fontSize = 14.sp)
++            Text("${s.zeldaCleared + s.metroidCleared}/${s.zeldaTotal + s.metroidTotal}", color = DIM, fontSize = 14.sp)
++        } else {
++            Spacer(Modifier.weight(1f))
++        }
++        if (toggle != null) SmallButton(toggle, Modifier) { Smz3ScreenMode.toggleTracker() }
 +    }
 +}
 +
@@ -10638,13 +10666,23 @@ index 0000000..93877f7
 +    }
 +}
 +
++/** One box per crystal or boss, four to a row, lit when its bit is set. */
 +@Composable
 +private fun Marks(labels: List<String>, mask: Int) {
-+    Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-+        labels.forEachIndexed { i, label ->
-+            val on = mask and (1 shl i) != 0
-+            Box(Modifier.size(16.dp).background(if (on) GOLD else Color(0xFF1D2430), RoundedCornerShape(2.dp)), contentAlignment = Alignment.Center) {
-+                Text(label, color = if (on) PANEL else DIM, fontSize = 10.sp)
++    BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 3.dp)) {
++        val gap = 3.dp
++        val perRow = 4
++        val side = minOf(18.dp, (maxWidth - gap * (perRow - 1)) / perRow)
++        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
++            labels.withIndex().chunked(perRow).forEach { row ->
++                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
++                    for ((i, label) in row) {
++                        val on = mask and (1 shl i) != 0
++                        Box(Modifier.size(side).background(if (on) GOLD else Color(0xFF1D2430), RoundedCornerShape(2.dp)), contentAlignment = Alignment.Center) {
++                            Text(label, color = if (on) PANEL else DIM, fontSize = 10.sp)
++                        }
++                    }
++                }
 +            }
 +        }
 +    }
@@ -10687,6 +10725,8 @@ index 0000000..93877f7
 +    var selectedLeft by remember { mutableStateOf(true) }
 +    val density = LocalDensity.current
 +    val current = rememberUpdated(left, right)
++    val padBounds = rememberUpdatedState(leftBounds to rightBounds)   // read inside the gesture: a key would restart it mid-drag
++    val change = rememberUpdatedState(onChange)
 +    var origin by remember { mutableStateOf(Offset.Zero) }
 +
 +    Box(
@@ -10694,13 +10734,19 @@ index 0000000..93877f7
 +            .fillMaxSize()
 +            .background(Color(0x66000000))
 +            .onGloballyPositioned { origin = it.boundsInRoot().topLeft }
-+            .pointerInput(leftBounds, rightBounds) {
-+                detectTransformGestures { centroid, pan, zoom, _ ->
-+                    val at = centroid + origin
++            .pointerInput(Unit) {
++                awaitEachGesture {
++                    val down = awaitFirstDown(requireUnconsumed = false)
++                    val at = down.position + origin
++                    val (lb, rb) = padBounds.value
 +                    when {
-+                        rightBounds?.inflate(24f)?.contains(at) == true && leftBounds?.inflate(24f)?.contains(at) != true -> selectedLeft = false
-+                        leftBounds?.inflate(24f)?.contains(at) == true -> selectedLeft = true
++                        rb?.inflate(24f)?.contains(at) == true && lb?.inflate(24f)?.contains(at) != true -> selectedLeft = false
++                        lb?.inflate(24f)?.contains(at) == true -> selectedLeft = true
 +                    }
++                }
++            }
++            .pointerInput(Unit) {
++                detectTransformGestures { _, pan, zoom, _ ->
 +                    val p = if (selectedLeft) current.value.first else current.value.second
 +                    val moved =
 +                        p.copy(
@@ -10708,7 +10754,7 @@ index 0000000..93877f7
 +                            dy = p.dy + with(density) { pan.y.toDp().value },
 +                            scale = (p.scale + (zoom - 1f) * 1.5f).coerceIn(Smz3PadLayout.MIN_SCALE, Smz3PadLayout.MAX_SCALE),
 +                        )
-+                    onChange(selectedLeft, moved)
++                    change.value(selectedLeft, moved)
 +                }
 +            },
 +    ) {
@@ -10742,6 +10788,7 @@ index 0000000..93877f7
 +                value = p.scale,
 +                onValueChange = { onChange(selectedLeft, p.copy(scale = it)) },
 +                valueRange = Smz3PadLayout.MIN_SCALE..Smz3PadLayout.MAX_SCALE,
++                colors = SliderDefaults.colors(thumbColor = GOLD, activeTrackColor = GOLD, inactiveTrackColor = Color(0xFF1D2430)),
 +            )
 +            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 +                SmallButton("Reset", Modifier, onReset)
@@ -10787,10 +10834,10 @@ index 80609be..93ceb1b 100644
      }
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
 new file mode 100644
-index 0000000..178e356
+index 0000000..64d0866
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,85 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -10855,6 +10902,10 @@ index 0000000..178e356
 +    }
 +
 +    fun isSingle(context: Context) = secondDisplay(context) == null
++
++    /** Debug builds only: shows the touch pad even with a controller connected (smz3_screen pref force_touch), to try it on the Thor. */
++    fun forceTouch(context: Context): Boolean =
++        (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 && prefs(context).getBoolean("force_touch", false)
 +
 +    /** What Auto resolves to on this device, for the config tab. */
 +    fun autoTitle(context: Context): String {
