@@ -98,7 +98,7 @@ index 0000000..3b74ae7
 +{"Castle Tower": [239, 192, 239, 192], "Dark World Mire": [18, 860, 18, 860], "Dark World North East": [224, 561, 432, 711], "Dark World North West": [23, 560, 163, 768], "Dark World South": [23, 806, 286, 851], "Dark World Death Mountain East": [398, 509, 404, 548], "Dark World Death Mountain West": [274, 549, 274, 549], "Desert Palace": [34, 378, 34, 378], "Eastern Palace": [459, 188, 459, 188], "Ganon's Tower": [268, 495, 268, 495], "Hyrule Castle": [239, 216, 239, 216], "Ice Palace": [381, 893, 381, 893], "Light World Death Mountain East": [381, 9, 413, 103], "Light World Death Mountain West": [194, 9, 233, 90], "Light World North East": [383, 65, 458, 214], "Light World North West": [11, 24, 288, 273], "Light World South": [9, 312, 428, 450], "Misery Mire": [35, 877, 35, 877], "Palace of Darkness": [459, 669, 459, 669], "Skull Woods": [18, 510, 18, 510], "Swamp Palace": [224, 927, 224, 927], "Thieves' Town": [59, 710, 59, 710], "Tower of Hera": [268, 23, 268, 23], "Turtle Rock": [451, 513, 451, 513]}
 \ No newline at end of file
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
-index 57f2e76..be76322 100644
+index 57f2e76..0738087 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 @@ -1,5 +1,10 @@
@@ -121,7 +121,7 @@ index 57f2e76..be76322 100644
  class MainActivity : RetrogradeComponentActivity(), BusyActivity {
      @Inject
      lateinit var gameLaunchTaskHandler: GameLaunchTaskHandler
-@@ -116,6 +123,19 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -116,16 +123,46 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
          )
          super.onCreate(savedInstanceState)
  
@@ -141,7 +141,17 @@ index 57f2e76..be76322 100644
          GlobalScope.safeLaunch {
              reviewManager.initialize(applicationContext)
          }
-@@ -126,6 +146,16 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+ 
++        // The game runs in a foreground service; without this permission its notification stays hidden, but the game still starts.
++        if (android.os.Build.VERSION.SDK_INT >= 33 &&
++            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
++        ) {
++            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 0)
++        }
++
+         setContent {
+             val navController = rememberNavController()
+             MainScreen(navController)
          }
      }
  
@@ -158,7 +168,7 @@ index 57f2e76..be76322 100644
      @OptIn(ExperimentalMaterial3Api::class)
      @Composable
      private fun MainScreen(navController: NavHostController) {
-@@ -135,7 +165,7 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -135,7 +172,7 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
              val currentRoute =
                  currentDestination?.route
                      ?.let { MainRoute.findByRoute(it) }
@@ -167,7 +177,7 @@ index 57f2e76..be76322 100644
  
              val infoDialogDisplayed =
                  remember {
-@@ -172,176 +202,34 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -172,176 +209,34 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                      .collectAsState(MainViewModel.UiState())
                      .value
  
@@ -10988,3 +10998,64 @@ index 0000000..4447041
 +        android:pathData="M20.5,3l-0.16,0.03L15,5.1 9,3 3.36,4.9c-0.21,0.07 -0.36,0.25 -0.36,0.48V20.5c0,0.28 0.22,0.5 0.5,0.5l0.16,-0.03L9,18.9l6,2.1 5.64,-1.9c0.21,-0.07 0.36,-0.25 0.36,-0.48V3.5c0,-0.28 -0.22,-0.5 -0.5,-0.5zM15,19l-6,-2.11V5l6,2.11V19z"/>
 +
 +</vector>
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameInteractor.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameInteractor.kt
+index b3a4e58..2eeede2 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameInteractor.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameInteractor.kt
+@@ -1,10 +1,6 @@
+ package com.swordfish.lemuroid.app.shared
+ 
+-import android.Manifest
+-import android.content.pm.PackageManager
+ import android.net.Uri
+-import android.os.Build
+-import androidx.core.content.ContextCompat
+ import com.swordfish.lemuroid.R
+ import com.swordfish.lemuroid.app.mobile.feature.shortcuts.ShortcutsGenerator
+ import com.swordfish.lemuroid.app.shared.game.GameLauncher
+@@ -28,9 +24,6 @@ class GameInteractor(
+         if (!ensureNotBusy()) {
+             return
+         }
+-        if (!ensureNotificationsPermissionAvailable()) {
+-            return
+-        }
+         gameLauncher.launchGameAsync(activity.activity(), game, true, useLeanback)
+     }
+ 
+@@ -38,9 +31,6 @@ class GameInteractor(
+         if (!ensureNotBusy()) {
+             return
+         }
+-        if (!ensureNotificationsPermissionAvailable()) {
+-            return
+-        }
+         gameLauncher.launchGameAsync(activity.activity(), game, false, useLeanback)
+     }
+ 
+@@ -98,25 +88,6 @@ class GameInteractor(
+         }
+     }
+ 
+-    private fun ensureNotificationsPermissionAvailable(): Boolean {
+-        if (useLeanback || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+-            return true
+-        }
+-
+-        val permissionResult =
+-            ContextCompat.checkSelfPermission(
+-                activity.activity(),
+-                Manifest.permission.POST_NOTIFICATIONS,
+-            )
+-
+-        if (permissionResult == PackageManager.PERMISSION_GRANTED) {
+-            return true
+-        }
+-
+-        activity.activity().displayToast(R.string.game_interactor_notification_permission_required)
+-        return false
+-    }
+-
+     private fun ensureNotBusy(): Boolean {
+         if (activity.isBusy()) {
+             activity.activity().displayToast(R.string.game_interactory_busy)
