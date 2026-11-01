@@ -753,3 +753,20 @@ JNIEXPORT jint JNICALL NATIVE(goalIcons)(JNIEnv *env, jclass cls, jbyteArray sm,
     (*env)->ReleaseByteArrayElements(env, sm, s, JNI_ABORT);
     return n;
 }
+
+#include "smz3_romderived.h"
+
+/* Writes the standing Link and Samus drawn from the base ROMs to dir/link/Original.pv and dir/samus/Original.pv; returns 1 on success. */
+JNIEXPORT jint JNICALL NATIVE(originalPreviews)(JNIEnv *env, jclass cls, jbyteArray sm, jbyteArray z3, jstring dir)
+{
+    jsize sl = (*env)->GetArrayLength(env, sm), zl = (*env)->GetArrayLength(env, z3);
+    jbyte *s = (*env)->GetByteArrayElements(env, sm, NULL), *z = (*env)->GetByteArrayElements(env, z3, NULL);
+    const char *d = (*env)->GetStringUTFChars(env, dir, NULL);
+    static uint8_t l[SMZ_PV_LINK_LEN], m[SMZ_PV_SAMUS_LEN];
+    int ok = smz_original_previews((const uint8_t *)s, (size_t)sl, (const uint8_t *)z, (size_t)zl, l, m);
+    if (ok) { goal_icon_file("link/Original", l, sizeof l, (void *)d); goal_icon_file("samus/Original", m, sizeof m, (void *)d); }
+    (*env)->ReleaseStringUTFChars(env, dir, d);
+    (*env)->ReleaseByteArrayElements(env, z3, z, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, sm, s, JNI_ABORT);
+    return ok;
+}

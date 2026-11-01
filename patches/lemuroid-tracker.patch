@@ -474,10 +474,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..feba793
+index 0000000..056da3a
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,714 @@
+@@ -0,0 +1,717 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -593,7 +593,10 @@ index 0000000..feba793
 +            }
 +        }
 +        val game = if (key.startsWith("link/")) 0 else 1
-+        val bytes = if (goal != null) File(File(context.filesDir, "goals"), "$goal.pv").readBytes() else File(spriteDir(game), key.substringAfter('/') + ".pv").readBytes()
++        val name = key.substringAfter('/') + ".pv"
++        val bytes = if (goal != null) File(File(context.filesDir, "goals"), "$goal.pv").readBytes()
++            else File(spriteDir(game), name).takeIf { it.exists() }?.readBytes()
++                ?: File(File(context.filesDir, if (game == 0) "sprites/link" else "sprites/samus"), name).readBytes()   // drawn from the ROMs
 +        val w = bytes[0].toInt() and 255; val h = bytes[1].toInt() and 255
 +        val px = IntArray(w * h) { i ->
 +            val o = 2 + i * 4
@@ -705,9 +708,9 @@ index 0000000..feba793
 +        onDispose { }
 +    }
 +    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-+    LaunchedEffect(Unit) {   // world goal icons cut from the base ROMs the first time; the icons asked for before are dropped
++    LaunchedEffect(Unit) {   // world goal icons and the Original sprites cut from the base ROMs the first time; the ones asked for before are dropped
 +        if (runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { RunGenerator.goalIconsAtStart(context, retrogradeDb.gameDao().selectListBySystem("snes")) } }.getOrDefault(false)) {
-+            previewCache.keys.removeAll { it.startsWith("goal/") }
++            previewCache.keys.removeAll { it.startsWith("goal/") || it.endsWith("/Original") }
 +            version++
 +        }
 +    }
@@ -1449,10 +1452,10 @@ index 0000000..710b64d
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt
 new file mode 100644
-index 0000000..ea9bfef
+index 0000000..67eaadb
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,289 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -1630,15 +1633,25 @@ index 0000000..ea9bfef
 +        } else null
 +    }
 +
-+    /** Cuts the world goal icons out of the base ROMs into filesDir/goals the first time (and when the set changes). */
++    /**
++     * Cuts the world goal icons out of the base ROMs into filesDir/goals the first time (and when the set changes), and draws the
++     * "Original" Link and Samus into filesDir/sprites for phones without the sprite folder on the SD card.
++     */
 +    fun goalIcons(context: Context, sm: ByteArray, z3: ByteArray) {
 +        val dir = File(context.filesDir, "goals").also { it.mkdirs() }
 +        if (!File(dir, "$GOAL_ICONS_MARK.pv").exists()) runCatching { Smz3Native.goalIcons(sm, z3, dir.path) }
++        if (!originalsReady(context)) runCatching {
++            val sprites = File(context.filesDir, "sprites")
++            File(sprites, "link").mkdirs(); File(sprites, "samus").mkdirs()
++            Smz3Native.originalPreviews(sm, z3, sprites.path)
++        }
 +    }
++
++    private fun originalsReady(context: Context) = File(context.filesDir, "sprites/samus/Original.pv").exists()
 +
 +    /** The same for players who have their runs already: looks for the base ROMs as generation does. Returns whether icons were cut. */
 +    suspend fun goalIconsAtStart(context: Context, games: List<Game>): Boolean = withContext(Dispatchers.IO) {
-+        if (File(File(context.filesDir, "goals"), "$GOAL_ICONS_MARK.pv").exists()) return@withContext false
++        if (File(File(context.filesDir, "goals"), "$GOAL_ICONS_MARK.pv").exists() && originalsReady(context)) return@withContext false
 +        findBaseRoms(context, games) != null
 +    }
 +
@@ -4611,10 +4624,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..45574d6
+index 0000000..987fdea
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,113 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -4713,6 +4726,8 @@ index 0000000..45574d6
 +    @JvmStatic external fun countersTick(wram: ByteArray, sram: ByteArray, game: Int, items: Int)
 +    @JvmStatic external fun countersText(): String
 +    @JvmStatic external fun goalIcons(sm: ByteArray, z3: ByteArray, dir: String): Int
++    /** The "Original" sprite previews drawn from the base ROMs, into dir/link and dir/samus (the folders must exist). */
++    @JvmStatic external fun originalPreviews(sm: ByteArray, z3: ByteArray, dir: String): Int
 +    @JvmStatic external fun uiOption(opt: Int): Int
 +    @JvmStatic external fun uiScreen(): Int
 +    @JvmStatic external fun uiSetSlotCount(n: Int)
@@ -4728,7 +4743,7 @@ index 0000000..45574d6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..c55eb37
+index 0000000..b974a01
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 @@ -0,0 +1,1042 @@
@@ -4951,7 +4966,7 @@ index 0000000..c55eb37
 +            LinearLayout(context).apply {
 +                orientation = LinearLayout.VERTICAL
 +                setPadding(dp(8), 0, 0, dp(4))
-+                addView(game)
++                addView(game, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(19)))   // auto-size needs a set box
 +                addView(time)
 +            },
 +            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
@@ -10344,7 +10359,7 @@ index e81c42c..adad263 100644
                      GameScreenLayout.buildConstraintSet(
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..0255305
+index 0000000..5f29381
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 @@ -0,0 +1,479 @@
@@ -10640,12 +10655,12 @@ index 0000000..0255305
 +@Composable
 +private fun SidePanelLeft(s: Smz3Snapshot, modifier: Modifier) {
 +    Column(modifier.background(PANEL).padding(12.dp)) {
-+        Text(percent(s), color = GOLD, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-+        Spacer(Modifier.height(8.dp))
++        // everything in the top rows: the pad's L button sits over the middle of the panel
++        Text(percent(s), color = GOLD, fontSize = 30.sp, fontWeight = FontWeight.Bold, lineHeight = 30.sp)
++        Text(clock(s.elapsedMs), color = TEXT, fontSize = 16.sp, maxLines = 1, softWrap = false)
++        Spacer(Modifier.height(4.dp))
 +        Counter("Zelda", s.zeldaCleared, s.zeldaTotal)
 +        Counter("Metroid", s.metroidCleared, s.metroidTotal)
-+        Spacer(Modifier.height(10.dp))
-+        Text(clock(s.elapsedMs), color = TEXT, fontSize = 20.sp)
 +    }
 +}
 +

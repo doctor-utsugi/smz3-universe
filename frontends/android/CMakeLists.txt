@@ -19,6 +19,7 @@ add_library(smz3core SHARED
     ../../core/gen/smz3_rng.c
     ../../core/gen/smz3_sprite.c
     ../../core/gen/smz3_goalicons.c
+    ../../core/gen/smz3_romderived.c
     ../../core/gen/smz3_dungeonmaps.c
     ../../core/ui/smz3_ui.c
     ../../core/ui/smz3_ui_opts.c
