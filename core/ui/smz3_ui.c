@@ -1394,9 +1394,15 @@ static void daily_row(SmzUi *u, int x, int y, int w)
     if (d->loaded == 0) { text(u, tx, y + 23, C_DIM, 0, "Connecting..."); return; }
     if (d->loaded < 0) { text(u, tx, y + 23, C_DIM, 0, narrow ? "Offline" : "Offline: the challenge needs the server"); return; }
     if (!d->window[0]) {
-        padlock(u, tx, y + 23, C_TEXT);
-        text(u, tx + 13, y + 22, C_TEXT, 0, "[CLOSED]");
         smz_daily_span(d->next_opens_at - now, t, sizeof t);
+        padlock(u, tx, y + 23, C_TEXT);
+        if (w < 170) {   /* half of a 4:3 screen: the countdown takes the second line */
+            snprintf(s, sizeof s, "Opens in %s", t);
+            text(u, tx + 13, y + 22, C_TEXT, 0, s);
+            window_line(u, x, y, w, 4 * 3600000LL - (d->next_opens_at - now), 4 * 3600000LL, C_DIM);
+            return;
+        }
+        text(u, tx + 13, y + 22, C_TEXT, 0, "[CLOSED]");
         snprintf(s, sizeof s, "Opens in %s", t);
         text(u, x + w - 6, y + 3, C_TEXT, 2, s);
         time_t at = (time_t)(d->next_opens_at / 1000);
@@ -1433,7 +1439,8 @@ static void world_list_row(SmzUi *u, int x, int y, int w)
     rect(u, x, y, w, 44, u->daily_sel == 2 ? C_SEL : C_PANEL);
     rect(u, x, y, 5, 44, C_CYAN);
     hit(u, H_WORLD, 0, x, y, w, 44);
-    text(u, tx, y + 3, C_CYAN, 0, "WORLD GOALS");
+    int tiny = w < 170;   /* half of a 4:3 screen: a bar under each icon instead of the percentages */
+    text(u, tx, y + 3, C_CYAN, 0, tiny ? "WORLD" : "WORLD GOALS");
     if (u->world.loaded == 0) { text(u, tx, y + 23, C_DIM, 0, "Connecting..."); return; }
     if (u->world.loaded < 0) { text(u, tx, y + 23, C_DIM, 0, w < 280 ? "Offline" : "Offline: the goals need the server"); return; }
     int64_t left = u->world.ends_at - now_ms();
@@ -1447,6 +1454,12 @@ static void world_list_row(SmzUi *u, int x, int y, int w)
         int gx = tx + i * col, met = g->target > 0 && g->total >= g->target, bw = col - 22;
         rect(u, gx, y + 20, 16, 16, C_BG);
         if (g->sprite[0]) { snprintf(s, sizeof s, "goal/%s", g->sprite); put(u, 2, gx, y + 20, 16, 16, C_TEXT, 0, s); }
+        if (tiny) {
+            int fill = g->target > 0 ? (int)(16 * (g->total > g->target ? g->target : g->total) / g->target) : 0;
+            rect(u, gx, y + 38, 16, 3, C_BG);
+            if (fill) rect(u, gx, y + 38, fill, 3, met ? C_ACCENT : C_GREEN);
+            continue;
+        }
         rect(u, gx + 19, y + 22, bw, 4, C_BG);
         int fill = g->target > 0 ? (int)(bw * (g->total > g->target ? g->target : g->total) / g->target) : 0;
         if (fill) rect(u, gx + 19, y + 22, fill, 4, met ? C_ACCENT : C_GREEN);

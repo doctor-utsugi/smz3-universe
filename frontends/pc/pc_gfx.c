@@ -8,6 +8,9 @@
 #include "smz3_preview.h"
 
 static SDL_Renderer *R;
+/* Each window has its own renderer and SDL textures belong to one renderer: every cache below has one copy per window. */
+static SDL_Renderer *slot_ren[2];
+static int S;
 
 static const SDL_Color PALETTE[] = {
     {0x10, 0x14, 0x1C, 255}, {0x1D, 0x24, 0x30, 255}, {0x2E, 0x4A, 0x6B, 255}, {0xE8, 0xEC, 0xF2, 255}, {0x87, 0x93, 0xA6, 255},
@@ -21,7 +24,8 @@ static const SDL_Color PALETTE[] = {
 SDL_Color gfx_ui_color(int i) { return PALETTE[i < 0 || i >= UI_COLORS ? 0 : i]; }
 
 typedef struct { SDL_Texture *tex; int cw, ch, cols, size; const short *adv; } Atlas;
-static Atlas atlas[2];
+static Atlas atlas_s[2][2];
+#define atlas atlas_s[S]
 
 static void make_atlas(Atlas *a, const unsigned char *alpha, const short *adv, int w, int h, int cw, int ch, int cols, int size)
 {
@@ -35,12 +39,30 @@ static void make_atlas(Atlas *a, const unsigned char *alpha, const short *adv, i
     free(px);
 }
 
-void gfx_init(SDL_Renderer *r)
+static void make_atlases(void)
 {
-    R = r;
     make_atlas(&atlas[0], PC_FONT_ALPHA, PC_FONT_ADV, PC_FONT_W, PC_FONT_H, PC_FONT_CW, PC_FONT_CH, PC_FONT_COLS, PC_FONT_SIZE);
     make_atlas(&atlas[1], PC_FONT2_ALPHA, PC_FONT2_ADV, PC_FONT2_W, PC_FONT2_H, PC_FONT2_CW, PC_FONT2_CH, PC_FONT2_COLS, PC_FONT2_SIZE);
 }
+
+void gfx_init(SDL_Renderer *r)
+{
+    R = slot_ren[0] = r;
+    S = 0;
+    make_atlases();
+}
+
+void gfx_use(SDL_Renderer *r)
+{
+    if (r == slot_ren[0]) S = 0;
+    else {
+        S = 1;
+        if (slot_ren[1] != r) { slot_ren[1] = r; R = r; make_atlases(); }
+    }
+    R = r;
+}
+
+int gfx_slot(void) { return S; }
 
 /* Glyphs have their own advances; large text uses the large atlas so it is never stretched much. */
 static float glyph_adv(int ch, float px) { return (ch < 32 || ch > 126 ? atlas[0].adv['?' - 32] : atlas[0].adv[ch - 32]) * 0.001f * px; }
@@ -92,8 +114,10 @@ static uint8_t *(*preview_loader)(const char *key, size_t *len);
 void gfx_set_preview_loader(uint8_t *(*load)(const char *key, size_t *len)) { preview_loader = load; }
 
 typedef struct { char key[48]; SDL_Texture *tex; int w, h; } Preview;
-static Preview previews[64];
-static int preview_next;
+static Preview previews_s[2][64];
+static int preview_next_s[2];
+#define previews previews_s[S]
+#define preview_next preview_next_s[S]
 
 /* The picture of a preview key, loaded once (w == 0 when the key has none). */
 static const Preview *get_preview(const char *key)
@@ -126,9 +150,10 @@ extern const unsigned char PC_LOGO_RGBA[];
 
 void gfx_logo(float x, float y, float size, float alpha)
 {
-    static SDL_Texture *logo;
+    static SDL_Texture *logos[2];
+    SDL_Texture *logo = logos[S];
     if (!logo) {
-        logo = SDL_CreateTexture(R, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, PC_LOGO_SIZE, PC_LOGO_SIZE);
+        logos[S] = logo = SDL_CreateTexture(R, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, PC_LOGO_SIZE, PC_LOGO_SIZE);
         SDL_UpdateTexture(logo, NULL, PC_LOGO_RGBA, PC_LOGO_SIZE * 4);
         SDL_SetTextureBlendMode(logo, SDL_BLENDMODE_BLEND);
         SDL_SetTextureScaleMode(logo, SDL_ScaleModeLinear);

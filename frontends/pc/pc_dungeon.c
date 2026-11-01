@@ -9,8 +9,11 @@
 #include "smz3_state.h"
 
 static SmzDungeonMeta meta;
-static SDL_Texture *tex_full, *tex_hint;
-static int state;   /* 0 not tried, 1 ready, -1 missing */
+static SDL_Texture *tex_fulls[2], *tex_hints[2];   /* one pair per window (gfx_slot) */
+static int states[2];   /* 0 not tried, 1 ready, -1 missing */
+#define tex_full tex_fulls[gfx_slot()]
+#define tex_hint tex_hints[gfx_slot()]
+#define state states[gfx_slot()]
 
 /* the boss room of each dungeon, the floor it is on (relative to the ground floor) and where its icon sits (x << 8 | y, -1 for none) */
 static const int BOSS_ROOM[14] = {15, 15, 200, 51, 32, 6, 90, 144, 41, 222, 7, 172, 164, 13};

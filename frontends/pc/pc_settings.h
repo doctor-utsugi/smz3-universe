@@ -32,6 +32,10 @@ void settings_video_save_state(void);
 int settings_video_rows(void);
 const char *settings_video_row(int row, char *val, size_t cap);
 void settings_video_change(int row, int dir);
+/* Two screens (Linux): 0 auto (a dual-screen handheld), 1 always one window, 2 game and tracker on the first two displays. */
+int settings_screens(void);
+/* The same, read from video.cfg before any window exists (the windows depend on it). */
+int settings_screens_saved(void);
 /* Minimap: 0 right panel, 1 left panel, 2 off; its size as a share of the panel width. */
 int settings_minimap_side(void);
 float settings_minimap_scale(void);

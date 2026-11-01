@@ -12,11 +12,15 @@
 #define MAP_W 1623.0f
 #define MAP_H 958.0f
 
-static SDL_Texture *map_tex, *disc_tex, *ring_tex;
+static SDL_Texture *map_texs[2], *disc_texs[2], *ring_texs[2];   /* one set per window (gfx_slot) */
+#define map_tex map_texs[gfx_slot()]
+#define disc_tex disc_texs[gfx_slot()]
+#define ring_tex ring_texs[gfx_slot()]
 static int map_w, map_h;
 static signed short stack_head[512];     /* per location: index of the first check on the same dot, or itself */
 static unsigned char stack_size[512];    /* checks on the dot of a head */
-static int ready;
+static int readys[2];
+#define ready readys[gfx_slot()]
 static void load(SDL_Renderer *r);
 
 static SDL_Texture *make_disc(SDL_Renderer *r, int ring)
@@ -206,8 +210,10 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
 
 SDL_Texture *map_item_icon(SDL_Renderer *r, const char *icon)
 {
-    static SDL_Texture *cache[64];
-    static const char *names[64];
+    static SDL_Texture *caches[2][64];
+    static const char *names_s[2][64];
+    SDL_Texture **cache = caches[gfx_slot()];
+    const char **names = names_s[gfx_slot()];
     char want[64];
     snprintf(want, sizeof want, "%s", icon);
     for (char *c = want; *c; c++) if (*c == ' ') *c = '_';

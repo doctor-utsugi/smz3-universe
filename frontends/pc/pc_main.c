@@ -43,6 +43,8 @@
 static SmzUi ui;
 static SDL_Window *win;
 static SDL_Renderer *ren;
+static SDL_Window *win2;       /* dual-screen mode (Linux handhelds): the tracker's window on the bottom display */
+static SDL_Renderer *ren2;
 static SDL_GameController *pad;
 
 /* ---------- generation ---------- */
@@ -683,24 +685,35 @@ static int cmd_setup(int argc, char **argv)
     return 0;
 }
 
-/* Test hooks: SMZ3_SHOT=file.bmp [SMZ3_SHOT_AFTER=n] saves the window after n presents and exits; SMZ3_QUIT_AFTER=n closes
- * the window normally after n presents; SMZ3_TAB=k opens the tracker on tab k. */
+/* Test hooks: SMZ3_SHOT=file.bmp [SMZ3_SHOT_AFTER=n] saves the window after n presents and exits (SMZ3_SHOT2=file.bmp also
+ * saves the tracker's screen in dual-screen mode); SMZ3_QUIT_AFTER=n closes the window normally after n presents; SMZ3_TAB=k
+ * opens the tracker on tab k; SMZ3_SCREENS=0/1/2 overrides the Screens option. */
+static int shot_frames = -1, shot_after;
+
+static void save_shot(SDL_Renderer *r, const char *path)
+{
+    int w, h;
+    SDL_GetRendererOutputSize(r, &w, &h);
+    SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+    SDL_RenderReadPixels(r, NULL, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
+    SDL_SaveBMP(s, path);
+}
+
+/* the tracker's screen; drawn before present(), so its shot is taken one frame ahead of the game's */
+static void present2(void)
+{
+    if (shot_frames >= 0 && shot_frames + 1 == shot_after && getenv("SMZ3_SHOT2")) save_shot(ren2, getenv("SMZ3_SHOT2"));
+    SDL_RenderPresent(ren2);
+}
+
 static void present(void)
 {
-    static int count = -1, after;
+    if (shot_frames == -1) { const char *a = getenv("SMZ3_SHOT_AFTER"); shot_after = a ? atoi(a) : 60; shot_frames = getenv("SMZ3_SHOT") ? 0 : -2; }
+    if (shot_frames >= 0 && ++shot_frames == shot_after) { save_shot(ren, getenv("SMZ3_SHOT")); exit(0); }
     SDL_RenderPresent(ren);
     static int quit_after = -1, frames;
     if (quit_after < 0) { const char *q = getenv("SMZ3_QUIT_AFTER"); quit_after = q ? atoi(q) : 0; }
     if (quit_after && ++frames == quit_after) { SDL_Event q = {.type = SDL_QUIT}; SDL_PushEvent(&q); }
-    if (count < 0) { const char *a = getenv("SMZ3_SHOT_AFTER"); after = a ? atoi(a) : 60; count = getenv("SMZ3_SHOT") ? 0 : -2; }
-    if (count >= 0 && ++count == after) {
-        int w, h;
-        SDL_GetRendererOutputSize(ren, &w, &h);
-        SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
-        SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
-        SDL_SaveBMP(s, getenv("SMZ3_SHOT"));
-        exit(0);
-    }
 }
 
 static int g_quit;
@@ -1180,6 +1193,15 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     help_bar(0, win_h - 44 * u, (float)win_w, 44 * u, bar, nb);
 }
 
+/* The tab under a tap on the tracker's screen (dual-screen mode), at renderer pixel (px, py), or -1: the tab row overlay() draws. */
+static int overlay_tab_at(float px, float py, int win_w, int win_h, int ntabs)
+{
+    float u = win_h / 720.0f, x0 = 24 * u, w = win_w - 48 * u, y0 = 40 * u, tw = fminf(130 * u, w / ntabs);
+    if (py < y0 || py > y0 + 36 * u || px < x0) return -1;
+    int i = (int)((px - x0) / tw);
+    return i < ntabs ? i : -1;
+}
+
 static void snapshot_run(SmzRun *r, SmzTracker *t, int finished)
 {
     r->last_played = (int64_t)time(NULL) * 1000;
@@ -1291,6 +1313,7 @@ static void play(int slot, int game_save_only)
     float aspect = shape_aspect(run.settings);
     SDL_Texture *tex = NULL;
     int tw = 0, th = 0, tex_mode = 0, tab = getenv("SMZ3_TAB") ? atoi(getenv("SMZ3_TAB")) % ntabs : TAB_RUN, scroll = 0, show = getenv("SMZ3_TAB") != NULL, pause_on_overlay = 1, leaving = 0, running = 1, finished = 0, fast = 0;
+    if (ren2) pause_on_overlay = 0;   /* dual screen: the tracker is always on its own screen, Tab only lends it the controls */
     int done_popup = 0, finished_before = run.game == 3;   /* the run-complete card, shown once when the run ends in this session */
     int64_t final_ms = 0;
     if (getenv("SMZ3_DONE")) { done_popup = 1; finished = 1; final_ms = atoll(getenv("SMZ3_DONE")); }   /* test hook: the run-complete card */
@@ -1301,6 +1324,7 @@ static void play(int slot, int game_save_only)
     DungeonLive live = {0};
     int have_live = 0;
     dungeon_available(ren);
+    if (ren2) { gfx_use(ren2); dungeon_available(ren2); gfx_use(ren); }
     dungeon_view_init(&dv);
     if (getenv("SMZ3_DUNGEON")) { int dd = atoi(getenv("SMZ3_DUNGEON")); dungeon_step(&dv, NULL, dd - dv.d); }   /* test hook: open a dungeon picture */
     Uint64 freq = SDL_GetPerformanceFrequency(), next = SDL_GetPerformanceCounter(), last_tick = next, last_save = next;
@@ -1319,6 +1343,13 @@ static void play(int slot, int game_save_only)
             if (e.type == SDL_KEYDOWN) help_note_keyboard();
             else if (pcode >= 0 || e.type == SDL_CONTROLLERBUTTONDOWN) help_note_pad(pad);
             if (e.type == SDL_QUIT) { running = 0; g_quit = 1; }
+            else if (win2 && e.type == SDL_MOUSEBUTTONDOWN && e.button.windowID == SDL_GetWindowID(win2)) {   /* a tap on the tracker's screen */
+                int bw, bh, sw, sh;
+                SDL_GetRendererOutputSize(ren2, &bw, &bh);
+                SDL_GetWindowSize(win2, &sw, &sh);
+                int i = sw > 0 && sh > 0 ? overlay_tab_at(e.button.x * (float)bw / sw, e.button.y * (float)bh / sh, bw, bh, ntabs) : -1;
+                if (i >= 0) { tab = i; scroll = 0; }
+            }
             else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
                 SDL_Keycode k = e.key.keysym.sym;
                 if (exit_at) continue;
@@ -1606,10 +1637,26 @@ static void play(int slot, int game_save_only)
                 gfx_text(gx + gw / 2, wh - 57 * u, px, msg == hint_note ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2), 1, msg);
             }
         }
-        if (show) {
+        if (show && !ren2) {
             size_t owl;
             const uint8_t *ow = emu_wram(&owl);
             overlay(&trk, &run, tab, scroll, pause_on_overlay, ww, wh, (float)gx, (float)gw, &mv, &disc, discovered_only, have_logic ? in_logic : NULL, ow, owl, sram, sl, &dv, have_live ? &live : NULL, daily ? &dr : NULL);
+        }
+        if (ren2) {   /* dual screen: the tracker fills the bottom display; the helpers draw on the global renderer, so it is swapped */
+            SDL_Renderer *top = ren;
+            ren = ren2;
+            gfx_use(ren2);
+            int bw, bh;
+            SDL_GetRendererOutputSize(ren2, &bw, &bh);
+            SDL_SetRenderDrawColor(ren2, 0x08, 0x0A, 0x10, 255);
+            SDL_RenderClear(ren2);
+            size_t owl;
+            const uint8_t *ow = emu_wram(&owl);
+            overlay(&trk, &run, tab, scroll, 0, bw, bh, 0, (float)bw, &mv, &disc, discovered_only, have_logic ? in_logic : NULL, ow, owl, sram, sl, &dv, have_live ? &live : NULL, daily ? &dr : NULL);
+            if (show) gfx_rect(0, 0, (float)bw, 3, C(0xE9, 0xA2, 0x3B));   /* the tracker has the controls */
+            present2();
+            ren = top;
+            gfx_use(top);
         }
         if (leaving) {
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
@@ -1773,11 +1820,12 @@ static uint8_t *load_preview(const char *key, size_t *len)
 }
 
 static int g_menu_quit;
-static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(win, SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP); settings_video_save_state(); }
+static void toggle_fullscreen(void) { if (win2) return; SDL_SetWindowFullscreen(win, SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP); settings_video_save_state(); }
 static void quit_menu(void) { g_menu_quit = 1; }
 static int is_fullscreen(void) { return (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
 static void set_window_size(int w, int h)
 {
+    if (win2) return;   /* dual screen: both windows fill their displays */
     SDL_Rect u;
     if (SDL_GetDisplayUsableBounds(0, &u) != 0) return;
     if (!w) { w = u.w; h = u.h; }
@@ -2125,10 +2173,57 @@ static void window_main(int start_slot)
             gfx_rect(0, 0, (float)ww, 34 * k / 2 + 8, (SDL_Color){0, 0, 0, 200});
             gfx_text(ww / 2.0f, 6, 13 * k, C(0xE8, 0xEC, 0xF2), 1, g_note);
         }
+        if (ren2) {   /* dual screen, run list: the logo on the tracker's screen */
+            gfx_use(ren2);
+            int bw, bh;
+            SDL_GetRendererOutputSize(ren2, &bw, &bh);
+            SDL_SetRenderDrawColor(ren2, 0x08, 0x0A, 0x10, 255);
+            SDL_RenderClear(ren2);
+            float side = fminf(bw, bh) * 0.6f;
+            gfx_logo((bw - side) / 2, (bh - side) / 2, side, 1);
+            present2();
+            gfx_use(ren);
+        }
         present();
         SDL_Delay(8);
     }
 }
+
+#ifdef __linux__
+/* A dual-screen handheld by its model name (device tree on ARM boards, DMI elsewhere). */
+static int model_is_dual(void)
+{
+    static const char *const FILES[] = {"/proc/device-tree/model", "/sys/firmware/devicetree/base/model", "/sys/class/dmi/id/product_name"};
+    static const char *const NAMES[] = {"RG DS", "RGDS", "RG-DS", "RG_DS"};
+    for (size_t f = 0; f < sizeof FILES / sizeof *FILES; f++) {
+        char buf[128] = {0};
+        FILE *fp = fopen(FILES[f], "rb");
+        if (!fp) continue;
+        size_t n = fread(buf, 1, sizeof buf - 1, fp);
+        fclose(fp);
+        for (size_t i = 0; i < n; i++) if (!buf[i]) buf[i] = ' ';
+        for (size_t k = 0; k < sizeof NAMES / sizeof *NAMES; k++) if (icase_has(buf, NAMES[k])) return 1;
+    }
+    return 0;
+}
+
+/* Dual-screen mode: the game on the top display and the tracker on the bottom one. Auto (mode 0) takes it on a known
+ * dual-screen handheld or when both displays are handheld sized, so a desktop with two monitors keeps one window. */
+static int dual_displays(int mode, int *top, int *bottom)
+{
+    if (getenv("SMZ3_SCREENS")) mode = atoi(getenv("SMZ3_SCREENS"));
+    if (mode == 1 || SDL_GetNumVideoDisplays() < 2) return 0;
+    SDL_Rect a, b;
+    if (SDL_GetDisplayBounds(0, &a) || SDL_GetDisplayBounds(1, &b)) return 0;
+    int small = (long)a.w * a.h <= 1280L * 800 && (long)b.w * b.h <= 1280L * 800;
+    if (mode == 0 && !small && !model_is_dual()) return 0;
+    *top = b.y < a.y ? 1 : 0;
+    *bottom = 1 - *top;
+    return 1;
+}
+#else
+static int dual_displays(int mode, int *top, int *bottom) { (void)mode; (void)top; (void)bottom; return 0; }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -2155,11 +2250,24 @@ int main(int argc, char **argv)
         float f = fminf(usable.w * 0.95f / win_w0, usable.h * 0.9f / win_h0);
         win_w0 = (int)(win_w0 * f); win_h0 = (int)(win_h0 * f);
     }
-    win = SDL_CreateWindow("SMZ3", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w0, win_h0, SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    int top = 0, bottom = 1, dual = dual_displays(settings_screens_saved(), &top, &bottom);
+    SDL_Rect tb;
+    if (dual && SDL_GetDisplayBounds(top, &tb) == 0)
+        win = SDL_CreateWindow("SMZ3", SDL_WINDOWPOS_CENTERED_DISPLAY(top), SDL_WINDOWPOS_CENTERED_DISPLAY(top), tb.w, tb.h, SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_ALLOW_HIGHDPI);
+    else
+        win = SDL_CreateWindow("SMZ3", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w0, win_h0, SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC) : NULL;
     if (!ren && win) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
     if (!ren) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     gfx_init(ren);
+    SDL_Rect bb;
+    if (dual && SDL_GetDisplayBounds(bottom, &bb) == 0) {
+        win2 = SDL_CreateWindow("SMZ3 tracker", SDL_WINDOWPOS_CENTERED_DISPLAY(bottom), SDL_WINDOWPOS_CENTERED_DISPLAY(bottom), bb.w, bb.h, SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_ALLOW_HIGHDPI);
+        ren2 = win2 ? SDL_CreateRenderer(win2, -1, SDL_RENDERER_ACCELERATED) : NULL;
+        if (!ren2 && win2) ren2 = SDL_CreateRenderer(win2, -1, SDL_RENDERER_SOFTWARE);
+        if (!ren2 && win2) { SDL_DestroyWindow(win2); win2 = NULL; }   /* no second renderer here: one window, as on a PC */
+        if (win2) SDL_RaiseWindow(win);
+    }
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
     window_main(start);
     SDL_Quit();

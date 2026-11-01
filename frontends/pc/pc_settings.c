@@ -14,14 +14,15 @@
 
 enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_VIDEO, S_SC, S_SCBIND };
 #define MAIN_COUNT 4
-#define VIDEO_ROWS 10
+#define VIDEO_ROWS 11
 #define VIDEO_COUNT (VIDEO_ROWS + 1)
 static const char *const ASPECTS[] = {"Run default", "4:3", "8:7 (square pixels)", "Stretch", "Pixel perfect"};
 static const char *const FILTERS[] = {"Sharp", "Smooth", "Scanlines", "LCD grid"};
 static const char *const SIZES[] = {"720p", "1080p", "1440p", "Desktop"};
 static const char *const MM_SIDES[] = {"Right", "Left", "Off"};
 static const char *const MM_SIZES[] = {"Small", "Medium", "Large"};
-static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide;   /* ch_hide: bits of the daily challenge info not shown in game */
+static const char *const SCREENS[] = {"Auto", "Single", "Dual"};
+static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide, screens;   /* screens: 0 auto, 1 single, 2 dual */   /* ch_hide: bits of the daily challenge info not shown in game */
 #define ROW_H 22
 #define SHOWN 8
 
@@ -45,8 +46,8 @@ const char *settings_aspect_name(void) { return ASPECTS[vid_aspect]; }
 
 static void video_save(void)
 {
-    char t[128];
-    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide);
+    char t[160];
+    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\nscreens=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, screens);
     store_write(store_path("video.cfg"), t, (size_t)n);
 }
 
@@ -77,6 +78,7 @@ void settings_video_load(void)
             else if (!strncmp(line, "minimap=", 8) && atoi(line + 8) >= 0 && atoi(line + 8) < 3) mm_side = atoi(line + 8);
             else if (!strncmp(line, "filter=", 7) && v >= 0 && v < 4) vid_filter = v;
             else if (!strncmp(line, "challenge_hide=", 15)) ch_hide = v & 15;
+            else if (!strncmp(line, "screens=", 8) && v >= 0 && v < 3) screens = v;
         }
         free(t);
     }
@@ -93,6 +95,7 @@ static void video_change(int row, int dir)
     else if (row == 4) mm_side = (mm_side + dir + 3) % 3;
     else if (row == 5) mm_size = (mm_size + dir + 3) % 3;
     else if (row >= 6 && row < 10) ch_hide ^= 1 << (row - 6);
+    else if (row == 10) { screens = (screens + dir + 3) % 3; hk.note("Screens: this changes the next time SMZ3 opens"); }
     video_save();
 }
 
@@ -100,9 +103,9 @@ static void video_change(int row, int dir)
 const char *settings_video_row(int row, char *val, size_t cap)
 {
     static const char *const L[VIDEO_ROWS] = {"Full screen", "Window size", "Aspect ratio", "Filter", "Minimap", "Minimap size",
-                                              "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints", "Challenge: next hint in"};
+                                              "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints", "Challenge: next hint in", "Screens"};
     const char *v[VIDEO_ROWS] = {hk.is_fullscreen() ? "On" : "Off", SIZES[vid_size], ASPECTS[vid_aspect], FILTERS[vid_filter], MM_SIDES[mm_side], MM_SIZES[mm_size],
-                                 ch_hide & 1 ? "Hidden" : "Shown", ch_hide & 2 ? "Hidden" : "Shown", ch_hide & 4 ? "Hidden" : "Shown", ch_hide & 8 ? "Hidden" : "Shown"};
+                                 ch_hide & 1 ? "Hidden" : "Shown", ch_hide & 2 ? "Hidden" : "Shown", ch_hide & 4 ? "Hidden" : "Shown", ch_hide & 8 ? "Hidden" : "Shown", SCREENS[screens]};
     if (row < 0 || row >= VIDEO_ROWS) row = 0;
     snprintf(val, cap, "%s", v[row]);
     return L[row];
@@ -110,6 +113,19 @@ const char *settings_video_row(int row, char *val, size_t cap)
 int settings_video_rows(void) { return VIDEO_ROWS; }
 void settings_video_change(int row, int dir) { if (row >= 0 && row < VIDEO_ROWS) video_change(row, dir); }
 int settings_minimap_side(void) { return mm_side; }
+int settings_screens(void) { return screens; }
+
+int settings_screens_saved(void)
+{
+    size_t n;
+    char *t = (char *)store_read(store_path("video.cfg"), &n);
+    if (!t) return 0;
+    t[n] = 0;
+    const char *at = strstr(t, "screens=");
+    int v = at ? atoi(at + 8) : 0;
+    free(t);
+    return v >= 0 && v < 3 ? v : 0;
+}
 float settings_minimap_scale(void) { return mm_size == 0 ? 0.6f : mm_size == 1 ? 0.8f : 1.0f; }
 int settings_challenge_show(int what) { return !(ch_hide >> what & 1); }
 

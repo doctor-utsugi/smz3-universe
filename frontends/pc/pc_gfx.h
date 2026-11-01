@@ -8,6 +8,10 @@
 #include "smz3_ui.h"
 
 void gfx_init(SDL_Renderer *r);
+/* Draws on [r] from now on: the first renderer is gfx_init's, a second one (the tracker's screen in dual-screen mode) gets
+ * its own copy of every texture. gfx_slot() is 0 or 1, for modules that keep textures of their own. */
+void gfx_use(SDL_Renderer *r);
+int gfx_slot(void);
 /* Text with its top-left corner at x, y; px is the character height. align 0 left, 1 centre, 2 right. */
 void gfx_text(float x, float y, float px, SDL_Color c, int align, const char *s);
 float gfx_text_width(float px, const char *s);
