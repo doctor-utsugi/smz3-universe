@@ -71,7 +71,15 @@ jobs:
           [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
           python3 -c 'import PIL' 2>/dev/null || python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
           python3 tools/prepare_assets.py
-      - run: brew install sdl2 && pip3 install pillow --break-system-packages
+      - run: pip3 install pillow --break-system-packages
+      - name: Static SDL2
+        # Homebrew's sdl2 is now sdl2-compat (no libSDL2.a), so build SDL2 itself, static only, the same version as Windows
+        run: |
+          curl -sL https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-2.30.9.tar.gz | tar xz -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/SDL2-2.30.9"
+          ./configure -q --prefix="$RUNNER_TEMP/sdl2" --disable-shared --enable-static
+          make -s -j"$(sysctl -n hw.ncpu)" install >/dev/null
+          echo "$RUNNER_TEMP/sdl2/bin" >> "$GITHUB_PATH"
       - run: ./build-pc.sh
       - name: SDL2 is inside the binary
         run: |
