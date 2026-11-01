@@ -2265,7 +2265,7 @@ index 6d06420..8254e3a 100644
              GameService.requestTermination()
          }
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
-index 8f91e6c..9701792 100644
+index 8f91e6c..81d2fcb 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 @@ -16,6 +16,10 @@ import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
@@ -2349,7 +2349,7 @@ index 8f91e6c..9701792 100644
          }
      }
  
-@@ -309,21 +336,38 @@ class BaseGameScreenViewModel(
+@@ -309,21 +336,39 @@ class BaseGameScreenViewModel(
  
      override fun onCreate(owner: LifecycleOwner) {
          super.onCreate(owner)
@@ -2375,6 +2375,7 @@ index 8f91e6c..9701792 100644
          event: KeyEvent,
      ): Boolean {
 +        Smz3Hotkeys.host = hotkeyHost
++        if (com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.onKey(event)) return true
 +        if (Smz3Shortcuts.onKey(appContext, event)) return true
 +        if (Smz3Hotkeys.onKey(appContext, event)) return true
          return inputs.sendKeyEvent(keyCode, event)
@@ -3682,10 +3683,10 @@ index 0000000..3d11f48
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 new file mode 100644
-index 0000000..1723e4d
+index 0000000..3887085
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,343 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.animation.ValueAnimator
@@ -3995,8 +3996,7 @@ index 0000000..1723e4d
 +
 +    fun show(context: Context) {
 +        presentation?.let { it.clearFade(); return }   // back from a game that never started
-+        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-+        val target = displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull() ?: return
++        val target = Smz3ScreenMode.secondDisplay(context) ?: return
 +        runCatching { presentation = Smz3IdlePresentation(context, target).also { it.show() } }
 +    }
 +
@@ -4012,8 +4012,7 @@ index 0000000..1723e4d
 +    /** Keeps the display black from the game's start until its tracker shows, instead of a gap with no picture. */
 +    fun showBlack(context: Context) {
 +        if (black != null) return
-+        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-+        val target = displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull() ?: return
++        val target = Smz3ScreenMode.secondDisplay(context) ?: return
 +        runCatching {
 +            black = Presentation(context, target).apply {
 +                val cover = View(context).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
@@ -4719,10 +4718,10 @@ index 0000000..45574d6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..1f4795f
+index 0000000..623ad6b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1003 @@
+@@ -0,0 +1,1035 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -4746,8 +4745,29 @@ index 0000000..1f4795f
 +import android.widget.ScrollView
 +import android.widget.TextView
 +
-+/** The tracker shown on the secondary display: run summary, inventory and checks per region. */
++/** The tracker on the secondary display (the Thor's bottom screen). */
 +internal class Smz3Presentation(context: Context, display: Display) : Presentation(context, display) {
++    private var panel: Smz3TrackerPanel? = null
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
++        val built = Smz3TrackerPanel(context).also { it.build() }
++        panel = built
++        setContentView(built)
++        window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.BLACK))
++    }
++
++    fun render(snapshot: Smz3Snapshot) {
++        panel?.render(snapshot)
++    }
++}
++
++/**
++ * The tracker's tabs: run summary, inventory, checks per region, map, help and config. It fills the Thor's bottom
++ * screen, or sits inside the game screen in single-screen mode. [build] once after creating it.
++ */
++internal class Smz3TrackerPanel(context: Context) : FrameLayout(context) {
 +    private class Region(val game: Int, val name: String, val locations: List<Int>)
 +
 +    private class ItemCell(val index: Int, val icon: ImageView, val count: TextView)
@@ -4796,9 +4816,7 @@ index 0000000..1f4795f
 +    )
 +    private val levelItems = setOf("Sword", "Shield", "Mail", "Gloves")
 +
-+    override fun onCreate(savedInstanceState: Bundle?) {
-+        super.onCreate(savedInstanceState)
-+        window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
++    fun build() {
 +        root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 +        tabRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 +        val content = FrameLayout(context)
@@ -4822,18 +4840,20 @@ index 0000000..1f4795f
 +        finishPanel = Smz3FinishPanel(context, runCatching { Typeface.createFromAsset(context.assets, "smz3/menu_font.ttf") }.getOrDefault(Typeface.DEFAULT_BOLD))
 +        portal = Smz3PortalView(context)
 +        visor = Smz3VisorView(context)
-+        setContentView(FrameLayout(context).apply {
-+            addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-+            addView(portal, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-+            addView(visor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-+            addView(finishPanel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-+        })
++        addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
++        addView(portal, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
++        addView(visor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
++        addView(finishPanel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        select(0)
 +        visor.post { visor.play(root) }   // the tracker boots like a visor when the game opens
 +        applyTheme(theme)
-+        window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.BLACK))
 +        root.alpha = 0f   // comes up from the black stand-in
 +        root.animate().alpha(1f).setStartDelay(120).setDuration(450).start()
++    }
++
++    /** Moves [delta] tabs to the right (left when negative), wrapping around. */
++    fun step(delta: Int) {
++        if (pages.isNotEmpty()) select((selectedTab + delta + pages.size) % pages.size)
 +    }
 +
 +    private fun select(index: Int) {
@@ -5426,6 +5446,12 @@ index 0000000..1f4795f
 +            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) },
 +        )
 +        column.addView(label(12f, Role.DIM).apply { text = "The hotkeys work in game on the main screen. The state is saved in the active slot."; setPadding(0, dp(12), 0, 0) })
++        column.addView(label(13f, Role.DIM).apply { text = "SCREENS"; setPadding(0, dp(18), 0, 0) })
++        spinRow("Screen mode", { screenModeTitle() }) {
++            val modes = Smz3ScreenMode.Mode.entries
++            Smz3ScreenMode.setMode(context, modes[(Smz3ScreenMode.mode(context).ordinal + 1) % modes.size])
++        }.layoutParams.width = dp(150)
++        column.addView(label(12f, Role.DIM).apply { text = "Dual puts the tracker on a second screen, single puts it over the game (R3 or the pad's tracker button). It changes from the next game."; setPadding(0, dp(6), 0, 0) })
 +        column.addView(label(13f, Role.DIM).apply { text = "DUNGEON MAPS"; setPadding(0, dp(18), 0, 0) })
 +        spinRow("Fixed keys", { if (Smz3Help.current().fixedKeys) "Shown" else "Hidden" }) { Smz3Help.setFixedKeys(context, !Smz3Help.current().fixedKeys) }
 +        column.addView(label(13f, Role.DIM).apply { text = "ITEM SHORTCUTS  (the row over the RUN tab's map)"; setPadding(0, dp(18), 0, 0) })
@@ -5438,6 +5464,11 @@ index 0000000..1f4795f
 +            spinRow(title, { if (daily.shown(context, i)) "Shown" else "Hidden" }) { daily.toggle(context, i) }
 +        }
 +        return ScrollView(context).apply { isScrollbarFadingEnabled = false; addView(column) }
++    }
++
++    private fun screenModeTitle(): String {
++        val mode = Smz3ScreenMode.mode(context)
++        return if (mode == Smz3ScreenMode.Mode.AUTO) Smz3ScreenMode.autoTitle(context) else mode.title
 +    }
 +
 +    private lateinit var dailyStrip: TextView
@@ -5916,10 +5947,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..c127fff
+index 0000000..2337ed0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,455 @@
+@@ -0,0 +1,458 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -5988,6 +6019,10 @@ index 0000000..c127fff
 +    private var presentation: Smz3Presentation? = null
 +    /** The tracker is on a second screen (the Thor's bottom one): the daily challenge shows there instead of over the game. */
 +    val onSecondScreen: Boolean get() = presentation != null
++
++    /** Single screen: the tracker inside the game screen, and the last read for its side panels and status line. */
++    internal var embedded: Smz3TrackerPanel? = null
++    val latest = kotlinx.coroutines.flow.MutableStateFlow<Smz3Snapshot?>(null)
 +    private var pendingPlayTime = 0L
 +
 +    /** 1 for 1x speed, otherwise the fast-forward speed being held; play time and the clock advance by it. */
@@ -6254,7 +6289,7 @@ index 0000000..c127fff
 +                val wasOver = lastGame == 3   // the read that sees the end still counts the time up to it
 +                currentGame = if (started) s[0] else 0
 +                lastGame = currentGame
-+                main.post { presentation?.render(snapshot) }
++                main.post { presentation?.render(snapshot); embedded?.render(snapshot); latest.value = snapshot }
 +
 +                val now = SystemClock.elapsedRealtime()
 +                val delta = now - lastTick
@@ -6362,8 +6397,7 @@ index 0000000..c127fff
 +
 +    private fun showOnSecondary(context: Context) {
 +        if (presentation != null) return
-+        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-+        val target = displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull() ?: return
++        val target = Smz3ScreenMode.secondDisplay(context) ?: return
 +        runCatching {
 +            presentation = Smz3Presentation(context, target).also { it.show() }
 +            Smz3Idle.hideBlack()
@@ -10265,3 +10299,641 @@ index 0000000..4ef5dd6
 +        }
 +    }
 +}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt
+index e81c42c..d3de90a 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/MobileGameScreen.kt
+@@ -148,7 +148,20 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
+                 gameView.viewport = viewport
+             }
+ 
+-            ConstraintLayout(
++            val singleScreen = remember { com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.isSingle(localContext) }
++            if (singleScreen) {
++                CompositionLocalProvider(LocalLemuroidPadTheme provides LemuroidPadTheme()) {
++                    Smz3SingleScreen(
++                        viewModel = viewModel,
++                        isLandscape = isLandscape,
++                        touchVisible = touchControllerSettings != null && currentControllerConfig != null && touchControlsVisibleState.value,
++                        touchSettings = touchControllerSettings,
++                        leftPad = leftGamePad,
++                        rightPad = rightGamePad,
++                        onGameBounds = { viewportPosition.value = it },
++                    )
++                }
++            } else ConstraintLayout(
+                 modifier = Modifier.fillMaxSize(),
+                 constraintSet =
+                     GameScreenLayout.buildConstraintSet(
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
+new file mode 100644
+index 0000000..93877f7
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
+@@ -0,0 +1,439 @@
++package com.swordfish.lemuroid.app.mobile.feature.game
++
++import android.content.Context
++import android.graphics.BitmapFactory
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.gestures.detectTransformGestures
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxHeight
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.offset
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Slider
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Rect
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.ImageBitmap
++import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.boundsInRoot
++import androidx.compose.ui.layout.onGloballyPositioned
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.IntOffset
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import androidx.compose.ui.viewinterop.AndroidView
++import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Snapshot
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3TrackerPanel
++import com.swordfish.touchinput.radial.settings.TouchControllerSettingsManager
++import gg.padkit.PadKitScope
++import kotlin.math.roundToInt
++
++private typealias PadComposable = @Composable PadKitScope.(Modifier, TouchControllerSettingsManager.Settings) -> Unit
++
++/** Where each touch pad group sits and how big it is, per orientation: dragged and pinched in the edit mode. */
++object Smz3PadLayout {
++    data class Placement(val scale: Float, val dx: Float, val dy: Float)
++
++    const val MIN_SCALE = -0.5f   // Lemuroid's scale runs 0..1 (dial 0.75x..1.5x); this widens it to 0.375x..1.875x
++    const val MAX_SCALE = 1.5f
++
++    private fun prefs(context: Context) = context.getSharedPreferences("smz3_pad", Context.MODE_PRIVATE)
++
++    private fun key(landscape: Boolean, left: Boolean) = (if (landscape) "land_" else "port_") + (if (left) "left" else "right")
++
++    fun load(context: Context, landscape: Boolean, left: Boolean, defaultScale: Float): Placement {
++        val parts = prefs(context).getString(key(landscape, left), null)?.split(",")?.mapNotNull { it.toFloatOrNull() }
++        return if (parts == null || parts.size != 3) Placement(defaultScale, 0f, 0f) else Placement(parts[0], parts[1], parts[2])
++    }
++
++    fun save(context: Context, landscape: Boolean, left: Boolean, p: Placement) {
++        prefs(context).edit().putString(key(landscape, left), "${p.scale},${p.dx},${p.dy}").apply()
++    }
++
++    fun reset(context: Context, landscape: Boolean) {
++        prefs(context).edit().remove(key(landscape, true)).remove(key(landscape, false)).apply()
++    }
++}
++
++private val PANEL = Color(0xFF10141B)
++private val DIM = Color(0xFF8793A6)
++private val TEXT = Color(0xFFE6E9EF)
++private val GOLD = Color(0xFFE9A23B)
++private val TAB = Color(0xFF2E4A6B)
++
++/**
++ * The game screen when the tracker shares it. Landscape: the game in the middle, run panels in the side bars like the PC
++ * version, the tracker over the game on R3 or the pad's tracker button. Portrait: the game on top, a status line, and
++ * the touch pad below; the tracker unfolds over the pad (with a controller connected it stays there).
++ */
++@Composable
++fun PadKitScope.Smz3SingleScreen(
++    viewModel: BaseGameScreenViewModel,
++    isLandscape: Boolean,
++    touchVisible: Boolean,
++    touchSettings: TouchControllerSettingsManager.Settings?,
++    leftPad: PadComposable?,
++    rightPad: PadComposable?,
++    onGameBounds: (Rect) -> Unit,
++) {
++    val context = LocalContext.current
++    val padScope = this
++    val trackerOpen by Smz3ScreenMode.trackerOpen.collectAsState()
++    val snapshot by Smz3Tracker.latest.collectAsState()
++    val editing by viewModel.isEditControlShown().collectAsState(false)
++
++    DisposableEffect(Unit) {
++        Smz3ScreenMode.singleActive = true
++        com.swordfish.touchinput.radial.layouts.shared.TrackerButton.shown = true
++        onDispose {
++            Smz3ScreenMode.singleActive = false
++            Smz3ScreenMode.trackerOpen.value = false
++            com.swordfish.touchinput.radial.layouts.shared.TrackerButton.shown = false
++            Smz3Tracker.embedded = null
++        }
++    }
++    LaunchedEffect(isLandscape) { Smz3ScreenMode.landscape = isLandscape }
++
++    val defaultScale = touchSettings?.scale ?: TouchControllerSettingsManager.DEFAULT_SCALE
++    var left by remember(isLandscape, defaultScale) { mutableStateOf(Smz3PadLayout.load(context, isLandscape, true, defaultScale)) }
++    var right by remember(isLandscape, defaultScale) { mutableStateOf(Smz3PadLayout.load(context, isLandscape, false, defaultScale)) }
++    var leftBounds by remember { mutableStateOf<Rect?>(null) }
++    var rightBounds by remember { mutableStateOf<Rect?>(null) }
++
++    @Composable
++    fun pads(boxModifierLeft: Modifier, boxModifierRight: Modifier) {
++        if (touchSettings == null) return
++        val density = LocalDensity.current
++        fun Modifier.placed(p: Smz3PadLayout.Placement, onBounds: (Rect) -> Unit) =
++            this
++                .offset { with(density) { IntOffset(p.dx.dp.roundToPx(), p.dy.dp.roundToPx()) } }
++                .onGloballyPositioned { onBounds(it.boundsInRoot()) }
++        leftPad?.invoke(padScope, boxModifierLeft.placed(left) { leftBounds = it }, touchSettings.copy(scale = left.scale, marginX = 0f, marginY = 0f))
++        rightPad?.invoke(padScope, boxModifierRight.placed(right) { rightBounds = it }, touchSettings.copy(scale = right.scale, marginX = 0f, marginY = 0f))
++    }
++
++    BoxWithConstraints(Modifier.fillMaxSize()) {
++        val portraitGameHeight = maxWidth * (3f / 4f)
++        if (isLandscape) {
++            Box(Modifier.fillMaxSize().onGloballyPositioned { onGameBounds(it.boundsInRoot()) })
++            val gameWidth = maxHeight * (4f / 3f)
++            val side = (maxWidth - gameWidth) / 2
++            if (side >= 90.dp) {
++                snapshot?.let { s ->
++                    SidePanelLeft(s, Modifier.align(Alignment.CenterStart).width(side).fillMaxHeight())
++                    SidePanelRight(s, Modifier.align(Alignment.CenterEnd).width(side).fillMaxHeight())
++                }
++            }
++            if (trackerOpen) {
++                Box(
++                    Modifier
++                        .align(Alignment.Center)
++                        .fillMaxWidth(0.9f)
++                        .fillMaxHeight(0.92f)
++                        .background(PANEL, RoundedCornerShape(8.dp))
++                        .border(1.dp, TAB, RoundedCornerShape(8.dp)),
++                ) {
++                    EmbeddedTracker(Modifier.fillMaxSize().padding(top = 2.dp))
++                    SmallButton("Close", Modifier.align(Alignment.TopEnd).padding(6.dp)) { Smz3ScreenMode.trackerOpen.value = false }
++                }
++            } else if (touchVisible) {
++                Box(Modifier.fillMaxSize()) { pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd)) }
++            }
++        } else {
++            Column(Modifier.fillMaxSize()) {
++                Box(
++                    Modifier
++                        .fillMaxWidth()
++                        .height(portraitGameHeight)
++                        .onGloballyPositioned { onGameBounds(it.boundsInRoot()) },
++                )
++                StatusLine(snapshot)
++                Box(Modifier.fillMaxWidth().weight(1f)) {
++                    if (!touchVisible || trackerOpen) {
++                        EmbeddedTracker(Modifier.fillMaxSize())
++                        if (touchVisible) SmallButton("Pad", Modifier.align(Alignment.BottomCenter).padding(10.dp)) { Smz3ScreenMode.trackerOpen.value = false }
++                    } else {
++                        pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd))
++                    }
++                }
++            }
++        }
++
++        if (editing && touchVisible) {
++            PadEditor(
++                left = left,
++                right = right,
++                leftBounds = leftBounds,
++                rightBounds = rightBounds,
++                onChange = { isLeft, p -> if (isLeft) left = p else right = p },
++                onReset = {
++                    Smz3PadLayout.reset(context, isLandscape)
++                    left = Smz3PadLayout.load(context, isLandscape, true, defaultScale)
++                    right = Smz3PadLayout.load(context, isLandscape, false, defaultScale)
++                },
++                onDone = {
++                    Smz3PadLayout.save(context, isLandscape, true, left)
++                    Smz3PadLayout.save(context, isLandscape, false, right)
++                    viewModel.showEditControls(false)
++                },
++            )
++        }
++    }
++}
++
++/** The tracker's tabs inside the game screen; the tracker thread feeds it while it is attached. */
++@Composable
++private fun EmbeddedTracker(modifier: Modifier) {
++    AndroidView(
++        modifier = modifier,
++        factory = { ctx ->
++            Smz3TrackerPanel(ctx).also { panel ->
++                panel.build()
++                Smz3Tracker.latest.value?.let { panel.render(it) }
++                Smz3Tracker.embedded = panel
++            }
++        },
++        onRelease = { if (Smz3Tracker.embedded === it) Smz3Tracker.embedded = null },
++    )
++}
++
++@Composable
++private fun SmallButton(label: String, modifier: Modifier, onClick: () -> Unit) {
++    Text(
++        label,
++        color = GOLD,
++        fontSize = 13.sp,
++        modifier =
++            modifier
++                .background(TAB, RoundedCornerShape(6.dp))
++                .border(1.dp, GOLD, RoundedCornerShape(6.dp))
++                .clickable(onClick = onClick)
++                .padding(horizontal = 12.dp, vertical = 6.dp),
++    )
++}
++
++private fun percent(s: Smz3Snapshot): String {
++    val total = s.zeldaTotal + s.metroidTotal
++    return if (total == 0) "0%" else "${(s.zeldaCleared + s.metroidCleared) * 100 / total}%"
++}
++
++private fun clock(ms: Long): String {
++    val sec = ms / 1000
++    return "%d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60)
++}
++
++@Composable
++private fun StatusLine(s: Smz3Snapshot?) {
++    Row(
++        Modifier.fillMaxWidth().background(PANEL).padding(horizontal = 12.dp, vertical = 5.dp),
++        horizontalArrangement = Arrangement.SpaceBetween,
++    ) {
++        if (s == null) return@Row
++        Text(percent(s), color = GOLD, fontSize = 14.sp, fontWeight = FontWeight.Bold)
++        Text(clock(s.elapsedMs), color = TEXT, fontSize = 14.sp)
++        Text("${s.zeldaCleared + s.metroidCleared}/${s.zeldaTotal + s.metroidTotal}", color = DIM, fontSize = 14.sp)
++    }
++}
++
++@Composable
++private fun SidePanelLeft(s: Smz3Snapshot, modifier: Modifier) {
++    Column(modifier.background(PANEL).padding(12.dp)) {
++        Text(percent(s), color = GOLD, fontSize = 30.sp, fontWeight = FontWeight.Bold)
++        Spacer(Modifier.height(8.dp))
++        Counter("Zelda", s.zeldaCleared, s.zeldaTotal)
++        Counter("Metroid", s.metroidCleared, s.metroidTotal)
++        Spacer(Modifier.height(10.dp))
++        Text(clock(s.elapsedMs), color = TEXT, fontSize = 20.sp)
++    }
++}
++
++@Composable
++private fun Counter(name: String, cleared: Int, total: Int) {
++    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
++        Text(name, color = DIM, fontSize = 12.sp)
++        Text("$cleared/$total", color = TEXT, fontSize = 12.sp)
++    }
++    Box(Modifier.fillMaxWidth().padding(top = 2.dp).height(3.dp).background(Color(0xFF1D2430))) {
++        Box(Modifier.fillMaxWidth(if (total == 0) 0f else cleared.toFloat() / total).height(3.dp).background(GOLD))
++    }
++}
++
++@Composable
++private fun SidePanelRight(s: Smz3Snapshot, modifier: Modifier) {
++    Column(modifier.background(PANEL).padding(12.dp)) {
++        Text("Crystals", color = DIM, fontSize = 12.sp)
++        Marks((1..7).map { "$it" }, s.crystalMask)
++        Spacer(Modifier.height(8.dp))
++        Text("Bosses", color = DIM, fontSize = 12.sp)
++        Marks(listOf("K", "P", "D", "R"), s.bossMask)   // bit 0 Kraid, 1 Phantoon, 2 Draygon, 3 Ridley
++        if (s.recentItems.isNotEmpty()) {
++            Spacer(Modifier.height(10.dp))
++            Text("Last items", color = DIM, fontSize = 12.sp)
++            for (index in s.recentItems.take(6)) RecentItem(index)
++        }
++    }
++}
++
++@Composable
++private fun Marks(labels: List<String>, mask: Int) {
++    Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
++        labels.forEachIndexed { i, label ->
++            val on = mask and (1 shl i) != 0
++            Box(Modifier.size(16.dp).background(if (on) GOLD else Color(0xFF1D2430), RoundedCornerShape(2.dp)), contentAlignment = Alignment.Center) {
++                Text(label, color = if (on) PANEL else DIM, fontSize = 10.sp)
++            }
++        }
++    }
++}
++
++private val itemIcons = mutableMapOf<String, ImageBitmap?>()
++
++@Composable
++private fun RecentItem(index: Int) {
++    val context = LocalContext.current
++    val info = remember(index) { Smz3Native.inventoryInfo(index).split("|") }
++    val file = info.getOrNull(2)?.replace(" ", "_")
++    val icon = remember(file) {
++        file?.let { name ->
++            itemIcons.getOrPut(name) {
++                runCatching { context.assets.open("smz3/items/$name").use { BitmapFactory.decodeStream(it)?.asImageBitmap() } }.getOrNull()
++            }
++        }
++    }
++    Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
++        if (icon != null) Image(icon, null, Modifier.size(16.dp)) else Spacer(Modifier.size(16.dp))
++        Text(info.getOrElse(1) { "" }, color = TEXT, fontSize = 12.sp, modifier = Modifier.padding(start = 5.dp), maxLines = 1)
++    }
++}
++
++/**
++ * Edit mode for the touch pad: drag a group to move it, pinch it (or use the slider) to scale it. Each group keeps its
++ * own place and size, saved apart for landscape and portrait.
++ */
++@Composable
++private fun PadEditor(
++    left: Smz3PadLayout.Placement,
++    right: Smz3PadLayout.Placement,
++    leftBounds: Rect?,
++    rightBounds: Rect?,
++    onChange: (Boolean, Smz3PadLayout.Placement) -> Unit,
++    onReset: () -> Unit,
++    onDone: () -> Unit,
++) {
++    var selectedLeft by remember { mutableStateOf(true) }
++    val density = LocalDensity.current
++    val current = rememberUpdated(left, right)
++    var origin by remember { mutableStateOf(Offset.Zero) }
++
++    Box(
++        Modifier
++            .fillMaxSize()
++            .background(Color(0x66000000))
++            .onGloballyPositioned { origin = it.boundsInRoot().topLeft }
++            .pointerInput(leftBounds, rightBounds) {
++                detectTransformGestures { centroid, pan, zoom, _ ->
++                    val at = centroid + origin
++                    when {
++                        rightBounds?.inflate(24f)?.contains(at) == true && leftBounds?.inflate(24f)?.contains(at) != true -> selectedLeft = false
++                        leftBounds?.inflate(24f)?.contains(at) == true -> selectedLeft = true
++                    }
++                    val p = if (selectedLeft) current.value.first else current.value.second
++                    val moved =
++                        p.copy(
++                            dx = p.dx + with(density) { pan.x.toDp().value },
++                            dy = p.dy + with(density) { pan.y.toDp().value },
++                            scale = (p.scale + (zoom - 1f) * 1.5f).coerceIn(Smz3PadLayout.MIN_SCALE, Smz3PadLayout.MAX_SCALE),
++                        )
++                    onChange(selectedLeft, moved)
++                }
++            },
++    ) {
++        val bounds = if (selectedLeft) leftBounds else rightBounds
++        bounds?.let { b ->
++            with(density) {
++                Box(
++                    Modifier
++                        .offset { IntOffset((b.left - origin.x).roundToInt(), (b.top - origin.y).roundToInt()) }
++                        .size(b.width.toDp(), b.height.toDp())
++                        .border(2.dp, GOLD, RoundedCornerShape(12.dp)),
++                )
++            }
++        }
++        Column(
++            Modifier
++                .align(Alignment.Center)
++                .width(280.dp)
++                .background(PANEL, RoundedCornerShape(8.dp))
++                .border(1.dp, TAB, RoundedCornerShape(8.dp))
++                .padding(14.dp),
++        ) {
++            Text("Edit controls", color = GOLD, fontSize = 15.sp, fontWeight = FontWeight.Bold)
++            Text("Drag a pad to move it. Pinch it or use the slider to resize it.", color = DIM, fontSize = 12.sp)
++            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++                Toggle("Left pad", selectedLeft) { selectedLeft = true }
++                Toggle("Right pad", !selectedLeft) { selectedLeft = false }
++            }
++            val p = if (selectedLeft) left else right
++            Slider(
++                value = p.scale,
++                onValueChange = { onChange(selectedLeft, p.copy(scale = it)) },
++                valueRange = Smz3PadLayout.MIN_SCALE..Smz3PadLayout.MAX_SCALE,
++            )
++            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++                SmallButton("Reset", Modifier, onReset)
++                SmallButton("Done", Modifier, onDone)
++            }
++        }
++    }
++}
++
++@Composable
++private fun Toggle(label: String, on: Boolean, onClick: () -> Unit) {
++    Text(
++        label,
++        color = if (on) GOLD else DIM,
++        fontSize = 13.sp,
++        modifier =
++            Modifier
++                .background(if (on) TAB else Color(0xFF1D2430), RoundedCornerShape(6.dp))
++                .clickable(onClick = onClick)
++                .padding(horizontal = 12.dp, vertical = 6.dp),
++    )
++}
++
++@Composable
++private fun rememberUpdated(
++    left: Smz3PadLayout.Placement,
++    right: Smz3PadLayout.Placement,
++) = remember { mutableStateOf(left to right) }.also { it.value = left to right }
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelTouchControls.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelTouchControls.kt
+index 80609be..93ceb1b 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelTouchControls.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelTouchControls.kt
+@@ -169,6 +169,10 @@ class GameViewModelTouchControls(
+     }
+ 
+     private fun handleVirtualInputButton(event: InputEvent.Button) {
++        if (event.id == KeyEvent.KEYCODE_BUTTON_THUMBR && com.swordfish.touchinput.radial.layouts.shared.TrackerButton.shown) {
++            if (event.pressed) Smz3ScreenMode.toggleTracker()
++            return
++        }
+         val action = if (event.pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+         retroGameView.retroGameView?.sendKeyEvent(action, event.id)
+     }
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
+new file mode 100644
+index 0000000..178e356
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
+@@ -0,0 +1,81 @@
++package com.swordfish.lemuroid.app.shared.game.viewmodel
++
++import android.content.Context
++import android.hardware.display.DisplayManager
++import android.os.Build
++import android.view.Display
++import kotlinx.coroutines.flow.MutableStateFlow
++
++/**
++ * Whether the tracker gets its own screen (dual, the AYN Thor) or shares the game's (single, any phone). Auto picks dual
++ * only for a second screen built into the device: an HDMI cable or a cast screen does not count.
++ */
++object Smz3ScreenMode {
++    enum class Mode(val title: String) { AUTO("Auto"), SINGLE("Single"), DUAL("Dual") }
++
++    private const val FILE = "smz3_screen"
++    private const val TYPE_INTERNAL = 1   // Display.TYPE_INTERNAL, hidden API
++
++    /** Single screen: the tracker is open over the game (landscape) or over the touch pad (portrait). */
++    val trackerOpen = MutableStateFlow(false)
++
++    /** Set by the game screen: this game shares one screen, and in which orientation. */
++    @Volatile var singleActive = false
++    @Volatile var landscape = false
++
++    fun toggleTracker() {
++        trackerOpen.value = !trackerOpen.value
++    }
++
++    /**
++     * Pad keys in single-screen mode: R3 opens and closes the tracker; while it covers the game (landscape), L1 and R1
++     * change tab and B closes it. True when the key was used here.
++     */
++    fun onKey(event: android.view.KeyEvent): Boolean {
++        if (!singleActive) return false
++        val down = event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0
++        val overlay = trackerOpen.value && landscape
++        when (event.keyCode) {
++            android.view.KeyEvent.KEYCODE_BUTTON_THUMBR -> if (down) toggleTracker()
++            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(-1) } else return false
++            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(1) } else return false
++            android.view.KeyEvent.KEYCODE_BUTTON_B -> if (overlay) { if (down) trackerOpen.value = false } else return false
++            else -> return false
++        }
++        return true
++    }
++
++    fun mode(context: Context): Mode =
++        runCatching { Mode.valueOf(prefs(context).getString("mode", null) ?: "AUTO") }.getOrDefault(Mode.AUTO)
++
++    fun setMode(context: Context, mode: Mode) = prefs(context).edit().putString("mode", mode.name).apply()
++
++    /** The display the tracker goes to, or null when it shares the game's screen. */
++    fun secondDisplay(context: Context): Display? {
++        val displays = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
++            .getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
++        return when (mode(context)) {
++            Mode.SINGLE -> null
++            Mode.DUAL -> displays.firstOrNull()
++            Mode.AUTO -> displays.firstOrNull { builtIn(it) }
++        }
++    }
++
++    fun isSingle(context: Context) = secondDisplay(context) == null
++
++    /** What Auto resolves to on this device, for the config tab. */
++    fun autoTitle(context: Context): String {
++        val displays = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
++            .getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
++        return if (displays.any { builtIn(it) }) "Auto (dual)" else "Auto (single)"
++    }
++
++    /** The Thor counts whatever type its bottom panel reports; elsewhere the hidden display type, when readable, decides. */
++    private fun builtIn(display: Display): Boolean {
++        if (Build.MANUFACTURER.contains("AYN", ignoreCase = true) || Build.MODEL.contains("Thor", ignoreCase = true)) return true
++        val type = runCatching { Display::class.java.getMethod("getType").invoke(display) as Int }.getOrNull()
++        return type == TYPE_INTERNAL
++    }
++
++    private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
++}
+diff --git a/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/SNES.kt b/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/SNES.kt
+index 8bd74c2..48a55bb 100644
+--- a/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/SNES.kt
++++ b/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/SNES.kt
+@@ -13,6 +13,8 @@ import com.swordfish.touchinput.radial.layouts.shared.SecondaryButtonMenuPlaceho
+ import com.swordfish.touchinput.radial.layouts.shared.SecondaryButtonR
+ import com.swordfish.touchinput.radial.layouts.shared.SecondaryButtonSelect
+ import com.swordfish.touchinput.radial.layouts.shared.SecondaryButtonStart
++import com.swordfish.touchinput.radial.layouts.shared.SecondaryButtonTracker
++import com.swordfish.touchinput.radial.layouts.shared.TrackerButton
+ import com.swordfish.touchinput.radial.settings.TouchControllerSettingsManager
+ import com.swordfish.touchinput.radial.ui.LemuroidButtonForeground
+ import gg.padkit.PadKitScope
+@@ -32,7 +34,7 @@ fun PadKitScope.SNESLeft(
+         secondaryDials = {
+             SecondaryButtonL()
+             SecondaryButtonSelect(position = 2)
+-            SecondaryButtonMenuPlaceholder(settings)
++            if (TrackerButton.shown) SecondaryButtonTracker(settings) else SecondaryButtonMenuPlaceholder(settings)
+         },
+     )
+ }
+diff --git a/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/shared/Controls.kt b/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/shared/Controls.kt
+index 1b39760..1bfb58b 100644
+--- a/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/shared/Controls.kt
++++ b/lemuroid-touchinput/src/main/java/com/swordfish/touchinput/radial/layouts/shared/Controls.kt
+@@ -102,6 +102,21 @@ fun SecondaryButtonMenu(settings: TouchControllerSettingsManager.Settings) {
+     )
+ }
+ 
++/** SMZ3 single-screen mode: the left pad's free slot opens the tracker (sent as R3, the PC's tracker key). */
++object TrackerButton {
++    @Volatile var shown = false
++}
++
++context(PadKitScope, LayoutRadialSecondaryDialsScope)
++@Composable
++fun SecondaryButtonTracker(settings: TouchControllerSettingsManager.Settings) {
++    LemuroidControlButton(
++        modifier = Modifier.radialPosition(-120f - 2f * settings.rotation * TouchControllerSettingsManager.MAX_ROTATION),
++        id = Id.Key(KeyEvent.KEYCODE_BUTTON_THUMBR),
++        icon = R.drawable.button_tracker,
++    )
++}
++
+ context(PadKitScope, LayoutRadialSecondaryDialsScope)
+ @Composable
+ fun SecondaryButtonMenuPlaceholder(settings: TouchControllerSettingsManager.Settings) {
+diff --git a/lemuroid-touchinput/src/main/res/drawable/button_tracker.xml b/lemuroid-touchinput/src/main/res/drawable/button_tracker.xml
+new file mode 100644
+index 0000000..4447041
+--- /dev/null
++++ b/lemuroid-touchinput/src/main/res/drawable/button_tracker.xml
+@@ -0,0 +1,11 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24.0"
++    android:viewportHeight="24.0">
++
++    <path
++        android:fillColor="#fff"
++        android:pathData="M20.5,3l-0.16,0.03L15,5.1 9,3 3.36,4.9c-0.21,0.07 -0.36,0.25 -0.36,0.48V20.5c0,0.28 0.22,0.5 0.5,0.5l0.16,-0.03L9,18.9l6,2.1 5.64,-1.9c0.21,-0.07 0.36,-0.25 0.36,-0.48V3.5c0,-0.28 -0.22,-0.5 -0.5,-0.5zM15,19l-6,-2.11V5l6,2.11V19z"/>
++
++</vector>
