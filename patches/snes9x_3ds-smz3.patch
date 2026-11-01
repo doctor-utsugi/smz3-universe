@@ -1353,7 +1353,7 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..1d418f2
+index 0000000..b158b0b
 --- /dev/null
 +++ b/source/smz3run.cpp
 @@ -0,0 +1,4337 @@
@@ -1933,7 +1933,7 @@ index 0000000..1d418f2
 +static void drawWipe(float p)
 +{
 +    if (p >= 1) return;
-+    int left[120];
++    int left[120] = {0};   /* UI_H is 240 here; the compiler cannot tell the loop fills it */
 +    bool holding = p < 0;
 +    if (holding) p = 0;
 +    for (int y = 0; y < UI_H; y += 2) {
