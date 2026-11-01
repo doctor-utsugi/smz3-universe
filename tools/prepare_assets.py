@@ -99,3 +99,9 @@ print("logo written")
 
 # The menu font the PC build uses too (Chakra Petch, OFL)
 shutil.copyfile(root / "tools/fonts/ChakraPetch-Bold.ttf", assets / "menu_font.ttf")
+
+# The community sprites (assets/sprites), so a phone has them without copying a folder to the SD card
+sprites_dst = assets / "sprites"
+shutil.rmtree(sprites_dst, ignore_errors=True)
+shutil.copytree(root / "assets/sprites", sprites_dst)
+print("sprites copied")

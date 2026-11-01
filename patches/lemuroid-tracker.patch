@@ -474,10 +474,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..056da3a
+index 0000000..9b34b26
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,717 @@
+@@ -0,0 +1,732 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -571,6 +571,19 @@ index 0000000..056da3a
 +
 +private fun spriteDir(game: Int) = File("/sdcard/SMZ3/sprites", if (game == 0) "link" else "samus")
 +
++/** The community sprites shipped in the APK; a folder on the SD card adds to them and wins on equal names. */
++private fun bundledDir(game: Int) = if (game == 0) "smz3/sprites/link" else "smz3/sprites/samus"
++
++private val bundledCache = HashMap<Int, Set<String>>()
++
++private fun bundled(context: Context, game: Int): Set<String> =
++    bundledCache.getOrPut(game) { runCatching { context.assets.list(bundledDir(game))?.toSet() }.getOrNull() ?: emptySet() }
++
++/** A sprite file (`<name>.rdc` or `<name>.pv`) from the SD card, else from the APK; null when neither has it. */
++private fun spriteFile(context: Context, game: Int, file: String): ByteArray? =
++    File(spriteDir(game), file).takeIf { it.exists() }?.readBytes()
++        ?: if (file in bundled(context, game)) runCatching { context.assets.open("${bundledDir(game)}/$file").use { it.readBytes() } }.getOrNull() else null
++
 +/** Sprite previews (`<name>.pv` beside the .rdc: u8 width, u8 height, RGBA), decoded once and kept; null when the file is missing. */
 +private val previewCache = HashMap<String, ImageBitmap?>()
 +
@@ -595,7 +608,7 @@ index 0000000..056da3a
 +        val game = if (key.startsWith("link/")) 0 else 1
 +        val name = key.substringAfter('/') + ".pv"
 +        val bytes = if (goal != null) File(File(context.filesDir, "goals"), "$goal.pv").readBytes()
-+            else File(spriteDir(game), name).takeIf { it.exists() }?.readBytes()
++            else spriteFile(context, game, name)
 +                ?: File(File(context.filesDir, if (game == 0) "sprites/link" else "sprites/samus"), name).readBytes()   // drawn from the ROMs
 +        val w = bytes[0].toInt() and 255; val h = bytes[1].toInt() and 255
 +        val px = IntArray(w * h) { i ->
@@ -611,8 +624,10 @@ index 0000000..056da3a
 +private fun plandoNames(): Array<String> =
 +    plandoDir.listFiles { f -> f.extension.equals("yml", true) || f.extension.equals("yaml", true) }?.map { it.name }?.sorted()?.toTypedArray() ?: emptyArray()
 +
-+private fun spriteNames(game: Int): Array<String> =
-+    spriteDir(game).listFiles { f -> f.extension.equals("rdc", true) }?.map { it.nameWithoutExtension }?.sorted()?.toTypedArray() ?: emptyArray()
++private fun spriteNames(context: Context, game: Int): Array<String> =
++    ((spriteDir(game).listFiles { f -> f.extension.equals("rdc", true) }?.map { it.nameWithoutExtension } ?: emptyList()) +
++        bundled(context, game).filter { it.endsWith(".rdc", true) }.map { it.dropLast(4) })
++        .distinct().sorted().toTypedArray()
 +
 +/**
 + * The start menu, run creation, options and sprite pickers. All of it lives in the shared C core (core/ui); this
@@ -694,8 +709,8 @@ index 0000000..056da3a
 +    DisposableEffect(Unit) {
 +        Smz3Native.uiInit()
 +        Smz3Native.uiSetSlotCount(RunStore.SLOTS)
-+        Smz3Native.uiSetSprites(0, spriteNames(0))
-+        Smz3Native.uiSetSprites(1, spriteNames(1))
++        Smz3Native.uiSetSprites(0, spriteNames(context, 0))
++        Smz3Native.uiSetSprites(1, spriteNames(context, 1))
 +        Smz3Native.uiSetSprites(2, plandoNames())
 +        Smz3Native.uiSetSprites(3, Smz3Music.packages())
 +        Smz3Native.uiSavedLoad(savedCustoms.takeIf { it.exists() }?.readText())
@@ -793,7 +808,7 @@ index 0000000..056da3a
 +                val settings = JSONObject(rawSettings)
 +                if (plandoText != null) settings.put("plandoYaml", plandoText)
 +                fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
-+                    ?.let { File(spriteDir(game), "$it.rdc").takeIf(File::exists)?.readBytes() }
++                    ?.let { spriteFile(context, game, "$it.rdc") }
 +                val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
 +                val name = Smz3Native.uiRunLabel().ifBlank { "Run ${slot + 1}" }
 +                val romFile = RunStore.newRomFile(context, usedSeed, rawSettings)
@@ -845,7 +860,7 @@ index 0000000..056da3a
 +                Smz3Native.uiSetPlando(null)
 +                val settings = JSONObject(raw)
 +                fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
-+                    ?.let { File(spriteDir(game), "$it.rdc").takeIf(File::exists)?.readBytes() }
++                    ?.let { spriteFile(context, game, "$it.rdc") }
 +                Smz3Native.uiBusy("Generating the challenge ...")
 +                version++
 +                val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
