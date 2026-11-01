@@ -1,0 +1,184 @@
+# Builds the PC app for Linux, Windows and macOS, the Android app and the 3DS homebrew. vendor/ is not in git: the IPS patches and map icons are copied from their source
+# repositories by tools/prepare_assets.py. The Super Metroid room table is derived from a ROM and cannot be committed, so these CI
+# builds ship an empty one (the map still works, without the discovered-room overlay of Super Metroid).
+name: pc
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  linux:
+    runs-on: ubuntu-22.04   # the AppImage runs on distributions at least as new as this one
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch assets
+        shell: bash
+        run: |
+          mkdir -p vendor/Lemuroid/lemuroid-app/src/main/assets/smz3
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3Randomizer.git vendor/SMZ3Randomizer
+          git -C vendor/SMZ3Randomizer checkout -q cf4a4376de9506cb41826a252bb3afb66728e82c
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3CasSprites.git vendor/SMZ3CasSprites
+          git -C vendor/SMZ3CasSprites checkout -q 07995af80f3f36833cb34a413afcc84bd2435386
+          [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
+          python3 -c 'import PIL' 2>/dev/null || python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
+          python3 tools/prepare_assets.py
+      - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev python3-pil
+      - run: ./build-pc.sh
+      - run: ./tools/build-appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smz3-linux
+          path: build/SMZ3-x86_64.AppImage
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch assets
+        shell: bash
+        run: |
+          mkdir -p vendor/Lemuroid/lemuroid-app/src/main/assets/smz3
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3Randomizer.git vendor/SMZ3Randomizer
+          git -C vendor/SMZ3Randomizer checkout -q cf4a4376de9506cb41826a252bb3afb66728e82c
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3CasSprites.git vendor/SMZ3CasSprites
+          git -C vendor/SMZ3CasSprites checkout -q 07995af80f3f36833cb34a413afcc84bd2435386
+          [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
+          python3 -c 'import PIL' 2>/dev/null || python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
+          python3 tools/prepare_assets.py
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 python3-pil
+      - run: ./build-pc.sh windows
+      - run: cp -r assets/sprites build/win/sprites && cd build/win && zip -9 -r ../../SMZ3-windows-x64.zip smz3.exe sprites
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smz3-windows
+          path: SMZ3-windows-x64.zip
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel]   # the Apple-silicon images never got a runner for this account
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch assets
+        shell: bash
+        run: |
+          mkdir -p vendor/Lemuroid/lemuroid-app/src/main/assets/smz3
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3Randomizer.git vendor/SMZ3Randomizer
+          git -C vendor/SMZ3Randomizer checkout -q cf4a4376de9506cb41826a252bb3afb66728e82c
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3CasSprites.git vendor/SMZ3CasSprites
+          git -C vendor/SMZ3CasSprites checkout -q 07995af80f3f36833cb34a413afcc84bd2435386
+          [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
+          python3 -c 'import PIL' 2>/dev/null || python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
+          python3 tools/prepare_assets.py
+      - run: brew install sdl2 && pip3 install pillow --break-system-packages
+      - run: ./build-pc.sh
+      - name: SDL2 is inside the binary
+        run: |
+          otool -L build/pc/smz3
+          if otool -L build/pc/smz3 | grep -qi sdl; then echo "the macOS binary still links SDL2 dynamically"; exit 1; fi
+      - name: Smoke test (no ROMs on CI)
+        shell: bash
+        run: |
+          export HOME="$RUNNER_TEMP/home" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
+          mkdir -p "$HOME"
+          file build/pc/smz3
+          ./build/pc/smz3 help
+          ./build/pc/smz3 runs
+          head -c 300000 /dev/urandom > "$RUNNER_TEMP/notarom.bin"
+          if ./build/pc/smz3 setup "$RUNNER_TEMP/notarom.bin"; then echo "setup accepted a random file"; exit 1; fi
+          ls "$HOME/Library/Application Support/smz3" || true
+          set +e
+          perl -e 'alarm 8; exec @ARGV' ./build/pc/smz3
+          rc=$?
+          echo "window run exit code $rc (142 = still running when the alarm fired)"
+          [ $rc -eq 142 ] || exit 1
+      - run: cp -r assets/sprites build/pc/sprites && tar czf SMZ3-macos-intel.tar.gz -C build/pc smz3 sprites
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smz3-macos
+          path: SMZ3-macos-intel.tar.gz
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+      - name: Fetch sources and assets
+        shell: bash
+        run: |
+          git clone -q https://github.com/Swordfish90/Lemuroid.git vendor/Lemuroid
+          git -C vendor/Lemuroid checkout -q 3625bc121d5d79fd4b80ce930fb0f3236c9334e8
+          # only the snes9x core of lemuroid-cores: the app packages no other
+          git clone -q --filter=blob:none --no-checkout https://github.com/Swordfish90/LemuroidCores vendor/Lemuroid/lemuroid-cores
+          git -C vendor/Lemuroid/lemuroid-cores sparse-checkout set --no-cone '/*' '!*.so' '*snes9x*.so'
+          git -C vendor/Lemuroid/lemuroid-cores checkout -q fee2e824525daa22bcf318f96127fe43fa8a15ad
+          git clone -q https://github.com/Swordfish90/LibretroDroid.git vendor/LibretroDroid
+          git -C vendor/LibretroDroid checkout -q 8835c3098514390a271e36983957f7bb5f40abf1
+          git -C vendor/Lemuroid apply "$PWD/patches/lemuroid-tracker.patch"
+          git -C vendor/LibretroDroid apply "$PWD/patches/libretrodroid-readmemory.patch"
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3Randomizer.git vendor/SMZ3Randomizer
+          git -C vendor/SMZ3Randomizer checkout -q cf4a4376de9506cb41826a252bb3afb66728e82c
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3CasSprites.git vendor/SMZ3CasSprites
+          git -C vendor/SMZ3CasSprites checkout -q 07995af80f3f36833cb34a413afcc84bd2435386
+          [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
+          python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
+          python3 tools/prepare_assets.py
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - name: Signing key
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: echo "$ANDROID_KEYSTORE" | base64 -d > vendor/Lemuroid/release.jks
+      - run: ./build-android.sh release
+      - run: cp build/smz3-release.apk SMZ3-android-arm64.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smz3-android
+          path: SMZ3-android-arm64.apk
+  n3ds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch sources and assets
+        shell: bash
+        run: |
+          git clone -q https://github.com/matbo87/snes9x_3ds.git vendor/snes9x_3ds
+          git -C vendor/snes9x_3ds checkout -q a295d0225d4eb7f4449755d38c85c29dfe62d4e2
+          mkdir -p vendor/Lemuroid/lemuroid-app/src/main/assets/smz3
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3Randomizer.git vendor/SMZ3Randomizer
+          git -C vendor/SMZ3Randomizer checkout -q cf4a4376de9506cb41826a252bb3afb66728e82c
+          git clone -q https://github.com/TheTrackerCouncil/SMZ3CasSprites.git vendor/SMZ3CasSprites
+          git -C vendor/SMZ3CasSprites checkout -q 07995af80f3f36833cb34a413afcc84bd2435386
+          [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
+          python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
+          python3 tools/prepare_assets.py
+      - run: ./build-3ds.sh
+      - run: cp build/snes9x_3ds.3dsx SMZ3-3ds.3dsx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smz3-3ds
+          path: SMZ3-3ds.3dsx
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos, android, n3ds]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # "What's new" comes from docs/release-notes/<tag>.md; the quick install notes are the same every release
+          {
+            echo "## What's new"
+            echo
+            cat "docs/release-notes/${GITHUB_REF_NAME}.md" 2>/dev/null || echo "Fixes and small changes."
+            echo
+            cat docs/release-notes/quick-install.md
+          } > notes.md
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --title "SMZ3 Universe ${GITHUB_REF_NAME}" --notes-file notes.md
