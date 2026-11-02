@@ -43,15 +43,25 @@ int smz3_run_finished(const uint8_t *wram, size_t wram_len, const uint8_t *sram,
     return 0;
 }
 
-/* Past the title and file select: ALttP module 6+ (file loaded), Super Metroid game state 6+ (game data loading). A value
- * past the last module or state is the work RAM before the game set it: Snes9x fills it with 0x55 at reset, and the
- * SMZ3 boot code marks Super Metroid in the save RAM within the first frame. */
+/* Still the reset fill (Snes9x sets work RAM to 0x55): Super Metroid's item bits before the game data is loaded. */
+static int metroid_items_unset(const uint8_t *wram, size_t wram_len)
+{
+    if (wram_len < WRAM_METROID + 0x40) return 1;
+    for (int i = 0; i < 0x40; i++) if (wram[WRAM_METROID + i] != 0x55) return 0;
+    return 1;
+}
+
+/* Past the title and file select: ALttP module 6+ (file loaded), Super Metroid game state 6+ (game data loading) once its
+ * item bits are in. A value past the last module or state is the work RAM before the game set it: Snes9x fills it with
+ * 0x55 at reset, and the SMZ3 boot code marks Super Metroid in the save RAM within the first frame. Read during the load,
+ * that fill would count half of Super Metroid's checks for a few frames. */
 int smz3_started(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len)
 {
     switch (smz3_current_game(sram, sram_len)) {
     case SMZ3_GAME_ZELDA: return wram_len > WRAM_ZELDA_MODULE && wram[WRAM_ZELDA_MODULE] >= 6 && wram[WRAM_ZELDA_MODULE] < 0x20;
     case SMZ3_GAME_METROID:
-        return wram_len > WRAM_METROID_STATE + 1 && wram[WRAM_METROID_STATE] >= 6 && wram[WRAM_METROID_STATE] < 0x30 && !wram[WRAM_METROID_STATE + 1];
+        return wram_len > WRAM_METROID_STATE + 1 && wram[WRAM_METROID_STATE] >= 6 && wram[WRAM_METROID_STATE] < 0x30 && !wram[WRAM_METROID_STATE + 1]
+            && !metroid_items_unset(wram, wram_len);
     case SMZ3_GAME_CREDITS: return 1;
     default: return 0;
     }
