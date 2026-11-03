@@ -1052,7 +1052,8 @@ static void rewind_bar(SmzRewind *rw, int dir, float gx, float gw, int wh)
     }
     gfx_text(ix + 42 * u, iy - 3 * u, 22 * u, text, 0, dir < 0 ? "Rewinding" : dir > 0 ? "Forward" : "Rewind");
     char back[24];
-    snprintf(back, sizeof back, "-%.1f s", (n - 1 - at) / 60.0f);
+    if (at == n - 1) snprintf(back, sizeof back, "Now");
+    else snprintf(back, sizeof back, "-%.1f s", (n - 1 - at) / 60.0f);
     gfx_text(bx + bw - 22 * u, iy - 3 * u, 22 * u, at == n - 1 ? dim : text, 2, back);
     float tx = bx + 22 * u, tw = bw - 44 * u, ty = by + 50 * u, f = n > 1 ? (float)at / (n - 1) : 1;
     gfx_rect(tx, ty, tw, 6 * u, C(0x2A, 0x33, 0x44));

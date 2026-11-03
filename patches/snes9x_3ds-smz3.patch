@@ -1423,10 +1423,10 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..a8f988e
+index 0000000..b93f5f4
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4559 @@
+@@ -0,0 +1,4560 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3490,7 +3490,8 @@ index 0000000..a8f988e
 +    rewindMark(24, 26, rwDirShown, AMBER);
 +    bigText(42, 14, 20, INK, rwDirShown < 0 ? "Rewinding" : rwDirShown > 0 ? "Forward" : "Rewind");
 +    char back[24];
-+    snprintf(back, sizeof back, "-%.1f s", (n - 1 - at) * rwEvery / 60.0f);
++    if (at == n - 1) snprintf(back, sizeof back, "Now");
++    else snprintf(back, sizeof back, "-%.1f s", (n - 1 - at) * rwEvery / 60.0f);
 +    int bw = ui3dsGetStringWidth(back, 0, 0xffff, 20);
 +    bigText(308 - bw, 14, 20, at == n - 1 ? DIM : INK, back);
 +    int tx = 12, tw = 296, ty = 66, f = n > 1 ? tw * at / (n - 1) : tw;

@@ -138,7 +138,7 @@ index e81c42c..c70e15b 100644
          val isLoading =
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3RewindOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3RewindOverlay.kt
 new file mode 100644
-index 0000000..ebb615f
+index 0000000..147df74
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3RewindOverlay.kt
 @@ -0,0 +1,167 @@
@@ -194,7 +194,7 @@ index 0000000..ebb615f
 +
 +/**
 + * The rewind bar over the bottom of the game picture, which stays as it is. With touch controls it carries buttons (hold
-+ * back / forward, play from here, back to now) and, while closed, a small rewind button in the picture's corner; with a
++ * back / forward, play from here, back to now) and, while closed, a small rewind button at the bottom of the picture; with a
 + * pad it shows the controls instead.
 + */
 +@Composable
@@ -226,7 +226,7 @@ index 0000000..ebb615f
 +    if (!open) {
 +        if (touch) {
 +            Box(
-+                Modifier.offset { origin }.offset(x = 10.dp, y = h - 52.dp).size(42.dp)
++                Modifier.offset { origin }.offset(x = w / 2 - 21.dp, y = h - 52.dp).size(42.dp)
 +                    .background(Color(0x99101620), RoundedCornerShape(21.dp))
 +                    .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); if (waitForUpOrCancellation() != null) Smz3Rewind.open() } },
 +                contentAlignment = Alignment.Center,
@@ -249,7 +249,7 @@ index 0000000..ebb615f
 +            Spacer(Modifier.width(10.dp))
 +            Text(if (dir < 0) "Rewinding" else if (dir > 0) "Forward" else "Rewind", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
 +            Spacer(Modifier.weight(1f))
-+            Text("-%.1f s".format((count - 1 - at) / 60f), color = if (at == count - 1) Dim else Ink, fontSize = 15.sp)
++            Text(if (at == count - 1) "Now" else "-%.1f s".format((count - 1 - at) / 60f), color = if (at == count - 1) Dim else Ink, fontSize = 15.sp)
 +        }
 +        Spacer(Modifier.height(10.dp))
 +        val f = if (count > 1) at.toFloat() / (count - 1) else 1f
