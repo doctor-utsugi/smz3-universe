@@ -79,8 +79,10 @@ const UiOptDef UI_OPTS[] = {
 };
 const int UI_OPT_COUNT = sizeof UI_OPTS / sizeof UI_OPTS[0];
 
-/* The Create run tabs: the run itself, what only touches one game, and how it is played. */
+/* The Create run tabs: the popular options, the run itself, what only touches one game, and how it is played. */
 const char *const UI_TABS[LEVEL_ITEMS][24] = {
+    {"GameMode", "Keysanity", "WallJumpDifficulty", "HelpMode", "HelpCount", "LightDarkRooms", "QuickMorph", "SaveStates", "Rewind",
+     "ShowReachable", NULL},
     {"Seed", "GameMode", "Keysanity", "ItemPlacement", "HelpMode", "HelpCount", "MapMode", "Plando", NULL},
     {"GanonCrystals", "GtCrystals", "PyramidHole", "LightDarkRooms", "FireRodDarkRooms", "SwordOnlyDarkRooms",
      "InfiniteBombJump", "MoatSpeedBooster", "LightWorldSouthFakeFlippers", "KholdstareNeedsCaneOfSomaria", "ZoraNeedsRupeeItems",

@@ -803,7 +803,7 @@ static void begin_run(SmzUi *u, int mode, const char *label, const char *spec)
     apply_spec(u, spec);
     u->run_mode = mode;
     snprintf(u->start_label, sizeof u->start_label, "%s", label);
-    if (mode == 2) { u->screen = UI_CREATE; u->level = LEVEL_RUN; for (int l = 0; l < LEVEL_COUNT; l++) u->cursor[l] = u->scroll[l] = 0; }
+    if (mode == 2) { u->screen = UI_CREATE; u->level = LEVEL_QUICK; for (int l = 0; l < LEVEL_COUNT; l++) u->cursor[l] = u->scroll[l] = 0; }
     else goto_start(u);
 }
 
@@ -1048,7 +1048,7 @@ void ui_input(SmzUi *u, UiButton b)
         if (b == BTN_UP) move(cur, scr, rows, -1);
         else if (b == BTN_DOWN) move(cur, scr, rows, 1);
         else if (b == BTN_B) u->screen = UI_MODE;
-        else if (b == BTN_L) { if (u->level > LEVEL_RUN) u->level--; }
+        else if (b == BTN_L) { if (u->level > LEVEL_QUICK) u->level--; }
         else if (b == BTN_R) { if (u->level < LEVEL_ITEMS) u->level++; }
         else if (*cur == n) {
             if (b == BTN_A) {
@@ -1625,15 +1625,16 @@ void ui_draw(SmzUi *u)
     case UI_CREATE: {
         int idx[UI_MAX_OPTS], n = visible(u, u->level, idx);
         int cur = u->cursor[u->level], scr = u->scroll[u->level];
-        title(u, "New run");
+        title(u, "");   /* six tabs take the whole bar */
         {
-            static const char *const TABS[LEVEL_COUNT] = { "Run", "Zelda", "Metroid", "Play", "Items" };
+            static const char *const TABS[LEVEL_COUNT] = { "Quick", "Run", "Zelda", "Metroid", "Play", "Items" };
             for (int t = 0; t < LEVEL_COUNT; t++) {
-                int x = 62 + t * 51;
-                hit(u, H_TAB, t, x, 4, 49, 20);
-                rect(u, x, 4, 49, 20, u->level == t ? C_SEL : C_BG);
-                text(u, x + 24, 8, C_TEXT, 1, TABS[t]);
+                int x = 4 + t * 52;
+                hit(u, H_TAB, t, x, 4, 50, 20);
+                rect(u, x, 4, 50, 20, u->level == t ? C_SEL : C_BG);
+                text(u, x + 25, 8, C_TEXT, 1, TABS[t]);
             }
+            if (u->level == LEVEL_QUICK) text(u, 6, 30, C_DIM, 0, "The options most players change");
         }
         for (int r = 0; r < ROWS_SHOWN && scr + r <= n + 1; r++) {
             int row = scr + r, y = LIST_Y + r * ROW_H;
