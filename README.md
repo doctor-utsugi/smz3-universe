@@ -102,7 +102,23 @@ one it needs. No ROMs are included here.
 - macOS (Intel, also runs on Apple silicon): `tar xzf SMZ3-macos-intel.tar.gz`, then
   `xattr -d com.apple.quarantine smz3` and `./smz3`. Nothing else to install.
 
-Then drop both ROMs on the window.
+Then drop both ROMs on the window and press PLAY!. To make a run, pick "New run" in the list, choose Cozy run,
+Original or Custom (Custom opens the options first, Next goes on), and press Start on the last screen. The game starts
+as soon as the seed is made.
+
+The same program also takes commands in a terminal. Use `./SMZ3-x86_64.AppImage` (or
+`./SMZ3-aarch64.AppImage`) on Linux, `smz3.exe` on Windows and `./smz3` on macOS. For example, on Linux:
+
+```
+./SMZ3-x86_64.AppImage setup "Super Metroid (Japan, USA) (En,Ja).sfc" "Zelda no Densetsu - Kamigami no Triforce (Japan).sfc"
+./SMZ3-x86_64.AppImage new --preset cozy
+./SMZ3-x86_64.AppImage runs
+./SMZ3-x86_64.AppImage play 1
+```
+
+`setup` keeps a copy of the two ROMs (you only do it once), `new` makes a run in the first free slot (`--preset`
+is `cozy`, `original` or `custom`, and `--set Key=value` changes one option), `runs` lists them and `play N` opens
+the window on run N. `gen --out FILE` writes a randomized ROM without making a run, and `--help` lists every command.
 
 ## 3. Play
 
