@@ -24,7 +24,7 @@ index 5a845df..de2109d 100644
          core.h
          core.cpp
 diff --git a/libretrodroid/src/main/cpp/libretrodroid.cpp b/libretrodroid/src/main/cpp/libretrodroid.cpp
-index 60640c4..8117081 100644
+index 60640c4..9b53539 100644
 --- a/libretrodroid/src/main/cpp/libretrodroid.cpp
 +++ b/libretrodroid/src/main/cpp/libretrodroid.cpp
 @@ -173,6 +173,7 @@ JNIEXPORT jboolean JNICALL LibretroDroid::unserializeSRAM(int8_t* data, size_t s
@@ -84,7 +84,7 @@ index 60640c4..8117081 100644
      video = nullptr;
      core = nullptr;
      rumble = nullptr;
-@@ -456,8 +492,16 @@ void LibretroDroid::step() {
+@@ -456,8 +492,18 @@ void LibretroDroid::step() {
          frames = std::min(requestedFrames, 2u);
      }
  
@@ -99,11 +99,13 @@ index 60640c4..8117081 100644
 +            smz_rewind_push(rewind, rewindBuffer.data());
 +            rewindCount = smz_rewind_count(rewind);
 +        }
++    } else if (video) {
++        video->markDirty();   // a paused rewind sends no frames: unredrawn, the swapped buffers alternate two pictures
 +    }
  
      if (video && !video->rendersInVideoCallback()) {
          video->renderFrame();
-@@ -491,6 +535,7 @@ void LibretroDroid::step() {
+@@ -491,6 +537,7 @@ void LibretroDroid::step() {
  }
  
  float LibretroDroid::getAspectRatio() {
@@ -111,7 +113,7 @@ index 60640c4..8117081 100644
      float gameAspectRatio = Environment::getInstance().retrieveGameSpecificAspectRatio();
      return gameAspectRatio > 0 ? gameAspectRatio : defaultAspectRatio;
  }
-@@ -512,6 +557,78 @@ void LibretroDroid::setFrameSpeed(unsigned int speed) {
+@@ -512,6 +559,78 @@ void LibretroDroid::setFrameSpeed(unsigned int speed) {
      updateAudioSampleRateMultiplier();
  }
  
@@ -190,7 +192,7 @@ index 60640c4..8117081 100644
  void LibretroDroid::setAudioEnabled(bool enabled) {
      audioEnabled = enabled;
  }
-@@ -572,6 +689,7 @@ void LibretroDroid::reset() {
+@@ -572,6 +691,7 @@ void LibretroDroid::reset() {
  
  std::pair<int8_t*, size_t> LibretroDroid::serializeState() {
      std::lock_guard<std::mutex> lock(coreLock);
@@ -198,7 +200,7 @@ index 60640c4..8117081 100644
  
      size_t size = core->retro_serialize_size();
      auto data = new int8_t[size];
-@@ -643,6 +761,13 @@ void LibretroDroid::setViewport(Rect viewportRect) {
+@@ -643,6 +763,13 @@ void LibretroDroid::setViewport(Rect viewportRect) {
      }
  }
  
@@ -429,6 +431,19 @@ index 3ff492a..91b0bb9 100644
  #include "unordered_map"
  #include "string"
  
+diff --git a/libretrodroid/src/main/cpp/video.h b/libretrodroid/src/main/cpp/video.h
+index 05bd6b6..c80b410 100644
+--- a/libretrodroid/src/main/cpp/video.h
++++ b/libretrodroid/src/main/cpp/video.h
+@@ -77,6 +77,8 @@ public:
+ 
+     void renderFrame();
+ 
++    // Draws the last frame again on the next renderFrame (a held picture must fill every swapped buffer).
++    void markDirty() { isDirty = true; }
+     void onNewFrame(const void *data, unsigned width, unsigned height, size_t pitch);
+ 
+     uintptr_t getCurrentFramebuffer() {
 diff --git a/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt b/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
 index 7eb8602..fada8a7 100644
 --- a/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
