@@ -1361,10 +1361,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..1caabc2
+index 0000000..ecc7800
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,735 @@
+@@ -0,0 +1,736 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1725,6 +1725,7 @@ index 0000000..1caabc2
 +            }
 +            Smz3Native.uiIdle()
 +            refreshSlots()
++            if (outcome.isSuccess) RunStore.load(context, slot)?.let { play(it, false) }   // a new run starts at once
 +        }
 +    }
 +

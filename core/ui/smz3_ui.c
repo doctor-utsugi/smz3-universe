@@ -200,7 +200,7 @@ static void move(int *cur, int *scroll, int n, int dir)
 /* ---- run modes and saved customs */
 
 typedef struct { const char *name, *desc, *spec; } UiPreset;
-static const UiPreset CHILL = {"Cozy run", "Zelda keys shuffled, easy wall jumps", "Keysanity=2,WallJumpDifficulty=0,LightDarkRooms=1,SaveStates=1,ShowReachable=1,ShowFixedKeys=1"};
+static const UiPreset CHILL = {"Cozy run", "Zelda keys shuffled, easy wall jumps", "Keysanity=2,WallJumpDifficulty=0,LightDarkRooms=1,SaveStates=1,Rewind=1,ShowReachable=1,ShowFixedKeys=1"};
 static const UiPreset ORIGINAL = {"Original", "The default randomizer rules", ""};
 static const UiPreset WEEKLY = {"Weekly run", "Short run: 2 crystals, 1 boss", "GanonCrystals=2,GtCrystals=2,TourianBosses=1"};
 static void spec_values(int *value, const char *spec);

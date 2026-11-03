@@ -1423,10 +1423,10 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..b93f5f4
+index 0000000..db5eb1a
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4560 @@
+@@ -0,0 +1,4563 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2428,6 +2428,15 @@ index 0000000..b93f5f4
 +            else if (act == ACT_DELETE) { deleteRun(slot); refreshSlots(&ui); }
 +            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }
 +            if (act == ACT_DAILY && dailyKept(ui.daily.window)) { act = ACT_CONTINUE; slot = SMZ_DAILY_SLOT; }
++            if (act == ACT_GENERATE && slot < UI_SLOTS) {   // a new run starts at once
++                ui_busy(&ui, "Generating the seed ...");
++                drawUi(&ui);
++                bool made = generateRun(&ui, slot, note, sizeof note);
++                if (!made) { ui_idle(&ui); ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); }
++                ui_idle(&ui);
++                refreshSlots(&ui);
++                if (made) act = ACT_LOAD_SAVE;
++            }
 +            if (act == ACT_CONTINUE || act == ACT_LOAD_SAVE || act == ACT_LOAD_STATE) {
 +                char path[96], state[PATH_MAX];
 +                SmzRun r;
@@ -2452,12 +2461,6 @@ index 0000000..b93f5f4
 +                        : strstr(r.settings, "\"screenFilter\":\"crt\"") || strstr(r.settings, "\"screenFilter\":\"lcd\"") ? Setting::ScreenFilter::Balanced
 +                        : Setting::ScreenFilter::Sharp;
 +                    mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777); addShortcutHooks(r.rom_path); snprintf(romPathOut, cap, "%s", r.rom_path); gPlaySlot = slot; chosen = true; break; }
-+            } else if (act == ACT_GENERATE && slot < UI_SLOTS) {
-+                ui_busy(&ui, "Generating the seed ...");
-+                drawUi(&ui);
-+                if (!generateRun(&ui, slot, note, sizeof note)) { ui_idle(&ui); ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); }
-+                ui_idle(&ui);
-+                refreshSlots(&ui);
 +            }
 +        }
 +        drawUi(&ui);
