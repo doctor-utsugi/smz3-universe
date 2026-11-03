@@ -169,6 +169,9 @@ int ui_player_text(const SmzUi *u, char *out, size_t cap);
 int ui_player_dirty(SmzUi *u);
 /* 1 when the run being started uploads to the online ladder (read when the host starts generating). */
 int ui_online_now(const SmzUi *u);
+/* The run's rules are the randomizer's own (looks and tracker aids aside): only such a run, or a monthly or weekly one, goes to the online ladder. */
+int ui_is_default(const SmzUi *u);
+int ui_run_ladder(const SmzUi *u);
 /* The daily challenge: once enabled, the run list has a Daily row on top and a token counter by the Ladder button. The host
  * hands in each /api/daily answer (ui_daily_set) and says whether it keeps an attempt of the open window (Continue instead
  * of Start); Start or Continue comes back as ACT_DAILY. */

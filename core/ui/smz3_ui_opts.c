@@ -182,7 +182,7 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
 }
 
 /* 1 when every option that changes the run's rules is at its default; the seed, sprites, screen, map view and jingle are cosmetic. */
-static int ui_is_default(const SmzUi *u)
+int ui_is_default(const SmzUi *u)
 {
     int want[UI_MAX_OPTS];
     ui_expected_values(u, want);

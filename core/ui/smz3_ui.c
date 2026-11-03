@@ -716,7 +716,8 @@ void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left)
     u->weekly_seed = seed > 0 ? seed : 0;
 }
 
-int ui_online_now(const SmzUi *u) { return u->player_on && u->online_mode == 1; }
+int ui_run_ladder(const SmzUi *u) { return u->run_mode >= 4 || ui_is_default(u); }
+int ui_online_now(const SmzUi *u) { return u->player_on && u->online_mode == 1 && ui_run_ladder(u); }
 
 int ui_player_text(const SmzUi *u, char *out, size_t cap)
 {
@@ -943,13 +944,13 @@ static void start_input(SmzUi *u, UiButton b)
     if (b == BTN_UP || b == BTN_DOWN) {
         int d = b == BTN_UP ? rows - 1 : 1;
         *cur = (*cur + d) % rows;
-        if (*cur == 2 && !u->player_on) *cur = (*cur + d) % rows;
+        if (*cur == 2 && (!u->player_on || !ui_run_ladder(u))) *cur = (*cur + d) % rows;   /* a local-only run has no online row to pick */
     }
     else if (b == BTN_LEFT) u->start_col = u->start_col > 0 && *cur == 2 ? u->start_col - 1 : 0;
     else if (b == BTN_RIGHT) u->start_col = *cur == 2 && u->online_mode == 1 ? (u->start_col < 2 ? u->start_col + 1 : 2) : *cur < START_ROW;
     else if (b == BTN_A) {
         if (*cur == START_ROW) {
-            if (u->player_on && u->online_mode == 0) { u->online_cursor = 0; u->online_gen = 1; u->screen = UI_ONLINE; }
+            if (u->player_on && u->online_mode == 0 && ui_run_ladder(u)) { u->online_cursor = 0; u->online_gen = 1; u->screen = UI_ONLINE; }
             else { u->action = ACT_GENERATE; u->action_slot = u->active_slot; }
         }
         else if (*cur == 2 && u->online_mode != 1) { u->online_cursor = u->online_mode == 2 ? 2 : 0; u->online_gen = 0; u->screen = UI_ONLINE; }
@@ -1834,7 +1835,11 @@ void ui_draw(SmzUi *u)
         }
         if (u->player_on) {
             int y = 34 + 2 * step, sel = u->start_cursor == 2;
-            if (u->online_mode == 1) {
+            if (!ui_run_ladder(u)) {   /* changed rules: the time stays on this device */
+                rect(u, 8, y, UI_W - 16, 36, C_PANEL);
+                text(u, 16, y + 4, C_DIM, 0, "Online ladder");
+                text(u, 16, y + 19, C_DIM, 0, "Local only: these rules don't go online");
+            } else if (u->online_mode == 1) {
                 rect(u, 8, y, 162, 36, sel && u->start_col == 0 ? C_SEL : C_PANEL);
                 hit(u, H_START, 5, 8, y, 162, 36);
                 rect(u, 176, y, 62, 36, sel && u->start_col == 1 ? C_SEL : C_PANEL);
