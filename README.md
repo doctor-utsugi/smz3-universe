@@ -79,14 +79,20 @@ one it needs. No ROMs are included here.
 
 ## 2. Install it
 
-**AYN Thor / Android**
-1. From the release, download `SMZ3-android-arm64.apk` on the Thor and open it. Allow installing from this source if asked.
-2. Open SMZ3. It asks to show notifications; the game starts whether you allow them or not.
-3. Create a run: tap "New run", pick Cozy run, Original or Custom, and press Start on the last screen. The game
-   starts as soon as the seed is made.
-4. The ROMs: the first time, SMZ3 looks for them in the `Download`, `Download/roms`, `Roms`, `roms` and `ROMs`
-   folders of the device. If both are there as `.sfc` or `.smc` files, it uses them without asking. If not, a file
-   picker opens: select both ROMs (or a zip with them). It keeps a copy of what you pick and won't ask again.
+**AYN Thor / Android** (arm64)
+1. Put both ROMs in the `Download` folder of the device. You can copy them over USB from a computer, or download
+   them on the device itself. `Download/roms`, `Roms`, `roms` and `ROMs` work too.
+2. On the device, open the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest) in the
+   browser and tap `SMZ3-android-arm64.apk` under Assets to download it.
+3. Open the downloaded file: tap Open when the download finishes, or find it in the browser's Downloads.
+4. If Android says it can't install unknown apps from this source, tap Settings, turn on "Allow from this source",
+   go back and tap Install. When it's installed, tap Open.
+5. SMZ3 asks to show notifications. The game starts whether you allow them or not.
+6. Tap "New run", pick Cozy run, Original or Custom, and press Start on the last screen. The first time, SMZ3
+   reads the two ROMs from the folder of step 1. The game starts as soon as the seed is made.
+
+If the ROMs aren't in one of those folders, or they're in a zip, a file picker opens at step 6 instead: select both
+ROMs (or the zip). SMZ3 keeps a copy of what you pick and won't ask again.
 
 **3DS** (needs the Homebrew Launcher)
 1. Copy `SMZ3-3ds.3dsx` from the release to the `3ds` folder of the SD card.
