@@ -606,6 +606,76 @@ index 9688a80..c195f76 100644
          case UI_SCANLINE:               return "scanline";
          default:                        return "invalid";
      }
+diff --git a/source/Snes9x/snapshot.cpp b/source/Snes9x/snapshot.cpp
+index 76fb448..4769b2e 100644
+--- a/source/Snes9x/snapshot.cpp
++++ b/source/Snes9x/snapshot.cpp
+@@ -510,6 +510,33 @@ bool8 S9xFreezeGame (const char *filename)
+     return (FALSE);
+ }
+ 
++size_t S9xFreezeToMemory (uint8 *buf, size_t cap)
++{
++    FILE *f = fmemopen (buf, cap, "wb");
++    BufferedFileWriter stream;
++    if (!f || !stream.attach (f))
++    {
++        if (f) fclose (f);
++        return 0;
++    }
++    S9xPrepareSoundForSnapshotSave (FALSE);
++    S9xFreezeToStream (stream);
++    stream.flush ();
++    long n = ftell (f);
++    stream.close ();
++    S9xPrepareSoundForSnapshotSave (TRUE);
++    return n > 0 && (size_t) n < cap ? (size_t) n : 0;
++}
++
++bool8 S9xUnfreezeFromMemory (const uint8 *buf, size_t len)
++{
++    FILE *f = fmemopen ((void *) buf, len, "rb");
++    if (!f) return FALSE;
++    int result = S9xUnfreezeFromStream (f);
++    fclose (f);
++    return result == SUCCESS;
++}
++
+ bool8 S9xLoadSnapshot (const char *filename)
+ {
+     return (S9xUnfreezeGame (filename));
+diff --git a/source/Snes9x/snapshot.h b/source/Snes9x/snapshot.h
+index d14ab3c..c8df7fb 100644
+--- a/source/Snes9x/snapshot.h
++++ b/source/Snes9x/snapshot.h
+@@ -30,6 +30,9 @@ bool8 S9xLoadSnapshot (const char *filename);
+ bool8 S9xSPCDump (const char *filename);
+ void S9xFreezeToStream (BufferedFileWriter& stream);
+ int S9xUnfreezeFromStream (STREAM);
++// SMZ3 rewind: a freeze in memory, the same bytes as a freeze file. The length written, 0 when it does not fit.
++size_t S9xFreezeToMemory (uint8 *buf, size_t cap);
++bool8 S9xUnfreezeFromMemory (const uint8 *buf, size_t len);
+ END_EXTERN_C
+ 
+ #endif
+diff --git a/source/bufferedfilewriter.h b/source/bufferedfilewriter.h
+index 3004c87..4e0cc82 100644
+--- a/source/bufferedfilewriter.h
++++ b/source/bufferedfilewriter.h
+@@ -46,6 +46,13 @@ public:
+         return true;
+     }
+ 
++    // Writes into a FILE already open (a memory stream) instead of opening one.
++    bool attach(FILE* fp) {
++        RawFilePointer = fp;
++        Position = 0;
++        return fp != NULL && g_fileBuffer != NULL;
++    }
++
+     // returns bytes written
+     size_t write(const void* ptr, size_t count) {
+         if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
 index 0000000..bf51e1b
@@ -1353,10 +1423,10 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..b158b0b
+index 0000000..a8f988e
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4337 @@
+@@ -0,0 +1,4559 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1382,6 +1452,7 @@ index 0000000..b158b0b
 +#include "smz3_counters.h"
 +#include "smz3_goalicons.h"
 +#include "smz3_romderived.h"
++#include "smz3_rewind.h"
 +// from smz3_rom.h, whose generator headers stay out of C++
 +int smz_rom_shortcut_hooks(uint8_t *rom);
 +void smz_rom_checksum(uint8_t *rom);
@@ -1397,6 +1468,7 @@ index 0000000..b158b0b
 +#include "3dsimpl_gpu.h"
 +#include "3dssound.h"
 +#include "3dssettings.h"
++#include "snapshot.h"
 +#include "3dsui.h"
 +#include "3dsmenu.h"
 +#include "3dsfiles.h"
@@ -1410,6 +1482,7 @@ index 0000000..b158b0b
 +#define GOALS_DIR SMZ_DIR "/goals"   // the world goal icons cut from the base ROMs
 +
 +static bool gChallenge = false;   // the run being played is a daily challenge: no fast forward
++static bool gRewindRun = false;   // the run being played allows rewind (an option of offline runs)
 +static int gPlaySlot = -1;   // slot of the run being played
 +static bool gRunStates, gNextStates, gNextLoadState;   // the run being played (the next one) keeps an auto state; the next one starts from it
 +
@@ -2219,6 +2292,7 @@ index 0000000..b158b0b
 +
 +static void deriveFromRoms(SmzUi *u);
 +static void trackerRelease();
++static void rewindFree();
 +
 +static void uiCueSound(UiCue c);
 +static void goalsLeave(bool report);
@@ -2236,6 +2310,8 @@ index 0000000..b158b0b
 +    int left = smz3IsRun() ? gPlaySlot : -1;   // the run just left keeps the cursor
 +    if (smz3IsRun()) { goalsLeave(true); impl3dsSaveStateAuto(); }   // now, while the flags still belong to the run that was being played
 +    trackerRelease();   // the game's map pictures (about 4 MB) wait on the heap otherwise, through the next generation
++    rewindFree();
++    gRewindRun = false;
 +    gRunStates = false;
 +    ui_init(&ui);
 +    ui.rings = 1;   // the run list's percent sits in a progress ring (drawRing)
@@ -3167,9 +3243,10 @@ index 0000000..b158b0b
 +#define IN_FILE SMZ_DIR "/3ds_input.txt"
 +#define BTN_COUNT 6
 +#define QUICK_SLOT 1
-+#define BAR_FF_W 72
-+#define BAR_BTN_W ((SC_ROW_W - BAR_FF_W - 6) / 2)
-+enum { BIND_NONE, BIND_FAST, BIND_SAVE, BIND_LOAD, BIND_MENU, BIND_SHORTCUT = 10 };
++#define BAR_FF_W 44
++#define BAR_RW_W 36
++#define BAR_BTN_W ((SC_ROW_W - BAR_FF_W - BAR_RW_W - 9) / 2)
++enum { BIND_NONE, BIND_FAST, BIND_SAVE, BIND_LOAD, BIND_MENU, BIND_REWIND, BIND_SHORTCUT = 10 };
 +static const u32 BTN_KEYS[BTN_COUNT] = {KEY_ZL, KEY_ZR, KEY_CSTICK_UP, KEY_CSTICK_DOWN, KEY_CSTICK_LEFT, KEY_CSTICK_RIGHT};
 +static const char *const BTN_NAMES[BTN_COUNT] = {"ZL", "ZR", "C Up", "C Down", "C Left", "C Right"};
 +static int inBar = 1, inConfirm = 0, inBtn[BTN_COUNT];
@@ -3190,7 +3267,7 @@ index 0000000..b158b0b
 +        for (int i = 0; i < BTN_COUNT; i++) {
 +            int a = BIND_NONE;
 +            if (fscanf(f, "%d", &a) != 1) a = BIND_NONE;
-+            inBtn[i] = (a >= BIND_NONE && a <= BIND_MENU) || (a >= BIND_SHORTCUT && a < BIND_SHORTCUT + SC_KEYS) ? a : BIND_NONE;
++            inBtn[i] = (a >= BIND_NONE && a <= BIND_REWIND) || (a >= BIND_SHORTCUT && a < BIND_SHORTCUT + SC_KEYS) ? a : BIND_NONE;
 +        }
 +        fclose(f);
 +    }
@@ -3214,6 +3291,7 @@ index 0000000..b158b0b
 +    case BIND_SAVE: snprintf(s, cap, "Save state"); break;
 +    case BIND_LOAD: snprintf(s, cap, "Load state"); break;
 +    case BIND_MENU: snprintf(s, cap, "Game menu"); break;
++    case BIND_REWIND: snprintf(s, cap, "Rewind"); break;
 +    default: snprintf(s, cap, "%s shortcut", smz3ShortcutKeyName(a - BIND_SHORTCUT)); break;
 +    }
 +    return s;
@@ -3266,6 +3344,173 @@ index 0000000..b158b0b
 +    else quickState(save);
 +}
 +
++// ---- rewind, an option of offline runs: a state every few frames (10 on a New 3DS, 30 on an Old one) for up to a minute,
++// packed as the changes between them (smz3_rewind.c). Open, the game stands on the cursor's state, loaded again after every
++// frame and played silent with no buttons; the bottom screen has the controls. Nothing is kept while the run has no rewind.
++static SmzRewind *rw;
++static u8 *rwBuf;
++static size_t rwSize;
++static bool rwOpen;
++static int rwCmd, rwEvery = 10, rwTouch = -1, rwTouchDir, rwDirShown;   // rwCmd: 1 play from here, 2 back to now, 3 open
++static unsigned rwFrames;
++static float rwAcc;
++static u64 rwDirSince, rwNextTick;
++#define RW_BUF_CAP (512 * 1024)
++static void rewindSound(int kind);
++
++static void rewindFree()
++{
++    smz_rewind_free(rw);
++    rw = NULL;
++    free(rwBuf);
++    rwBuf = NULL;
++    rwSize = 0;
++    if (rwOpen) snd3dsResumeMixing();
++    rwOpen = false;
++    rwCmd = 0;
++}
++
++static void rewindAsk()
++{
++    if (!gRewindRun) { snprintf(barNote, sizeof barNote, "No rewind"); barNoteOk = false; barNoteUntil = osGetTime() + 1500; dirty = true; return; }
++    rwCmd = 3;
++}
++
++// The state of this frame into the history; the mixer waits meanwhile, as it reads the same state.
++static void rewindPush()
++{
++    if (!rwBuf && !(rwBuf = (u8 *)malloc(RW_BUF_CAP))) return;
++    LightLock_Lock(&snd3DS.snesAccessLock);
++    size_t n = S9xFreezeToMemory(rwBuf, RW_BUF_CAP);
++    LightLock_Unlock(&snd3DS.snesAccessLock);
++    if (!n) return;
++    if (!rw) {
++        rwEvery = settings3DS.isNew3DS ? 10 : 30;
++        rw = smz_rewind_new(n, settings3DS.isNew3DS ? 6u << 20 : 3u << 20, 3600 / rwEvery);
++        rwSize = n;
++        if (!rw) return;
++    }
++    if (n == rwSize) smz_rewind_push(rw, rwBuf);
++}
++
++static void rewindLoad()
++{
++    LightLock_Lock(&snd3DS.snesAccessLock);
++    if (S9xUnfreezeFromMemory((const uint8 *)smz_rewind_state(rw), rwSize)) gpu3dsInitializeMode7Vertexes();
++    LightLock_Unlock(&snd3DS.snesAccessLock);
++}
++
++// Once a frame, after it: the history, the requests, and while open the cursor's moves and its state for the next frame.
++static void rewindFrame()
++{
++    if (!gRewindRun || cardState) { if (rw || rwBuf) rewindFree(); return; }
++    if (!rwOpen && ++rwFrames % rwEvery == 0) rewindPush();
++    int cmd = rwCmd;
++    rwCmd = 0;
++    if (cmd == 3 && !rwOpen && rw && smz_rewind_count(rw) > 1) {
++        smz_rewind_open(rw);
++        rwOpen = true;
++        rwAcc = 0;
++        rwDirShown = 0;
++        snd3dsDrainMixing();   // silence until the game plays again
++        rewindSound(SMZ_RW_SFX_OPEN);
++        dirty = true;
++    } else if ((cmd == 1 || cmd == 2) && rwOpen) {
++        if (cmd == 2) smz_rewind_step(rw, smz_rewind_count(rw));
++        rewindLoad();
++        if (cmd == 1) { smz_rewind_cut(rw); trk.state_loaded = 3; }
++        rwOpen = false;
++        snd3dsResumeMixing();
++        rewindSound(cmd == 1 ? SMZ_RW_SFX_PLAY : SMZ_RW_SFX_CANCEL);
++        dirty = true;
++        return;
++    }
++    if (!rwOpen) return;
++    u32 held = hidKeysHeld(), bound = 0;
++    for (int i = 0; i < BTN_COUNT; i++) if (inBtn[i] == BIND_REWIND) bound |= BTN_KEYS[i];
++    bool back = (held & (KEY_L | KEY_LEFT)) || (held & bound & boundKeys()) || rwTouchDir < 0;
++    bool fwd = (held & (KEY_R | KEY_RIGHT)) || rwTouchDir > 0;
++    int dir = back == fwd ? 0 : back ? -1 : 1;
++    u64 now = osGetTime();
++    if (dir != rwDirShown) { rwDirShown = dir; rwDirSince = now; rwAcc = 0; dirty = true; }
++    if (dir) {   // real speed first, then twice and four times as fast
++        u64 heldMs = now - rwDirSince;
++        int speed = heldMs < 1200 ? 1 : heldMs < 3000 ? 2 : 4;
++        rwAcc += speed / (float)rwEvery;
++        int steps = (int)rwAcc;
++        rwAcc -= steps;
++        int at = smz_rewind_cursor(rw);
++        if (steps && smz_rewind_step(rw, dir * steps) != at) {
++            dirty = true;
++            if (now >= rwNextTick) { rwNextTick = now + (speed == 1 ? 160 : speed == 2 ? 110 : 75); rewindSound(dir < 0 ? SMZ_RW_SFX_TICK_BACK : SMZ_RW_SFX_TICK_FWD); }
++        }
++    }
++    rewindLoad();
++}
++
++// The bottom screen while rewinding: how far back, the minute kept as a track, and the buttons.
++#define RW_BTN_Y0 128
++#define RW_BTN_Y1 178
++static void rewindButtonRect(int i, int *x0, int *y0, int *x1, int *y1)
++{
++    *x0 = i % 2 ? 164 : 12;
++    *x1 = *x0 + 144;
++    *y0 = i < 2 ? RW_BTN_Y0 : RW_BTN_Y1;
++    *y1 = *y0 + 40;
++}
++
++static int rewindButtonAt(int x, int y)
++{
++    for (int i = 0; i < 4; i++) {
++        int x0, y0, x1, y1;
++        rewindButtonRect(i, &x0, &y0, &x1, &y1);
++        if (x >= x0 && x < x1 && y >= y0 && y < y1) return i;
++    }
++    return -1;
++}
++
++static void rewindMark(int cx, int cy, int dir, int ink)
++{
++    if (!dir) { fill(cx - 7, cy - 7, cx - 2, cy + 8, ink); fill(cx + 3, cy - 7, cx + 8, cy + 8, ink); return; }
++    for (int k = 0; k < 2; k++)
++        for (int i = 0; i < 8; i++) {
++            int h = dir < 0 ? i * 7 / 8 : 7 - i * 7 / 8;
++            int x = cx - 8 + k * 8 + i;
++            fill(x, cy - h, x + 1, cy + h + 1, ink);
++        }
++}
++
++static void drawRewind()
++{
++    const int AMBER = 0xF2A33A, INK = 0xE8ECF2, DIM = 0x8793A6, BORDER = 0x2C4A5E, BACK = 0x0C1A24;
++    int n = smz_rewind_count(rw), at = smz_rewind_cursor(rw);
++    setClip(0, 0, 320, 240);
++    fill(0, 0, 320, 240, theme.bg);
++    fill(0, 0, 320, 3, AMBER);
++    rewindMark(24, 26, rwDirShown, AMBER);
++    bigText(42, 14, 20, INK, rwDirShown < 0 ? "Rewinding" : rwDirShown > 0 ? "Forward" : "Rewind");
++    char back[24];
++    snprintf(back, sizeof back, "-%.1f s", (n - 1 - at) * rwEvery / 60.0f);
++    int bw = ui3dsGetStringWidth(back, 0, 0xffff, 20);
++    bigText(308 - bw, 14, 20, at == n - 1 ? DIM : INK, back);
++    int tx = 12, tw = 296, ty = 66, f = n > 1 ? tw * at / (n - 1) : tw;
++    fill(tx, ty, tx + tw, ty + 6, 0x2A3344);
++    fill(tx, ty, tx + f, ty + 6, AMBER);
++    fill(tx + f - 2, ty - 6, tx + f + 2, ty + 12, INK);
++    text(12, 90, DIM, "The game clock keeps running.", HALIGN_CENTER, 308);
++    static const char *const LABEL[4] = {NULL, NULL, "A  Play from here", "B  Back to now"};
++    for (int i = 0; i < 4; i++) {
++        int x0, y0, x1, y1;
++        rewindButtonRect(i, &x0, &y0, &x1, &y1);
++        bool lit = (i == 0 && rwDirShown < 0) || (i == 1 && rwDirShown > 0) || i == 2;
++        fill(x0, y0, x1, y1, lit ? AMBER : BORDER);
++        fill(x0 + 1, y0 + 1, x1 - 1, y1 - 1, i == 2 ? 0x3A2408 : BACK);
++        if (LABEL[i]) text(x0, y0 + 13, i == 2 ? AMBER : INK, LABEL[i], HALIGN_CENTER, x1);
++        else { rewindMark((x0 + x1) / 2, (y0 + y1) / 2, i == 0 ? -1 : 1, INK); text(x0 + 6, y0 + 13, DIM, i == 0 ? "L" : "R"); }
++    }
++    text(12, 224, DIM, "Hold L or R, or the arrows, to move", HALIGN_CENTER, 308);
++}
++
 +bool smz3FastForward(unsigned held)
 +{
 +    bool slider = false, on = false;
@@ -3293,39 +3538,51 @@ index 0000000..b158b0b
 +static void drawSaveBar(int y)
 +{
 +    const int BORDER = 0x2C4A5E, BACK = 0x0C1A24, INK = 0xE8ECF2, LIT = 0xFF9A1F, LIT_BACK = 0x3A2408;
-+    int x = SC_ROW_X, xf = SC_ROW_X + SC_ROW_W - BAR_FF_W;
++    int x = SC_ROW_X, xf = SC_ROW_X + SC_ROW_W - BAR_FF_W, xr = xf - 3 - BAR_RW_W;
 +    bool noStates = smz3NoStates(), noFast = gChallenge;
 +    float g = noStates ? 0.35f : 1.0f;
 +    if (barNoteUntil && osGetTime() < barNoteUntil) {
 +        int c = barNoteOk ? 0x4CC38A : theme.dim;
-+        barButton(x, xf - 3, y, c, BACK, c, barNote);
++        barButton(x, xr - 3, y, c, BACK, c, barNote);
 +    } else {
 +        barButton(x, x + BAR_BTN_W, y, mixC(theme.bg, BORDER, g), mixC(theme.bg, BACK, g), mixC(theme.bg, INK, g), "SAVE");
-+        barButton(x + BAR_BTN_W + 3, xf - 3, y, mixC(theme.bg, BORDER, g), mixC(theme.bg, BACK, g), mixC(theme.bg, INK, g), "LOAD");
++        barButton(x + BAR_BTN_W + 3, xr - 3, y, mixC(theme.bg, BORDER, g), mixC(theme.bg, BACK, g), mixC(theme.bg, INK, g), "LOAD");
++    }
++    {   // rewind: two triangles pointing left, greyed where the run has no rewind
++        float gr = gRewindRun ? 1.0f : 0.35f;
++        int ink = mixC(theme.bg, INK, gr);
++        barButton(xr, xf - 3, y, mixC(theme.bg, BORDER, gr), mixC(theme.bg, BACK, gr), ink, NULL);
++        int cx = xr + BAR_RW_W / 2 - 8, cy = y + SC_ROW_H / 2;
++        for (int k = 0; k < 2; k++)
++            for (int i = 0; i < 8; i++) {
++                int h = i * 6 / 8;
++                fill(cx + k * 8 + i, cy - h, cx + k * 8 + i + 1, cy + h + 1, ink);
++            }
 +    }
 +    bool lit = ffOn && !noFast;
 +    g = noFast ? 0.35f : 1.0f;
 +    int ink = mixC(theme.bg, lit ? LIT : INK, g);
 +    barButton(xf, xf + BAR_FF_W, y, mixC(theme.bg, lit ? LIT : BORDER, g), mixC(theme.bg, lit ? LIT_BACK : BACK, g), ink, NULL);
-+    int cx = xf + (ffSlider && lit ? 26 : BAR_FF_W / 2) - 8, cy = y + SC_ROW_H / 2;
++    int cx = xf + (ffSlider && lit ? 12 : BAR_FF_W / 2) - 8, cy = y + SC_ROW_H / 2;
 +    for (int k = 0; k < 2; k++)
 +        for (int i = 0; i < 8; i++) {   // two triangles pointing right
 +            int h = 6 - i * 6 / 8;
 +            fill(cx + k * 8 + i, cy - h, cx + k * 8 + i + 1, cy + h + 1, ink);
 +        }
 +    if (ffSlider && lit) {   // driven by the 3D slider
-+        fill(xf + BAR_FF_W - 24, cy - 7, xf + BAR_FF_W - 5, cy + 7, LIT);
-+        text(xf + BAR_FF_W - 24, cy - 7, 0x1A1004, "3D", HALIGN_CENTER, xf + BAR_FF_W - 5);
++        fill(xf + BAR_FF_W - 22, cy - 7, xf + BAR_FF_W - 3, cy + 7, LIT);
++        text(xf + BAR_FF_W - 22, cy - 7, 0x1A1004, "3D", HALIGN_CENTER, xf + BAR_FF_W - 3);
 +    }
 +}
 +
 +static bool barTap(int x, int y)
 +{
 +    if (barY < 0 || y < barY || y >= barY + SC_ROW_H || x < SC_ROW_X || x >= SC_ROW_X + SC_ROW_W) return false;
-+    int xf = SC_ROW_X + SC_ROW_W - BAR_FF_W;
++    int xf = SC_ROW_X + SC_ROW_W - BAR_FF_W, xr = xf - 3 - BAR_RW_W;
 +    if (x >= xf) {
 +        if (!gChallenge && !ffSlider) ffToggle = !ffToggle;   // the slider, while up, decides alone
-+    } else if (x < SC_ROW_X + BAR_BTN_W) requestState(true);
++    } else if (x >= xr) rewindAsk();
++    else if (x < SC_ROW_X + BAR_BTN_W) requestState(true);
 +    else if (x >= SC_ROW_X + BAR_BTN_W + 3) requestState(false);
 +    dirty = true;
 +    return true;
@@ -4115,7 +4372,7 @@ index 0000000..b158b0b
 +
 +// sounds on ndsp channels 1 to 4 (the SNES plays on 0), synthesized once: the card's three get a channel each so the rows
 +// don't cut the fanfare, the menu cues share the last one so a new cue cuts the previous
-+enum { SFX_TICK, SFX_ROW, SFX_FANFARE, SFX_UI, SFX_COUNT = SFX_UI + UI_CUE_CONFIRM };
++enum { SFX_TICK, SFX_ROW, SFX_FANFARE, SFX_UI, SFX_RW = SFX_UI + UI_CUE_CONFIRM, SFX_COUNT = SFX_RW + 5 };
 +#define SFX_CHANNELS (SFX_UI + 1)
 +#define SFX_RATE 22050
 +static ndspWaveBuf sfxBuf[SFX_COUNT];
@@ -4156,6 +4413,7 @@ index 0000000..b158b0b
 +{
 +    static const float CARD[SFX_UI] = {0.03f, 0.16f, 2.0f};
 +    if (k < SFX_UI) return CARD[k];
++    if (k >= SFX_RW) return 0.33f;   // the rewind sounds (smz_rewind_sound) are shorter
 +    int notes = CUES[k - SFX_UI].hz[2] > 0 ? 3 : CUES[k - SFX_UI].hz[1] > 0 ? 2 : 1;
 +    return (CUES[k - SFX_UI].gap * (notes - 1) + CUES[k - SFX_UI].ms) / 1000;
 +}
@@ -4175,7 +4433,8 @@ index 0000000..b158b0b
 +            for (int i = 0; i < 4; i++) sfxNote(p, n, i * 0.07f, 0.25f, ARP[i], 0.12f);
 +            for (float hz : CHORD) sfxNote(p, n, 0.30f, 1.6f, hz, 0.07f);
 +        }
-+        for (int i = 0; k >= SFX_UI && i < 3 && CUES[k - SFX_UI].hz[i] > 0; i++)
++        if (k >= SFX_RW) smz_rewind_sound(k - SFX_RW, SFX_RATE, p, n);
++        for (int i = 0; k >= SFX_UI && k < SFX_RW && i < 3 && CUES[k - SFX_UI].hz[i] > 0; i++)
 +            cueNote(p, n, CUES[k - SFX_UI].gap * i / 1000, CUES[k - SFX_UI].ms / 1000, CUES[k - SFX_UI].hz[i], CUES[k - SFX_UI].vol);
 +        DSP_FlushDataCache(p, n * 2);
 +        memset(&sfxBuf[k], 0, sizeof sfxBuf[k]);
@@ -4207,6 +4466,8 @@ index 0000000..b158b0b
 +{
 +    if (c != UI_CUE_NONE) sfxPlay(SFX_UI + c - 1);
 +}
++
++static void rewindSound(int kind) { sfxPlay(SFX_RW + kind); }
 +
 +// The sounds follow the timeline, once a frame.
 +static void cardSounds()
@@ -4605,6 +4866,13 @@ index 0000000..b158b0b
 +        dirty = false;
 +        return;
 +    }
++    if (rwOpen) {
++        drawRewind();
++        impl3dsFlushScreen(settings3DS.SecondScreen, false, false);
++        gfxScreenSwapBuffers(settings3DS.SecondScreen, false);
++        dirty = false;
++        return;
++    }
 +    if (!tabShown(tab)) tab = TAB_RUN;
 +    if ((portalPlaying() || visorPlaying()) && portalBaseReady) {   // a transition's frames redo only the blend, not the whole tracker
 +        memcpy(trkFb, portalBase, 320 * 240 * 2);
@@ -4751,6 +5019,20 @@ index 0000000..b158b0b
 +bool smz3TrackerTouch(unsigned keysDown, unsigned keysHeld)
 +{
 +    if (!smz3IsRun() || curSlot < 0) return false;
++    if (rwOpen) {   // the rewind screen: hold the arrows, tap play or back
++        if (keysHeld & KEY_TOUCH) {
++            touchPosition t;
++            hidTouchRead(&t);
++            int b = rewindButtonAt(t.px, t.py);
++            if (keysDown & KEY_TOUCH) rwTouch = b;
++            rwTouchDir = rwTouch == 0 && b == 0 ? -1 : rwTouch == 1 && b == 1 ? 1 : 0;
++        } else {
++            if (rwTouch >= 2) rwCmd = rwTouch == 2 ? 1 : 2;
++            rwTouch = -1;
++            rwTouchDir = 0;
++        }
++        return true;
++    }
 +    bool held = keysHeld & KEY_TOUCH;
 +    if (held) {
 +        touchPosition t;
@@ -4844,6 +5126,8 @@ index 0000000..b158b0b
 +        smz_goal_from_settings(r0.settings, &trk.goal);   // a daily challenge ends at its goal
 +        if (curSlot == SMZ_DAILY_SLOT) trk.min_end_ms = SMZ_DAILY_MIN_MS;   // the server takes no daily time under this
 +        gChallenge = strstr(r0.settings, "\"challenge\":true") != NULL;
++        rewindFree();
++        gRewindRun = strstr(r0.settings, "\"rewind\":true") && !gChallenge && !(curSlot >= 0 && smzOnlineSlotKind(curSlot) >= 1);
 +        int kind = curSlot >= 0 ? smzOnlineRunMode(curSlot) : 0;   // the mode, online or not
 +        goalsRun = kind == 2 || kind == 3;
 +        auto rule = [&](const char *key, int def) { const char *p = strstr(r0.settings, key); int v = p ? atoi(p + strlen(key)) : def; return v < 0 ? 0 : v; };
@@ -4899,6 +5183,7 @@ index 0000000..b158b0b
 +    else if (turboWallMs > 0) dt += (int)lround(turboEmuMs) - (int)turboWallMs;   // fast forward runs unpaced: its frames count at the SNES rate
 +    if (dt < 0) dt = 0;
 +    turboWallMs = 0; turboEmuMs = 0;
++    if (rwOpen) { if (trk.started && trk.running) trk.pending_ms += dt; return; }   // a past frame on screen: only the clock moves
 +    if (deadBosses) smz_prepared_apply(deadBosses, Memory.RAM, 0x20000, Memory.SRAM, 0x20000);   // a mid-game daily start
 +    smz_tracker_tick(&trk, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, dt, 1);
 +    if (trk.started) smz_disc_update(&disc, Memory.RAM, 0x20000, (int)trk.game);
@@ -5040,6 +5325,11 @@ index 0000000..b158b0b
 +{
 +    *openMenu = false;
 +    if (!smz3IsRun()) return 0;
++    if (rwOpen) {   // every button is the rewind screen's
++        if (keysDown & KEY_A) rwCmd = 1;
++        else if (keysDown & KEY_B) rwCmd = 2;
++        return ~(unsigned)KEY_TOUCH;
++    }
 +    if (cardState != 1) {
 +        unsigned took = boundKeys();   // a bound button never reaches the game
 +        if (noStatesUntil && (keysDown & ~KEY_TOUCH)) { noStatesUntil = 0; dirty = true; return took | (keysDown & ~KEY_TOUCH); }   // the button that closes it does nothing else
@@ -5052,6 +5342,7 @@ index 0000000..b158b0b
 +            int a = inBtn[i];
 +            if (a == BIND_SAVE || a == BIND_LOAD) requestState(a == BIND_SAVE);
 +            else if (a == BIND_MENU) *openMenu = true;
++            else if (a == BIND_REWIND) rewindAsk();
 +            else if (a >= BIND_SHORTCUT) {
 +                scLoad();
 +                int k = a - BIND_SHORTCUT, id = k < SC_SLOTS ? scSlots[k] : SC_ZELDA_COUNT + k - SC_SLOTS;
@@ -5085,9 +5376,10 @@ index 0000000..b158b0b
 +    u64 now = osGetTime();
 +    if (settings3DS.TurboMode && now - lastFrameMs < 3000) { turboWallMs += now - lastFrameMs; turboEmuMs += 1000 / 60.0988; }
 +    lastFrameMs = now;
++    rewindFrame();
 +    if (tick || curSlot != gPlaySlot) { trackerUpdate(); debugTouches(); dirty = true; }
 +    static unsigned frames;
-+    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending)   // ~100 ms: an enemy's death is short
++    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending && !rwOpen)   // ~100 ms: an enemy's death is short
 +        smz_counters_tick(&goalc, trk.started ? (int)trk.game : 0, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, (int)(trk.zelda_cleared + trk.metroid_cleared));
 +    runPendingState();
 +    if (barNoteUntil && now >= barNoteUntil) { barNoteUntil = 0; dirty = true; }
@@ -5526,9 +5818,9 @@ index 0000000..b158b0b
 +// lives on one button at most: binding it again moves it.
 +static void bindAction(int slot)
 +{
-+    PauseRow acts[4 + SC_KEYS];
++    PauseRow acts[5 + SC_KEYS];
 +    int n = 0, cursor = 0, scroll = 0, pick = -1;
-+    for (int a = BIND_FAST; a <= BIND_MENU; a++) acts[n++] = {PM_ACT, a};
++    for (int a = BIND_FAST; a <= BIND_REWIND; a++) acts[n++] = {PM_ACT, a};
 +    for (int i = 0; i < SC_KEYS; i++) acts[n++] = {PM_ACT, BIND_SHORTCUT + i};
 +    pmHeading = "SMZ3  -  Pick an action";
 +    input3dsWaitForRelease();

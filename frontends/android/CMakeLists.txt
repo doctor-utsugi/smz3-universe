@@ -30,7 +30,8 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_shortcuts.c
     ../../core/ui/smz3_counters.c
     ../../core/ui/smz3_runlogic.c
-    ../../core/ui/smz3_tracker.c)
+    ../../core/ui/smz3_tracker.c
+    ../../core/ui/smz3_rewind.c)
 target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/ui)
 target_compile_options(smz3core PRIVATE -O2 -Wno-parentheses -Wno-unused-function)
 target_link_options(smz3core PRIVATE -Wl,-z,max-page-size=16384)

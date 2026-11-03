@@ -15,7 +15,7 @@ done
 cp "$ROOT"/core/gen/smz3_*.h source/
 for f in smz3_state smz3_locations smz3_inventory; do cp "$ROOT/core/$f.c" source/; done
 cp "$ROOT"/core/smz3_*.h source/
-for f in smz3_ui smz3_ui_opts smz3_run smz3_host smz3_preview smz3_tracker smz3_goal smz3_daily smz3_proof smz3_runlogic smz3_discovery smz3_shortcuts smz3_counters; do cp "$ROOT/core/ui/$f.c" source/; done
+for f in smz3_ui smz3_ui_opts smz3_run smz3_host smz3_preview smz3_tracker smz3_goal smz3_daily smz3_proof smz3_runlogic smz3_discovery smz3_shortcuts smz3_counters smz3_rewind; do cp "$ROOT/core/ui/$f.c" source/; done
 cp "$ROOT"/core/ui/smz3_*.h source/
 cp "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/ips/*.ips romfs/smz3/ips/
 python3 "$ROOT"/tools/gen_3ds_assets.py "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3 source/smz3_mapdata.c romfs/smz3

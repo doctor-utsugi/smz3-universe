@@ -6,6 +6,7 @@
 #include "smz3_tracker.h"
 #include "smz3_daily.h"
 #include "smz3_shortcuts.h"
+#include "smz3_rewind.h"
 #include "smz3_rom.h"
 
 #define NATIVE(name) Java_com_swordfish_lemuroid_app_shared_game_viewmodel_Smz3Native_##name
@@ -771,4 +772,16 @@ JNIEXPORT jint JNICALL NATIVE(originalPreviews)(JNIEnv *env, jclass cls, jbyteAr
     (*env)->ReleaseByteArrayElements(env, z3, z, JNI_ABORT);
     (*env)->ReleaseByteArrayElements(env, sm, s, JNI_ABORT);
     return ok;
+}
+
+/* The rewind screen's sounds (SMZ_RW_SFX_*) as mono 16-bit PCM. */
+JNIEXPORT jshortArray JNICALL NATIVE(rewindSound)(JNIEnv *env, jclass cls, jint kind, jint rate)
+{
+    int cap = rate / 2;
+    int16_t *pcm = malloc((size_t)cap * sizeof *pcm);
+    int n = pcm ? smz_rewind_sound(kind, rate, pcm, cap) : 0;
+    jshortArray out = (*env)->NewShortArray(env, n);
+    if (out && n) (*env)->SetShortArrayRegion(env, out, 0, n, pcm);
+    free(pcm);
+    return out;
 }

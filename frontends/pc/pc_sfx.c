@@ -1,6 +1,7 @@
 #include <math.h>
 #include <SDL.h>
 #include "pc_sfx.h"
+#include "smz3_rewind.h"
 
 #define RATE 44100
 
@@ -17,7 +18,7 @@ static void note(float *out, int len, int start, float hz, float ms, float vol)
     }
 }
 
-void sfx_play(SfxKind kind)
+static int open_dev(void)
 {
     if (!dev && !tried) {
         tried = 1;
@@ -26,7 +27,21 @@ void sfx_play(SfxKind kind)
         dev = SDL_OpenAudioDevice(NULL, 0, &want, NULL, 0);
         if (dev) SDL_PauseAudioDevice(dev, 0);
     }
-    if (!dev) return;
+    return dev != 0;
+}
+
+void sfx_rewind(int kind)
+{
+    static Sint16 pcm[RATE / 2];
+    if (!open_dev()) return;
+    int n = smz_rewind_sound(kind, RATE, pcm, RATE / 2);
+    SDL_ClearQueuedAudio(dev);
+    SDL_QueueAudio(dev, pcm, (Uint32)(n * sizeof pcm[0]));
+}
+
+void sfx_play(SfxKind kind)
+{
+    if (!open_dev()) return;
     static const struct { float hz[3], ms, gap, vol; } S[] = {
         [SFX_MOVE] = {{1318, 0, 0}, 45, 0, 0.10f},
         [SFX_TAB] = {{880, 1175, 0}, 70, 40, 0.11f},

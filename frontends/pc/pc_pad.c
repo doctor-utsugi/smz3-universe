@@ -12,16 +12,20 @@ static const int DEFAULTS[PA_COUNT] = {
     SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_BACK,
     SDL_CONTROLLER_BUTTON_RIGHTSTICK, SDL_CONTROLLER_BUTTON_LEFTSTICK, PAD_AXIS_BASE + SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
     -1, -1, -1, -1,   /* quick states: free by default, Select + R / L / D-pad also work while playing */
+    PAD_AXIS_BASE + SDL_CONTROLLER_AXIS_TRIGGERLEFT,
 };
-static const char *const NAMES[PA_COUNT] = {"SNES B", "SNES A", "SNES Y", "SNES X", "SNES L", "SNES R", "Start", "Select", "Tracker", "Leave run", "Fast forward", "Save state", "Load state", "State slot -", "State slot +"};
+static const char *const NAMES[PA_COUNT] = {"SNES B", "SNES A", "SNES Y", "SNES X", "SNES L", "SNES R", "Start", "Select", "Tracker", "Leave run", "Fast forward", "Save state", "Load state", "State slot -", "State slot +", "Rewind"};
 static const int SNES_BIT[8] = {PAD_B, PAD_A, PAD_Y, PAD_X, PAD_L, PAD_R, PAD_START, PAD_SELECT};
-static const SDL_Keycode KEY_DEFAULTS[8] = {SDLK_z, SDLK_x, SDLK_a, SDLK_s, SDLK_q, SDLK_w, SDLK_RETURN, SDLK_BACKSPACE};
-static SDL_Keycode key_of[8];
+static const SDL_Keycode KEY_DEFAULTS[PA_COUNT] = {SDLK_z, SDLK_x, SDLK_a, SDLK_s, SDLK_q, SDLK_w, SDLK_RETURN, SDLK_BACKSPACE,
+    [PA_FAST] = SDLK_SPACE, [PA_REWIND] = SDLK_r};
+static SDL_Keycode key_of[PA_COUNT];
+
+int pad_keyed(int action) { return (action >= 0 && action < PA_TRACKER) || action == PA_FAST || action == PA_REWIND; }
 
 /* The keys the game screen keeps for itself (pc_main.c: the event loop). */
 static const struct { SDL_Keycode k; const char *use; } FIXED_KEYS[] = {
     {SDLK_UP, "the SNES D-pad"}, {SDLK_DOWN, "the SNES D-pad"}, {SDLK_LEFT, "the SNES D-pad"}, {SDLK_RIGHT, "the SNES D-pad"},
-    {SDLK_TAB, "the tracker"}, {SDLK_ESCAPE, "leaving the run"}, {SDLK_SPACE, "fast forward"}, {SDLK_F5, "save state"}, {SDLK_F7, "load state"},
+    {SDLK_TAB, "the tracker"}, {SDLK_ESCAPE, "leaving the run"}, {SDLK_F5, "save state"}, {SDLK_F7, "load state"},
     {SDLK_F6, "the state slot"}, {SDLK_F8, "the state slot"}, {SDLK_F9, "the aspect ratio"}, {SDLK_F11, "full screen"}, {SDLK_F1, "the settings"},
     {SDLK_v, "the video panel"}, {SDLK_e, "the tracker's tabs"}, {SDLK_p, "the tracker's pause"}, {SDLK_f, "the map's follow"},
     {SDLK_d, "the dungeon maps"}, {SDLK_h, "the dungeon maps"}, {SDLK_EQUALS, "the map's zoom"}, {SDLK_MINUS, "the map's zoom"},
@@ -30,9 +34,9 @@ static const struct { SDL_Keycode k; const char *use; } FIXED_KEYS[] = {
 
 static void keys_save(void)
 {
-    char text[160];
+    char text[256];
     int len = 0;
-    for (int a = 0; a < 8; a++) len += snprintf(text + len, sizeof text - (size_t)len, "%d=%d\n", a, (int)key_of[a]);
+    for (int a = 0; a < PA_COUNT; a++) if (pad_keyed(a)) len += snprintf(text + len, sizeof text - (size_t)len, "%d=%d\n", a, (int)key_of[a]);
     store_write(store_path("keys.cfg"), text, (size_t)len);
 }
 
@@ -46,18 +50,18 @@ static void keys_load(void)
     text[n] = 0;
     for (char *line = strtok(text, "\n"); line; line = strtok(NULL, "\n")) {
         int a, k;
-        if (sscanf(line, "%d=%d", &a, &k) == 2 && a >= 0 && a < 8) key_of[a] = (SDL_Keycode)k;
+        if (sscanf(line, "%d=%d", &a, &k) == 2 && pad_keyed(a)) key_of[a] = (SDL_Keycode)k;
     }
     free(text);
 }
 
-SDL_Keycode pad_key(int action) { return action >= 0 && action < 8 ? key_of[action] : SDLK_UNKNOWN; }
-void pad_set_key(int action, SDL_Keycode k) { if (action >= 0 && action < 8) { key_of[action] = k; keys_save(); } }
+SDL_Keycode pad_key(int action) { return pad_keyed(action) ? key_of[action] : SDLK_UNKNOWN; }
+void pad_set_key(int action, SDL_Keycode k) { if (pad_keyed(action)) { key_of[action] = k; keys_save(); } }
 
 const char *pad_key_use(SDL_Keycode k)
 {
     for (size_t i = 0; i < sizeof FIXED_KEYS / sizeof FIXED_KEYS[0]; i++) if (FIXED_KEYS[i].k == k) return FIXED_KEYS[i].use;
-    for (int a = 0; a < 8; a++) if (key_of[a] == k) return NAMES[a];
+    for (int a = 0; a < PA_COUNT; a++) if (pad_keyed(a) && key_of[a] == k) return NAMES[a];
     return NULL;
 }
 

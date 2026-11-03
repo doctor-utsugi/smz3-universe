@@ -289,7 +289,7 @@ int settings_raw(const SDL_Event *e, int code)
     if (e->type == SDL_KEYDOWN && e->key.repeat) return 1;
     if (e->type == SDL_KEYDOWN && e->key.keysym.sym == SDLK_ESCAPE) { screen = S_PAD; return 1; }
     const char *name = pad_action_name(rebind_action);
-    if (e->type == SDL_KEYDOWN && rebind_action < PA_TRACKER) {
+    if (e->type == SDL_KEYDOWN && pad_keyed(rebind_action)) {
         SDL_Keycode key = e->key.keysym.sym;
         const char *use = pad_key_use(key);
         if (key == SDLK_DELETE) { pad_set_key(rebind_action, SDLK_UNKNOWN); snprintf(sc_msg, sizeof sc_msg, "%s has no key now", name); }
@@ -378,8 +378,8 @@ void settings_draw(float k, float ox, float oy)
         for (int i = 0; i < SHOWN && scroll + i < PA_COUNT + 2; i++) {
             int r = scroll + i;
             char val[64];
-            if (r < PA_TRACKER) snprintf(val, sizeof val, "%s  /  %s", pad_key(r) != SDLK_UNKNOWN ? SDL_GetKeyName(pad_key(r)) : "-", pad_code_name(pad_code(r)));
-            if (r < PA_COUNT) row(k, ox, oy, i, pad_action_name(r), r < PA_TRACKER ? val : pad_code_name(pad_code(r)), r == cursor);
+            if (pad_keyed(r)) snprintf(val, sizeof val, "%s  /  %s", pad_key(r) != SDLK_UNKNOWN ? SDL_GetKeyName(pad_key(r)) : "-", pad_code_name(pad_code(r)));
+            if (r < PA_COUNT) row(k, ox, oy, i, pad_action_name(r), pad_keyed(r) ? val : pad_code_name(pad_code(r)), r == cursor);
             else row(k, ox, oy, i, r == PA_COUNT ? "Reset to defaults" : "Back", NULL, r == cursor);
         }
         if (sc_msg[0]) text(k, ox, oy, 12, 32 + SHOWN * ROW_H - 1, 5, 0, sc_msg);
@@ -388,7 +388,7 @@ void settings_draw(float k, float ox, float oy)
             rect(k, ox, oy, 20, 80, 280, 80, 2);
             rect(k, ox, oy, 20, 80, 280, 3, 5);
             char msg[96];
-            int keyed = rebind_action < PA_TRACKER;
+            int keyed = pad_keyed(rebind_action);
             snprintf(msg, sizeof msg, keyed ? "Press a key or a button for %s" : "Press the button for %s", pad_action_name(rebind_action));
             text(k, ox, oy, 160, 98, 3, 1, msg);
             text(k, ox, oy, 160, 122, 4, 1, keyed ? "Delete clears the key   Esc or wait to cancel" : "Esc or wait to cancel");

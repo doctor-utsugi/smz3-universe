@@ -35,6 +35,7 @@
 #include "smz3_md5.h"
 #include "smz3_discovery.h"
 #include "smz3_proof.h"
+#include "smz3_rewind.h"
 #include "smz3_romsetup.h"
 #include "smz3_runlogic.h"
 #include "smz3_tracker.h"
@@ -330,7 +331,7 @@ static void usage(void)
          "                                make a randomized ROM file without opening a window\n\n"
          "Drop the two base ROM files on the window the first time instead of using config.\n"
          "Window keys: arrows move, X A button, Z B, S X, A Y, Q/W shoulders, Enter start, Backspace select,\n"
-         "Space fast forward, Tab tracker, Esc leave the run, F11 full screen.");
+         "Space fast forward, R rewind (runs that allow it), Tab tracker, Esc leave the run, F11 full screen.");
 }
 
 /* ---------- menu helpers ---------- */
@@ -1028,6 +1029,39 @@ static const char *const TAB_NAMES[TAB_COUNT + 1] = {"RUN", "ITEMS", "CHECKS", "
 
 /* The daily challenge over the top-right corner of the game: the window clock (red in its last 15 minutes), the own time
  * from Start, the goal and the time to the next hint; each can be hidden in the video options. */
+/* The rewind bar under the game: a direction mark, how far back the cursor is and the minute kept as a track. The picture
+ * stays as it is, so the moment can be read. */
+static void rewind_bar(SmzRewind *rw, int dir, float gx, float gw, int wh)
+{
+    float u = wh / 720.0f, bw = fminf(gw - 40 * u, 820 * u), bh = 96 * u, bx = gx + (gw - bw) / 2, by = wh - bh - 22 * u;
+    int n = smz_rewind_count(rw), at = smz_rewind_cursor(rw);
+    SDL_Color amber = C(0xF2, 0xA3, 0x3A), text = C(0xE8, 0xEC, 0xF2), dim = C(0x87, 0x93, 0xA6);
+    gfx_rect(bx, by, bw, bh, (SDL_Color){0x10, 0x16, 0x1F, 228});
+    gfx_rect(bx, by, bw, 3 * u, amber);
+    float ix = bx + 22 * u, iy = by + 22 * u, is = 16 * u;   /* two triangles one way or the other, or two bars while still */
+    if (dir) {
+        for (int k = 0; k < 2; k++) {
+            float x0 = ix + k * is * 0.9f, tip = dir < 0 ? x0 : x0 + is, base = dir < 0 ? x0 + is : x0;
+            float xy[8] = {base, iy, tip, iy + is / 2, tip, iy + is / 2, base, iy + is};
+            SDL_Color c4[4] = {amber, amber, amber, amber};
+            gfx_quad(xy, c4);
+        }
+    } else {
+        gfx_rect(ix + 2 * u, iy, 6 * u, is, amber);
+        gfx_rect(ix + 14 * u, iy, 6 * u, is, amber);
+    }
+    gfx_text(ix + 42 * u, iy - 3 * u, 22 * u, text, 0, dir < 0 ? "Rewinding" : dir > 0 ? "Forward" : "Rewind");
+    char back[24];
+    snprintf(back, sizeof back, "-%.1f s", (n - 1 - at) / 60.0f);
+    gfx_text(bx + bw - 22 * u, iy - 3 * u, 22 * u, at == n - 1 ? dim : text, 2, back);
+    float tx = bx + 22 * u, tw = bw - 44 * u, ty = by + 50 * u, f = n > 1 ? (float)at / (n - 1) : 1;
+    gfx_rect(tx, ty, tw, 6 * u, C(0x2A, 0x33, 0x44));
+    gfx_rect(tx, ty, tw * f, 6 * u, amber);
+    gfx_rect(tx + tw * f - 3 * u, ty - 6 * u, 6 * u, 18 * u, text);
+    static const HelpItem RW[] = {{"LR", "<", "Back / forward"}, {"A", "Enter", "Play from here"}, {"B", "Esc", "Back to now"}};
+    help_prompt(gx + gw / 2, by + 66 * u, 24 * u, RW, 3);
+}
+
 static void daily_hud(const SmzDailyRun *r, int finished, float gx, float gw, int wh)
 {
     float u = wh / 720.0f, px = 19 * u, lh = 25 * u, pad = 10 * u;
@@ -1157,7 +1191,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     } else {
         static const HelpItem LEFT[] = {
             {"", "", "#Tracker"}, {"R3", "Tab", "Open and close"}, {"LR2", "Q E", "Change tab"}, {NULL, "P", "Pause the game while open"},
-            {"", "", "#Playing"}, {"RT", "Space", "Fast forward"}, {"L3", "Esc", "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"X", "V", "Video options"},
+            {"", "", "#Playing"}, {"RT", "Space", "Fast forward"}, {"LT", "R", "Rewind (when the run allows it)"}, {"L3", "Esc", "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"X", "V", "Video options"},
             {NULL, "F5", "Save state"}, {NULL, "F7", "Load state"}, {NULL, "F6 F8", "State slot"},
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
         };
@@ -1294,6 +1328,14 @@ static void play(int slot, int game_save_only)
     Uint32 next_goals = SDL_GetTicks() + 300000;
     smz_goal_from_settings(run.settings, &trk.goal);   /* a daily challenge ends at its goal */
     int challenge = strstr(run.settings, "\"challenge\":true") != NULL;   /* no fast forward (save states are off in its settings) */
+    /* rewind, only when the run asks for it and sends nothing online: a state every frame for up to a minute, packed as
+     * the changes between frames; without it nothing is kept or saved */
+    size_t rw_size = emu_state_size();
+    SmzRewind *rw = json_flag(run.settings, "rewind", 0) && !online_slot_kind(slot + 1) && !challenge && rw_size ? smz_rewind_new(rw_size, 64u << 20, 3600) : NULL;
+    uint8_t *rw_buf = rw ? malloc(rw_size) : NULL;
+    if (!rw_buf) { smz_rewind_free(rw); rw = NULL; }
+    int rw_open = 0, rw_dir = 0, rw_shown = -1, rw_cmd = 0;   /* rw_cmd: 1 play from the cursor, 2 back to the present, 3 open */
+    Uint32 rw_since = 0, rw_tick = 0;
     int dead_bosses = smz_daily_prepared_bosses(run.settings);   /* a mid-game start keeps these bosses dead */
     static SmzDailyRun dr;   /* the attempt of the daily slot: its clock, goal and hints */
     int daily = slot + 1 == DAILY_SLOT && online_daily_load(&dr) == 0, ntabs = daily ? TAB_COUNT + 1 : TAB_COUNT;
@@ -1356,6 +1398,12 @@ static void play(int slot, int game_save_only)
                 if (done_popup && (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_ESCAPE) && finish_skip()) continue;   /* the first press only ends the animation */
                 if (done_popup) { if (k == SDLK_RETURN || k == SDLK_SPACE) { done_popup = 0; exit_at = SDL_GetTicks(); } else if (k == SDLK_ESCAPE) done_popup = 0; continue; }   /* main menu, or stay for the credits */
                 if (fail_popup) { if (k == SDLK_RETURN || k == SDLK_SPACE) fail_popup = 0; else if (k == SDLK_ESCAPE) { fail_popup = 0; exit_at = SDL_GetTicks(); } continue; }
+                if (rw_open) {
+                    if (k == SDLK_RETURN || k == pad_key(PA_A)) rw_cmd = 1;
+                    else if (k == SDLK_ESCAPE || k == pad_key(PA_B)) rw_cmd = 2;
+                    continue;
+                }
+                if (rw && !show && !leaving && !vpanel && !finished && k == pad_key(PA_REWIND)) { rw_cmd = 3; continue; }
                 if (vpanel) {
                     if (k == SDLK_ESCAPE || k == SDLK_v || k == SDLK_BACKSPACE) vpanel = 0;
                     else if (k == SDLK_UP) vrow = (vrow + settings_video_rows() - 1) % settings_video_rows();
@@ -1396,6 +1444,12 @@ static void play(int slot, int game_save_only)
                 if (done_popup && (b == SDL_CONTROLLER_BUTTON_A || b == SDL_CONTROLLER_BUTTON_B) && finish_skip()) continue;
                 if (done_popup) { if (b == SDL_CONTROLLER_BUTTON_A) { done_popup = 0; exit_at = SDL_GetTicks(); } else if (b == SDL_CONTROLLER_BUTTON_B) done_popup = 0; continue; }
                 if (fail_popup) { if (b == SDL_CONTROLLER_BUTTON_A) fail_popup = 0; else if (b == SDL_CONTROLLER_BUTTON_B) { fail_popup = 0; exit_at = SDL_GetTicks(); } continue; }
+                if (rw_open) {
+                    if (b == SDL_CONTROLLER_BUTTON_A) rw_cmd = 1;
+                    else if (b == SDL_CONTROLLER_BUTTON_B) rw_cmd = 2;
+                    continue;
+                }
+                if (rw && !show && !leaving && !vpanel && !finished && b == pad_code(PA_REWIND)) { rw_cmd = 3; continue; }
                 if (vpanel) {
                     if (b == SDL_CONTROLLER_BUTTON_B || b == SDL_CONTROLLER_BUTTON_X || b == pad_code(PA_TRACKER)) vpanel = 0;
                     else if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) vrow = (vrow + settings_video_rows() - 1) % settings_video_rows();
@@ -1442,6 +1496,45 @@ static void play(int slot, int game_save_only)
             was_show = show; was_tab = tab; was_scroll = scroll; was_leaving = leaving; was_pause = pause_on_overlay; was_follow = mv.follow; was_dv = dv; was_exit = exit_at != 0; was_vpanel = vpanel; was_vrow = vrow; was_vchanges = vchanges;
         }
         const Uint8 *keys = SDL_GetKeyboardState(NULL);
+        if (rw) {   /* rewind: the game stands still on a past frame; held directions move through the minute kept */
+            SDL_Keycode rk = pad_key(PA_REWIND), fk = pad_key(PA_FAST);
+            if (rw_cmd == 3 && !rw_open && smz_rewind_count(rw) > 1) {
+                rw_open = 1; rw_shown = -1; rw_dir = 0;
+                smz_rewind_open(rw);
+                if (audio) SDL_ClearQueuedAudio(audio);
+                sfx_rewind(SMZ_RW_SFX_OPEN);
+            } else if ((rw_cmd == 1 || rw_cmd == 2) && rw_open) {
+                if (rw_cmd == 2) smz_rewind_step(rw, smz_rewind_count(rw));
+                emu_state_load(smz_rewind_state(rw), rw_size);
+                if (rw_cmd == 1) { smz_rewind_cut(rw); trk.state_loaded = 3; }
+                rw_open = 0;
+                sfx_rewind(rw_cmd == 1 ? SMZ_RW_SFX_PLAY : SMZ_RW_SFX_CANCEL);
+            }
+            rw_cmd = 0;
+            if (rw_open) {
+                int d = pad_dirs(pad);
+                int back = keys[SDL_SCANCODE_LEFT] || (rk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(rk)]) || (d & 4) || pad_held(pad, pad_code(PA_REWIND)) || pad_held(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+                int fwd = keys[SDL_SCANCODE_RIGHT] || (fk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(fk)]) || (d & 8) || pad_held(pad, pad_code(PA_FAST)) || pad_held(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+                int dir = back == fwd ? 0 : back ? -1 : 1;
+                if (dir != rw_dir) { rw_dir = dir; rw_since = SDL_GetTicks(); }
+                if (dir) {   /* real speed first, then twice and four times as fast */
+                    Uint32 held = SDL_GetTicks() - rw_since;
+                    int sp = held < 1200 ? 1 : held < 3000 ? 2 : 4, at = smz_rewind_cursor(rw);
+                    if (smz_rewind_step(rw, dir * sp) != at && SDL_GetTicks() >= rw_tick) {
+                        rw_tick = SDL_GetTicks() + (sp == 1 ? 160 : sp == 2 ? 110 : 75);
+                        sfx_rewind(dir < 0 ? SMZ_RW_SFX_TICK_BACK : SMZ_RW_SFX_TICK_FWD);
+                    }
+                }
+                if (smz_rewind_cursor(rw) != rw_shown) {   /* the picture of that moment: its state and one silent frame */
+                    rw_shown = smz_rewind_cursor(rw);
+                    emu_state_load(smz_rewind_state(rw), rw_size);
+                    emu_set_pad(0);
+                    emu_run_frame();
+                    size_t n;
+                    emu_take_audio(&n);
+                }
+            }
+        }
         {   /* the D-pad and the left stick choose the dungeon and the floor while the dungeon pictures are up */
             static int last_dirs;
             int dirs = pad_dirs(pad), fresh = dirs & ~last_dirs;
@@ -1469,10 +1562,11 @@ static void play(int slot, int game_save_only)
             }
             map_view_move(&mv, dx, dy, dz);
         }
-        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel ? 0 : pad_bits(keys);
-        fast = !challenge && ((keys[SDL_SCANCODE_SPACE] && !show) || pad_held(pad, pad_code(PA_FAST)));
+        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open ? 0 : pad_bits(keys);
+        SDL_Keycode ffk = pad_key(PA_FAST);
+        fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || pad_held(pad, pad_code(PA_FAST)));
         int frames = fast ? 4 : 1;
-        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel;
+        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open;
         if (!hold) {
             emu_set_pad(input);
             /* fast forward keeps the music at its pitch: one frame of sound out of every four, each one blended into the
@@ -1499,10 +1593,11 @@ static void play(int slot, int game_save_only)
                 }
             }
             if (fast && gn) SDL_QueueAudio(audio, grain, (Uint32)(gn * 4));
+            if (rw && !finished && emu_state_save(rw_buf, rw_size) == 0) smz_rewind_push(rw, rw_buf);
         }
 
         Uint64 now = SDL_GetPerformanceCounter();
-        if ((now - last_tick) * 1000 / freq >= 100) {   /* often enough that the final time is taken close to the real end */
+        if (!rw_open && (now - last_tick) * 1000 / freq >= 100) {   /* rewinding: the clock's time is counted on the first read after; often enough that the final time is taken close to the real end */
             int dt = (int)((now - last_tick) * 1000 / freq);
             last_tick = now;
             size_t wl;
@@ -1628,10 +1723,11 @@ static void play(int slot, int game_save_only)
             panel_left(&trk, &run, 0, gx, (float)wh, on && mside == 1 ? &mm : NULL, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), daily ? &dr : NULL, finished);
             panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
         }
-        if (daily && !show && gx < 90) daily_hud(&dr, finished, gx, gw, wh);   /* no side panels: the only room left is a corner of the game */
+        if (daily && !show && gx < 90) daily_hud(&dr, finished, gx, gw, wh);
+        if (rw_open) rewind_bar(rw, rw_dir, gx, gw, wh);   /* no side panels: the only room left is a corner of the game */
         {   /* a new hint, and the short notes (states, slots) while playing */
             const char *msg = SDL_GetTicks() < hint_until ? hint_note : SDL_GetTicks() < g_note_until ? g_note : NULL;
-            if (msg && !show) {
+            if (msg && !show && !rw_open) {
                 float u = wh / 720.0f, px = 22 * u, tw2 = fminf(gfx_text_width(px, msg), gw - 40 * u);
                 gfx_rect(gx + (gw - tw2) / 2 - 14 * u, wh - 64 * u, tw2 + 28 * u, 40 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
                 gfx_text(gx + gw / 2, wh - 57 * u, px, msg == hint_note ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2), 1, msg);
@@ -1735,7 +1831,7 @@ static void play(int slot, int game_save_only)
         }
         present();
 
-        if (audio) {   /* the sound sets the pace, fast forward too (four frames for each frame of sound) */
+        if (audio && !rw_open) {   /* the sound sets the pace, fast forward too (four frames for each frame of sound) */
             while (running && SDL_GetQueuedAudioSize(audio) > (Uint32)(have.freq / 60 * 4 * 3)) SDL_Delay(1);
         } else if (!fast) {
             next += freq * 1000 / 60988;
@@ -1744,6 +1840,9 @@ static void play(int slot, int game_save_only)
         }
     }
 
+    if (rw_open) { smz_rewind_step(rw, smz_rewind_count(rw)); emu_state_load(smz_rewind_state(rw), rw_size); }   /* closed mid-rewind: the present is kept */
+    smz_rewind_free(rw);
+    free(rw_buf);
     size_t wl;
     emu_wram(&wl);
     sram = emu_sram(&sl);
