@@ -1592,6 +1592,7 @@ void ui_draw(SmzUi *u)
             if (u->slot_scroll + shown < u->slot_count) { rect(u, x, by, 20, 44, C_PANEL); text(u, x + 10, by + 14, C_ACCENT, 1, "v"); hit(u, H_CHEVRON, 1, x, by, 20, 44); }
         }
         legend(u, u->ladder_on ? "A Open  Select Ladder" : "A Open");
+        if (u->version[0]) text(u, UI_W - 6, UI_H - 12, C_DIM, 2, u->version);
         break;
     }
     case UI_CONFIRM:

@@ -80,6 +80,7 @@ typedef struct {
     int name_len, key_cursor;
     int name_for;                /* 0 saved custom, 1 player name */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
+    char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
     char player[24], country[3]; /* the profile sent with finished runs; country is an ISO 3166 code or empty */
     int country_cursor, country_scroll;
     char monthly_label[16]; int monthly_seed;  /* the month's fixed seed (0 until the host knows it) and its label, e.g. 2026-10 */

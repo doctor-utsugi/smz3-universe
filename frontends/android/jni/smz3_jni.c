@@ -7,6 +7,7 @@
 #include "smz3_daily.h"
 #include "smz3_shortcuts.h"
 #include "smz3_rewind.h"
+#include "smz3_version.h"
 #include "smz3_rom.h"
 
 #define NATIVE(name) Java_com_swordfish_lemuroid_app_shared_game_viewmodel_Smz3Native_##name
@@ -785,3 +786,6 @@ JNIEXPORT jshortArray JNICALL NATIVE(rewindSound)(JNIEnv *env, jclass cls, jint 
     free(pcm);
     return out;
 }
+
+/* The release tag the app was built from. */
+JNIEXPORT jstring JNICALL NATIVE(version)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, SMZ3_VERSION); }

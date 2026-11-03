@@ -22,6 +22,9 @@ LIBS := $(shell sdl2-config --libs) -lm -lstdc++
 endif
 EXE :=
 endif
+# the release tag shown in the run menu: the tag CI builds, else the newest tag here
+SMZ3_VERSION ?= $(or $(filter v%,$(GITHUB_REF_NAME)),$(shell git -C $(ROOT) describe --tags --abbrev=0 2>/dev/null),dev)
+CFLAGS += -DSMZ3_VERSION='"$(SMZ3_VERSION)"'
 
 GEN := smz3_generate smz3_fill smz3_world smz3_world_gen smz3_rng smz3_patch smz3_rom smz3_text smz3_sprite smz3_hints smz3_itemopts smz3_plando smz3_md5 smz3_romsetup smz3_romderived smz3_dungeonmaps smz3_goalicons
 SRC := $(addprefix $(CORE)/gen/,$(addsuffix .c,$(GEN))) $(CORE)/smz3_state.c $(CORE)/smz3_locations.c $(CORE)/smz3_inventory.c \

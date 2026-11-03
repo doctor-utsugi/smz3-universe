@@ -33,5 +33,16 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_tracker.c
     ../../core/ui/smz3_rewind.c)
 target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/ui)
+# the release tag shown on the second screen: the tag CI builds, else the newest tag here
+if("$ENV{GITHUB_REF_NAME}" MATCHES "^v")
+    set(SMZ3_VERSION "$ENV{GITHUB_REF_NAME}")
+else()
+    execute_process(COMMAND git describe --tags --abbrev=0 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE SMZ3_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT SMZ3_VERSION)
+        set(SMZ3_VERSION dev)
+    endif()
+endif()
+target_compile_definitions(smz3core PRIVATE SMZ3_VERSION="${SMZ3_VERSION}")
 target_compile_options(smz3core PRIVATE -O2 -Wno-parentheses -Wno-unused-function)
 target_link_options(smz3core PRIVATE -Wl,-z,max-page-size=16384)

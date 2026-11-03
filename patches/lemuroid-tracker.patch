@@ -5575,10 +5575,10 @@ index 0000000..3d11f48
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 new file mode 100644
-index 0000000..3887085
+index 0000000..be9e929
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
-@@ -0,0 +1,343 @@
+@@ -0,0 +1,346 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.animation.ValueAnimator
@@ -5767,10 +5767,12 @@ index 0000000..3887085
 +            logo?.let { canvas.drawBitmap(it, null, RectF(x * u, 6f * u, (x + size) * u, (6f + size) * u), Paint(Paint.FILTER_BITMAP_FLAG)) }
 +            text(canvas, "SMZ3", x + size + 6f, 24.5f, 20f, ACCENT)
 +            text(canvas, SUBTITLE, 160f, 39f, 6f, DIM, Paint.Align.CENTER)
-+            text(canvas, if (online) "ONLINE" else "OFFLINE", 304f, 13f, 5f, if (online) GREEN else DIM, Paint.Align.RIGHT)
++            val net = if (online) "ONLINE" else "OFFLINE"
++            text(canvas, net, 304f, 13f, 5f, if (online) GREEN else DIM, Paint.Align.RIGHT)
++            val dotX = 304f - paint.measureText(net) / u - 4f
 +            paint.color = if (online) GREEN else DIM
-+            paint.textSize = 5f * u
-+            canvas.drawCircle((304f - paint.measureText(if (online) "ONLINE" else "OFFLINE") / u - 4f) * u, 11.3f * u, 1.3f * u, paint)
++            canvas.drawCircle(dotX * u, 11.3f * u, 1.3f * u, paint)
++            text(canvas, VERSION, dotX - 4.5f, 12.6f, 4f, DIM, Paint.Align.RIGHT)   // the release, smaller, left of the dot
 +            paint.color = BORDER
 +            canvas.drawRect(12f * u, 45f * u, 308f * u, 45f * u + 1f, paint)
 +            paint.color = ACCENT
@@ -5867,6 +5869,7 @@ index 0000000..3887085
 +        companion object {
 +            const val ROWS = 12
 +            const val SUBTITLE = "A LINK TO THE PAST · SUPER METROID"
++            val VERSION: String by lazy { runCatching { Smz3Native.version() }.getOrDefault("") }
 +            val TABS = listOf("ORIGINAL", "MONTHLY", "WEEKLY", "CUSTOM")
 +            val BG = Color.parseColor("#0A0E15")
 +            val PANEL = Color.parseColor("#E6141B27")
@@ -6493,10 +6496,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..9098f76
+index 0000000..b4f583b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,118 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6598,6 +6601,7 @@ index 0000000..9098f76
 +    @JvmStatic external fun countersText(): String
 +    /** A rewind screen sound (open, tick back, tick forward, play, cancel) as mono PCM at [rate]. */
 +    @JvmStatic external fun rewindSound(kind: Int, rate: Int): ShortArray
++    @JvmStatic external fun version(): String
 +    @JvmStatic external fun goalIcons(sm: ByteArray, z3: ByteArray, dir: String): Int
 +    /** The "Original" sprite previews drawn from the base ROMs, into dir/link and dir/samus (the folders must exist). */
 +    @JvmStatic external fun originalPreviews(sm: ByteArray, z3: ByteArray, dir: String): Int

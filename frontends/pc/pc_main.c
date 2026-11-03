@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include "pc_compat.h"
+#include "smz3_version.h"
 #include <SDL.h>
 #include "pc_emu.h"
 #include "pc_assets.h"
@@ -2035,6 +2036,7 @@ static void window_main(int start_slot)
     char err[200];
     SDL_Window *w = win; (void)w;
     ui_init(&ui);
+    snprintf(ui.version, sizeof ui.version, "%s", SMZ3_VERSION);   /* one screen: the run list carries the release */
     pad_cfg_load();
     sc_cfg_load();
     settings_init(&(SettingsHooks){welcome_setup, note, toggle_fullscreen, quit_menu, is_fullscreen, set_window_size});

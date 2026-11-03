@@ -15,6 +15,9 @@ done
 cp "$ROOT"/core/gen/smz3_*.h source/
 for f in smz3_state smz3_locations smz3_inventory; do cp "$ROOT/core/$f.c" source/; done
 cp "$ROOT"/core/smz3_*.h source/
+# the release tag on the top screen: the tag CI builds, else the newest tag here
+VER="${GITHUB_REF_NAME:-}"; [[ "$VER" == v* ]] || VER="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo dev)"
+sed -i "s/#define SMZ3_VERSION \"dev\"/#define SMZ3_VERSION \"$VER\"/" source/smz3_version.h
 for f in smz3_ui smz3_ui_opts smz3_run smz3_host smz3_preview smz3_tracker smz3_goal smz3_daily smz3_proof smz3_runlogic smz3_discovery smz3_shortcuts smz3_counters smz3_rewind; do cp "$ROOT/core/ui/$f.c" source/; done
 cp "$ROOT"/core/ui/smz3_*.h source/
 cp "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/ips/*.ips romfs/smz3/ips/

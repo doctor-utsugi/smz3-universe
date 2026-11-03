@@ -1423,10 +1423,10 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..db5eb1a
+index 0000000..4dd7db6
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4563 @@
+@@ -0,0 +1,4565 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1442,6 +1442,7 @@ index 0000000..db5eb1a
 +
 +extern "C" {
 +#include "smz3_host.h"
++#include "smz3_version.h"
 +#include "smz3_md5.h"
 +#include "smz3_romsetup.h"
 +#include "smz3_tracker.h"
@@ -5547,6 +5548,7 @@ index 0000000..db5eb1a
 +    const char *net = online ? "ONLINE" : "OFFLINE";
 +    text(314, 2, online ? ID_GREEN : ID_DIM, net, HALIGN_RIGHT);
 +    dot(314 - textW(net) - 6, 9, 2, online ? ID_GREEN : ID_DIM);
++    text(314 - textW(net) - 12, 2, ID_DIM, SMZ3_VERSION, HALIGN_RIGHT);   // the release, left of the dot
 +    fill(6, 44, 314, 45, ID_BORDER);
 +    fill(148, 43, 172, 45, ID_ACCENT);
 +    if (have) {
