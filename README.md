@@ -18,15 +18,28 @@ Seeds are made on the device itself from your two ROMs, offline. The generator i
 | ![3DS](docs/shots/readme-3ds-game.png) | ![PC](docs/shots/readme-pc-game.png) |
 | ![3DS runs](docs/shots/readme-3ds-runs.png) | ![PC runs](docs/shots/readme-pc-runs.png) |
 
+## Features
+
+| | |
+|---|---|
+| ![Rewind on the Thor](docs/shots/feature-rewind-thor.png) | **Rewind.** Hold a button and the game goes back, up to a minute on the Thor and PC. Let go to stop on a frame, then play on from there or go back to the present. The Cozy preset has it on. Ladder and daily runs never rewind. |
+| ![Link sprite picker](docs/shots/sprite-picker-grid-layout.png) | **Character sprites.** Link has 517 community sprites to choose from and Samus has 107, besides the originals. Pick one per run, or let the run pick one at random. |
+| ![Tracker map](docs/shots/3ds-tracker-map.png) | **Map.** Both worlds on one map, with the checks you can reach in logic marked. It can follow you as you play. |
+| ![Dungeon map with keys](docs/shots/3ds-tracker-dungeon-keys.png) | **Dungeon maps.** Inside a Zelda dungeon you get the game's own map of it, read from your ROM, with the keys under pots and on enemies marked until you take them. |
+| ![A hint](docs/shots/3ds-tracker-help-hint2.png) | **Hints.** All of them, none, or a few you spend when you're stuck: where an item is, or how many checks are left in a region. |
+| ![Shortcut row](docs/shots/3ds-tracker-shortcuts-zelda.png) | **Shortcuts.** On the Thor and the 3DS, tap a row over the map to equip a Zelda item, switch a beam, or pick missiles, supers or power bombs. |
+| ![Daily challenge](docs/shots/3ds-tracker-daily-tab.png) | **Daily challenge and ladders.** Three windows a day where everyone plays the same start with one goal. Original-rules, monthly and weekly runs go on the online ladder at [smz3.indieviral.com](https://smz3.indieviral.com). |
+
 ## Runs
 
 The Thor and PC keep up to 32 runs and the 3DS keeps 4, plus the daily. Each run has its own save and play time, and
 its row in the list shows the crystals and bosses you have so far.
 
-- Cozy: keys shuffled in Zelda only, easy wall jumps, dark rooms lit, save states on.
+- Cozy: keys shuffled in Zelda only, easy wall jumps, dark rooms lit, save states and rewind on. It stays on this
+  device.
 - Original: the default rules. A run with these rules can go on the online ladder.
 - Custom: every option of the web generator, from item placement and keysanity to logic tweaks, starting items and
-  plando. You can save a setup and pick it again later.
+  plando. You can save a setup and pick it again later. Changed rules keep the run off the online ladder.
 - Monthly seed: one fixed seed per month, the same for everyone, with its own table of best times.
 - Weekly run: a short run on a new seed every Monday at 00:00 UTC. Two crystals open Ganon's Tower and Ganon, and
   one boss opens Tourian.
@@ -51,7 +64,6 @@ the month ends. Offline play works too; the run stays off the tables.
   missiles, super missiles or power bombs.
 - On the 3DS, a save bar with quick save, quick load and fast forward. The 3D slider is fast forward too.
 
-Link has 517 community sprites to choose from and Samus has 107, besides the originals.
 
 ## 1. Get the two ROMs
 
