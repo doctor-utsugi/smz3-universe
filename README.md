@@ -86,7 +86,7 @@ one it needs. No ROMs are included here.
    starts as soon as the seed is made.
 4. The ROMs: the first time, SMZ3 looks for them in the `Download`, `Download/roms`, `Roms`, `roms` and `ROMs`
    folders of the device. If both are there as `.sfc` or `.smc` files, it uses them without asking. If not, a file
-   picker opens: select both ROMs (or a zip with them). Either way it keeps a copy and won't ask again.
+   picker opens: select both ROMs (or a zip with them). It keeps a copy of what you pick and won't ask again.
 
 **3DS** (needs the Homebrew Launcher)
 1. Copy `SMZ3-3ds.3dsx` from the release to the `3ds` folder of the SD card.
