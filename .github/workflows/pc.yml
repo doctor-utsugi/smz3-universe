@@ -8,7 +8,10 @@ on:
     tags: ['v*']
 jobs:
   linux:
-    runs-on: ubuntu-22.04   # the AppImage runs on distributions at least as new as this one
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]   # aarch64 for ARM handhelds and boards
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}   # the AppImage runs on distributions at least as new as this one
     steps:
       - uses: actions/checkout@v4
       - name: Fetch assets
@@ -27,8 +30,8 @@ jobs:
       - run: ./tools/build-appimage.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: smz3-linux
-          path: build/SMZ3-x86_64.AppImage
+          name: smz3-linux-${{ matrix.arch }}
+          path: build/SMZ3-${{ matrix.arch }}.AppImage
   windows:
     runs-on: ubuntu-latest
     steps:

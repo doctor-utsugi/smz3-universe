@@ -94,8 +94,10 @@ one it needs. No ROMs are included here.
 
 **PC**
 - Linux: download `SMZ3-x86_64.AppImage`, make it executable (`chmod +x SMZ3-x86_64.AppImage`, or tick
-  "Allow executing" in its file properties) and run it. Nothing else to install. It's built for x86_64 only, so
-  ARM handhelds such as the Anbernic RG DS can't run it yet.
+  "Allow executing" in its file properties) and run it. Nothing else to install.
+- Linux on ARM (aarch64 handhelds and boards): the same with `SMZ3-aarch64.AppImage`. On a system without FUSE,
+  which is common on handheld distributions, start it with `APPIMAGE_EXTRACT_AND_RUN=1 ./SMZ3-aarch64.AppImage`.
+  It opens one window with the game and the tracker side by side. It hasn't been tried on a handheld yet.
 - Windows: unzip `SMZ3-windows-x64.zip` and run `smz3.exe`. If SmartScreen warns, press "More info", then "Run anyway".
 - macOS (Intel, also runs on Apple silicon): `tar xzf SMZ3-macos-intel.tar.gz`, then
   `xattr -d com.apple.quarantine smz3` and `./smz3`. Nothing else to install.

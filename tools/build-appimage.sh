@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Packs build/pc/smz3 (./build-pc.sh first) as an AppImage with its own SDL2: build/SMZ3-x86_64.AppImage.
+# Packs build/pc/smz3 (./build-pc.sh first) as an AppImage with its own SDL2: build/SMZ3-<arch>.AppImage, for the
+# machine it runs on (x86_64 or aarch64).
 # Needs python3 with Pillow (icon) and curl. linuxdeploy is downloaded once into build/appimage/.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 W="$ROOT/build/appimage"
+ARCH="$(uname -m)"
 mkdir -p "$W/AppDir/usr/bin" "$W/AppDir/usr/share/applications" "$W/AppDir/usr/share/icons/hicolor/256x256/apps"
-LD="$W/linuxdeploy-x86_64.AppImage"
+LD="$W/linuxdeploy-$ARCH.AppImage"
 if [ ! -x "$LD" ]; then
-    curl -sL -o "$LD" https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-x86_64.AppImage
+    curl -sL -o "$LD" https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-$ARCH.AppImage
     chmod +x "$LD"
 fi
 cp "$ROOT/build/pc/smz3" "$W/AppDir/usr/bin/smz3"
@@ -31,7 +33,7 @@ Categories=Game;
 Terminal=false
 DESK
 cd "$W"
-APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 OUTPUT="SMZ3-x86_64.AppImage" "$LD" --appdir AppDir \
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$ARCH" OUTPUT="SMZ3-$ARCH.AppImage" "$LD" --appdir AppDir \
     --desktop-file AppDir/usr/share/applications/smz3.desktop --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/smz3.png --output appimage
-mv "$W/SMZ3-x86_64.AppImage" "$ROOT/build/SMZ3-x86_64.AppImage"
-echo "built $ROOT/build/SMZ3-x86_64.AppImage"
+mv "$W/SMZ3-$ARCH.AppImage" "$ROOT/build/SMZ3-$ARCH.AppImage"
+echo "built $ROOT/build/SMZ3-$ARCH.AppImage"
