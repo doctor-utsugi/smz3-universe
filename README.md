@@ -81,7 +81,7 @@ one it needs. No ROMs are included here.
 
 **AYN Thor / Android**
 1. From the release, download `SMZ3-android-arm64.apk` on the Thor and open it. Allow installing from this source if asked.
-2. Open SMZ3 and allow notifications (the game won't start without them).
+2. Open SMZ3. It asks to show notifications; the game starts whether you allow them or not.
 3. Create a run. The first time, a file picker opens: select both ROMs (or the zip). It won't ask again.
 
 **3DS** (needs the Homebrew Launcher)
@@ -94,7 +94,8 @@ one it needs. No ROMs are included here.
 
 **PC**
 - Linux: download `SMZ3-x86_64.AppImage`, make it executable (`chmod +x SMZ3-x86_64.AppImage`, or tick
-  "Allow executing" in its file properties) and run it. Nothing else to install.
+  "Allow executing" in its file properties) and run it. Nothing else to install. It's built for x86_64 only, so
+  ARM handhelds such as the Anbernic RG DS can't run it yet.
 - Windows: unzip `SMZ3-windows-x64.zip` and run `smz3.exe`. If SmartScreen warns, press "More info", then "Run anyway".
 - macOS (Intel, also runs on Apple silicon): `tar xzf SMZ3-macos-intel.tar.gz`, then
   `xattr -d com.apple.quarantine smz3` and `./smz3`. Nothing else to install.
