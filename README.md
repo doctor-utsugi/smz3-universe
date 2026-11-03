@@ -24,7 +24,7 @@ Seeds are made on the device itself from your two ROMs, offline. The generator i
 |---|---|
 | ![Rewind on the Thor](docs/shots/feature-rewind-thor.png) | **Rewind.** Hold a button and the game goes back, up to a minute on the Thor and PC. Let go to stop on a frame, then play on from there or go back to the present. The Cozy preset has it on. Ladder and daily runs never rewind. |
 | ![Link sprite picker](docs/shots/sprite-picker-grid-layout.png) | **Character sprites.** Link has 517 community sprites to choose from and Samus has 107, besides the originals. Pick one per run, or let the run pick one at random. |
-| ![Tracker map](docs/shots/3ds-tracker-map.png) | **Map.** Both worlds on one map, with the checks you can reach in logic marked. It can follow you as you play. |
+| ![Tracker map on the Thor](docs/shots/feature-map-thor.png) | **Map.** Both worlds on one map, with the checks you can reach in logic marked. It can follow you as you play, and the Dungeons button opens the dungeon maps. |
 | ![Dungeon map with keys](docs/shots/3ds-tracker-dungeon-keys.png) | **Dungeon maps.** Inside a Zelda dungeon you get the game's own map of it, read from your ROM, with the keys under pots and on enemies marked until you take them. |
 | ![A hint](docs/shots/3ds-tracker-help-hint2.png) | **Hints.** All of them, none, or a few you spend when you're stuck: where an item is, or how many checks are left in a region. |
 | ![Shortcut row](docs/shots/3ds-tracker-shortcuts-zelda.png) | **Shortcuts.** On the Thor and the 3DS, tap a row over the map to equip a Zelda item, switch a beam, or pick missiles, supers or power bombs. |
