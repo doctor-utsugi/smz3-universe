@@ -102,12 +102,29 @@ ROMs (or the zip). SMZ3 keeps a copy of what you pick and won't ask again.
 4. No sound? Run the DSP1 homebrew once. It creates `3ds/dspfirm.cdc`, which every homebrew needs for sound.
 5. Optional: for the community sprites, copy `assets/sprites` from this repo to `3ds/SMZ3/sprites` on the SD card.
 
+**Linux handhelds with a Ports menu** (ROCKNIX, Knulli; arm64)
+
+Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second screen. Not tried on Knulli yet.
+
+1. On a computer, download `SMZ3-ports-aarch64.zip` from the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest)
+   and unzip it. You get a file, `SMZ3.sh`, and a folder, `SMZ3`.
+2. Connect the handheld to the computer by USB (it shows up as a device with a `Roms` folder) or put its games card in
+   the computer. Copy `SMZ3.sh` and the `SMZ3` folder into the `ports` folder.
+3. Copy both ROMs into that `ports/SMZ3` folder, loose or in a zip.
+4. On the handheld, press Start and choose Game settings, then Update gamelists.
+5. Open Ports and start SMZ3. The first time, it reads the two ROMs from the folder of step 3.
+6. Choose "New run", pick Cozy run, Original or Custom, and press Start on the last screen. The game starts as soon as
+   the seed is made.
+
+To go back to the handheld's menu, leave the run (the tracker's HELP tab shows the button), press Start on the run list
+and choose Quit.
+
 **PC**
 - Linux: download `SMZ3-x86_64.AppImage`, make it executable (`chmod +x SMZ3-x86_64.AppImage`, or tick
   "Allow executing" in its file properties) and run it. Nothing else to install.
-- Linux on ARM (aarch64 handhelds and boards): the same with `SMZ3-aarch64.AppImage`. On a system without FUSE,
-  which is common on handheld distributions, start it with `APPIMAGE_EXTRACT_AND_RUN=1 ./SMZ3-aarch64.AppImage`.
-  It opens one window with the game and the tracker side by side. It hasn't been tried on a handheld yet.
+- Linux on ARM (aarch64 boards): the same with `SMZ3-aarch64.AppImage`. On a system without FUSE,
+  start it with `APPIMAGE_EXTRACT_AND_RUN=1 ./SMZ3-aarch64.AppImage`. For a handheld with a Ports menu, use the
+  steps under "Linux handhelds" below instead.
 - Windows: unzip `SMZ3-windows-x64.zip` and run `smz3.exe`. If SmartScreen warns, press "More info", then "Run anyway".
 - macOS (Intel, also runs on Apple silicon): `tar xzf SMZ3-macos-intel.tar.gz`, then
   `xattr -d com.apple.quarantine smz3` and `./smz3`. Nothing else to install.

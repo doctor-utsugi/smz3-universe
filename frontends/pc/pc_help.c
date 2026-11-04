@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include "pc_gfx.h"
 #include "pc_help.h"
+#include "pc_pad.h"
 
 enum { K_XBOX, K_PS, K_NINTENDO };
 static int using_pad, pad_kind;
@@ -19,6 +20,7 @@ void help_note_pad(SDL_GameController *c)
     case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO: pad_kind = K_NINTENDO; break;
     default: pad_kind = K_XBOX;
     }
+    if (pad_handheld_labels()) pad_kind = K_NINTENDO;
 }
 
 static SDL_Color rgb(int r, int g, int b, float a) { return (SDL_Color){(Uint8)r, (Uint8)g, (Uint8)b, (Uint8)(255 * (a < 0 ? 0 : a > 1 ? 1 : a))}; }

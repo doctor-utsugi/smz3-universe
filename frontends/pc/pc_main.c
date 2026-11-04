@@ -38,6 +38,7 @@
 #include "smz3_proof.h"
 #include "smz3_rewind.h"
 #include "smz3_romsetup.h"
+#include "pc_idle.h"
 #include "smz3_runlogic.h"
 #include "smz3_tracker.h"
 #include "smz3_ui_gen.h"
@@ -1025,6 +1026,7 @@ static void panel_right(const SmzTracker *t, float x, float w, float h, const Mi
     minimap_at_bottom(t, mm, x, w, h, y);
 }
 
+#define RUN_MAP_X 0.46f   /* dual-screen mode: where the run tab's map starts, as a part of the screen's width */
 enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_COUNT, TAB_DAILY = TAB_COUNT };   /* the Daily tab only in a daily run */
 static const char *const TAB_NAMES[TAB_COUNT + 1] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "DAILY"};
 
@@ -1095,6 +1097,48 @@ static void daily_hud(const SmzDailyRun *r, int finished, float gx, float gw, in
     for (int i = 0; i < n; i++) gfx_text(x + pad, y + pad / 2 + i * lh, px, col[i], 0, line[i]);
 }
 
+/* Dual-screen mode: the pad always plays, so the tracker's screen is worked by touch alone. Its map tabs end in a row of buttons. */
+static int touch_labels(int tab, const DungeonView *dv, const DungeonLive *live, const char **out)
+{
+    static const char *const RUN[] = {"-", "+"}, *const WORLD[] = {"-", "+", "Follow", "Dungeons"}, *const DUNGEON[] = {"<", ">", "Floor -", "Floor +", "Here", "World"};
+    const char *const *l = tab == TAB_RUN ? RUN : tab != TAB_MAP ? NULL : dungeon_showing(dv, live) ? DUNGEON : WORLD;
+    int n = !l ? 0 : tab == TAB_RUN ? 2 : l == WORLD ? 4 : 6;
+    for (int i = 0; i < n; i++) out[i] = l[i];
+    return n;
+}
+
+static float touch_row_h(int win_h) { return win_h * 0.1f; }
+
+/* The button under renderer pixel (px, py), or -1; a run tab's two sit under its map, on the right. */
+static int touch_button_at(float px, float py, int tab, int n, int win_w, int win_h)
+{
+    float h = touch_row_h(win_h), x = tab == TAB_RUN ? win_w * RUN_MAP_X : 0, w = (win_w - x) / (n ? n : 1);
+    if (!n || py < win_h - h || px < x) return -1;
+    return (int)((px - x) / w);
+}
+
+static void touch_buttons(int tab, int n, const char **labels, int follow, int win_w, int win_h)
+{
+    float h = touch_row_h(win_h), x = tab == TAB_RUN ? win_w * RUN_MAP_X : 0, w = (win_w - x) / n, y = win_h - h;
+    for (int i = 0; i < n; i++) {
+        int on = follow && !strcmp(labels[i], "Follow");
+        gfx_rect(x + i * w + 2, y + 2, w - 4, h - 4, on ? C(0x2E, 0x4A, 0x6B) : C(0x1D, 0x24, 0x30));
+        gfx_text(x + i * w + w / 2, y + h * 0.28f, h * 0.42f, on ? C(0xE9, 0xA2, 0x3B) : C(0xE8, 0xEC, 0xF2), 1, labels[i]);
+    }
+}
+
+static void touch_press(int i, int tab, MapView *m, DungeonView *dv, const DungeonLive *live)
+{
+    if (tab == TAB_MAP && dungeon_showing(dv, live)) {
+        if (i < 2) dungeon_step(dv, live, i ? 1 : -1);
+        else if (i < 4) dungeon_floor(dv, live, i == 3 ? 1 : -1);
+        else if (i == 4) dungeon_here(dv);
+        else dungeon_toggle(dv, live);
+    } else if (i < 2) map_view_move(m, 0, 0, i ? 1.25f : 0.8f);
+    else if (i == 2) m->follow = !m->follow;
+    else dungeon_toggle(dv, live);
+}
+
 static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, int pause, int win_w, int win_h, float ax, float aw, MapView *mv,
                     const SmzDiscovery *disc, int discovered_only, const uint8_t *in_logic, const uint8_t *wram, size_t wram_len,
                     const uint8_t *sram, size_t sram_len, DungeonView *dv, const DungeonLive *live, const SmzDailyRun *dr)
@@ -1118,7 +1162,12 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         fmt_time(t->elapsed_ms ? t->elapsed_ms : r->play_ms, s, sizeof s);
         gfx_text(x0, y, 30 * u, C(0xE8, 0xEC, 0xF2), 0, r->name); y += 44 * u;
         char row[160];
-        snprintf(row, sizeof row, "Time %s    Zelda %u/%u    Metroid %u/%u", s, t->zelda_cleared, t->zelda_total, t->metroid_cleared, t->metroid_total);
+        if (win2) {   /* the map takes the right side */
+            gfx_text(x0, y, 22 * u, C(0x87, 0x93, 0xA6), 0, s); y += 32 * u;
+            snprintf(row, sizeof row, "Zelda %u/%u", t->zelda_cleared, t->zelda_total);
+            gfx_text(x0, y, 22 * u, C(0x87, 0x93, 0xA6), 0, row); y += 32 * u;
+            snprintf(row, sizeof row, "Metroid %u/%u", t->metroid_cleared, t->metroid_total);
+        } else snprintf(row, sizeof row, "Time %s    Zelda %u/%u    Metroid %u/%u", s, t->zelda_cleared, t->zelda_total, t->metroid_cleared, t->metroid_total);
         gfx_text(x0, y, 22 * u, C(0x87, 0x93, 0xA6), 0, row); y += 44 * u;
         gfx_text(x0, y, 22 * u, C(0xE9, 0xA2, 0x3B), 0, "Last checks"); y += 32 * u;
         for (int i = 0; i < t->n_recent_checks; i++, y += line) {
@@ -1184,7 +1233,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         snprintf(s, sizeof s, "%d-%d of %u", first + 1, first + rows, smz3_location_count);
         gfx_text(x0 + w, bottom, 18 * u, C(0x87, 0x93, 0xA6), 2, s);
     } else if (tab == TAB_MAP) {
-        SDL_Rect area = {(int)x0, (int)y, (int)w, (int)(bottom - y - 30 * u)};
+        SDL_Rect area = {(int)x0, (int)y, (int)w, (int)((win2 ? win_h - touch_row_h(win_h) : bottom) - y - 30 * u)};
         if (dungeon_showing(dv, live)) dungeon_draw(ren, dv, area, t, in_logic, live, wram, wram_len, sram, sram_len, !discovered_only, SDL_GetTicks());
         else {
             map_draw(ren, mv, area, t, disc, discovered_only, in_logic, wram, wram_len, SDL_GetTicks());
@@ -1208,9 +1257,10 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         float hl = help_list(0, 0, rh, LEFT, nl, 0), hr = help_list(0, 0, rh, RIGHT, nr, 0), hh = hl > hr ? hl : hr;
         if (hh > bot - top - 20 * u) rh *= (bot - top - 20 * u) / hh, hh = bot - top - 20 * u;   /* small windows: shrink to fit */
         float ty = top + (bot - top - hh) / 2;
-        help_list(x0 + w * 0.06f, ty, rh, LEFT, nl, 1);
+        help_list(x0 + w * 0.06f, ty, rh, win2 ? LEFT + 4 : LEFT, win2 ? nl - 4 : nl, 1);   /* dual screen: no #Tracker block */
         help_list(x0 + w * 0.54f, ty, rh, RIGHT, nr, 1);
     }
+    if (win2) return;   /* its screen is worked by touch: no buttons to explain */
     HelpItem bar[10];
     int nb = 0;
     bar[nb++] = (HelpItem){"LR2", "Q E", "Tabs"};
@@ -1357,7 +1407,12 @@ static void play(int slot, int game_save_only)
     float aspect = shape_aspect(run.settings);
     SDL_Texture *tex = NULL;
     int tw = 0, th = 0, tex_mode = 0, tab = getenv("SMZ3_TAB") ? atoi(getenv("SMZ3_TAB")) % ntabs : TAB_RUN, scroll = 0, show = getenv("SMZ3_TAB") != NULL, pause_on_overlay = 1, leaving = 0, running = 1, finished = 0, fast = 0;
-    if (ren2) pause_on_overlay = 0;   /* dual screen: the tracker is always on its own screen, Tab only lends it the controls */
+    if (ren2) { pause_on_overlay = 0; show = 0; }   /* dual screen: the tracker is always on its own screen, and the pad never leaves the game */
+    MapView runmv;   /* dual screen: the whole map on the run tab */
+    map_view_init(&runmv);
+    runmv.follow = 0; runmv.zoom = 0;
+    int drag = 0;
+    float drag_x = 0, drag_y = 0, drag_rows = 0;
     int done_popup = 0, finished_before = run.game == 3;   /* the run-complete card, shown once when the run ends in this session */
     int64_t final_ms = 0;
     if (getenv("SMZ3_DONE")) { done_popup = 1; finished = 1; final_ms = atoll(getenv("SMZ3_DONE")); }   /* test hook: the run-complete card */
@@ -1391,8 +1446,26 @@ static void play(int slot, int game_save_only)
                 int bw, bh, sw, sh;
                 SDL_GetRendererOutputSize(ren2, &bw, &bh);
                 SDL_GetWindowSize(win2, &sw, &sh);
-                int i = sw > 0 && sh > 0 ? overlay_tab_at(e.button.x * (float)bw / sw, e.button.y * (float)bh / sh, bw, bh, ntabs) : -1;
+                float px = e.button.x * (float)bw / sw, py = e.button.y * (float)bh / sh;
+                const char *labels[6];
+                int i = overlay_tab_at(px, py, bw, bh, ntabs), hit = touch_button_at(px, py, tab, touch_labels(tab, &dv, lp, labels), bw, bh);
                 if (i >= 0) { tab = i; scroll = 0; }
+                else if (hit >= 0) touch_press(hit, tab, tab == TAB_RUN ? &runmv : &mv, &dv, lp);
+                else { drag = 1; drag_x = px; drag_y = py; drag_rows = 0; }
+            }
+            else if (win2 && e.type == SDL_MOUSEBUTTONUP) drag = 0;
+            else if (win2 && drag && e.type == SDL_MOUSEMOTION && e.motion.windowID == SDL_GetWindowID(win2)) {   /* a finger dragging the map or a list */
+                int bw, bh, sw, sh;
+                SDL_GetRendererOutputSize(ren2, &bw, &bh);
+                SDL_GetWindowSize(win2, &sw, &sh);
+                float px = e.motion.x * (float)bw / sw, py = e.motion.y * (float)bh / sh;
+                if (tab == TAB_MAP || tab == TAB_RUN) map_view_move(tab == TAB_RUN ? &runmv : &mv, drag_x - px, drag_y - py, 0);
+                else {
+                    drag_rows += (drag_y - py) / (bh * 0.036f);
+                    while (drag_rows >= 1) { scroll++; drag_rows -= 1; }
+                    while (drag_rows <= -1) { if (scroll > 0) scroll--; drag_rows += 1; }
+                }
+                drag_x = px; drag_y = py;
             }
             else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
                 SDL_Keycode k = e.key.keysym.sym;
@@ -1416,7 +1489,7 @@ static void play(int slot, int game_save_only)
                 if (!show && !leaving && sc_key_press(k)) continue;   /* an item shortcut; it acts only in normal play */
                 if (k == SDLK_v && !leaving) { vpanel = 1; show = 0; continue; }
                 if (leaving) { if (k == SDLK_RETURN) exit_at = SDL_GetTicks(); leaving = 0; continue; }
-                if (k == SDLK_TAB) show = !show;
+                if (k == SDLK_TAB && !ren2) show = !show;
                 else if (states && !show && k == SDLK_F5) quick_state(slot, qslot, 1);
                 else if (states && !show && k == SDLK_F7) { if (quick_state(slot, qslot, 0)) trk.state_loaded = 3; }
                 else if (states && !show && (k == SDLK_F6 || k == SDLK_F8)) { qslot = (qslot + (k == SDLK_F8 ? 1 : QSLOTS - 1)) % QSLOTS; char m[32]; snprintf(m, sizeof m, "State slot %d", qslot + 1); note(m); }
@@ -1472,7 +1545,7 @@ static void play(int slot, int game_save_only)
                     else if (ql) { if (quick_state(slot, qslot, 0)) trk.state_loaded = 3; }
                     else { qslot = (qslot + (qn ? 1 : QSLOTS - 1)) % QSLOTS; char m[32]; snprintf(m, sizeof m, "State slot %d", qslot + 1); note(m); }
                 }
-                else if (b == pad_code(PA_TRACKER)) show = !show;
+                else if (b == pad_code(PA_TRACKER)) { if (!ren2) show = !show; }
                 else if (b == pad_code(PA_LEAVE)) { if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }
                 else if (show && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) tab = (tab + 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) tab = (tab + ntabs - 1) % ntabs;
@@ -1751,7 +1824,16 @@ static void play(int slot, int game_save_only)
             size_t owl;
             const uint8_t *ow = emu_wram(&owl);
             overlay(&trk, &run, tab, scroll, 0, bw, bh, 0, (float)bw, &mv, &disc, discovered_only, have_logic ? in_logic : NULL, ow, owl, sram, sl, &dv, have_live ? &live : NULL, daily ? &dr : NULL);
-            if (show) gfx_rect(0, 0, (float)bw, 3, C(0xE9, 0xA2, 0x3B));   /* the tracker has the controls */
+            const char *labels[6];
+            int nbtn = touch_labels(tab, &dv, have_live ? &live : NULL, labels);
+            if (tab == TAB_RUN) {
+                float mx = bw * RUN_MAP_X, u2 = bh / 720.0f;
+                SDL_Rect area = {(int)mx, (int)(96 * u2), (int)(bw - mx - 6), (int)(bh - touch_row_h(bh) - 100 * u2)};
+                if (runmv.zoom == 0) runmv.zoom = fminf((float)area.w / 1623, (float)area.h / 958);   /* the whole map, as the Thor opens it */
+                gfx_rect(mx - 4, area.y - 4, bw - mx + 4, (float)bh - area.y + 4, C(0x08, 0x0B, 0x11));
+                map_draw(ren2, &runmv, area, &trk, &disc, discovered_only, have_logic ? in_logic : NULL, ow, owl, SDL_GetTicks());
+            }
+            if (nbtn) touch_buttons(tab, nbtn, labels, tab == TAB_MAP && mv.follow, bw, bh);
             present2();
             ren = top;
             gfx_use(top);
@@ -2052,6 +2134,7 @@ static void window_main(int start_slot)
     online_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
+    if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows them from the start */
     if (getenv("SMZ3_LADDER")) ui_input(&ui, BTN_RIGHT);   /* test hook: open the online tables */
     if (getenv("SMZ3_SPRITES")) { ui.screen = UI_SPRITES; ui.sprite_game = atoi(getenv("SMZ3_SPRITES")); ui.sprite_cursor = 0; }   /* test hook: open a sprite picker */
     if (getenv("SMZ3_SETTINGS")) {   /* test hook: open the settings screen (main, pad or files) */
@@ -2131,6 +2214,11 @@ static void window_main(int start_slot)
                 default: ok = 0;
                 }
                 if (ok) menu_button(b);
+            } else if (win2 && e.type == SDL_MOUSEBUTTONDOWN && e.button.windowID == SDL_GetWindowID(win2)) {
+                int bw, bh, sw, sh;
+                SDL_GetRendererOutputSize(ren2, &bw, &bh);
+                SDL_GetWindowSize(win2, &sw, &sh);
+                idle_tap(e.button.x * (float)bw / sw, e.button.y * (float)bh / sh);
             } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT && !settings_active()) {
                 int ww, wh;
                 SDL_GetRendererOutputSize(ren, &ww, &wh);
@@ -2275,14 +2363,13 @@ static void window_main(int start_slot)
             gfx_rect(0, 0, (float)ww, 34 * k / 2 + 8, (SDL_Color){0, 0, 0, 200});
             gfx_text(ww / 2.0f, 6, 13 * k, C(0xE8, 0xEC, 0xF2), 1, g_note);
         }
-        if (ren2) {   /* dual screen, run list: the logo on the tracker's screen */
+        if (ren2) {   /* dual screen, run list: the selected run and the ladders on the tracker's screen */
             gfx_use(ren2);
             int bw, bh;
             SDL_GetRendererOutputSize(ren2, &bw, &bh);
             SDL_SetRenderDrawColor(ren2, 0x08, 0x0A, 0x10, 255);
             SDL_RenderClear(ren2);
-            float side = fminf(bw, bh) * 0.6f;
-            gfx_logo((bw - side) / 2, (bh - side) / 2, side, 1);
+            idle_draw(&ui, bw, bh, SMZ3_VERSION);
             present2();
             gfx_use(ren);
         }
@@ -2346,6 +2433,7 @@ int main(int argc, char **argv)
     }
     int start = argc > 2 ? atoi(argv[2]) - 1 : -1;
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER)) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
+    pad_handheld_setup();
     int win_w0 = 1920, win_h0 = 1080;   /* 1080p, or the largest 16:9 window the screen can hold */
     SDL_Rect usable;
     if (SDL_GetDisplayUsableBounds(0, &usable) == 0 && (usable.w < win_w0 || usable.h < win_h0)) {

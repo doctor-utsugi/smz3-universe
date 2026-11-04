@@ -36,7 +36,7 @@ int dungeon_available(SDL_Renderer *r)
 {
     if (state) return state > 0;
     size_t n, atlas = (size_t)SMZ_DM_ATLAS_W * SMZ_DM_ATLAS_H * 4;
-    uint8_t *file = store_read(store_path("derived/dungeons.bin"), &n);
+    uint8_t *file = store_read(store_path("derived/dungeons2.bin"), &n);
     if (file && n == sizeof meta + 2 * atlas) {
         memcpy(&meta, file, sizeof meta);
         tex_full = make_tex(r, file + sizeof meta, 1);

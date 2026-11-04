@@ -6,6 +6,7 @@
 #include "pc_store.h"
 
 static int code_of[PA_COUNT];
+static int handheld_labels;
 
 static const int DEFAULTS[PA_COUNT] = {
     SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y,
@@ -65,7 +66,37 @@ const char *pad_key_use(SDL_Keycode k)
     return NULL;
 }
 
-void pad_cfg_reset(void) { memcpy(code_of, DEFAULTS, sizeof code_of); memcpy(key_of, KEY_DEFAULTS, sizeof key_of); }
+void pad_cfg_reset(void)
+{
+    memcpy(code_of, DEFAULTS, sizeof code_of);
+    memcpy(key_of, KEY_DEFAULTS, sizeof key_of);
+    if (handheld_labels) {   /* SDL's names are the printed letters here, so each SNES button is the one with its letter */
+        code_of[PA_B] = SDL_CONTROLLER_BUTTON_B; code_of[PA_A] = SDL_CONTROLLER_BUTTON_A;
+        code_of[PA_Y] = SDL_CONTROLLER_BUTTON_Y; code_of[PA_X] = SDL_CONTROLLER_BUTTON_X;
+    }
+}
+
+int pad_handheld_labels(void) { return handheld_labels; }
+
+/* A pad built into a Linux handheld (bus 0x19) has Nintendo's letters, and the mappings in gamecontrollerdb mix letters and
+ * positions from one device to the next. The kernel's button order is reliable (south, east, north, west), so that is used. */
+void pad_handheld_setup(void)
+{
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+        char *map = SDL_JoystickGetDeviceGUID(i).data[0] == 0x19 ? SDL_GameControllerMappingForDeviceIndex(i) : NULL;
+        if (!map) continue;
+        char out[1024] = "";
+        int field = 0;
+        for (char *tok = strtok(map, ","); tok; tok = strtok(NULL, ","), field++) {
+            if (field >= 2 && strchr("abxy", tok[0]) && tok[1] == ':') continue;
+            strncat(out, tok, sizeof out - strlen(out) - 2);
+            strcat(out, ",");
+        }
+        strncat(out, "a:b1,b:b0,x:b2,y:b3,", sizeof out - strlen(out) - 1);
+        SDL_free(map);
+        if (SDL_GameControllerAddMapping(out) >= 0) handheld_labels = 1;
+    }
+}
 
 void pad_cfg_load(void)
 {
