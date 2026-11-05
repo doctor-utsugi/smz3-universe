@@ -5,7 +5,7 @@
 
 #include <SDL.h>
 
-/* pad: A B X Y L R LT RT SELECT START DPAD UD LR UP DOWN LEFT RIGHT (SDL positions: A is the bottom face button, B the right one).
+/* pad: A B X Y L R LT RT SELECT START DPAD UD LR UP DOWN LEFT RIGHT (SDL's names: on most pads A is the bottom face button and B the right one, on a handheld they are the printed letters).
  * kb: the key shown for the keyboard ("Enter", "Esc", "Q", "<", ">", "^", "v", ...). */
 typedef struct { const char *pad, *kb, *label; } HelpItem;
 

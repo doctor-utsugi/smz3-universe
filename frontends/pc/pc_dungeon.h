@@ -26,4 +26,14 @@ void dungeon_set_fixed_keys(int on);
 void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTracker *t, const uint8_t *in_logic, const DungeonLive *live,
                   const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int show_all, Uint32 ticks);
 
+/* The Thor's panel on the tracker's screen, sizes in u (one Android dp): the floor picture, its floor chips and, unless mini, the dungeon switcher and
+ * FULL MAP. mini is the RUN tab's form: Link's dungeon, at zoom and following him when zoomed. Writes the chips drawn to out and returns how many. */
+enum { DC_FLOOR, DC_PREV, DC_NEXT, DC_WORLD, DC_HERE };
+typedef struct { float x, y, w, h; int act, arg; } DungeonChip;
+int dungeon_panel(SDL_Renderer *r, DungeonView *v, SDL_Rect area, float u, int mini, float zoom, const SmzTracker *t, const uint8_t *in_logic, const DungeonLive *live,
+                  const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int show_all, Uint32 ticks, DungeonChip *out, int cap);
+void dungeon_chip_tap(DungeonView *v, const DungeonLive *live, int act, int arg);
+/* A chip as dungeon_panel draws it, for the ones outside the panel. */
+void dungeon_chip_draw(float x, float y, float w, float h, const char *label, int on);
+
 #endif

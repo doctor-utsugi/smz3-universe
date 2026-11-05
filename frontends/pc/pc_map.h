@@ -11,6 +11,11 @@ typedef struct { float cx, cy, zoom; int follow; int highlight; } MapView;   /* 
 void map_view_init(MapView *v);
 /* dx, dy in map pixels per call; dz multiplies the zoom. Any pan turns follow off. */
 void map_view_move(MapView *v, float dx, float dy, float dz);
+/* The whole map in the area, centred. */
+void map_view_fit(MapView *v, SDL_Rect area);
+/* Pending checks drawn from now on: NULL shows all of them, else those with visible[i] set (the run's helps; dual-screen mode). */
+void map_set_visible(const uint8_t *visible);
+const uint8_t *map_visible(void);
 void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, const SmzDiscovery *d, int discovered_only,
               const uint8_t *in_logic, const uint8_t *wram, size_t wram_len, Uint32 ticks);
 
@@ -20,5 +25,7 @@ void map_circle(SDL_Renderer *r, float x, float y, float rad, SDL_Color c, int r
 
 /* The inventory icon (file name as in smz3_inventory_items) as a texture, NULL when there is none. */
 SDL_Texture *map_item_icon(SDL_Renderer *r, const char *icon);
+/* The drawn part of an embedded icon (the boss tokens sit in a corner of their canvas); icon must stay valid. */
+SDL_Rect map_icon_art(const char *icon);
 
 #endif

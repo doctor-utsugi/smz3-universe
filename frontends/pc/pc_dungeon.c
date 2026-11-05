@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -165,17 +166,12 @@ static void key_mark(SDL_Renderer *r, float x, float y, float s, int big)
     gfx_rect(x + s * 0.13f, y + s * 0.85f, s * 0.24f, s * 0.18f, gold);
 }
 
-void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTracker *t, const uint8_t *in_logic, const DungeonLive *live,
-                  const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int show_all, Uint32 ticks)
+/* The floor with Link, the unopened checks, the keys and the boss, with its top-left room corner at left, top. */
+static void picture(SDL_Renderer *r, int d, int idx, float left, float top, float scale, int x0, int y0, const SmzTracker *t, const uint8_t *in_logic, const DungeonLive *live,
+                    const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int show_all, Uint32 ticks)
 {
-    int d, idx;
-    shown(v, live, &d, &idx);
-    gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
-    float u = area.h / 560.0f;
-    int fl = floors_of(d), below = meta.below[d];
-    int x0, y0, x1, y1;
-    bounds(d, &x0, &y0, &x1, &y1);
-    int cols = x1 - x0 + 1, rows = y1 - y0 + 1;
+    const uint8_t *vis = map_visible();
+    int below = meta.below[d];
 
     /* what the game remembers: room quadrants visited, the dungeon's map and compass */
     int zelda = t->game == SMZ3_GAME_ZELDA;
@@ -186,13 +182,6 @@ void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTrack
     int map_mask = have_data ? u16(src, base + 0x368) : 0, compass_mask = have_data ? u16(src, base + 0x364) : 0;
     int have_map = have_data && (map_mask & (0x8000 >> d));
 
-    float title_h = 34 * u, side = 76 * u, foot = 44 * u;
-    float areaL = area.x + side, areaT = area.y + title_h, areaR = area.x + area.w - 10 * u, areaB = area.y + area.h - foot;
-    float scale = fminf((areaR - areaL) / (cols * SMZ_DM_ROOM), (areaB - areaT) / (rows * SMZ_DM_ROOM));
-    float picW = cols * SMZ_DM_ROOM * scale, picH = rows * SMZ_DM_ROOM * scale;
-    float left = areaL + ((areaR - areaL) - picW) / 2, top = areaT + ((areaB - areaT) - picH) / 2;
-
-    SDL_RenderSetClipRect(r, &area);
     for (int c = 0; c < 25; c++) {
         int room = meta.grid[d][idx][c];
         if (room == 0xF) continue;
@@ -217,7 +206,7 @@ void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTrack
         int loose = 0;
         for (unsigned i = 0; i < smz3_location_count && i < 512; i++) {
             const smz3_location *l = &smz3_locations[i];
-            if (l->game != SMZ3_GAME_ZELDA || l->zelda_misc || (int)l->addr != room || t->cleared[i]) continue;
+            if (l->game != SMZ3_GAME_ZELDA || l->zelda_misc || (int)l->addr != room || t->cleared[i] || (vis && !vis[i])) continue;
             int st = !in_logic || in_logic[i] ? 1 : 2, k = (int)l->flag - 4;
             if (k >= 0 && k < SMZ_DM_CHESTS && k < meta.chest_n[room]) dot(r, ox + (meta.chest_xy[room][k][0] + 0.5f) / 4 * scale, oy + (meta.chest_xy[room][k][1] + 0.5f) / 4 * scale, scale * 2, st);
             else loose |= st;
@@ -259,6 +248,28 @@ void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTrack
         map_circle(r, x, y, scale * 1.9f, (SDL_Color){0, 0, 0, 255}, 0);
         map_circle(r, x, y, scale * 1.3f, (SDL_Color){255, 255, 255, 255}, 0);
     }
+}
+
+void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTracker *t, const uint8_t *in_logic, const DungeonLive *live,
+                  const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int show_all, Uint32 ticks)
+{
+    int d, idx;
+    shown(v, live, &d, &idx);
+    gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
+    float u = area.h / 560.0f;
+    int fl = floors_of(d), below = meta.below[d];
+    int x0, y0, x1, y1;
+    bounds(d, &x0, &y0, &x1, &y1);
+    int cols = x1 - x0 + 1, rows = y1 - y0 + 1;
+
+    float title_h = 34 * u, side = 76 * u, foot = 44 * u;
+    float areaL = area.x + side, areaT = area.y + title_h, areaR = area.x + area.w - 10 * u, areaB = area.y + area.h - foot;
+    float scale = fminf((areaR - areaL) / (cols * SMZ_DM_ROOM), (areaB - areaT) / (rows * SMZ_DM_ROOM));
+    float picW = cols * SMZ_DM_ROOM * scale, picH = rows * SMZ_DM_ROOM * scale;
+    float left = areaL + ((areaR - areaL) - picW) / 2, top = areaT + ((areaB - areaT) - picH) / 2;
+
+    SDL_RenderSetClipRect(r, &area);
+    picture(r, d, idx, left, top, scale, x0, y0, t, in_logic, live, wram, wram_len, sram, sram_len, show_all, ticks);
 
     /* header, the floor list (top floor first) and the hint */
     SDL_Color white = {0xE8, 0xEC, 0xF2, 255}, dim = {0x87, 0x93, 0xA6, 255}, amber = {0xE9, 0xA2, 0x3B, 255};
@@ -289,4 +300,89 @@ void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTrack
     }
     map_legend(r, area.x + area.w - 10 * u, area.y + 8 * u, 16 * u, 1, in_logic != NULL);
     SDL_RenderSetClipRect(r, NULL);
+}
+
+static void floor_label(int d, int i, char *out, size_t cap)
+{
+    int fn = i - meta.below[d];
+    if (fn >= 0) snprintf(out, cap, "%dF", fn + 1); else snprintf(out, cap, "B%d", -fn);
+}
+
+void dungeon_chip_draw(float x, float y, float w, float h, const char *label, int on)
+{
+    float px = fminf(h * 0.45f, w * 0.4f), tw = gfx_text_width(px, label);
+    if (tw > w - 4) px *= (w - 4) / tw;
+    gfx_chamfer(x, y, w, h, 3, (SDL_Color){0xFF, 0xD5, 0x4A, 255});
+    gfx_chamfer(x + 2, y + 2, w - 4, h - 4, 2, on ? (SDL_Color){0x3A, 0x4A, 0x66, 255} : (SDL_Color){0x0C, 0x10, 0x16, 255});
+    gfx_text(x + w / 2, y + (h - px) / 2, px, (SDL_Color){255, 255, 255, 255}, 1, label);
+}
+
+static void chip(DungeonChip *out, int cap, int *n, float x, float y, float w, float h, const char *label, int on, int act, int arg)
+{
+    dungeon_chip_draw(x, y, w, h, label, on);
+    if (*n < cap) out[(*n)++] = (DungeonChip){x, y, w, h, act, arg};
+}
+
+int dungeon_panel(SDL_Renderer *r, DungeonView *v, SDL_Rect area, float u, int mini, float zoom, const SmzTracker *t, const uint8_t *in_logic, const DungeonLive *live,
+                  const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int show_all, Uint32 ticks, DungeonChip *out, int cap)
+{
+    int d, idx, n = 0;
+    shown(v, live, &d, &idx);
+    float L = (float)area.x, T = (float)area.y, W = (float)area.w, H = (float)area.h;
+    SDL_Color white = {255, 255, 255, 255};
+    gfx_rect(L, T, W, H, (SDL_Color){0x0B, 0x0E, 0x12, 255});
+    int fl = floors_of(d), x0, y0, x1, y1;
+    bounds(d, &x0, &y0, &x1, &y1);
+    int cols = x1 - x0 + 1, rows = y1 - y0 + 1;
+    float colW = !mini ? 50 * u : fl > 1 ? 38 * u : 0, barH = mini ? 0 : 40 * u;
+    float areaL = L + colW + 6 * u, areaT = T + (mini ? 30 : 44) * u, areaR = L + W - 6 * u, areaB = T + H - (mini ? 6 * u : barH + 12 * u);
+    float scale = fminf((areaR - areaL) / (cols * SMZ_DM_ROOM), (areaB - areaT) / (rows * SMZ_DM_ROOM));
+    if (mini) scale *= zoom;
+    float picW = cols * SMZ_DM_ROOM * scale, picH = rows * SMZ_DM_ROOM * scale;
+    float left = areaL + ((areaR - areaL) - picW) / 2, top = areaT + ((areaB - areaT) - picH) / 2;
+    if (mini && zoom > 1 && live && live->cell >= 0 && live->d == d && live->idx == idx) {   /* zoomed in, the picture follows Link */
+        left = (areaL + areaR) / 2 - ((live->cell % 5 - x0) * SMZ_DM_ROOM + live->lx + 0.5f) * scale;
+        top = (areaT + areaB) / 2 - ((live->cell / 5 - y0) * SMZ_DM_ROOM + live->ly + 0.5f) * scale;
+    }
+    SDL_RenderSetClipRect(r, &area);
+    picture(r, d, idx, left, top, scale, x0, y0, t, in_logic, live, wram, wram_len, sram, sram_len, show_all, ticks);
+    char label[24], name[8];
+    floor_label(d, idx, name, sizeof name);
+    if (mini) {
+        snprintf(label, sizeof label, "%s  %s", NAMES[d], name);
+        gfx_text(L + 8 * u, T + 8 * u, 16 * u, white, 0, label);
+    } else {
+        snprintf(label, sizeof label, "%s  (%d/%d)", name, idx + 1, fl);
+        gfx_text(left, areaT - 20 * u, 16 * u, white, 0, label);
+    }
+    /* the chips, top floor first; a tall dungeon packs them closer so the list stays on the panel */
+    int here = live && (mini ? idx != live->idx : d != live->d || idx != live->idx || v->picked);
+    float y0c = T + (mini ? 30 : 44) * u, pitch = (mini ? 34 : 38) * u, ch = (mini ? 28 : 32) * u, cx = L + (mini ? 4 : 6) * u, cw = (mini ? 32 : 44) * u;
+    float room = H - (y0c - T) - barH - 8 * u;
+    if (pitch * (fl + here) > room) { ch *= room / (pitch * (fl + here)); pitch = room / (fl + here); }
+    if (!mini || fl > 1) {
+        for (int i = fl - 1; i >= 0; i--) {
+            floor_label(d, i, name, sizeof name);
+            chip(out, cap, &n, cx, y0c + (fl - 1 - i) * pitch, cw, ch, name, i == idx, DC_FLOOR, i);
+        }
+        if (here) chip(out, cap, &n, cx, y0c + fl * pitch, cw, ch, "HERE", 0, DC_HERE, 0);
+    }
+    if (!mini) {
+        float by = T + H - barH - 4 * u, px = L + colW + 6 * u, nx = L + W - 50 * u;
+        chip(out, cap, &n, px, by, 44 * u, barH, "<", 0, DC_PREV, 0);
+        chip(out, cap, &n, nx, by, 44 * u, barH, ">", 0, DC_NEXT, 0);
+        gfx_text((px + 44 * u + nx) / 2, by + (barH - 15 * u) / 2, 15 * u, white, 1, NAMES[d]);
+        chip(out, cap, &n, L + W - 98 * u, T + 6 * u, 92 * u, 32 * u, "FULL MAP", 0, DC_WORLD, 0);
+    }
+    SDL_RenderSetClipRect(r, NULL);
+    return n;
+}
+
+void dungeon_chip_tap(DungeonView *v, const DungeonLive *live, int act, int arg)
+{
+    if (act == DC_PREV) dungeon_step(v, live, -1);
+    else if (act == DC_NEXT) dungeon_step(v, live, 1);
+    else if (act == DC_WORLD) v->world = 1;
+    else if (act == DC_HERE) dungeon_here(v);
+    else { int d, idx; shown(v, live, &d, &idx); pick(v, d, arg); }
 }

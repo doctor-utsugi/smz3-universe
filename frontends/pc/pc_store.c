@@ -195,6 +195,7 @@ void store_run_delete(int slot)
     remove(store_path("runs/slot%d.run", slot));
     remove(store_path("runs/slot%d.srm", slot));
     remove(store_path("runs/slot%d.state", slot));
+    remove(store_path("runs/slot%d.help", slot));
 }
 
 int store_free_slot(void)

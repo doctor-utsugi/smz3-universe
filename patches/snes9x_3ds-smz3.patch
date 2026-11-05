@@ -1423,10 +1423,10 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..4dd7db6
+index 0000000..fb495b4
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4565 @@
+@@ -0,0 +1,4592 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1997,7 +1997,19 @@ index 0000000..4dd7db6
 +#define WIPE_OPEN 500
 +#define WIPE_FADE 200   // ms the screen that left takes to fade out over the cover
 +
++#define LAUNCH_MS 2000       // from Continue or a new run to the game
++#define LAUNCH_FADE_MS 500   // the menu reaches black, and stays there for the rest
++
 +static u64 wipeStart;
++static float launchDark;   // 0..1: how far both screens have gone to black for the game
++
++static void darken(gfxScreen_t screen, int width)
++{
++    if (launchDark <= 0) return;
++    u16 *fb = (u16 *)gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
++    int k = (int)(256 * launchDark);
++    for (int i = 0; i < width * 240; i++) fb[i] = blend565(fb[i], 0, k);
++}
 +
 +// Menu input waits until the seam has opened most of the new screen.
 +static bool uiBusy() { return osGetTime() - wipeStart < WIPE_HOLD + WIPE_OPEN * 6 / 10; }
@@ -2081,6 +2093,7 @@ index 0000000..4dd7db6
 +        int k = (int)(256 * a * a);
 +        for (int i = 0; i < UI_W * 240; i++) fb[i] = blend565(fb[i], gone[i], k);
 +    }
++    darken(settings3DS.SecondScreen, UI_W);
 +    impl3dsFlushScreen(settings3DS.SecondScreen, false, false);
 +    gfxScreenSwapBuffers(settings3DS.SecondScreen, false);
 +    gpu3dsWaitForVBlank(settings3DS.SecondScreen);
@@ -2298,6 +2311,17 @@ index 0000000..4dd7db6
 +static void uiCueSound(UiCue c);
 +static void goalsLeave(bool report);
 +static void drawIdlePanel(const SmzUi *u);
++
++// The menu goes to black and the game comes two seconds after the press; black stays over whatever is drawn until the menu closes.
++static void launchFade(SmzUi *u)
++{
++    u64 start = osGetTime();
++    for (u64 t = 0; t < LAUNCH_MS; t = osGetTime() - start) {
++        launchDark = t >= LAUNCH_FADE_MS ? 1 : (float)t / LAUNCH_FADE_MS;
++        drawUi(u);
++        drawIdlePanel(u);
++    }
++}
 +static char idleKey[160];   // what the bottom screen shows now; emptied when the menu opens, so it is drawn again
 +
 +static char pendingNote[64];
@@ -2449,6 +2473,7 @@ index 0000000..4dd7db6
 +                if (act == ACT_CONTINUE && hasState && r.save_ms > 0 && (r.game == 3 || r.play_ms - r.save_ms > 10000)) {   // a finished run's clock is frozen
 +                    ui_load_choice(&ui, slot, r.save_ms, r.save_zelda, r.save_metroid, r.play_ms, r.zelda_cleared, r.metroid_cleared, r.zelda_total, r.metroid_total);
 +                } else if (loaded) {
++                    launchFade(&ui);
 +                    deriveFromRoms(&ui);
 +                    gNextStates = states;
 +                    gNextLoadState = hasState && act != ACT_LOAD_SAVE;
@@ -2467,6 +2492,7 @@ index 0000000..4dd7db6
 +        drawUi(&ui);
 +        drawIdlePanel(&ui);
 +    }
++    launchDark = 0;
 +    if (chosen) freePreviews();   // the game gets the heap back
 +    return chosen;
 +}
@@ -5555,6 +5581,7 @@ index 0000000..4dd7db6
 +        idleRun(r, slot, 6, 50, 152, 184);
 +        idleLadder(u, tab, 162, 50, 152, 184);
 +    } else idleLadder(u, tab, 6, 50, 308, 184);
++    darken(GFX_BOTTOM, 320);
 +    impl3dsFlushScreen(GFX_BOTTOM, false, false);
 +    gfxScreenSwapBuffers(GFX_BOTTOM, false);
 +    settings3DS.SecondScreen = menuScreen;

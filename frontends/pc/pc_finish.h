@@ -19,5 +19,11 @@ int finish_skip(void);
 void finish_draw(const FinishCard *f, int ww, int wh);
 /* After the card, while the credits roll: the run's details in place of the tracker panel at x..x+w. */
 void finish_panel(const FinishCard *f, float x, float w, float h);
+/* The tracker's screen once the game has ended (dual-screen mode), as on the Thor: the details one per second, then touch buttons. open: the card is up
+ * on the top screen. b gets the boxes of the buttons out: menu and credits while open, else back. */
+typedef struct { int n; SDL_FRect menu, credits, back; } FinishButtons;
+void finish_screen(const FinishCard *f, int w, int h, int open, FinishButtons *b);
+/* A tap before the buttons are out only ends the rows; returns 1 then. */
+int finish_screen_skip(void);
 
 #endif

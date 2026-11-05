@@ -132,10 +132,13 @@ const char *pad_code_name(int code)
     static const char *const BUTTON[] = {"A", "B", "X", "Y", "Back", "Guide", "Start", "L3", "R3", "LB", "RB", "Up", "Down", "Left", "Right", "Share", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Touchpad"};
     static char other[24];
     if (code < 0) return "None";
+    if (handheld_labels && code == SDL_CONTROLLER_BUTTON_BACK) return "Select";
+    if (handheld_labels && code == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) return "L1";
+    if (handheld_labels && code == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) return "R1";
     if (code >= PAD_AXIS_BASE) {
         int axis = code - PAD_AXIS_BASE;
-        if (axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) return "LT";
-        if (axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) return "RT";
+        if (axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) return handheld_labels ? "L2" : "LT";
+        if (axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) return handheld_labels ? "R2" : "RT";
         snprintf(other, sizeof other, "Axis %d", axis);
         return other;
     }
@@ -174,6 +177,14 @@ int pad_dirs(SDL_GameController *c)
     return d;
 }
 
+static int hidden[2];   /* the codes in use by a hotkey: buttons, and triggers from PAD_AXIS_BASE */
+void pad_hide(int code, int on)
+{
+    int *set = &hidden[code >= PAD_AXIS_BASE], bit = 1 << (code >= PAD_AXIS_BASE ? code - PAD_AXIS_BASE : code);
+    *set = on ? *set | bit : *set & ~bit;
+}
+static int is_hidden(int code) { return code >= 0 && (hidden[code >= PAD_AXIS_BASE] >> (code >= PAD_AXIS_BASE ? code - PAD_AXIS_BASE : code) & 1); }
+
 int pad_snes_bits(SDL_GameController *c)
 {
     if (!c) return 0;
@@ -182,6 +193,6 @@ int pad_snes_bits(SDL_GameController *c)
     if (d & 2) b |= PAD_DOWN;
     if (d & 4) b |= PAD_LEFT;
     if (d & 8) b |= PAD_RIGHT;
-    for (int a = 0; a < 8; a++) if (pad_held(c, code_of[a])) b |= SNES_BIT[a];
+    for (int a = 0; a < 8; a++) if (pad_held(c, code_of[a]) && !is_hidden(code_of[a])) b |= SNES_BIT[a];
     return b;
 }

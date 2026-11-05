@@ -1361,10 +1361,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..ecc7800
+index 0000000..8830a5c
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,736 @@
+@@ -0,0 +1,743 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1533,16 +1533,22 @@ index 0000000..ecc7800
 +    var version by remember { mutableIntStateOf(0) }
 +    val quiet = remember { booleanArrayOf(false) }   // the next screen change comes without the wipe
 +    val lastScreen0Reset = remember { booleanArrayOf(false) }   // back from a game: the list shows without a wipe
-+    // Starting a game: the last frame stays, the seam closes over it to black, and black stays until the game is up
++    // Starting a game: the last frame stays, fades to black, and black stays until the game is up, two seconds after the press
 +    var launching by remember { androidx.compose.runtime.mutableStateOf(false) }
 +    val closing = remember { Animatable(0f) }
 +    val lastCommands = remember { arrayOf<Array<String>>(emptyArray()) }
 +    val frozen = remember { arrayOf<Array<String>?>(null) }
-+    val play: (Run, Boolean) -> Unit = { run, state ->
++    val play: (Run, Boolean) -> Unit = play@{ run, state ->
++        if (launching) return@play
 +        frozen[0] = lastCommands[0]
 +        launching = true
-+        scope.launch { closing.snapTo(0f); closing.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
-+        onContinue(run, state)
++        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.fadeOut()
++        scope.launch {
++            closing.snapTo(0f)
++            closing.animateTo(1f, tween(500, easing = LinearEasing))
++            kotlinx.coroutines.delay(1500)
++            onContinue(run, state)
++        }
 +    }
 +    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
 +    DisposableEffect(lifecycle) {
@@ -1553,7 +1559,7 @@ index 0000000..ecc7800
 +        onDispose { lifecycle.removeObserver(back) }
 +    }
 +    LaunchedEffect(launching) {   // a game that never started (a missing ROM) gives the menu back
-+        if (launching) { kotlinx.coroutines.delay(8000); if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) { launching = false; frozen[0] = null } }
++        if (launching) { kotlinx.coroutines.delay(8000); if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) { launching = false; frozen[0] = null; com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.show(context) } }
 +    }
 +    val focus = remember { FocusRequester() }
 +    val pendingMonthly = remember { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) }
@@ -1839,6 +1845,7 @@ index 0000000..ecc7800
 +                .focusRequester(focus)
 +                .focusable()
 +                .onKeyEvent { e ->
++                    if (launching) return@onKeyEvent true
 +                    if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
 +                    val b = when (e.key) {
 +                        Key.DirectionUp -> 0; Key.DirectionDown -> 1; Key.DirectionLeft -> 2; Key.DirectionRight -> 3
@@ -1855,7 +1862,7 @@ index 0000000..ecc7800
 +                }
 +                .pointerInput(Unit) {
 +                    detectTapGestures { p ->
-+                        if (wipe.isRunning && wipe.value < 0.6f) return@detectTapGestures
++                        if (launching || (wipe.isRunning && wipe.value < 0.6f)) return@detectTapGestures
 +                        val scale = size.width / W
 +                        Smz3Finish.cue(Smz3Native.uiTouch((p.x / scale).toInt(), (p.y / scale).toInt())); pollActions(); version++; publishSelection()
 +                    }
@@ -1937,7 +1944,7 @@ index 0000000..ecc7800
 +            drawCommands(commands)
 +            // on the frame the screen changes the wipe has not started yet: cover the new screen instead of flashing it
 +            if (launching) {
-+                closing.value.let { c -> drawWipe(1f - c, scale, drift) }
++                drawRect(Color.Black.copy(alpha = closing.value), Offset.Zero, size)
 +            } else {
 +                drawWipe(if (changed) 0f else wipe.value, scale, drift)
 +                val fade = if (changed) 1f else leave.value   // the screen that left fades out over the wallpaper

@@ -36,6 +36,9 @@ void settings_video_change(int row, int dir);
 int settings_screens(void);
 /* The same, read from video.cfg before any window exists (the windows depend on it). */
 int settings_screens_saved(void);
+/* Fast-forward speed on the tracker's CONFIG tab (dual-screen mode): frames per frame, 2 3 4 6 or 8. */
+int settings_ff_speed(void);
+void settings_ff_next(void);
 /* Minimap: 0 right panel, 1 left panel, 2 off; its size as a share of the panel width. */
 int settings_minimap_side(void);
 float settings_minimap_scale(void);

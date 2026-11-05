@@ -17,5 +17,15 @@ const char *sc_bind_pad(int id, int code);
 /* A press while playing: makes the writes of the shortcut bound to it, if any. Returns 1 when the press was a shortcut. */
 int sc_key_press(SDL_Keycode k);
 int sc_pad_press(int code);
+/* Makes the writes of shortcut id: a tap on the tracker's screen. */
+void sc_act(int id);
+/* The Thor's rows on the tracker's screen (dual-screen mode): five ALttP slots (-1 empty), and whether each row shows. */
+#define SC_SLOTS 5
+int sc_slot(int i);
+void sc_set_slot(int i, int id);
+int sc_row_shown(void);
+int sc_weapon_row_shown(void);
+void sc_toggle_row(void);
+void sc_toggle_weapon_row(void);
 
 #endif

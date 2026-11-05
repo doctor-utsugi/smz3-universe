@@ -88,7 +88,7 @@ static float face(float x, float cy, float h, const char *pad)
         else { line(cx, cy - g * 1.2f, cx + g * 1.15f, cy + g * 0.9f, t, glyph); line(cx + g * 1.15f, cy + g * 0.9f, cx - g * 1.15f, cy + g * 0.9f, t, glyph); line(cx - g * 1.15f, cy + g * 0.9f, cx, cy - g * 1.2f, t, glyph); }
     } else {
         int pos = which;
-        if (pad_kind == K_NINTENDO) pos = which == 0 ? 1 : which == 1 ? 0 : which == 2 ? 3 : 2;
+        if (pad_kind == K_NINTENDO && !pad_handheld_labels()) pos = which == 0 ? 1 : which == 1 ? 0 : which == 2 ? 3 : 2;
         edge = pad_kind == K_NINTENDO ? (SDL_Color){0xC7, 0xD0, 0xDE, 255} : XB[which];
         disc(cx, cy, r, rgb(0x1D, 0x24, 0x30, 1));
         ring(cx, cy, r - 1, fmaxf(1.2f, h * 0.07f), rgb(edge.r, edge.g, edge.b, 0.9f));
@@ -131,18 +131,22 @@ static float key(float x, float cy, float h, const char *kb)
     return pill(x, cy, h, kb, edge);
 }
 
+/* What the pad prints on a shoulder or menu button. */
+static const char *pad_name(const char *p)
+{
+    static const char *const KEYS[] = {"L", "R", "LT", "RT", "SELECT", "START"};
+    static const char *const NAMES[3][6] = {{"LB", "RB", "LT", "RT", "View", "Menu"}, {"L1", "R1", "L2", "R2", "Share", "Options"}, {"L1", "R1", "L2", "R2", "Select", "Start"}};
+    int kind = pad_handheld_labels() ? 2 : pad_kind == K_PS;
+    for (int i = 0; i < 6; i++) if (!strcmp(p, KEYS[i])) return NAMES[kind][i];
+    return p;
+}
+
 static float pad_icon(float x, float cy, float h, const char *p)
 {
-    int ps = pad_kind == K_PS;
     if (!strcmp(p, "A") || !strcmp(p, "B") || !strcmp(p, "X") || !strcmp(p, "Y")) return face(x, cy, h, p);
     SDL_Color edge = rgb(0x6F, 0x7D, 0x93, 1);
-    if (!strcmp(p, "LR2")) { float w1 = pill(x, cy, h, ps ? "L1" : "LB", edge); return w1 + h * 0.2f + pill(x + w1 + h * 0.2f, cy, h, ps ? "R1" : "RB", edge); }
-    if (!strcmp(p, "L")) return pill(x, cy, h, ps ? "L1" : "LB", edge);
-    if (!strcmp(p, "R")) return pill(x, cy, h, ps ? "R1" : "RB", edge);
-    if (!strcmp(p, "LT")) return pill(x, cy, h, ps ? "L2" : "LT", edge);
-    if (!strcmp(p, "RT")) return pill(x, cy, h, ps ? "R2" : "RT", edge);
-    if (!strcmp(p, "SELECT")) return pill(x, cy, h, ps ? "Share" : "View", edge);
-    if (!strcmp(p, "START")) return pill(x, cy, h, ps ? "Options" : "Menu", edge);
+    if (!strcmp(p, "LR2")) { float w1 = pill(x, cy, h, pad_name("L"), edge); return w1 + h * 0.2f + pill(x + w1 + h * 0.2f, cy, h, pad_name("R"), edge); }
+    if (!strcmp(p, "L") || !strcmp(p, "R") || !strcmp(p, "LT") || !strcmp(p, "RT") || !strcmp(p, "SELECT") || !strcmp(p, "START")) return pill(x, cy, h, pad_name(p), edge);
     if (!strcmp(p, "R3") || !strcmp(p, "L3")) return pill(x, cy, h, p, edge);
     if (!strcmp(p, "STICK")) { float cx = x + h / 2; disc(cx, cy, h * 0.48f, edge); disc(cx, cy, h * 0.4f, rgb(0x1D, 0x24, 0x30, 1)); disc(cx, cy, h * 0.16f, rgb(0xE8, 0xEC, 0xF2, 1)); return h; }
     if (!strcmp(p, "UD")) return dpad(x, cy, h, 1, 0);
@@ -163,13 +167,10 @@ static float icon_w(float h, const char *p, const char *kb)
 {
     if (using_pad && p) {
         if (!strcmp(p, "A") || !strcmp(p, "B") || !strcmp(p, "X") || !strcmp(p, "Y") || !strncmp(p, "D", 1) || !strcmp(p, "UD") || !strcmp(p, "LR") || !strcmp(p, "UP") || !strcmp(p, "DOWN") || !strcmp(p, "LEFT") || !strcmp(p, "RIGHT")) return h;
-        int ps = pad_kind == K_PS;
         if (!strcmp(p, "STICK")) return h;
         if (!strcmp(p, "R3") || !strcmp(p, "L3")) return fmaxf(h, text_w(h, p) + h * 0.7f);
-        if (!strcmp(p, "LR2")) return 2 * fmaxf(h, text_w(h, ps ? "L1" : "LB") + h * 0.7f) + h * 0.2f;
-        const char *t = !strcmp(p, "L") ? (ps ? "L1" : "LB") : !strcmp(p, "R") ? (ps ? "R1" : "RB") : !strcmp(p, "LT") ? (ps ? "L2" : "LT") : !strcmp(p, "RT") ? (ps ? "R2" : "RT")
-                      : !strcmp(p, "SELECT") ? (ps ? "Share" : "View") : (ps ? "Options" : "Menu");
-        return fmaxf(h, text_w(h, t) + h * 0.7f);
+        if (!strcmp(p, "LR2")) return 2 * fmaxf(h, text_w(h, pad_name("L")) + h * 0.7f) + h * 0.2f;
+        return fmaxf(h, text_w(h, pad_name(p)) + h * 0.7f);
     }
     const char *k = kb ? kb : p;
     if (!strcmp(k, "^") || !strcmp(k, "v") || !strcmp(k, "<") || !strcmp(k, ">")) return h;

@@ -16,6 +16,9 @@
 #define ROWS 4
 #define T_BUTTONS (T_ROWS + ROWS)
 
+#define S_ROWS 1.0f   /* the tracker's screen: its first row, one more each second, then the buttons */
+#define S_BUTTONS (S_ROWS + ROWS)
+
 #define PARTS 160
 
 static const SDL_Color CONFETTI[] = {
@@ -229,5 +232,61 @@ void finish_panel(const FinishCard *f, float x, float w, float h)
         gfx_text(rx, y - 2 * u, 14 * u, text, 2, v);
         gfx_rect(lx, y + 20 * u, rx - lx, 7 * u, (SDL_Color){0x1D, 0x24, 0x30, 255});
         gfx_rect(lx, y + 20 * u, (rx - lx) * (of ? (float)got / of : 0), 7 * u, r ? (SDL_Color){0xFF, 0x8A, 0x3D, 255} : (SDL_Color){0x5B, 0xD4, 0x6A, 255});
+    }
+}
+
+int finish_screen_skip(void)
+{
+    if (now() >= S_BUTTONS) return 0;
+    finish_skip();
+    return 1;
+}
+
+static void big_button(SDL_FRect *box, float x, float y, float w, float h, const char *label, SDL_Color fill, SDL_Color ink, float px)
+{
+    *box = (SDL_FRect){x, y, w, h};
+    gfx_chamfer(x, y, w, h, h * 0.1f, fill);
+    gfx_text(x + w / 2, y + (h - px) / 2, px, ink, 1, label);
+}
+
+void finish_screen(const FinishCard *f, int ww, int wh, int open, FinishButtons *b)
+{
+    float w = (float)ww, h = (float)wh, u = w / 1240, t = now(), lx = 120 * u, rx = w - 120 * u;
+    SDL_Color gold = {0xF2, 0xA3, 0x3A, 255}, pale = {0xFF, 0xE0, 0x7A, 255}, dimc = {0x87, 0x93, 0xA6, 255}, textc = {0xE8, 0xEC, 0xF2, 255}, track = {0x1D, 0x24, 0x30, 255}, card = {0x10, 0x16, 0x1F, 255};
+    char v[48];
+    b->n = 0;
+    gfx_rect(0, 0, w, h, (SDL_Color){0x0A, 0x0E, 0x15, (Uint8)(255 * clamp01(t / 0.4f))});
+    rays(w / 2, -40 * u, h * 1.4f, t, 0.5f * clamp01(t / 0.6f));
+    gfx_text(w / 2, 34 * u, 34 * u, with_a(gold, t / 0.4f), 1, f->title);
+    for (int r = 0; r < ROWS; r++) {
+        float rt = t - S_ROWS - r, rp = ease_out(rt / 0.35f), grow = ease_out(rt / 0.7f), y = 120 * u + r * 170 * u + (1 - rp) * 24 * u;
+        if (rt < 0) continue;
+        SDL_Color dim = with_a(dimc, rp), text = with_a(textc, rp);
+        if (r == 0) {
+            gfx_text(lx, y, 28 * u, dim, 0, "TIME");
+            fmt_time((int64_t)(f->ms * grow), v, sizeof v);
+            gfx_text(rx, y - 20 * u, 72 * u, text, 2, v);
+        } else if (r == 1) {
+            gfx_text(lx, y, 28 * u, dim, 0, "COMPLETION");
+            snprintf(v, sizeof v, "%d%%", (int)(pct(f->zelda + f->metroid, f->zelda_total + f->metroid_total) * grow + 0.5f));
+            gfx_text(rx, y - 20 * u, 72 * u, with_a(pale, rp), 2, v);
+        } else {
+            unsigned got = r == 2 ? f->zelda : f->metroid, of = r == 2 ? f->zelda_total : f->metroid_total;
+            gfx_text(lx, y, 28 * u, dim, 0, r == 2 ? "ZELDA" : "METROID");
+            snprintf(v, sizeof v, "%u/%u   %d%%", got, of, pct(got, of));
+            gfx_text(rx, y - 4 * u, 40 * u, text, 2, v);
+            gfx_rect(lx, y + 58 * u, rx - lx, 18 * u, with_a(track, rp));
+            if (of && got) gfx_rect(lx, y + 58 * u, (rx - lx) * got / of * grow, 18 * u, with_a(r == 2 ? (SDL_Color){0x5B, 0xD4, 0x6A, 255} : (SDL_Color){0xFF, 0x8A, 0x3D, 255}, rp));
+        }
+    }
+    if (t < S_BUTTONS) return;
+    float a = ease_out((t - S_BUTTONS) / 0.3f), by = h - 130 * u + (1 - a) * 16 * u;
+    if (open) {
+        big_button(&b->menu, lx, by, w / 2 - 20 * u - lx, 96 * u, "Main menu", with_a(gold, a), with_a(card, a), 36 * u);
+        big_button(&b->credits, w / 2 + 20 * u, by, rx - w / 2 - 20 * u, 96 * u, "Watch the credits", with_a(track, a), with_a(textc, a), 36 * u);
+        b->n = 2;
+    } else {
+        big_button(&b->back, w / 2 - 260 * u, by, 520 * u, 96 * u, "Back to menu", with_a(gold, a), with_a(card, a), 36 * u);
+        b->n = 1;
     }
 }

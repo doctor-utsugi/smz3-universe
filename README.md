@@ -116,8 +116,8 @@ Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second 
 6. Choose "New run", pick Cozy run, Original or Custom, and press Start on the last screen. The game starts as soon as
    the seed is made.
 
-To go back to the handheld's menu, leave the run (the tracker's HELP tab shows the button), press Start on the run list
-and choose Quit.
+To go back to the handheld's menu, press Select + Start in the game and then A, or tap "Save and leave the run" twice at
+the top of the tracker's CONFIG tab. Then press Start on the run list and choose Quit.
 
 **PC**
 - Linux: download `SMZ3-x86_64.AppImage`, make it executable (`chmod +x SMZ3-x86_64.AppImage`, or tick

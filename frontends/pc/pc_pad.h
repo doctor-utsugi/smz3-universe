@@ -27,6 +27,8 @@ const char *pad_key_use(SDL_Keycode k);
 int pad_held(SDL_GameController *c, int code);
 /* The code a controller event presses (a button down, or a trigger crossing its threshold), -1 for any other event. */
 int pad_event_code(const SDL_Event *e);
+/* While hidden, a code held counts for nothing in pad_snes_bits: the buttons of a hotkey. */
+void pad_hide(int code, int on);
 /* The SNES joypad bits (PAD_* of pc_emu.h) for the buttons held now, including the D-pad and the left stick. */
 int pad_snes_bits(SDL_GameController *c);
 /* Directions held: bit 0 up, 1 down, 2 left, 3 right (D-pad or left stick). */

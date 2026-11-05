@@ -92,6 +92,16 @@ void map_view_move(MapView *v, float dx, float dy, float dz)
     if (dz != 0) { v->zoom *= dz; if (v->zoom < 0.4f) v->zoom = 0.4f; if (v->zoom > 8) v->zoom = 8; }
 }
 
+void map_view_fit(MapView *v, SDL_Rect area)
+{
+    v->zoom = fminf(area.w / MAP_W, area.h / MAP_H);
+    v->cx = MAP_W / 2; v->cy = MAP_H / 2;
+}
+
+static const uint8_t *visible;
+void map_set_visible(const uint8_t *vis) { visible = vis; }
+const uint8_t *map_visible(void) { return visible; }
+
 static int seen_at(const SmzRect *rects, int n, float x, float y)
 {
     for (int i = 0; i < n; i++) if (x >= rects[i].x && x < rects[i].x + rects[i].w && y >= rects[i].y && y < rects[i].y + rects[i].h) return 1;
@@ -166,13 +176,22 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
         int head = stack_head[i], stacked = stack_size[head] > 1, done;
         if (stacked) {
             if (i != head) continue;
+            int any = 0;
             done = 1;
-            for (unsigned j = 0; j < smz3_location_count && j < 512; j++) if (stack_head[j] == head && !t->cleared[j]) done = 0;
-        } else done = t->cleared[i];
+            for (unsigned j = 0; j < smz3_location_count && j < 512; j++) {
+                if (stack_head[j] != head || (visible && !visible[j] && !t->cleared[j])) continue;
+                any = 1;
+                if (!t->cleared[j]) done = 0;
+            }
+            if (!any) continue;
+        } else {
+            done = t->cleared[i];
+            if (!done && visible && !visible[i]) continue;
+        }
         int reachable = 1;
         if (!done && in_logic) {
             reachable = 0;
-            if (stacked) { for (unsigned j = 0; j < smz3_location_count && j < 512; j++) if (stack_head[j] == head && !t->cleared[j] && in_logic[j]) reachable = 1; }
+            if (stacked) { for (unsigned j = 0; j < smz3_location_count && j < 512; j++) if (stack_head[j] == head && !t->cleared[j] && in_logic[j] && (!visible || visible[j])) reachable = 1; }
             else reachable = in_logic[i];
         }
         if (done) { map_circle(r, px, py, rad * 0.65f * 1.15f, black, 0); map_circle(r, px, py, rad * 0.65f, white, 0); }
@@ -210,16 +229,16 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
 
 SDL_Texture *map_item_icon(SDL_Renderer *r, const char *icon)
 {
-    static SDL_Texture *caches[2][64];
-    static const char *names_s[2][64];
+    static SDL_Texture *caches[2][128];
+    static const char *names_s[2][128];
     SDL_Texture **cache = caches[gfx_slot()];
     const char **names = names_s[gfx_slot()];
     char want[64];
     snprintf(want, sizeof want, "%s", icon);
     for (char *c = want; *c; c++) if (*c == ' ') *c = '_';
-    for (int i = 0; i < 64 && names[i]; i++) if (!strcmp(names[i], icon)) return cache[i];
+    for (int i = 0; i < 128 && names[i]; i++) if (!strcmp(names[i], icon)) return cache[i];
     int slot = 0;
-    while (slot < 63 && names[slot]) slot++;
+    while (slot < 127 && names[slot]) slot++;
     names[slot] = icon;
     for (const PcIcon *p = PC_ITEM_ICONS; p->name; p++) {
         if (strcmp(p->name, want)) continue;
@@ -235,4 +254,26 @@ SDL_Texture *map_item_icon(SDL_Renderer *r, const char *icon)
         break;
     }
     return cache[slot];
+}
+
+SDL_Rect map_icon_art(const char *icon)
+{
+    static struct { const char *name; SDL_Rect art; } known[8];
+    int k = 0;
+    for (; k < 8 && known[k].name; k++) if (!strcmp(known[k].name, icon)) return known[k].art;
+    SDL_Rect art = {0, 0, 32, 32};
+    for (const PcIcon *p = PC_ITEM_ICONS; p->name; p++) {
+        if (strcmp(p->name, icon)) continue;
+        int w, h, n, x0 = 1 << 30, y0 = 1 << 30, x1 = -1, y1 = -1;
+        unsigned char *img = stbi_load_from_memory(p->data, (int)p->len, &w, &h, &n, 4);
+        if (!img) break;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if (img[(y * w + x) * 4 + 3]) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+        stbi_image_free(img);
+        if (x1 >= 0) art = (SDL_Rect){x0, y0, x1 - x0 + 1, y1 - y0 + 1};
+        break;
+    }
+    if (k < 8) { known[k].name = icon; known[k].art = art; }
+    return art;
 }

@@ -9,6 +9,7 @@
 
 static SDL_Keycode key_of[SC_COUNT];
 static int pad_of[SC_COUNT];
+static int slot_of[SC_SLOTS] = {-1, -1, -1, -1, -1}, row_on = 1, weapons_on = 1;
 
 void sc_cfg_load(void)
 {
@@ -21,16 +22,21 @@ void sc_cfg_load(void)
     for (char *line = strtok(text, "\n"); line; line = strtok(NULL, "\n")) {
         int id, k, p;
         if (sscanf(line, "%d=%d,%d", &id, &k, &p) == 3 && id >= 0 && id < SC_COUNT) { key_of[id] = k; pad_of[id] = p; }
+        else if (sscanf(line, "slot%d=%d", &id, &k) == 2 && id >= 0 && id < SC_SLOTS && k >= -1 && k < SC_ZELDA_COUNT) slot_of[id] = k;
+        else if (sscanf(line, "row=%d", &k) == 1) row_on = k != 0;
+        else if (sscanf(line, "weapons=%d", &k) == 1) weapons_on = k != 0;
     }
     free(text);
 }
 
 void sc_cfg_save(void)
 {
-    char text[SC_COUNT * 32];
+    char text[SC_COUNT * 32 + SC_SLOTS * 16 + 32];
     int len = 0;
     for (int i = 0; i < SC_COUNT; i++)
         if (key_of[i] != SDLK_UNKNOWN || pad_of[i] >= 0) len += snprintf(text + len, sizeof text - (size_t)len, "%d=%d,%d\n", i, (int)key_of[i], pad_of[i]);
+    for (int i = 0; i < SC_SLOTS; i++) len += snprintf(text + len, sizeof text - (size_t)len, "slot%d=%d\n", i, slot_of[i]);
+    len += snprintf(text + len, sizeof text - (size_t)len, "row=%d\nweapons=%d\n", row_on, weapons_on);
     store_write(store_path("shortcuts.cfg"), text, (size_t)len);
 }
 
@@ -66,7 +72,7 @@ const char *sc_bind_pad(int id, int code)
     return NULL;
 }
 
-static void act(int id)
+void sc_act(int id)
 {
     size_t wl, sl;
     uint8_t *w = (uint8_t *)emu_wram(&wl);
@@ -80,13 +86,20 @@ static void act(int id)
 int sc_key_press(SDL_Keycode k)
 {
     if (k == SDLK_UNKNOWN) return 0;
-    for (int i = 0; i < SC_COUNT; i++) if (key_of[i] == k) { act(i); return 1; }
+    for (int i = 0; i < SC_COUNT; i++) if (key_of[i] == k) { sc_act(i); return 1; }
     return 0;
 }
 
 int sc_pad_press(int code)
 {
     if (code < 0) return 0;
-    for (int i = 0; i < SC_COUNT; i++) if (pad_of[i] == code) { act(i); return 1; }
+    for (int i = 0; i < SC_COUNT; i++) if (pad_of[i] == code) { sc_act(i); return 1; }
     return 0;
 }
+
+int sc_slot(int i) { return i >= 0 && i < SC_SLOTS ? slot_of[i] : -1; }
+void sc_set_slot(int i, int id) { if (i >= 0 && i < SC_SLOTS) { slot_of[i] = id; sc_cfg_save(); } }
+int sc_row_shown(void) { return row_on; }
+int sc_weapon_row_shown(void) { return weapons_on; }
+void sc_toggle_row(void) { row_on = !row_on; sc_cfg_save(); }
+void sc_toggle_weapon_row(void) { weapons_on = !weapons_on; sc_cfg_save(); }
