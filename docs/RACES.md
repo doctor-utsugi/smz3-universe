@@ -21,12 +21,12 @@ published as an artifact, and no interface gets built until they are approved.
 | Before the start | Each player picks a Link and a Samus skin, then confirms in a ready room that shows who has confirmed, with their skins. |
 | Start | Only when the last player confirms, and at the same moment for everyone. |
 | Rules | No save states, fast forward or rewind, nor anything else that changes the normal flow of a run. |
-| Rival events | A small note in a corner with the player's name and what they got, a small chime, and a thin line per player with their % of the run. |
+| Rival events | A small note in a corner with the player's name and what they got, and a small chime. A line per player with their % of the run shows on two screens only. |
 | Ending, 1 vs 1 | A win or loss message, with the choice to keep playing or close. The loser's play after that counts for nothing. |
 | Ending, multi | Positions appear as players finish, then the final table. |
 | Leaving | Anyone can abandon; the result is settled from who is left. |
 | Ladder | The winner can choose to save their time on a ladder. |
-| Chat | Text chat between the players of a race. |
+| Chat | Text chat between the players of a race. On one screen it opens only from the tracker overlay, and a new message shows for 2 seconds at the bottom right of the game. |
 | Server | Everything on salamando: the race server with Redis for live races, and the ladder and daily moved there too. |
 | Options menu | Buttons, resolution and basic settings, nothing that configures a run. |
 | Finding a race | Private rooms by code, with a field to enter one, and a list of open public rooms to search. |
@@ -49,9 +49,13 @@ published as an artifact, and no interface gets built until they are approved.
 | Ready room | No fixed time. The creator removes whoever doesn't confirm, and the 1 hour limit still applies. |
 | Room setup | The creator picks mode and format. With 2 or more players they close the room, and everyone goes on to skins and the ready room. |
 | Ranking | Ladders by time, one table per mode and length, with no player rating and no rupeergies for races. |
-| Rival notes | Only major items, bosses and crystals, and the goal's progress in a Draft. Notes and chime can each be turned off in Options; the progress lines stay. |
+| Rival notes | Only major items, bosses and crystals, and the goal's progress in a Draft. Notes and chime can each be turned off in Options; the standings on two screens stay. |
 | Daily challenge | Stays in the run list, under Start/Load game. |
 | Moving servers | Before the races, between two daily windows, with a short outage. Only the address's target changes. |
+| Creator leaves | The room passes to whoever has been in it longest, with the same code. |
+| App version | Everyone in a room needs the same version. A mismatch can't join and gets a message saying to update, because a different generator would build a different seed. |
+| Abandon | On two screens it lives in CONFIG, by touch. On one screen it's in the existing exit menu. It always asks for confirmation. |
+| Standings on RUN | At most four rows, the top three and you. All the players appear in the final table. |
 | Dropped connection | The player can return to the same race for 5 minutes, with the clock running. After that it counts as abandoning. A closed app counts the same. |
 
 ## What already exists
@@ -93,7 +97,7 @@ So Championship comes first, because it needs none of that and proves all the on
  ladder store                                          results kept for good
 ```
 
-The menus go in `core/ui`, so they are written once. The in-game parts (corner note, rival lines, chat) are not shared: PC is
+The menus go in `core/ui`, so they are written once. The in-game parts (corner note, message dialog, chat) are not shared: PC is
 C, Android is Kotlin, 3DS is C++. That is three versions of a small HUD, and the biggest cost of doing this everywhere.
 
 ### Messages: plain HTTP polling
@@ -145,14 +149,15 @@ between devices, so a player must return on the same one.
 |---|---|
 | Draft, count goals | Count over target |
 | Draft, boss or crystal | Steps of the planned route, from the same planner the daily uses; with no steps, 0 then 100 |
-| Championship, Full | Checks cleared over the total, or crystals and bosses (open question) |
+| Championship, Full | Crystals and bosses done over the total |
 | Championship, Partial | The parts of its goal done |
 
 ### Screens during a race
 
-- **One screen:** the corner note and the rival lines sit over the picture, small. Chat opens from the tracker overlay.
-- **Two screens:** the game screen stays clean but for the corner note. Standings go at the top of RUN and a new CHAT tab
-  takes messages by touch. The pad never leaves the game.
+- **One screen:** the corner note over the picture, with no % per player. Chat opens from the tracker overlay, so it needs no new button. A new message shows at
+  the bottom right of the game area, one at a time, and fades after 2 seconds.
+- **Two screens:** the game screen stays clean but for the corner note. RUN keeps its layout, info on the left and map on the
+  right, with the standings added to the left column. A new CHAT tab takes messages by touch. The pad never leaves the game.
 - **A race can't pause**, so typing costs time on a single screen. Quick phrases, one tap or two buttons, cover that.
 
 | Version | Typing |
@@ -193,8 +198,4 @@ between devices, so a player must return on the same one.
 
 ## Open questions
 
-These came up while writing the plan.
-
-1. If the creator leaves a room before it closes, does it pass to the next player, or does the room end?
-2. Must all players have the same app version? A different generator would build a different seed, so the proposal is to refuse joining with a mismatch, with a message saying to update.
-3. On which screen does Abandon live: the leave button in a race, CONFIG on two screens, or both?
+None right now.
