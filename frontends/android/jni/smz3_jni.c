@@ -792,3 +792,70 @@ JNIEXPORT jshortArray JNICALL NATIVE(rewindSound)(JNIEnv *env, jclass cls, jint 
 
 /* The release tag the app was built from. */
 JNIEXPORT jstring JNICALL NATIVE(version)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, SMZ3_VERSION); }
+
+/* ---- online races (core/ui ui_race_*): the app sends the requests, the menu reads the answers ---- */
+JNIEXPORT void JNICALL NATIVE(uiRaceEnable)(JNIEnv *env, jclass cls, jboolean on) { ui_race_enable(&g_ui, on); }
+
+JNIEXPORT void JNICALL NATIVE(uiRaceUpdate)(JNIEnv *env, jclass cls, jstring json, jlong localNowMs)
+{
+    const char *j = (*env)->GetStringUTFChars(env, json, NULL);
+    ui_race_update(&g_ui, j, localNowMs);
+    (*env)->ReleaseStringUTFChars(env, json, j);
+}
+
+JNIEXPORT void JNICALL NATIVE(uiRaceRooms)(JNIEnv *env, jclass cls, jstring json)
+{
+    const char *j = (*env)->GetStringUTFChars(env, json, NULL);
+    ui_race_rooms(&g_ui, j);
+    (*env)->ReleaseStringUTFChars(env, json, j);
+}
+
+JNIEXPORT void JNICALL NATIVE(uiRaceFail)(JNIEnv *env, jclass cls, jstring msg)
+{
+    const char *m = (*env)->GetStringUTFChars(env, msg, NULL);
+    ui_race_fail(&g_ui, m);
+    (*env)->ReleaseStringUTFChars(env, msg, m);
+}
+
+JNIEXPORT void JNICALL NATIVE(uiRaceEnd)(JNIEnv *env, jclass cls) { ui_race_end(&g_ui); }
+
+/* What the actions need: {format key, size, public (0/1), code typed, room code, last log line read, Link, Samus}. */
+JNIEXPORT jobjectArray JNICALL NATIVE(uiRaceInfo)(JNIEnv *env, jclass cls)
+{
+    char size[8], pub[4], since[24];
+    snprintf(size, sizeof size, "%d", g_ui.race.size);
+    snprintf(pub, sizeof pub, "%d", g_ui.race.is_public ? 1 : 0);
+    snprintf(since, sizeof since, "%lld", (long long)g_ui.race.room.since);
+    const char *v[8] = {ui_race_format_key(&g_ui), size, pub, g_ui.race.code, g_ui.race.room.code, since,
+                        g_ui.sprites[0][g_ui.value[UIO_LINK]], g_ui.sprites[1][g_ui.value[UIO_SAMUS]]};
+    jobjectArray out = (*env)->NewObjectArray(env, 8, (*env)->FindClass(env, "java/lang/String"), NULL);
+    for (int i = 0; i < 8; i++) (*env)->SetObjectArrayElement(env, out, i, (*env)->NewStringUTF(env, v[i]));
+    return out;
+}
+
+/* The pid of the room's player i (ACT_RACE_KICK), "" when there is none. */
+JNIEXPORT jstring JNICALL NATIVE(uiRacePid)(JNIEnv *env, jclass cls, jint i)
+{
+    return (*env)->NewStringUTF(env, i >= 0 && i < g_ui.race.room.n ? g_ui.race.room.p[i].pid : "");
+}
+
+/* The race game's settings in the app's format: the room's, with the Link and Samus picked and marked as a challenge (no
+ * states, fast forward or rewind). "" when they do not fit. */
+JNIEXPORT jstring JNICALL NATIVE(raceSettingsJson)(JNIEnv *env, jclass cls)
+{
+    static SmzUi u;
+    char buf[4096];
+    u = g_ui;
+    ui_preset(&u, 1);
+    ui_apply_run_settings(&u, g_ui.race.room.settings);
+    u.value[UIO_LINK] = g_ui.value[UIO_LINK]; u.value[UIO_SAMUS] = g_ui.value[UIO_SAMUS];
+    u.value[UIO_PLANDO] = 0;
+    snprintf(u.start_label, sizeof u.start_label, "Race %s", g_ui.race.room.code);
+    if (ui_settings_json(&u, 1, buf, sizeof buf) < 0 || buf[0] != '{') buf[0] = 0;
+    else if (!strstr(buf, "\"challenge\":true")) {
+        size_t n = strlen(buf);
+        if (n + 18 >= sizeof buf) buf[0] = 0;
+        else { memmove(buf + 18, buf + 1, n); memcpy(buf + 1, "\"challenge\":true,", 17); }
+    }
+    return (*env)->NewStringUTF(env, buf);
+}

@@ -206,6 +206,11 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
    Rivals' news shows top right for four seconds, their chat bottom right for two. The result card lets the winner save the
    time to the ladder. Nothing of this has been tried against the server yet.
 6. **Android and 3DS** join the same race, each with its own hold. This is where polling on a real 3DS gets measured.
+   Built, not tried yet. Android has `RaceClient.kt`; the game runs in its own process, so the token waits in
+   `runs/race.token` and `Smz3RaceOverlay.kt` picks the room up there. The 3DS client lives in `smz3online.cpp` and plays the
+   race in slot 33. On the 3DS the rivals' chat and times go on the touch screen's strip, and the end is read once a second,
+   so its finish can arrive up to a second later than on PC. Closing the 3DS app mid-race sends nothing, so the server drops
+   the player after five minutes; Android sends the leave as the game closes.
 7. **Multi race,** positions, abandon rules, Partial lengths, pause by agreement, ladder.
 8. **Chat,** with the touch keyboard on 3DS.
 9. **Draft start points.** Try one spot in each game, on all three emulators: the SRAM idea for Super Metroid, and a boot patch or prepared state for Zelda. If Super Metroid fails, Draft has to be rethought; if only Zelda fails, Draft starts in Super Metroid.

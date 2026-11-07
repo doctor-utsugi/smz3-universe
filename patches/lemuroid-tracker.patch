@@ -1361,10 +1361,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..9622b5c
+index 0000000..a0f45a9
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,761 @@
+@@ -0,0 +1,836 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1454,7 +1454,8 @@ index 0000000..9622b5c
 +    return (java.time.Duration.between(now, end).toMillis() / 86_400_000L).toInt()
 +}
 +
-+private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY, OPTIONS }
++private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY, OPTIONS,
++    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START }
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_OPT_QUIT = 8
@@ -1614,6 +1615,8 @@ index 0000000..9622b5c
 +        Smz3Native.uiPlayerLoad(OnlineLadder.profileText(context))
 +        Smz3Native.uiLadderEnable(true)
 +        Smz3Native.uiDailyEnable(true)
++        Smz3Native.uiRaceEnable(true)
++        RaceClient.init(context)
 +        Smz3Native.uiHomeEnable(UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
 +        if (!homeShown) { homeShown = true; Smz3Native.uiHomeOpen() }
 +        Thread { pendingMonthly.set(OnlineLadder.monthly(context)); pendingWeekly.set(OnlineLadder.weekly(context)) }.start()
@@ -1804,6 +1807,44 @@ index 0000000..9622b5c
 +        }
 +    }
 +
++    /** I'm ready in the race's ready room: the game is made with the skins picked (they go into the ROM), then the server hears both. */
++    fun buildRace() {
++        scope.launch {
++            val outcome = runCatching {
++                val games = retrogradeDb.gameDao().selectListBySystem("snes")
++                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
++                    ?: error(RunGenerator.wrongBaseRom ?: "Make a run first: it asks for the base ROMs")
++                val raw = Smz3Native.raceSettingsJson().ifEmpty { error("The race's settings do not fit") }
++                Smz3Native.uiSetPlando(null)
++                val settings = JSONObject(raw)
++                fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
++                    ?.let { spriteFile(context, game, "$it.rdc") }
++                val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
++                RunStore.delete(context, RaceClient.SLOT)
++                val romFile = RunStore.newRomFile(context, usedSeed, raw)
++                romFile.writeBytes(rom)
++                val totals = Smz3Native.summarize(ByteArray(0), ByteArray(0))
++                RunStore.save(
++                    context,
++                    Run(
++                        slot = RaceClient.SLOT, name = "Race ${Smz3Native.uiRaceInfo()[4]}", gameId = 0, createdAt = System.currentTimeMillis(),
++                        zeldaTotal = totals[3], metroidTotal = totals[5], keysanity = settings.optString("keysanity") != "None",
++                        logic = "Vanilla", romPath = romFile.path, seed = usedSeed, settings = raw, mapMode = settings.optString("mapMode", "all"),
++                    ),
++                )
++                OnlineLadder.markRun(context, RaceClient.SLOT, false, "")
++            }.onFailure { android.util.Log.e("NativeMenu", "race build failed", it) }
++            val failed = outcome.exceptionOrNull()
++            if (failed != null) Smz3Native.uiRaceFail((failed.message ?: "Cannot make the race's game").take(31))
++            else {
++                val info = Smz3Native.uiRaceInfo()
++                RaceClient.send("pick", JSONObject().put("link", info[6]).put("samus", info[7]), true)
++                RaceClient.send("ready", null, true)
++            }
++            version++
++        }
++    }
++
 +    fun pollActions() {
 +        pendingWeekly.getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetWeekly(label, seed, daysLeftInWeek()); version++ }
 +        pendingMonthly.getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetMonthly(label, seed, daysLeftInMonth()); version++ }
@@ -1830,11 +1871,45 @@ index 0000000..9622b5c
 +            }
 +            Act.DAILY -> startDaily()
 +            Act.OPTIONS -> if (slot == UI_OPT_QUIT) (context as? android.app.Activity)?.finish()
++            Act.RACE_CREATE, Act.RACE_JOIN -> {
++                val info = Smz3Native.uiRaceInfo()
++                val f = RaceClient.who(context)
++                if (act == Act.RACE_CREATE) f.put("format", info[0]).put("size", info[1].toInt()).put("public", info[2] == "1") else f.put("code", info[3])
++                RaceClient.forget()
++                RaceClient.send(if (act == Act.RACE_CREATE) "create" else "join", f, false)
++            }
++            Act.RACE_FIND -> RaceClient.find()
++            Act.RACE_CLOSE -> RaceClient.send("close", null, true)
++            Act.RACE_KICK -> Smz3Native.uiRacePid(slot).takeIf { it.isNotEmpty() }?.let { RaceClient.send("kick", JSONObject().put("pid", it), true) }
++            Act.RACE_LEAVE -> RaceClient.send("leave", null, true)
++            Act.RACE_READY -> buildRace()
++            Act.RACE_START -> RunStore.load(context, RaceClient.SLOT)?.let {   // the game's process takes the room over; a race is played once
++                RaceClient.handOver()
++                play(it, false)
++                Smz3Native.uiRaceEnd()
++            }
 +            Act.NONE -> {}
 +        }
 +    }
 +
 +    fun press(button: Int) { Smz3Finish.cue(Smz3Native.uiInput(button)); pollActions(); version++; publishSelection() }
++    // the race server's answers, for the race screens (the start comes back as an action)
++    LaunchedEffect(Unit) {
++        while (true) {
++            kotlinx.coroutines.delay(100)
++            var any = false
++            while (true) {
++                val (kind, text) = RaceClient.take() ?: break
++                any = true
++                when (kind) {
++                    RaceClient.ROOMS -> Smz3Native.uiRaceRooms(text)
++                    RaceClient.ERROR -> Smz3Native.uiRaceFail(text)
++                    else -> Smz3Native.uiRaceUpdate(text, System.currentTimeMillis())
++                }
++            }
++            if (any) { RaceClient.setSince(Smz3Native.uiRaceInfo()[5].toLongOrNull() ?: 0L); pollActions(); version++ }
++        }
++    }
 +
 +    val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(0f, 1f, infiniteRepeatable(tween(1850, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse")
 +    val drift by rememberInfiniteTransition(label = "drift").animateFloat(0f, 1f, infiniteRepeatable(tween(60000, easing = LinearEasing), RepeatMode.Restart), label = "drift")
@@ -2128,7 +2203,7 @@ index 0000000..9622b5c
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..710b64d
+index 0000000..b36e5f2
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 @@ -0,0 +1,249 @@
@@ -2186,10 +2261,10 @@ index 0000000..710b64d
 +    private var proofSlot = -1
 +    private val proofSeen = HashSet<Int>()
 +
-+    /** Proof of run: appends the checks of [cleared] not recorded yet with the play time [ms] they were first seen at. Only online runs and the daily challenge keep one. */
++    /** Proof of run: appends the checks of [cleared] not recorded yet with the play time [ms] they were first seen at. Only online runs, the daily challenge and the race keep one. */
 +    @Synchronized
 +    fun noteChecks(context: Context, slot: Int, cleared: Set<Int>, ms: Long) {
-+        if (!onlineFile(context, slot).exists() && slot != DailyChallenge.SLOT) return
++        if (!onlineFile(context, slot).exists() && slot != DailyChallenge.SLOT && slot != RaceClient.SLOT) return
 +        val file = proofFile(context, slot)
 +        if (proofSlot != slot) {
 +            proofSlot = slot
@@ -3127,7 +3202,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..ca12c07 100644
+index 6d06420..3a1a553 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3138,11 +3213,12 @@ index 6d06420..ca12c07 100644
  import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
  import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
  import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
-@@ -87,13 +88,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -87,13 +88,20 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      private lateinit var baseGameScreenViewModel: BaseGameScreenViewModel
  
      private val startGameTime = System.currentTimeMillis()
 +    private var dailyOverlay: com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3DailyOverlay? = null
++    private var raceOverlay: com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceOverlay? = null
      private var finishTriggered = false
  
      override fun onCreate(savedInstanceState: Bundle?) {
@@ -3158,15 +3234,16 @@ index 6d06420..ca12c07 100644
          systemCoreConfig = intent.getSerializableExtra(EXTRA_SYSTEM_CORE_CONFIG) as SystemCoreConfig
          system = GameSystem.findById(game.systemId)
  
-@@ -126,6 +133,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -126,6 +134,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
          }
 +        dailyOverlay = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3DailyOverlay(this) { baseGameScreenViewModel.requestFinish() }.also { it.start() }
++        raceOverlay = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceOverlay(this) { baseGameScreenViewModel.requestFinish() }.also { it.start() }
  
          lifecycleScope.launch {
              baseGameScreenViewModel.loadGame(
-@@ -209,7 +217,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -209,7 +219,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                      GameMenuContract.EXTRA_AUDIO_ENABLED,
                      baseGameScreenViewModel.retroGameView.retroGameView?.audioEnabled,
                  )
@@ -3175,7 +3252,7 @@ index 6d06420..ca12c07 100644
                  this.putExtra(
                      GameMenuContract.EXTRA_FAST_FORWARD,
                      (baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1) > 1,
-@@ -244,7 +252,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -244,7 +254,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                              it.currentTiltConfiguration,
                              it.tiltConfigurations,
                          )
@@ -3184,7 +3261,7 @@ index 6d06420..ca12c07 100644
                      is GameViewModelSideEffects.UiEffect.SuccessfulFinish -> performSuccessfulActivityFinish()
                      is GameViewModelSideEffects.UiEffect.FailureFinish -> performErrorFinish(it.message)
                      is GameViewModelSideEffects.UiEffect.SaveQuickSave -> performSaveQuickSave()
-@@ -262,6 +270,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -262,6 +272,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          baseGameScreenViewModel.loadQuickSave()
      }
  
@@ -3260,7 +3337,7 @@ index 6d06420..ca12c07 100644
      private fun performToggleFastForward() {
          baseGameScreenViewModel.toggleFastForward()
      }
-@@ -344,6 +421,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -344,6 +423,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onStop() {
@@ -3268,7 +3345,7 @@ index 6d06420..ca12c07 100644
          if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
              baseGameScreenViewModel.requestBackgroundSave()
          }
-@@ -351,6 +429,18 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -351,6 +431,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onDestroy() {
@@ -3284,6 +3361,7 @@ index 6d06420..ca12c07 100644
 +        finishDialog?.dismiss()
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.onDailyResult = null
 +        dailyOverlay?.stop()
++        raceOverlay?.stop(!isChangingConfigurations)
          if (!isChangingConfigurations) {
              GameService.requestTermination()
          }
@@ -6521,10 +6599,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..64ea6a0
+index 0000000..492e6c5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,134 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6646,6 +6724,18 @@ index 0000000..64ea6a0
 +    @JvmStatic external fun uiDailyWindow(): String
 +    /** The challenge run's settings in the app's format, from the server's ones; "" when they do not fit. */
 +    @JvmStatic external fun dailySettingsJson(serverSettings: String, check: String): String
++
++    /** Online races (core/ui ui_race_*): every server answer goes to [uiRaceUpdate], the open rooms to [uiRaceRooms], a failure to [uiRaceFail]. */
++    @JvmStatic external fun uiRaceEnable(on: Boolean)
++    @JvmStatic external fun uiRaceUpdate(json: String, localNowMs: Long)
++    @JvmStatic external fun uiRaceRooms(json: String)
++    @JvmStatic external fun uiRaceFail(msg: String)
++    @JvmStatic external fun uiRaceEnd()
++    /** {format key, size, public (0/1), code typed, room code, last log line read, Link, Samus}. */
++    @JvmStatic external fun uiRaceInfo(): Array<String>
++    @JvmStatic external fun uiRacePid(i: Int): String
++    /** The race game's settings in the app's format, the picked sprites kept; "" when they do not fit. */
++    @JvmStatic external fun raceSettingsJson(): String
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt
 new file mode 100644
@@ -8341,7 +8431,7 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..70f3acd
+index 0000000..c02391f
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 @@ -0,0 +1,460 @@
@@ -8729,7 +8819,7 @@ index 0000000..70f3acd
 +                                val late = attempt != null && System.currentTimeMillis() > attempt.closesAt
 +                                onRunComplete?.invoke(run.name, realMs, "${s[2]}/${s[3]}", "${s[4]}/${s[5]}",
 +                                    if (late) "After the window closed: on the late list, no prize" else "Sending the time...")
-+                            } else if (finished) {
++                            } else if (finished && slot != com.swordfish.lemuroid.app.mobile.feature.runs.RaceClient.SLOT) {   // a race has its own card
 +                                val isDefault = runCatching { org.json.JSONObject(run.settings).optBoolean("defaultRules", false) }.getOrDefault(false)
 +                                Leaderboard.add(context, LeaderboardEntry(run.name, run.seed, totalMs, System.currentTimeMillis(), isDefault))
 +                                if (isDefault) {
@@ -11488,5 +11578,411 @@ index c3c69c7..13cb599 100644
 +includeBuild("../LibretroDroid") {
 +    dependencySubstitution {
 +        substitute(module("com.github.Swordfish90:LibretroDroid")).using(project(":libretrodroid"))
++    }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
+new file mode 100644
+index 0000000..cafa04b
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
+@@ -0,0 +1,157 @@
++package com.swordfish.lemuroid.app.mobile.feature.runs
++
++import android.content.Context
++import android.os.SystemClock
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
++import org.json.JSONArray
++import org.json.JSONObject
++import java.io.File
++import java.net.HttpURLConnection
++import java.net.URL
++
++/**
++ * The online race's requests (server/ladder/race.js), as the PC's pc_race.c: one thread sends them in order and polls the
++ * room, every second in the rooms and every two in the race; the menu and the game take the answers with [take]. The game
++ * runs in a process of its own, so the room's token waits in a file for it ([resume]).
++ */
++object RaceClient {
++    const val ROOM = 0
++    const val ROOMS = 1
++    const val ERROR = 2
++    /** The race game's slot, after the daily challenge's; never listed with the runs. */
++    const val SLOT = RunStore.SLOTS + 1
++    private const val BASE = "https://smz3.indieviral.com"
++
++    private class Req(val what: String, val fields: JSONObject?, val withToken: Boolean)
++
++    private val lock = Object()
++    private val queue = ArrayDeque<Req>()
++    private val answers = ArrayDeque<Pair<Int, String>>()
++    private val events = ArrayList<String>()
++    private val chats = ArrayList<String>()
++    private var token = ""
++    private var since = 0L
++    private var progress = 0
++    @Volatile var slow = false
++    private var tokenFile: File? = null
++    private var worker: Thread? = null
++    @Volatile private var busy = false
++
++    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one), as for the daily challenge. */
++    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++
++    fun proofFile(context: Context) = File(File(context.filesDir, "runs"), "slot$SLOT.proof")
++
++    fun init(context: Context) {
++        synchronized(lock) {
++            if (tokenFile == null) tokenFile = File(File(context.filesDir, "runs").apply { mkdirs() }, "race.token")
++            if (worker == null) worker = Thread(::loop, "race").apply { isDaemon = true; start() }
++        }
++    }
++
++    /** In the game's process: the room the menu joined. */
++    fun resume(context: Context) {
++        init(context)
++        synchronized(lock) { token = runCatching { tokenFile!!.readText().trim() }.getOrDefault("") }
++    }
++
++    /** The player as the requests carry it. */
++    fun who(context: Context): JSONObject {
++        val (name, country) = OnlineLadder.profileFor(context)
++        return JSONObject().put("install", OnlineLadder.installIdFor(context)).put("player", name).put("country", country).put("version", Smz3Native.version())
++    }
++
++    /** Queues a POST to /api/race/<what>; with [withToken] the room's token goes along. */
++    fun send(what: String, fields: JSONObject?, withToken: Boolean) = synchronized(lock) { queue.addLast(Req(what, fields, withToken)) }
++
++    /** Queues the request for the open public rooms. */
++    fun find() = send("open", null, false)
++
++    /** Stops polling and forgets the room, once the requests queued before it are sent. */
++    fun forget() = send("forget", null, false)
++
++    /** The game takes the room over: this process stops polling, the token stays in its file. */
++    fun handOver() = send("handover", null, false)
++
++    /** Waits up to [ms] for the queued requests to go out (off the main thread). */
++    fun drain(ms: Long) {
++        val until = SystemClock.elapsedRealtime() + ms
++        while (synchronized(lock) { queue.isNotEmpty() || busy } && SystemClock.elapsedRealtime() < until) Thread.sleep(20)
++    }
++
++    /** Sends [what] with the token on this thread (not the main one), past the queue. */
++    fun now(what: String) = request(Req(what, null, true))
++
++    /** The next answer: its kind with the JSON (or the error text); null when none is waiting. */
++    fun take(): Pair<Int, String>? = synchronized(lock) { answers.removeFirstOrNull() }
++
++    fun joined(): Boolean = synchronized(lock) { token.isNotEmpty() }
++    fun setSince(s: Long) = synchronized(lock) { since = s }
++    fun setProgress(p: Int) = synchronized(lock) { progress = p.coerceIn(0, 100) }
++    fun event(text: String) = synchronized(lock) { if (events.size < 8) events += text }
++    fun chat(text: String) = synchronized(lock) { if (chats.size < 3) chats += text }
++
++    private fun saveToken() { runCatching { if (token.isEmpty()) tokenFile?.delete() else tokenFile?.writeText(token) } }
++
++    private fun answer(kind: Int, text: String) = synchronized(lock) {
++        if (answers.size >= 16) answers.removeFirst()
++        answers.addLast(kind to text)
++    }
++
++    private fun http(method: String, path: String, body: String?): Pair<Int, String> = runCatching {
++        val c = URL(base() + path).openConnection() as HttpURLConnection
++        c.requestMethod = method
++        c.connectTimeout = 8000
++        c.readTimeout = 8000
++        if (body != null) {
++            c.doOutput = true
++            c.setRequestProperty("Content-Type", "application/json")
++            c.outputStream.use { it.write(body.toByteArray()) }
++        }
++        val text = runCatching { (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().use { it.readText() } }.getOrDefault("")
++        Pair(c.responseCode, text).also { c.disconnect() }
++    }.getOrDefault(Pair(-1, ""))
++
++    /** Sends one request and files its answer; a create or join answer brings the room's token. */
++    private fun request(r: Req) {
++        when (r.what) {
++            "forget" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear(); slow = false; saveToken() }; return }
++            "handover" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear() }; return }
++        }
++        val (code, text) = if (r.what == "open") http("GET", "/api/race/open", null) else {
++            val body = JSONObject(r.fields?.toString() ?: "{}")
++            if (r.withToken) body.put("token", synchronized(lock) { token })
++            http("POST", "/api/race/${r.what}", body.toString())
++        }
++        if (r.what == "leave") { synchronized(lock) { token = ""; since = 0; saveToken() }; return }   // gone either way
++        if (code < 0) { answer(ERROR, "No connection"); return }
++        if (code != 200) {
++            val err = runCatching { JSONObject(text).optString("error") }.getOrDefault("")
++            answer(ERROR, if (err == "version") "Update the app to join this room" else err.ifEmpty { "The server said no" })
++            return
++        }
++        if (r.what == "open") { answer(ROOMS, text); return }
++        if (r.what == "create" || r.what == "join") {
++            val t = runCatching { JSONObject(text).optString("token") }.getOrDefault("")
++            if (t.isNotEmpty()) { synchronized(lock) { token = t; saveToken() }; return }   // the room itself comes with the next poll, at once
++        }
++        answer(ROOM, text)
++    }
++
++    private fun loop() {
++        var last = 0L
++        while (true) {
++            val r = synchronized(lock) { queue.removeFirstOrNull().also { busy = it != null } }
++            if (r != null) { request(r); busy = false; last = 0L; continue }   // a poll right after, so the room shows the change
++            val now = SystemClock.elapsedRealtime()
++            val body = synchronized(lock) {
++                if (token.isEmpty() || now - last < if (slow) 2000 else 1000) null
++                else JSONObject().put("token", token).put("since", since).put("progress", progress)
++                    .put("events", JSONArray(events.toList())).put("chat", JSONArray(chats.toList())).also { events.clear(); chats.clear() }
++            }
++            if (body == null) { Thread.sleep(50); continue }
++            last = now
++            request(Req("poll", body, false))
++        }
++    }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
+new file mode 100644
+index 0000000..7f01ad4
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
+@@ -0,0 +1,237 @@
++package com.swordfish.lemuroid.app.shared.game.viewmodel
++
++import android.app.Activity
++import android.app.AlertDialog
++import android.app.Dialog
++import android.graphics.Color
++import android.os.Handler
++import android.os.Looper
++import android.view.Gravity
++import android.view.KeyEvent
++import android.view.View
++import android.view.ViewGroup
++import android.widget.FrameLayout
++import android.widget.TextView
++import com.swordfish.lemuroid.app.mobile.feature.runs.RaceClient
++import com.swordfish.lemuroid.app.mobile.feature.runs.RunStore
++import org.json.JSONArray
++import org.json.JSONObject
++
++/**
++ * An online race while playing, as on PC: the game takes no input until the server's start (a countdown over it), bosses
++ * and crystals go out as news and progress, the end sends the proof, the rivals' news shows top right for four seconds and
++ * their chat bottom right for two, "Race ends in" counts down a multi race after the first finish, and the result card
++ * comes once the room is over. Leaving before the finish tells the rivals at once.
++ */
++class Smz3RaceOverlay(private val activity: Activity, private val onLeave: () -> Unit) {
++    private val main = Handler(Looper.getMainLooper())
++    private var on = false
++    private var primed = false   // the first answer only sets where the log stands: older lines are not news
++    private var state = ""
++    private var format = ""
++    private var endWhy = ""
++    private var you = ""
++    private var startAt = 0L
++    private var endAt = 0L
++    private var offset = 0L
++    private var since = 0L
++    private var players = JSONArray()
++    private var need = 11
++    private var bosses = 0
++    private var crystals = 0
++    private var finishSent = false
++    private var ended = false
++    private var lastCount = -1
++    private var goUntil = 0L
++    private var newsUntil = 0L
++    private var sayAt = 0L
++    private var hold: Dialog? = null
++    private var holdText: TextView? = null
++    private var news: TextView? = null
++    private var say: TextView? = null
++    private var endsIn: TextView? = null
++    private var card: AlertDialog? = null
++    private val tick = object : Runnable {
++        override fun run() { update(); main.postDelayed(this, 200) }
++    }
++
++    fun start() {
++        if (RunStore.activeSlot(activity) != RaceClient.SLOT) return
++        RaceClient.resume(activity)
++        if (!RaceClient.joined()) return
++        on = true
++        RaceClient.slow = true
++        RunStore.load(activity, RaceClient.SLOT)?.settings?.let { s ->
++            val j = runCatching { JSONObject(s) }.getOrDefault(JSONObject())
++            need = maxOf(j.optInt("ganonCrystals", 7), j.optInt("ganonsTowerCrystals", 7)) + j.optInt("tourianBosses", 4)
++        }
++        val pad = (8 * activity.resources.displayMetrics.density).toInt()
++        fun label(gravity: Int, color: Int, bottom: Int) = TextView(activity).apply {
++            setTextColor(color); textSize = 14f; setPadding(pad * 2, pad, pad * 2, pad); visibility = View.GONE
++            setBackgroundColor(Color.argb(215, 8, 11, 17))
++            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, gravity).apply { setMargins(pad, pad, pad, bottom) })
++        }
++        news = label(Gravity.TOP or Gravity.END, Color.rgb(0xE8, 0xEC, 0xF2), pad)
++        say = label(Gravity.BOTTOM or Gravity.END, Color.rgb(0xE8, 0xEC, 0xF2), pad * 12)
++        endsIn = label(Gravity.TOP or Gravity.CENTER_HORIZONTAL, Color.rgb(0xF2, 0xA3, 0x3A), pad)
++        // until the start the game gets no input: the countdown covers it and takes every button and touch
++        holdText = TextView(activity).apply { gravity = Gravity.CENTER; setTextColor(Color.WHITE); textSize = 28f; text = "Waiting for the race ..." }
++        hold = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
++            setContentView(holdText!!)
++            setCancelable(false)
++            setOnKeyListener { _, _, _ -> true }
++            show()
++        }
++        main.post(tick)
++    }
++
++    /** The game closes: out before the finish, the rivals hear it; otherwise the room is just forgotten. Not [closing]: the
++     * activity is only being made again (a turn of the screen), the race goes on. */
++    fun stop(closing: Boolean) {
++        main.removeCallbacks(tick)
++        hold?.dismiss(); card?.dismiss()
++        if (!on || !closing) return
++        on = false
++        val leaving = state == "running" && myTime() < 0
++        // the game's process closes right after: what is queued (a finish, the ladder) and the leave go out before
++        Thread { RaceClient.drain(1500); RaceClient.now(if (leaving) "leave" else "forget") }.apply { start(); join(3000) }
++    }
++
++    private fun me(): JSONObject? = (0 until players.length()).map { players.getJSONObject(it) }.firstOrNull { it.optString("pid") == you }
++    private fun myTime(): Long = me()?.let { if (it.isNull("timeMs")) -1L else it.optLong("timeMs", -1L) } ?: -1L
++    private fun won(): Boolean = me()?.let { it.optInt("place") == 1 && myTime() >= 0 } ?: false
++
++    private fun showNews(text: String) {
++        news?.text = text; news?.visibility = View.VISIBLE
++        newsUntil = System.currentTimeMillis() + 4000
++        Smz3Finish.cue(4)
++    }
++
++    private fun read(text: String) {
++        val o = runCatching { JSONObject(text) }.getOrNull() ?: return
++        val room = o.optJSONObject("room") ?: return
++        state = room.optString("state"); format = room.optString("format"); endWhy = room.optString("endWhy")
++        startAt = room.optLong("startAt", 0L); endAt = room.optLong("endAt", 0L)
++        players = room.optJSONArray("players") ?: players
++        if (o.has("now")) offset = o.optLong("now") - System.currentTimeMillis()
++        if (o.has("you")) you = o.optString("you")
++        val log = o.optJSONArray("log") ?: return
++        for (i in 0 until log.length()) {
++            val l = log.getJSONObject(i)
++            val seq = l.optLong("seq")
++            if (seq <= since) continue
++            since = seq
++            if (!primed) continue
++            val mine = you.isNotEmpty() && l.optString("pid") == you
++            val t = l.optString("text")
++            when (l.optString("kind")) {
++                "chat" -> if (!mine) { say?.text = "${l.optString("name")}: $t"; say?.alpha = 1f; say?.visibility = View.VISIBLE; sayAt = System.currentTimeMillis() }
++                "event" -> if (!mine) showNews("${l.optString("name")} $t")
++                "system" -> showNews(t)
++                else -> if (!mine) showNews(t)
++            }
++        }
++    }
++
++    private fun update() {
++        while (true) {
++            val (kind, text) = RaceClient.take() ?: break
++            if (kind == RaceClient.ERROR) showNews(text) else { read(text); primed = true }
++        }
++        RaceClient.setSince(since)
++        val now = System.currentTimeMillis()
++        val server = now + offset
++        // the countdown, then GO for a second
++        if (hold?.isShowing == true) {
++            val goIn = if (startAt > 0) startAt - server else Long.MAX_VALUE
++            if (state == "running" && goIn <= 0) {
++                if (goUntil == 0L && goIn < -1500) hold?.dismiss()   // back in a race already under way
++                else if (goUntil == 0L) { goUntil = now + 1000; holdText?.text = "GO"; holdText?.textSize = 96f; holdText?.setTextColor(Color.rgb(0x7F, 0xD8, 0x8F)); Smz3Finish.cue(6) }
++                if (now >= goUntil) hold?.dismiss()
++            } else if (startAt > 0) {
++                val n = ((goIn + 999) / 1000).toInt()
++                if (n != lastCount) {
++                    lastCount = n
++                    if (n > 3) { holdText?.textSize = 28f; holdText?.text = "The race starts in $n" }
++                    else { holdText?.textSize = 120f; holdText?.setTextColor(Color.rgb(0xF2, 0xA3, 0x3A)); holdText?.text = "$n"; Smz3Finish.cue(1) }
++                }
++            }
++            if (state == "cancelled" || state == "finished") hold?.dismiss()
++        }
++        if (now >= newsUntil) news?.visibility = View.GONE
++        say?.let { v ->   // two seconds, then it fades
++            val t = now - sayAt
++            if (v.visibility == View.VISIBLE) { if (t >= 2500) v.visibility = View.GONE else if (t > 2000) v.alpha = 1f - (t - 2000) / 500f }
++        }
++        endsIn?.let { v ->
++            if (state == "running" && endAt > 0) {
++                val left = maxOf(0L, endAt - server)
++                v.text = "Race ends in %d:%02d".format(left / 60000, left / 1000 % 60); v.visibility = View.VISIBLE
++            } else v.visibility = View.GONE
++        }
++        // news for the rivals, and the progress: 100 is the finish, from the server
++        val snap = Smz3Tracker.latest.value
++        if (snap != null && snap.started && state == "running") {
++            val nb = snap.bossMask and 15 and bosses.inv()
++            val nc = snap.crystalMask and 0x7F and crystals.inv()
++            if (nb != 0 || nc != 0) {
++                val names = arrayOf("beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley")
++                for (i in 0 until 4) if ((nb shr i) and 1 != 0) RaceClient.event(names[i])
++                for (i in 0 until 7) if ((nc shr i) and 1 != 0) RaceClient.event("got Crystal ${i + 1}")
++                bosses = bosses or nb; crystals = crystals or nc
++                RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))
++            }
++        }
++        if (Smz3Tracker.currentGame == 3 && !finishSent && state == "running") {   // the time is the server's: from the start to this request
++            finishSent = true
++            val proof = runCatching { RaceClient.proofFile(activity).readText() }.getOrDefault("")
++            RaceClient.send("finish", JSONObject().put("proof", proof), true)
++        }
++        if (!ended && (state == "finished" || state == "cancelled")) { ended = true; showCard(false) }
++    }
++
++    private fun place(p: JSONObject) = p.optInt("place").takeIf { it > 0 }?.toString() ?: ""
++
++    private fun timeOf(p: JSONObject): String {
++        if (p.isNull("timeMs") || !p.has("timeMs")) return if (p.optBoolean("left")) "Left" else "-"
++        val ms = p.optLong("timeMs")
++        return "%d:%02d:%02d.%02d".format(ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms / 10 % 100)
++    }
++
++    /** VICTORY, DEFEAT or RACE CANCELLED with the places; A and B answer it, and its buttons take touches. */
++    private fun showCard(saved: Boolean) {
++        if (activity.isFinishing) return
++        val cancelled = state == "cancelled"
++        val win = won() && state == "finished"
++        val rows = (0 until players.length()).map { players.getJSONObject(it) }.sortedBy { if (it.optInt("place") > 0) it.optInt("place") else 99 }
++        val text = StringBuilder(if (cancelled && endWhy.isNotEmpty()) endWhy else when (format) { "sprint" -> "Sprint"; "half" -> "Half"; else -> "Full game" })
++        text.append("\n")
++        for (p in rows) text.append("\n").append(place(p).padEnd(3)).append(p.optString("name")).append("   ").append(timeOf(p))
++        if (saved) text.append("\n\nSaved to the ladder")
++        val b = AlertDialog.Builder(activity)
++            .setTitle(if (cancelled) "RACE CANCELLED" else if (won()) "VICTORY" else "DEFEAT")
++            .setMessage(text.toString())
++            .setCancelable(false)
++            .setNegativeButton("Close") { _, _ -> onLeave() }
++        val ladder = win && !saved
++        if (ladder) b.setPositiveButton("Save to ladder") { _, _ -> saveToLadder() }
++        else if (!saved) b.setPositiveButton("Keep playing", null)
++        card = b.create().apply {
++            setOnKeyListener { d, code, e ->
++                if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener code == KeyEvent.KEYCODE_BUTTON_A || code == KeyEvent.KEYCODE_BUTTON_B
++                when (code) {
++                    KeyEvent.KEYCODE_BUTTON_A -> { if (ladder) { d.dismiss(); saveToLadder() } else if (!saved) d.dismiss(); true }
++                    KeyEvent.KEYCODE_BUTTON_B -> { d.dismiss(); onLeave(); true }
++                    else -> false
++                }
++            }
++            show()
++        }
++    }
++
++    private fun saveToLadder() {
++        RaceClient.send("ladder", null, true)
++        Smz3Finish.cue(6)
++        showCard(true)
 +    }
 +}
