@@ -1661,10 +1661,10 @@ index 0000000..1204d65
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..9a2105c
+index 0000000..6aec5c7
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5418 @@
+@@ -0,0 +1,5452 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1734,6 +1734,7 @@ index 0000000..9a2105c
 +    bool armed, on, finishSent, card, ladder, ended;
 +    bool resume, loadPending, back, skipOld, kept, paused, offlineNoted, mineShown, pick;   // the pause: resumed, loading, back, kept here, asking
 +    bool chatOff, kb, kbUpper;
++    bool draft;   // a Draft: its goal, shown at the 3, 2, 1, is the finish
 +    int bosses, crystals, need, lastCount, newsSeq, pickI, nMuted;
 +    int64_t shown, voteDone;
 +    char news[96], say[112], typed[84], muted[RACE_MAX][12];
@@ -2381,8 +2382,9 @@ index 0000000..9a2105c
 +                              j->rom, j->json, sizeof j->json, j->seedText, sizeof j->seedText, j->hints);
 +}
 +
-+// dailyCheck: the run is the attempt of a daily challenge ending at this goal (smz3_goal.h), off the ladders
-+static bool generateRun(SmzUi *u, int slot, char *message, size_t cap, const char *dailyCheck = NULL, const char *dailySettings = NULL)
++// dailyCheck: the run is the attempt of a daily challenge ending at this goal (smz3_goal.h), off the ladders;
++// raceRoom: the race room's settings, whose Draft goal and start go into the run and the ROM
++static bool generateRun(SmzUi *u, int slot, char *message, size_t cap, const char *dailyCheck = NULL, const char *dailySettings = NULL, const char *raceRoom = NULL)
 +{
 +    GenJob job;
 +    memset(&job, 0, sizeof job);
@@ -2442,6 +2444,13 @@ index 0000000..9a2105c
 +            snprintf(r.settings, sizeof r.settings, "%s", job.json);
 +            if (dailyCheck && smz_daily_mark_settings(r.settings, sizeof r.settings, dailyCheck, dailySettings)) {
 +                snprintf(message, cap, "The challenge's settings do not fit");
++                free(job.link); free(job.samus); free(job.sm);
++                return false;
++            }
++            const char *raceErr = !raceRoom ? NULL : smz_race_mark_settings(r.settings, sizeof r.settings, raceRoom) ? "The race's settings do not fit"
++                : smz_race_apply_start(job.rom, raceRoom) ? "The Draft's start does not fit this ROM" : NULL;
++            if (raceErr) {
++                snprintf(message, cap, "%s", raceErr);
 +                free(job.link); free(job.samus); free(job.sm);
 +                return false;
 +            }
@@ -2571,24 +2580,19 @@ index 0000000..9a2105c
 +    gu.value[UIO_PLANDO] = 0;
 +    snprintf(gu.start_label, sizeof gu.start_label, "Race %s", u->race.room.code);
 +    deleteRun(SMZ_RACE_SLOT);
-+    bool ok = generateRun(&gu, SMZ_RACE_SLOT, message, cap);
++    bool ok = generateRun(&gu, SMZ_RACE_SLOT, message, cap, NULL, NULL, u->race.room.settings);
 +    char path[96];
 +    snprintf(path, sizeof path, RUN_DIR "/slot%d.run", SMZ_RACE_SLOT);
 +    SmzRun r;
 +    if (ok && runLoad(path, &r) == 0) {
 +        smzOnlineMarkRun(SMZ_RACE_SLOT, 0, 1);   // never on a ladder of its own: the race has its own
-+        size_t sl = strlen(r.settings);
-+        if (!strstr(r.settings, "\"challenge\":true") && sl + 18 < sizeof r.settings && r.settings[0] == '{') {   // no states, fast forward or rewind, as in the daily
-+            memmove(r.settings + 18, r.settings + 1, sl);
-+            memcpy(r.settings + 1, "\"challenge\":true,", 17);
-+        }
 +        char old[PATH_MAX];
 +        file3dsGetRelatedPath(r.rom_path, old, sizeof old, ".srm", "saves");   // an earlier game of the same name
 +        remove(old);
 +        snprintf(old, sizeof old, RUN_DIR "/slot%d.discovery", SMZ_RACE_SLOT);
 +        remove(old);
-+        ok = strstr(r.settings, "\"challenge\":true") && smz_run_save(path, &r) == 0;
-+        if (!ok) snprintf(message, cap, "The race's settings do not fit");
++        ok = smz_run_save(path, &r) == 0;
++        if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
 +    } else if (ok) { ok = false; snprintf(message, cap, "Cannot read the race's game"); }
 +    ui_idle(u);
 +    return ok;
@@ -5218,6 +5222,7 @@ index 0000000..9a2105c
 +    rg.news[0] = rg.say[0] = 0;
 +    rg.newsUntil = rg.sayAt = 0;
 +    if (!rg.on && tab == TAB_CHAT) tab = TAB_RUN;
++    rg.draft = rg.on && !strcmp(rg.room.format, "draft");
 +    if (!rg.on) { rg.resume = false; return; }
 +    smzRaceSetSlow(true);
 +    rg.shown = rg.room.since;
@@ -5311,8 +5316,9 @@ index 0000000..9a2105c
 +        for (int i = 0; i < 7 && !quiet; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); smzRaceEvent(m); }
 +        rg.bosses |= nb; rg.crystals |= nc;
 +        int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
-+        smzRaceSetProgress(pc > 99 ? 99 : pc);   // 100 is the finish, from the server
++        if (!rg.draft) smzRaceSetProgress(pc > 99 ? 99 : pc);   // 100 is the finish, from the server
 +    }
++    if (rg.draft) smzRaceSetProgress(smz_goal_progress(&trk.goal, &goalc, 0));
 +    if (trk.game == 3 && !rg.finishSent && rg.room.state == RACE_RUNNING) {   // the server's time, from the start to this request or to finishAt if it was down
 +        rg.finishSent = true;
 +        size_t cap = SMZ_PROOF_MAX * 24;
@@ -5332,7 +5338,7 @@ index 0000000..9a2105c
 +{
 +    dirty = true;
 +    int st = rg.room.state;
-+    if (raceWon() && !rg.ladder && (st == RACE_FINISHED || st == RACE_RUNNING)) { rg.ladder = true; smzRaceSend("ladder", "", true); uiCueSound(UI_CUE_CONFIRM); }
++    if (raceWon() && !rg.draft && !rg.ladder && (st == RACE_FINISHED || st == RACE_RUNNING)) { rg.ladder = true; smzRaceSend("ladder", "", true); uiCueSound(UI_CUE_CONFIRM); }
 +    else rg.card = false;
 +}
 +
@@ -5345,10 +5351,11 @@ index 0000000..9a2105c
 +    if (rg.paused) return "RACE PAUSED";
 +    if (rg.room.state == RACE_CANCELLED) return "RACE CANCELLED";
 +    if (raceFirst()) return "VICTORY";
++    if (!strcmp(rg.room.end_why, "draw")) return "DRAW";
 +    if (me && me->place) { snprintf(t, sizeof t, "%d%s PLACE", me->place, ordinal(me->place)); return t; }
 +    return "DEFEAT";
 +}
-+static const char *raceCardALabel() { int st = rg.room.state; return rg.paused ? "Back to menu" : raceWon() && (st == RACE_FINISHED || st == RACE_RUNNING) ? "Save to ladder" : "Keep playing"; }
++static const char *raceCardALabel() { int st = rg.room.state; return rg.paused ? "Back to menu" : raceWon() && !rg.draft && (st == RACE_FINISHED || st == RACE_RUNNING) ? "Save to ladder" : "Keep playing"; }
 +static int raceCardColor() { return rg.paused || raceFirst() ? 0xF2A33A : rg.room.state == RACE_CANCELLED ? 0x8793A6 : 0xE05A4F; }
 +
 +// The card's line under its title.
@@ -5374,11 +5381,27 @@ index 0000000..9a2105c
 +    if (r->state == RACE_PAUSED) { raceWhen(r->resume_at, a, sizeof a); snprintf(line, sizeof line, "Paused, goes on %s", a); }
 +    else if (go > 0) snprintf(line, sizeof line, "%s in %d", r->pauses ? "Goes on" : "Starts", (int)((go + 999) / 1000));
 +    else if (me && me->time_ms >= 0) { fmtTime(me->time_ms, a, sizeof a); if (me->place) snprintf(line, sizeof line, "Done in %s, place %d", a, me->place); else snprintf(line, sizeof line, "Done in %s", a); }
++    else if (r->state == RACE_RUNNING && rg.draft) {   // the goal, its % when counted, and what is left of the Draft's 30 minutes
++        char g[64];
++        smz_goal_text(&trk.goal, g, sizeof g);
++        if (trk.goal.kind == GOAL_KILLS || trk.goal.kind == GOAL_RUPEES) snprintf(line, sizeof line, "%s  %d%%", g, smz_goal_progress(&trk.goal, &goalc, 0));
++        else snprintf(line, sizeof line, "%s", g);
++        int64_t end = r->start_at + 30 * 60000LL, left;
++        if (r->end_at && r->end_at < end) end = r->end_at;   // a multi Draft after the first finish
++        left = end - raceNow();
++        if (left < 0) left = 0;
++        snprintf(a, sizeof a, "%d:%02d left", (int)(left / 60000), (int)(left / 1000 % 60));
++        text(314, 1, left < 5 * 60000 ? 0xE05A4F : 0xFFFFFF, a, HALIGN_RIGHT);
++        textFit(x, 1, 314 - textW(a) - 12 - x, 0xFFFFFF, line);
++        line[0] = 0;
++    }
 +    else if (r->state == RACE_RUNNING) { fmtClock(raceNow() - r->start_at, a, sizeof a); snprintf(line, sizeof line, "%s", a); }
 +    else snprintf(line, sizeof line, "%s", r->state == RACE_CANCELLED ? "Cancelled" : "Race over");
-+    text(x, 1, 0xFFFFFF, line);
-+    x += textW(line) + 14;
-+    if (r->state == RACE_RUNNING && r->end_at) {   // a multi race after the first finish
++    if (line[0]) {
++        text(x, 1, 0xFFFFFF, line);
++        x += textW(line) + 14;
++    }
++    if (r->state == RACE_RUNNING && r->end_at && !rg.draft) {   // a multi race after the first finish
 +        int64_t left = r->end_at - raceNow();
 +        if (left < 0) left = 0;
 +        snprintf(line, sizeof line, "Race ends in %d:%02d", (int)(left / 60000), (int)(left / 1000 % 60));
@@ -5614,6 +5637,9 @@ index 0000000..9a2105c
 +    for (int i = 0; i < rg.room.n; i++) if (!rg.room.p[i].left) { (*in)++; *back += rg.room.p[i].back; }
 +}
 +
++// A Draft's goal over the game, the same for everyone, from the 3, 2, 1 to a few seconds after the start.
++static bool raceGoalUp(int64_t go) { return rg.draft && rg.room.state == RACE_RUNNING && go < 4000 && go > -6000 && !rg.back; }
++
 +// What the game screen's layer shows in a race, as a number that changes with it (0: nothing). Plays the countdown's sounds.
 +static int raceLayerSig()
 +{
@@ -5624,8 +5650,8 @@ index 0000000..9a2105c
 +        if (rg.lastCount != -2 && count >= 0 && count <= 3) { if (count) sfxPlay(SFX_TICK); else uiCueSound(UI_CUE_CONFIRM); }
 +        rg.lastCount = count;
 +    }
-+    bool news = osGetTime() < rg.newsUntil, waiting = rg.back && rg.room.state == RACE_PAUSED, asking = raceAsking();
-+    if (!rg.card && count < 0 && !news && !waiting && !asking) return 0;
++    bool news = osGetTime() < rg.newsUntil, waiting = rg.back && rg.room.state == RACE_PAUSED, asking = raceAsking(), goal = raceGoalUp(go);
++    if (!rg.card && count < 0 && !news && !waiting && !asking && !goal) return 0;
 +    int back, in;
 +    raceBackCount(&back, &in);
 +    unsigned h = 1u + (unsigned)(count + 1);
@@ -5633,6 +5659,7 @@ index 0000000..9a2105c
 +    h = h * 31 + (rg.card ? 1 : 0) + (rg.ladder ? 2 : 0) + (rg.paused ? 4 : 0) + (raceVoteOpen() ? 8 : 0);
 +    h = h * 31 + (waiting ? back * 16 + in + 1 : 0);
 +    h = h * 31 + (asking ? (rg.pick ? rg.pickI + 2 : 1) : 0);
++    h = h * 31 + (goal ? 1 : 0);
 +    return (int)(h | 1);
 +}
 +
@@ -5706,6 +5733,12 @@ index 0000000..9a2105c
 +        if (count) snprintf(m, sizeof m, "%d", count); else snprintf(m, sizeof m, "GO");
 +        cvRect(mx - 44, 92, mx + 44, 148, 0x080B11, 200);
 +        cvText(mx, 104, 32, count ? 0xF2A33A : 0x7FD88F, 255, m, 1);
++    }
++    if (raceGoalUp(go) && !raceAsking()) {
++        smz_goal_text(&trk.goal, m, sizeof m);
++        int w = ui3dsGetStringWidth(m, 0, 0xffff, 15);
++        cvRect(mx - w / 2 - 14, 156, mx + w / 2 + 14, 184, 0x080B11, 225);
++        cvText(mx, 162, 15, 0xE8ECF2, 255, m, 1);
 +    }
 +    if (osGetTime() < rg.newsUntil) {   // top right of the game
 +        char cut[96];
@@ -6188,7 +6221,8 @@ index 0000000..9a2105c
 +        if (curSlot >= 0 && runLoad(rp, &r0) == 0) smz_tracker_reset(&trk, r0.play_ms, r0.save_ms, r0.save_zelda, r0.save_metroid);
 +        else smz_tracker_reset(&trk, 0, 0, 0, 0);
 +        snprintf(runName, sizeof runName, "%s", r0.name);
-+        smz_goal_from_settings(r0.settings, &trk.goal);   // a daily challenge ends at its goal
++        smz_goal_from_settings(r0.settings, &trk.goal);   // a daily challenge or a Draft ends at its goal
++        trk.counts = &goalc;   // a Draft's kills and rupees goals
 +        if (curSlot == SMZ_DAILY_SLOT) trk.min_end_ms = SMZ_DAILY_MIN_MS;   // the server takes no daily time under this
 +        gChallenge = strstr(r0.settings, "\"challenge\":true") != NULL;
 +        rewindFree();
