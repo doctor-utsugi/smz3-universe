@@ -189,7 +189,10 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
 ## Work in order
 
 1. **Sign-off.** Questions below answered, mockups approved.
-2. **Start menu and Options** on every version. No network, and useful alone.
+2. **Start menu and Options** on every version. No network, and useful alone. Built: the logo, the start menu and Options are
+   in `core/ui`, with the online entries greyed out until step 5. Options opens Buttons and Video only on PC and the Linux
+   handhelds; Android sets the buttons in the game's CONFIG tab and the 3DS in its game menu, so there Options has Player and
+   Quit.
 3. **Move to salamando.** The ladder and daily with their data, keeping `smz3.indieviral.com` as the address, because released versions have it built in.
 4. **Server.** Rooms, poll, ready, finish, on salamando, with Redis.
 5. **Core and PC.** `smz3_race.c`, skin pick, ready room, shared start with the hold on the first frame, Championship Full 1 vs 1.

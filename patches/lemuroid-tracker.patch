@@ -1361,10 +1361,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..8830a5c
+index 0000000..9622b5c
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,743 @@
+@@ -0,0 +1,761 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1454,7 +1454,11 @@ index 0000000..8830a5c
 +    return (java.time.Duration.between(now, end).toMillis() / 86_400_000L).toInt()
 +}
 +
-+private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY }
++private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY, OPTIONS }
++
++private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
++private const val UI_OPT_QUIT = 8
++private var homeShown = false            // the start menu comes once per launch; back from a game is the run list
 +
 +private fun spriteDir(game: Int) = File("/sdcard/SMZ3/sprites", if (game == 0) "link" else "samus")
 +
@@ -1610,12 +1614,25 @@ index 0000000..8830a5c
 +        Smz3Native.uiPlayerLoad(OnlineLadder.profileText(context))
 +        Smz3Native.uiLadderEnable(true)
 +        Smz3Native.uiDailyEnable(true)
++        Smz3Native.uiHomeEnable(UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
++        if (!homeShown) { homeShown = true; Smz3Native.uiHomeOpen() }
 +        Thread { pendingMonthly.set(OnlineLadder.monthly(context)); pendingWeekly.set(OnlineLadder.weekly(context)) }.start()
 +        Thread { DailyChallenge.flush(context) }.start()   // a challenge finished offline
 +        refreshSlots()
 +        onDispose { }
 +    }
 +    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
++    LaunchedEffect(Unit) {   // the logo's fixed 2 seconds
++        var last = System.currentTimeMillis()
++        while (true) {
++            kotlinx.coroutines.delay(100)
++            val now = System.currentTimeMillis()
++            val logo = Smz3Native.uiScreen() == UI_LOGO
++            Smz3Native.uiTick((now - last).toInt())
++            last = now
++            if (logo) version++
++        }
++    }
 +    LaunchedEffect(Unit) {   // world goal icons and the Original sprites cut from the base ROMs the first time; the ones asked for before are dropped
 +        if (runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { RunGenerator.goalIconsAtStart(context, retrogradeDb.gameDao().selectListBySystem("snes")) } }.getOrDefault(false)) {
 +            previewCache.keys.removeAll { it.startsWith("goal/") || it.endsWith("/Original") }
@@ -1812,6 +1829,7 @@ index 0000000..8830a5c
 +                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
 +            }
 +            Act.DAILY -> startDaily()
++            Act.OPTIONS -> if (slot == UI_OPT_QUIT) (context as? android.app.Activity)?.finish()
 +            Act.NONE -> {}
 +        }
 +    }
@@ -6503,10 +6521,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..b4f583b
+index 0000000..64ea6a0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,122 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6576,6 +6594,10 @@ index 0000000..b4f583b
 +    @JvmStatic external fun uiInput(button: Int): Int
 +    @JvmStatic external fun uiTouch(x: Int, y: Int): Int
 +    @JvmStatic external fun uiIdle()
++    /** The start menu (core/ui ui_home_*): mask holds the Options rows the app opens itself (8: Quit). */
++    @JvmStatic external fun uiHomeEnable(mask: Int)
++    @JvmStatic external fun uiHomeOpen()
++    @JvmStatic external fun uiTick(ms: Int)
 +    @JvmStatic external fun uiBusy(message: String)
 +    @JvmStatic external fun uiDraw(): Array<String>
 +    @JvmStatic external fun uiAction(): IntArray

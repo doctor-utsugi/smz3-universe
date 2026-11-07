@@ -25,11 +25,11 @@ extern int smz_ui_w, smz_ui_h;
 #define UI_SPEC_LEN 512
 
 typedef enum { BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_L, BTN_R, BTN_SELECT, BTN_START } UiButton;   /* START: only the keyboard uses it (to Save) */
-typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY } UiScreen;
+typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY, UI_LOGO, UI_HOME, UI_OPTIONS } UiScreen;
 typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
-typedef enum { ACT_NONE, ACT_CONTINUE, ACT_DELETE, ACT_GENERATE, ACT_LOAD_SAVE, ACT_LOAD_STATE, ACT_LADDER, ACT_DAILY } UiAction;
+typedef enum { ACT_NONE, ACT_CONTINUE, ACT_DELETE, ACT_GENERATE, ACT_LOAD_SAVE, ACT_LOAD_STATE, ACT_LADDER, ACT_DAILY, ACT_OPTIONS } UiAction;
 
 typedef struct {
     const char *key;             /* C# property name for logic options */
@@ -62,7 +62,7 @@ enum { C_BG, C_PANEL, C_SEL, C_TEXT, C_DIM, C_ACCENT, C_WARN, C_GREEN, C_CYAN, C
 #define UI_COLORS 22
 
 typedef struct { int16_t x, y, w, h; uint8_t kind; int16_t idx; } UiHit;
-enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL };
+enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION };
 
 typedef struct {
     UiScreen screen, back;
@@ -104,6 +104,8 @@ typedef struct {
     int daily_on, daily_sel, daily_cursor, daily_has_run, daily_info;   /* the run list's Daily row: shown / has the cursor (2: the World goals row under it); its screen's button (0 Start, 1 Info, 2 Back); the host keeps an attempt; the Info page is open */
     SmzDailyInfo daily;
     char start_label[24], notice[32];
+    int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
+    int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
     int rules_scroll;            /* first row shown on the rules screen */
     int start_cursor, start_col;  /* sprite screen: row (Link, Samus, Start) and column (sprite, Random) */
     UiScreen start_from;
@@ -197,6 +199,13 @@ void ui_expected_values(const SmzUi *u, int *want);
 int ui_run_monthly(const SmzUi *u);
 /* The name of the way the run was set up ("Cozy run", "Original", a saved custom's name), for naming the run being created. */
 const char *ui_run_label(const SmzUi *u);
+/* The start menu: a logo for a fixed 2 seconds, then Start / Load game, the online modes and Options; B on the run list comes back
+ * to it. mask holds the UI_OPT_* rows the host opens itself: picking one comes back as ACT_OPTIONS with the row in action_slot.
+ * The Player row is there whenever ui_player_enable is on. ui_home_open shows the logo; the host calls ui_tick every frame. */
+enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8 };
+void ui_home_enable(SmzUi *u, int mask);
+void ui_home_open(SmzUi *u);
+void ui_tick(SmzUi *u, int ms);
 void ui_busy(SmzUi *u, const char *msg);
 void ui_idle(SmzUi *u);
 /* Rebuilds u->cmd. */

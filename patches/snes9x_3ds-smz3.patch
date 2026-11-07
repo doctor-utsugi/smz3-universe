@@ -237,7 +237,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..7aae61b 100644
+index 3692a54..1da696c 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -32,6 +32,7 @@
@@ -416,7 +416,7 @@ index 3692a54..7aae61b 100644
 +{
 +    while (aptMainLoop()) {
 +        char path[PATH_MAX];
-+        if (!smz3RunMenu(path, sizeof(path))) continue;
++        if (!smz3RunMenu(path, sizeof(path))) { if (smz3TakeQuit()) break; continue; }
 +        if (smz3StartRun(path)) {
 +            input3dsWaitForRelease();
 +            menu3dsSetLastSelectedTabIndex(0);
@@ -1423,10 +1423,10 @@ index 0000000..6e5685a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..fb495b4
+index 0000000..3eefb17
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4592 @@
+@@ -0,0 +1,4603 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2328,6 +2328,9 @@ index 0000000..fb495b4
 +
 +void smz3RunMenuNote(const char *text) { snprintf(pendingNote, sizeof pendingNote, "%s", text); }
 +
++static bool quitAsked;   // Options > Quit: the app closes once the menu returns
++bool smz3TakeQuit(void) { bool q = quitAsked; quitAsked = false; return q; }
++
 +static bool runMenu(char *romPathOut, size_t cap)
 +{
 +    static SmzUi ui;
@@ -2368,6 +2371,10 @@ index 0000000..fb495b4
 +    smzOnlineRequestLadders();   // the bottom screen shows them from the start
 +    ui_ladder_enable(&ui, 1);
 +    ui_daily_enable(&ui, 1);
++    ui_home_enable(&ui, UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
++    static bool booted;
++    if (!booted && !smz3IsRun()) ui_home_open(&ui);   // the start menu at boot; a run left goes back to the run list
++    booted = true;
 +    smzDailyRequestInfo();
 +    u64 nextInfo = osGetTime() + 60000;
 +    u64 nextWorld = 0;   // the world goals: fetched once they come on screen, then once a minute while they stay
@@ -2389,9 +2396,12 @@ index 0000000..fb495b4
 +        ui_idle(&ui);
 +        pendingNote[0] = 0;
 +    }
++    u64 lastTick = osGetTime();
 +    while (aptMainLoop()) {
 +        hidScanInput();
 +        u32 down = hidKeysDown();
++        ui_tick(&ui, (int)(osGetTime() - lastTick));
++        lastTick = osGetTime();
 +        UiButton b;
 +        bool have = true;
 +        if (down & KEY_DUP) b = BTN_UP;
@@ -2400,7 +2410,7 @@ index 0000000..fb495b4
 +        else if (down & KEY_DRIGHT) b = BTN_RIGHT;
 +        else if (down & KEY_A) b = BTN_A;
 +        else if (down & KEY_B) {
-+            if (ui.screen == UI_SLOTS_SCREEN) have = false;   // the run list is the app's home: nothing to go back to
++            if (ui.screen == UI_SLOTS_SCREEN && !ui.home_on) have = false;   // without the start menu there is nothing to go back to
 +            else b = BTN_B;
 +        }
 +        else if (down & KEY_L) b = BTN_L;
@@ -2449,6 +2459,7 @@ index 0000000..fb495b4
 +        if (ui.action != ACT_NONE) {
 +            int act = ui.action, slot = ui.action_slot;
 +            ui.action = ACT_NONE;
++            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { quitAsked = true; break; }
 +            if (act == ACT_LADDER) smzOnlineRequestLadders();
 +            else if (act == ACT_DELETE) { deleteRun(slot); refreshSlots(&ui); }
 +            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }
@@ -6021,10 +6032,10 @@ index 0000000..fb495b4
 +}
 diff --git a/source/smz3run.h b/source/smz3run.h
 new file mode 100644
-index 0000000..5f560f3
+index 0000000..e2e20cd
 --- /dev/null
 +++ b/source/smz3run.h
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,67 @@
 +#ifndef SMZ3RUN_H
 +#define SMZ3RUN_H
 +
@@ -6045,6 +6056,8 @@ index 0000000..5f560f3
 +int smz3PauseMenu(void);
 +// A note the run menu shows for a moment the next time it opens (a run that failed to load).
 +void smz3RunMenuNote(const char *text);
++// Options > Quit was picked in the menu that just returned (true once).
++bool smz3TakeQuit(void);
 +
 +// The run tracker on the second screen; call every frame while emulating, with tick set about once a second (the run is
 +// read then; touches redraw in between). Does nothing for other games.

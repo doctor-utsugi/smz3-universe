@@ -135,6 +135,54 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
     }
 }
 
+#define LOGO_MS 2000
+#define HOME_ROWS 4
+static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
+static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {
+    {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Sound", "music, chime, rival notes"},
+    {0, "Player", "name, country"}, {UI_OPT_QUIT, "Quit", ""}};
+#define OPTION_KINDS (int)(sizeof OPTION_ROWS / sizeof OPTION_ROWS[0])
+
+void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
+void ui_home_open(SmzUi *u) { u->screen = UI_LOGO; u->logo_ms = LOGO_MS; u->home_cursor = 0; }
+void ui_tick(SmzUi *u, int ms) { if (u->screen == UI_LOGO && (u->logo_ms -= ms) <= 0) u->screen = UI_HOME; }
+
+/* The Options rows this host has, as indices into OPTION_ROWS. */
+static int option_rows(const SmzUi *u, int *kind)
+{
+    int n = 0;
+    for (int i = 0; i < OPTION_KINDS; i++)
+        if (OPTION_ROWS[i].bit ? u->options_mask & OPTION_ROWS[i].bit : u->player_on) kind[n++] = i;
+    return n;
+}
+
+static void home_input(SmzUi *u, UiButton b)
+{
+    if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
+    else if (b != BTN_A) return;
+    else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
+    else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
+    else snprintf(u->notice, sizeof u->notice, "Online races aren't ready yet");
+}
+
+static void options_input(SmzUi *u, UiButton b)
+{
+    int kind[OPTION_KINDS], n = option_rows(u, kind), *c = &u->options_cursor;
+    if (b == BTN_B) { u->screen = UI_HOME; return; }
+    if (!n) return;
+    if (b == BTN_UP || b == BTN_DOWN) *c = (*c + (b == BTN_UP ? n - 1 : 1)) % n;
+    else if (b == BTN_A && *c < n) {
+        int bit = OPTION_ROWS[kind[*c]].bit;
+        if (bit) { u->action = ACT_OPTIONS; u->action_slot = bit; return; }
+        u->player_opts = 1;
+        u->name_for = 1;
+        snprintf(u->name, sizeof u->name, "%s", u->player);
+        u->name_len = (int)strlen(u->name);
+        u->key_cursor = 0;
+        u->screen = UI_NAME;
+    }
+}
+
 void ui_busy(SmzUi *u, const char *msg) { u->screen = UI_BUSY; snprintf(u->status, sizeof u->status, "%s", msg); }
 const char *ui_run_label(const SmzUi *u) { return u->start_label; }
 void ui_idle(SmzUi *u) { u->screen = UI_SLOTS_SCREEN; }
@@ -727,10 +775,18 @@ int ui_player_text(const SmzUi *u, char *out, size_t cap)
 
 int ui_player_dirty(SmzUi *u) { int d = u->player_dirty; u->player_dirty = 0; return d; }
 
+static void country_open(SmzUi *u)
+{
+    u->country_cursor = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++) if (!strcmp(COUNTRIES[i].code, u->country)) u->country_cursor = i;
+    u->country_scroll = u->country_cursor < COUNTRY_ROWS ? 0 : u->country_cursor - COUNTRY_ROWS + 1;
+    u->screen = UI_COUNTRY;
+}
+
 static void country_input(SmzUi *u, UiButton b)
 {
     int n = COUNTRY_COUNT, *c = &u->country_cursor;
-    if (b == BTN_B) { u->screen = UI_START; return; }
+    if (b == BTN_B) { u->screen = u->player_opts ? UI_OPTIONS : UI_START; return; }
     if (b == BTN_UP) *c = (*c + n - 1) % n;
     else if (b == BTN_DOWN) *c = (*c + 1) % n;
     else if (b == BTN_L) *c = *c - COUNTRY_ROWS < 0 ? 0 : *c - COUNTRY_ROWS;
@@ -738,7 +794,7 @@ static void country_input(SmzUi *u, UiButton b)
     else if (b == BTN_A) {
         snprintf(u->country, sizeof u->country, "%s", COUNTRIES[*c].code);
         u->player_dirty = 1;
-        u->screen = UI_START;
+        u->screen = u->player_opts ? UI_OPTIONS : UI_START;
         return;
     }
     if (*c < u->country_scroll) u->country_scroll = *c;
@@ -791,6 +847,7 @@ static void online_input(SmzUi *u, UiButton b)
 
 static void goto_start(SmzUi *u)
 {
+    u->player_opts = 0;
     u->screen = UI_START;
     u->start_cursor = START_ROW;
     u->start_col = 0;
@@ -837,7 +894,7 @@ static int mode_kind(const SmzUi *u, int row)
 static void name_input(SmzUi *u, UiButton b)
 {
     int c = u->key_cursor;
-    UiScreen back = u->name_for ? UI_START : UI_CREATE;
+    UiScreen back = u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
     if (b == BTN_B) { u->screen = back; return; }
     if (b == BTN_START) { u->key_cursor = KEY_COUNT + 2; return; }   /* to Save */
     if (b == BTN_L) { if (u->name_len) u->name[--u->name_len] = 0; return; }
@@ -868,7 +925,8 @@ static void name_input(SmzUi *u, UiButton b)
             if (u->name_for) {
                 snprintf(u->player, sizeof u->player, "%s", u->name);
                 u->player_dirty = 1;
-                u->screen = UI_START;
+                u->screen = back;
+                if (u->player_opts) { country_open(u); break; }   /* from Options the country follows the name */
                 if (u->online_gen && !u->country[0]) { u->country_cursor = u->country_scroll = 0; u->screen = UI_COUNTRY; }
                 break;
             }
@@ -998,6 +1056,7 @@ static void mode_input(SmzUi *u, UiButton b)
 void ui_input(SmzUi *u, UiButton b)
 {
     if (b == BTN_START && u->screen != UI_NAME) return;
+    if (u->screen == UI_LOGO) return;   /* its 2 seconds can't be skipped */
     u->notice[0] = 0;
     switch (u->screen) {
     case UI_SLOTS_SCREEN:
@@ -1019,6 +1078,7 @@ void ui_input(SmzUi *u, UiButton b)
             slot_view(u);
         }
         else if (b == BTN_SELECT && u->ladder_on) ladder_open(u);
+        else if (b == BTN_B && u->home_on) u->screen = UI_HOME;
         else if (b == BTN_A) {
             u->active_slot = u->slot_cursor;
             if (u->slots[u->slot_cursor].used) { u->screen = UI_SLOT_MENU; u->menu_cursor = 0; }
@@ -1104,6 +1164,9 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_LADDER: ladder_input(u, b); break;
     case UI_RULES: rules_input(u, b); break;
     case UI_DAILY: daily_input(u, b); break;
+    case UI_HOME: home_input(u, b); break;
+    case UI_OPTIONS: options_input(u, b); break;
+    case UI_LOGO:
     case UI_BUSY: break;
     }
 }
@@ -1111,7 +1174,7 @@ void ui_input(SmzUi *u, UiButton b)
 UiCue ui_cue(const SmzUi *a, const SmzUi *z, int b)
 {
     if (z->action != ACT_NONE && a->action == ACT_NONE) return z->action == ACT_DELETE || z->action == ACT_LADDER ? UI_CUE_SELECT : UI_CUE_CONFIRM;
-    if (z->screen != a->screen) return b == BTN_B || z->screen == a->back || z->screen == UI_SLOTS_SCREEN ? UI_CUE_BACK : UI_CUE_OPEN;
+    if (z->screen != a->screen) return b == BTN_B || z->screen == a->back || (z->screen == UI_SLOTS_SCREEN && a->screen != UI_HOME) ? UI_CUE_BACK : UI_CUE_OPEN;
     if (z->daily_info != a->daily_info) return z->daily_info ? UI_CUE_OPEN : UI_CUE_BACK;
     if (z->world_top != a->world_top) return z->world_top >= 0 ? UI_CUE_OPEN : UI_CUE_BACK;
     if (z->level != a->level || z->ladder_tab != a->ladder_tab || z->world_month != a->world_month) return UI_CUE_TAB;
@@ -1122,7 +1185,8 @@ UiCue ui_cue(const SmzUi *a, const SmzUi *z, int b)
         z->saved_col != a->saved_col || z->key_cursor != a->key_cursor || z->country_cursor != a->country_cursor ||
         z->online_cursor != a->online_cursor || z->start_cursor != a->start_cursor || z->start_col != a->start_col ||
         z->lc.cursor != a->lc.cursor || z->daily_sel != a->daily_sel || z->daily_cursor != a->daily_cursor ||
-        z->rules_scroll != a->rules_scroll || z->ladder_scroll != a->ladder_scroll || z->slot_scroll != a->slot_scroll || z->world_cursor != a->world_cursor)
+        z->rules_scroll != a->rules_scroll || z->ladder_scroll != a->ladder_scroll || z->slot_scroll != a->slot_scroll || z->world_cursor != a->world_cursor ||
+        z->home_cursor != a->home_cursor || z->options_cursor != a->options_cursor)
         return UI_CUE_MOVE;
     return UI_CUE_NONE;
 }
@@ -1172,10 +1236,13 @@ void ui_touch(SmzUi *u, int x, int y)
             break;
         }
         case H_SPRITE: u->sprite_cursor = t->idx; ui_input(u, BTN_A); break;
+        case H_HOME: u->home_cursor = t->idx; ui_input(u, BTN_A); break;
+        case H_OPTION: u->options_cursor = t->idx; ui_input(u, BTN_A); break;
         }
         return;
     }
-    if (y < 28 && u->screen != UI_SLOTS_SCREEN && u->screen != UI_BUSY && x < 100) ui_input(u, BTN_B);
+    if (u->screen == UI_LOGO || u->screen == UI_HOME || u->screen == UI_BUSY || (u->screen == UI_SLOTS_SCREEN && !u->home_on)) return;
+    if (y < 28 && x < 100) ui_input(u, BTN_B);
 }
 
 static int pad_x;   /* while a screen laid out for 320 is drawn centred on a wider canvas: how far it is moved right */
@@ -1592,7 +1659,7 @@ void ui_draw(SmzUi *u)
             int by = top + (shown - 1) * 47;
             if (u->slot_scroll + shown < u->slot_count) { rect(u, x, by, 20, 44, C_PANEL); text(u, x + 10, by + 14, C_ACCENT, 1, "v"); hit(u, H_CHEVRON, 1, x, by, 20, 44); }
         }
-        legend(u, u->ladder_on ? "A Open  Select Ladder" : "A Open");
+        legend(u, u->ladder_on ? u->home_on ? "A Open  Select Ladder  B Back" : "A Open  Select Ladder" : u->home_on ? "A Open  B Back" : "A Open");
         if (u->version[0]) text(u, UI_W - 6, UI_H - 12, C_DIM, 2, u->version);
         break;
     }
@@ -1721,6 +1788,41 @@ void ui_draw(SmzUi *u)
         snprintf(info, sizeof info, "%d/%d  %s", u->sprite_cursor + 1, n, u->sprites[g][u->sprite_cursor]);
         text(u, 6, UI_H - 18, C_TEXT, 0, info);
         legend(u, "A Pick  L R Page  B Back");
+        break;
+    }
+    case UI_LOGO:
+        put(u, 2, UI_W / 2 - 32, 56, 64, 64, C_TEXT, 0, "logo");
+        text(u, UI_W / 2, 132, C_ACCENT, 1, "SMZ3");
+        text(u, UI_W / 2, 150, C_DIM, 1, "A Link to the Past + Super Metroid");
+        if (u->version[0]) text(u, UI_W / 2, 166, C_DIM, 1, u->version);
+        break;
+    case UI_HOME:
+        put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, "logo");
+        text(u, UI_W / 2, 48, C_ACCENT, 1, "SMZ3");
+        for (int r = 0; r < HOME_ROWS; r++) {
+            int y = 70 + r * 34, online = r == 1 || r == 2;
+            rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
+            rect(u, 24, y, 5, 28, online ? C_DIM : C_ACCENT);
+            hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
+            text(u, 38, y + 8, online ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
+            if (online) text(u, UI_W - 32, y + 8, C_DIM, 2, "Soon");
+        }
+        if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
+        legend(u, "A Choose");
+        break;
+    case UI_OPTIONS: {
+        title(u, "Options");
+        int kind[OPTION_KINDS], n = option_rows(u, kind);
+        for (int r = 0; r < n; r++) {
+            int y = 36 + r * 34;
+            rect(u, 8, y, UI_W - 16, 28, r == u->options_cursor ? C_SEL : C_PANEL);
+            hit(u, H_OPTION, r, 8, y, UI_W - 16, 28);
+            text(u, 18, y + 8, C_TEXT, 0, OPTION_ROWS[kind[r]].name);
+            const char *d = OPTION_ROWS[kind[r]].desc;
+            if (!OPTION_ROWS[kind[r]].bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
+            text(u, UI_W - 18, y + 8, C_DIM, 2, d);
+        }
+        legend(u, "A Choose  B Back");
         break;
     }
     case UI_MODE: {

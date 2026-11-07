@@ -2068,6 +2068,9 @@ static void window_main(int start_slot)
     online_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
+    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_QUIT);
+    if (start_slot < 0) ui_home_open(&ui);   /* a run named on the command line skips the start menu */
+    if (getenv("SMZ3_LADDER") || getenv("SMZ3_KEYS")) ui.screen = UI_SLOTS_SCREEN;   /* the test hooks below drive the run list */
     if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows them from the start */
     if (getenv("SMZ3_LADDER")) ui_input(&ui, BTN_RIGHT);   /* test hook: open the online tables */
     if (getenv("SMZ3_SPRITES")) { ui.screen = UI_SPRITES; ui.sprite_game = atoi(getenv("SMZ3_SPRITES")); ui.sprite_cursor = 0; }   /* test hook: open a sprite picker */
@@ -2098,7 +2101,13 @@ static void window_main(int start_slot)
     }
     int running = 1, pending_play = start_slot, pending_state_only = 0, instant = start_slot >= 0;   /* a run named on the command line starts at once */
     Uint32 next_daily = 0, launch_at = 0;   /* launch_at: when the menu began going to black for the game */
+    Uint32 last_tick = SDL_GetTicks();
     while (running && !g_menu_quit) {
+        {
+            Uint32 now = SDL_GetTicks();
+            if (!welcome_active()) ui_tick(&ui, (int)(now - last_tick));   /* the logo's time runs once the ROM files are in */
+            last_tick = now;
+        }
         if (pending_play >= 0) {
             if (!instant && !launch_at) launch_at = SDL_GetTicks();
             if (instant || SDL_GetTicks() - launch_at >= LAUNCH_MS) {
@@ -2133,7 +2142,7 @@ static void window_main(int start_slot)
                 else if (e.key.keysym.sym == SDLK_F9) settings_cycle_aspect();
                 else if (e.key.keysym.sym == SDLK_F8) settings_cycle_filter();
                 else if (e.key.keysym.sym == SDLK_F1 && !settings_active() && !welcome_active() && ui.screen == UI_SLOTS_SCREEN) settings_open();
-                else if (ok) { if (b == BTN_B && ui.screen == UI_SLOTS_SCREEN && !settings_active() && !welcome_active()) continue; menu_button(b); }
+                else if (ok) menu_button(b);
             } else if (pcode >= 0) {
                 /* directions come from the polling below (so holding repeats); here the buttons */
                 UiButton b = BTN_A;
@@ -2204,6 +2213,10 @@ static void window_main(int start_slot)
             int slot = ui.action_slot;
             ui.action = ACT_NONE;
             if (act == ACT_LADDER) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); if (!g_goals_state) { g_goals_state = 1; detach(goals_thread, NULL); } }
+            else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
+                if (slot == UI_OPT_QUIT) quit_menu();
+                else { settings_open(); if (slot == UI_OPT_VIDEO) settings_nav(BTN_DOWN); settings_nav(BTN_A); }
+            }
             else if (act == ACT_DAILY) {
                 if (daily_begin(err, sizeof err) == 0) { pending_play = DAILY_SLOT - 1; pending_state_only = 0; }
                 else { note(err); next_daily = 0; }
@@ -2280,8 +2293,8 @@ static void window_main(int start_slot)
         if (ui.screen == UI_SLOTS_SCREEN && !settings_active() && !welcome_active()) {
             if (!base_ok()) gfx_text(ww / 2.0f, wh - 28 * k / 2 - 8, 11 * k, C(0xE9, 0xA2, 0x3B), 1, "Select: find your ROM files (or drop them here)");
             else {
-                static const HelpItem H[] = {{"A", "Enter", "Open"}, {"SELECT", "Tab", "Ladder"}, {"START", "F1", "Settings"}};
-                help_bar(ox, oy + 224 * k, UI_W * k, 16 * k, H, 3);
+                static const HelpItem H[] = {{"A", "Enter", "Open"}, {"SELECT", "Tab", "Ladder"}, {"START", "F1", "Settings"}, {"B", "Esc", "Back"}};
+                help_bar(ox, oy + 224 * k, UI_W * k, 16 * k, H, 4);
             }
         }
         welcome_draw(k, ox, oy);
