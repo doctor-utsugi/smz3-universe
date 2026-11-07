@@ -224,6 +224,16 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
    Built on PC: a CHAT tab in the tracker overlay, which no longer pauses a race. The keyboard types; a pad sends quick
    phrases. Players can be muted and chat turned off. On two screens the CHAT tab has the phrases by touch.
 9. **Draft start points.** Try one spot in each game, on all three emulators: the SRAM idea for Super Metroid, and a boot patch or prepared state for Zelda. If Super Metroid fails, Draft has to be rethought; if only Zelda fails, Draft starts in Super Metroid.
+   Done, and both games work as plain ROM patches, with no SRAM or state to prepare. `smz_rom_start_sm` and
+   `smz_rom_start_z3` in `core/gen/smz3_rom.c`. A new game sets its load station at `$81:811D`, in the branch for a file
+   with nothing to load; the patch calls a routine at `$85:FF80` that writes the area and station both to the live game
+   and to the values the first save keeps. The Zelda start runs after the new game's first save (`$81:FDC7`) and jumps
+   into `sm_do_teleport`, the routine the portals already use, with one of the four entries of its table. So Zelda starts
+   are the exits of the portals from Super Metroid: the light world fortune teller, another light world cave, the dark
+   world ice rod cave and the Misery Mire fairy. Checked on the PC core (the same libretro snes9x Android uses) with the
+   headless self test, and on the 3DS build in Azahar, where the tracker showed the new file starting in Zelda and in
+   Brinstar. Azahar's picture is too distorted to read, for this core and for normal runs alike, so the 3DS check went
+   by the tracker.
 10. **Draft goals.** New goal kinds, a generator with its own length estimate, its own finish check. Start spots are a hand-made list, and each one names the items needed to leave it, so a Draft's starting items can't trap the player. Count goals and Super Metroid boss goals can't be proved, so the server trusts the client and only checks they are plausible.
 11. **Balance.** Real times adjust the lengths.
 

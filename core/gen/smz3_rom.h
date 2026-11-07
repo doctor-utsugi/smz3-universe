@@ -22,6 +22,12 @@ void smz_rom_checksum(uint8_t *rom);
  * calls its own refresh routine (SM beam tiles and palette, ALttP Y item icon). 0 when written, -1 when the ROM is not the
  * expected one (then it is left as it was). */
 int smz_rom_shortcut_hooks(uint8_t *rom);
+/* A new game that starts elsewhere (Draft races). Super Metroid: at the save station `station` of `area` (0 Crateria,
+ * 1 Brinstar, 2 Norfair, 3 Wrecked Ship, 4 Maridia, 5 Tourian). ALttP: through entry `exit` of the combined ROM's
+ * teleport table (0 to 3, the exits of the portals from Super Metroid). 0 when written, -1 when the ROM is not the
+ * expected one. Both use $85:FF80-FFAF, after the shortcut hooks. */
+int smz_rom_start_sm(uint8_t *rom, int area, int station);
+int smz_rom_start_z3(uint8_t *rom, int exit);
 
 /* File names of the IPS patches to apply after the seed's patches with the tracker's default options, in order. */
 extern const char *const SMZ_DEFAULT_CAS_IPS[];
