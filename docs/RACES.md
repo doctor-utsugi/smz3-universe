@@ -199,6 +199,12 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
    Salamando's Redis is shared and saves snapshots (RDB), not every write, so its config stays as it is. Pause and Draft
    are not in it yet.
 5. **Core and PC.** `smz3_race.c`, skin pick, ready room, shared start with the hold on the first frame, Championship Full 1 vs 1.
+   Built: `core/ui/smz3_race.c` reads the server's answers, and the race screens (size, create or join, format, length, public
+   list, room, ready room) live in `smz3_ui.c`. On PC, `pc_race.c` sends the requests and polls from one thread. The game is
+   built when the player presses ready, since the skins go into the ROM. Until the start the game's intro plays but takes no
+   input, under a countdown. Bosses and crystals go out as news for the rivals and as progress; the finish sends the proof.
+   Rivals' news shows top right for four seconds, their chat bottom right for two. The result card lets the winner save the
+   time to the ladder. Nothing of this has been tried against the server yet.
 6. **Android and 3DS** join the same race, each with its own hold. This is where polling on a real 3DS gets measured.
 7. **Multi race,** positions, abandon rules, Partial lengths, pause by agreement, ladder.
 8. **Chat,** with the touch keyboard on 3DS.

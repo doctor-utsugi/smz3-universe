@@ -33,6 +33,7 @@
 #include "smz3_goalicons.h"
 #include "smz3_romderived.h"
 #include "pc_online.h"
+#include "pc_race.h"
 #include "pc_store.h"
 #include "smz3_host.h"
 #include "smz3_rom.h"
@@ -838,6 +839,14 @@ static int quick_state(int slot, int q, int save)
 
 typedef struct { const char *name; int bit; } Cell;
 
+static int json_num(const char *json, const char *key, int def)
+{
+    char k[48];
+    snprintf(k, sizeof k, "\"%s\":", key);
+    const char *p = strstr(json, k);
+    return p ? atoi(p + strlen(k)) : def;
+}
+
 static int json_flag(const char *json, const char *key, int def)
 {
     char pat[64];
@@ -1253,6 +1262,129 @@ static void snapshot_run(SmzRun *r, SmzTracker *t, int finished)
 }
 
 /* mode 0: the autosave state (or the game save when there is none), 1: the game save only */
+/* An online race in play: the rivals' news in a corner, their chat in a fading box, and the result card at the end. */
+static struct {
+    int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count;
+    int64_t shown;
+    char news[96], say[112];
+    Uint32 news_until, say_at;
+} rg;
+
+static void race_news(const char *text) { snprintf(rg.news, sizeof rg.news, "%s", text); rg.news_until = SDL_GetTicks() + 4000; sfx_play(SFX_OPEN); }
+
+static int race_won(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return me && me->place == 1 && me->time_ms >= 0; }
+
+/* A on the result card: the winner's time goes to the ladder once; otherwise the card closes and the game goes on. */
+static void race_card_a(void)
+{
+    if (race_won() && !rg.ladder && ui.race.room.state == RACE_FINISHED) { rg.ladder = 1; race_send("ladder", "", 1); sfx_play(SFX_CONFIRM); }
+    else rg.card = 0;
+}
+
+/* The race's answers while in the game, and what they bring: new lines for the corner and the chat box, the end. */
+static void race_in_game(void)
+{
+    static char ans[32768];
+    SmzRace *r = &ui.race.room;
+    int k;
+    while ((k = race_take(ans, sizeof ans)) >= 0) {
+        if (k == RACE_ANS_ERROR) race_news(ans);
+        else smz_race_read(r, ans, online_now_ms());
+    }
+    race_set_since(r->since);
+    for (int i = 0; i < r->lines; i++) {
+        const SmzRaceLine *l = &r->line[i];
+        if (l->seq <= rg.shown) continue;
+        rg.shown = l->seq;
+        int mine = r->you[0] && !strcmp(l->pid, r->you);
+        if (l->kind == RACE_LINE_CHAT) { if (!mine) { snprintf(rg.say, sizeof rg.say, "%s: %s", l->name, l->text); rg.say_at = SDL_GetTicks(); } }
+        else if (l->kind == RACE_LINE_EVENT) { if (!mine) { char m[112]; snprintf(m, sizeof m, "%s %s", l->name, l->text); race_news(m); } }
+        else if (!mine || l->kind == RACE_LINE_SYSTEM) race_news(l->text);
+    }
+    if (!rg.ended && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED)) { rg.ended = 1; rg.card = 1; }
+}
+
+/* The countdown, the news, the chat box, the time left and the result card, over the game at gx..gx+gw. */
+static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one_screen)
+{
+    const SmzRace *r = &ui.race.room;
+    float u = wh / 720.0f;
+    Uint32 now = SDL_GetTicks();
+    if (go_in > 0 || (go_in > -1000 && r->state == RACE_RUNNING)) {
+        int n = go_in > 0 ? (int)((go_in + 999) / 1000) : 0;
+        if (n != rg.last_count) { rg.last_count = n; if (n <= 3) sfx_play(n ? SFX_TICK : SFX_CONFIRM); }
+        if (n > 3) {
+            char m[48];
+            snprintf(m, sizeof m, "The race starts in %d", n);
+            gfx_rect(gx + gw / 2 - 220 * u, wh / 2.0f - 34 * u, 440 * u, 68 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
+            gfx_text(gx + gw / 2, wh / 2.0f - 18 * u, 32 * u, C(0xE8, 0xEC, 0xF2), 1, m);
+        } else {
+            char m[8];
+            if (n) snprintf(m, sizeof m, "%d", n); else snprintf(m, sizeof m, "GO");
+            gfx_text(gx + gw / 2, wh / 2.0f - 80 * u, 160 * u, n ? C(0xF2, 0xA3, 0x3A) : C(0x7F, 0xD8, 0x8F), 1, m);
+        }
+    }
+    if (r->state == RACE_RUNNING && r->end_at) {   /* a multi race after the first finish */
+        int64_t left = r->end_at - (online_now_ms() + r->offset);
+        if (left < 0) left = 0;
+        char m[48];
+        snprintf(m, sizeof m, "Race ends in %d:%02d", (int)(left / 60000), (int)(left / 1000 % 60));
+        float tw = gfx_text_width(22 * u, m);
+        gfx_rect(gx + (gw - tw) / 2 - 14 * u, 14 * u, tw + 28 * u, 38 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
+        gfx_text(gx + gw / 2, 21 * u, 22 * u, C(0xF2, 0xA3, 0x3A), 1, m);
+    }
+    if (now < rg.news_until) {   /* top right of the game */
+        float px = 20 * u, tw = fminf(gfx_text_width(px, rg.news), gw * 0.6f);
+        gfx_rect(gx + gw - tw - 40 * u, 16 * u, tw + 24 * u, 36 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
+        gfx_rect(gx + gw - tw - 40 * u, 16 * u, 3 * u, 36 * u, (SDL_Color){0x4F, 0xC3, 0xF7, 255});
+        gfx_text(gx + gw - 28 * u, 23 * u, px, C(0xE8, 0xEC, 0xF2), 2, rg.news);
+    }
+    if (one_screen && rg.say_at && now - rg.say_at < 2500) {   /* bottom right of the game: two seconds, then it fades */
+        Uint32 t = now - rg.say_at;
+        float a = t < 2000 ? 1 : 1 - (t - 2000) / 500.0f, px = 20 * u, tw = fminf(gfx_text_width(px, rg.say), gw * 0.6f);
+        gfx_rect(gx + gw - tw - 40 * u, wh - 120 * u, tw + 24 * u, 36 * u, (SDL_Color){0x10, 0x16, 0x1F, (Uint8)(225 * a)});
+        SDL_Color c = C(0xE8, 0xEC, 0xF2);
+        c.a = (Uint8)(255 * a);
+        gfx_text(gx + gw - 28 * u, wh - 113 * u, px, c, 2, rg.say);
+    }
+    if (!rg.card) return;
+    const SmzRacePlayer *me = smz_race_me(r);
+    int won = race_won(), cancelled = r->state == RACE_CANCELLED;
+    gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 180});
+    float pw = 620 * u, ph = (150 + 34 * r->n + 70) * u, px = (ww - pw) / 2, py = (wh - ph) / 2;
+    gfx_rect(px, py, pw, ph, (SDL_Color){0x10, 0x16, 0x1F, 240});
+    gfx_rect(px, py, pw, 3 * u, won ? (SDL_Color){0xF2, 0xA3, 0x3A, 255} : (SDL_Color){0x87, 0x93, 0xA6, 255});
+    gfx_text(ww / 2.0f, py + 22 * u, 44 * u, won ? C(0xF2, 0xA3, 0x3A) : cancelled ? C(0x87, 0x93, 0xA6) : C(0xE0, 0x5A, 0x4F), 1,
+             cancelled ? "RACE CANCELLED" : won ? "VICTORY" : "DEFEAT");
+    gfx_text(ww / 2.0f, py + 78 * u, 20 * u, C(0x87, 0x93, 0xA6), 1, cancelled && r->end_why[0] ? r->end_why : smz_race_format_name(r->format));
+    for (int pl = 0, row = 0; pl <= r->n; pl++) {   /* by place, then the ones without one */
+        for (int i = 0; i < r->n; i++) {
+            const SmzRacePlayer *p = &r->p[i];
+            if ((pl < r->n && p->place != pl + 1) || (pl == r->n && p->place)) continue;
+            float ry = py + (120 + 34 * row++) * u;
+            char t[24], pos[8];
+            if (p->time_ms >= 0) fmt_time_cs(p->time_ms, t, sizeof t); else snprintf(t, sizeof t, "%s", p->left ? "Left" : "-");
+            snprintf(pos, sizeof pos, p->place ? "%d" : "", p->place);
+            SDL_Color c = p == me ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2);
+            gfx_text(px + 40 * u, ry, 22 * u, c, 0, pos);
+            gfx_text(px + 80 * u, ry, 22 * u, c, 0, p->name);
+            gfx_text(px + pw - 40 * u, ry, 22 * u, c, 2, t);
+        }
+    }
+    float by = py + ph - 56 * u;
+    if (rg.ladder) {
+        gfx_text(ww / 2.0f, by - 30 * u, 20 * u, C(0x4F, 0xC3, 0xF7), 1, "Saved to the ladder");
+        static const HelpItem DONE[] = {{"B", "Esc", "Close"}};
+        help_prompt(ww / 2.0f, by, 40 * u, DONE, 1);
+    } else if (won && r->state == RACE_FINISHED) {
+        static const HelpItem WIN[] = {{"A", "Enter", "Save to ladder"}, {"B", "Esc", "Close"}};
+        help_prompt(ww / 2.0f, by, 40 * u, WIN, 2);
+    } else {
+        static const HelpItem LOSE[] = {{"A", "Enter", "Keep playing"}, {"B", "Esc", "Close"}};
+        help_prompt(ww / 2.0f, by, 40 * u, LOSE, 2);
+    }
+}
+
 static void play(int slot, int game_save_only)
 {
     SmzRun run;
@@ -1358,6 +1490,15 @@ static void play(int slot, int game_save_only)
     if (win2) dual_open(slot + 1, &run);
     int done_popup = 0, finished_before = run.game == 3;   /* the run-complete card, shown once when the run ends in this session */
     int64_t final_ms = 0;
+    memset(&rg, 0, sizeof rg);
+    rg.on = slot + 1 == RACE_SLOT && race_joined();
+    if (rg.on) {
+        race_set_slow(1);
+        rg.shown = ui.race.room.since;
+        int gc = json_num(run.settings, "ganonCrystals", 7), tc = json_num(run.settings, "ganonsTowerCrystals", 7);
+        rg.need = (gc > tc ? gc : tc) + json_num(run.settings, "tourianBosses", 4);
+    }
+    int64_t go_in = 0;   /* ms to the race's start, by the server's clock */
     if (getenv("SMZ3_DONE")) { done_popup = 1; finished = 1; final_ms = atoll(getenv("SMZ3_DONE")); }   /* test hook: the run-complete card */
     int vpanel = getenv("SMZ3_VIDEO") != NULL, vrow = 0, vchanges = 0;   /* the video panel over the game: open, row, changes made (for its sound) */
     Uint32 exit_at = 0;   /* when the player chose to leave: the screen closes before the run list comes back */
@@ -1389,6 +1530,7 @@ static void play(int slot, int game_save_only)
             else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
                 SDL_Keycode k = e.key.keysym.sym;
                 if (exit_at) continue;
+                if (rg.card) { if (k == SDLK_RETURN || k == SDLK_SPACE) race_card_a(); else if (k == SDLK_ESCAPE) { rg.card = 0; exit_at = SDL_GetTicks(); } continue; }
                 if (done_popup && (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_ESCAPE) && finish_skip()) continue;   /* the first press only ends the animation */
                 if (done_popup) { if (k == SDLK_RETURN || k == SDLK_SPACE) { done_popup = 0; exit_at = SDL_GetTicks(); } else if (k == SDLK_ESCAPE) done_popup = 0; continue; }   /* main menu, or stay for the credits */
                 if (fail_popup) { if (k == SDLK_RETURN || k == SDLK_SPACE) fail_popup = 0; else if (k == SDLK_ESCAPE) { fail_popup = 0; exit_at = SDL_GetTicks(); } continue; }
@@ -1435,6 +1577,7 @@ static void play(int slot, int game_save_only)
             } else if (pcode >= 0) {
                 int b = pcode;
                 if (exit_at) continue;
+                if (rg.card) { if (b == SDL_CONTROLLER_BUTTON_A) race_card_a(); else if (b == SDL_CONTROLLER_BUTTON_B) { rg.card = 0; exit_at = SDL_GetTicks(); } continue; }
                 if (done_popup && (b == SDL_CONTROLLER_BUTTON_A || b == SDL_CONTROLLER_BUTTON_B) && finish_skip()) continue;
                 if (done_popup) { if (b == SDL_CONTROLLER_BUTTON_A) { done_popup = 0; exit_at = SDL_GetTicks(); } else if (b == SDL_CONTROLLER_BUTTON_B) done_popup = 0; continue; }
                 if (fail_popup) { if (b == SDL_CONTROLLER_BUTTON_A) fail_popup = 0; else if (b == SDL_CONTROLLER_BUTTON_B) { fail_popup = 0; exit_at = SDL_GetTicks(); } continue; }
@@ -1574,11 +1717,13 @@ static void play(int slot, int game_save_only)
             map_view_move(&mv, dx, dy, dz);
         }
         if (win2) hk_tick(pad);
-        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open ? 0 : pad_bits(keys);
+        if (rg.on) { race_in_game(); go_in = ui.race.room.start_at ? ui.race.room.start_at - (online_now_ms() + ui.race.room.offset) : 0; }
+        int waiting = rg.on && go_in > 0;   /* no input until the start; the game's intro plays meanwhile */
+        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || rg.card ? 0 : pad_bits(keys);
         SDL_Keycode ffk = pad_key(PA_FAST);
         fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || (win2 ? hk_held(pad, HK_FAST) : pad_held(pad, pad_code(PA_FAST))));
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
-        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open;
+        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || rg.card;
         if (!hold) {
             emu_set_pad(input);
             /* fast forward keeps the music at its pitch: one frame of sound out of every four, each one blended into the
@@ -1621,10 +1766,32 @@ static void play(int slot, int game_save_only)
                 smz_counters_tick(&g_goalc, trk.started ? (int)trk.game : 0, wram, wl, sram, sl, (int)(trk.zelda_cleared + trk.metroid_cleared));
                 if (trk.save_changed) store_write(store_path("runs/slot%d.srm", slot + 1), sram, sl);
                 if (daily && trk.started && smz_daily_note_began(&dr, online_now_ms())) online_daily_save(&dr);   /* the clock starts with the game, as in the ladder */
+                if (rg.on && trk.started && ((trk.boss_mask & ~rg.bosses) || (trk.crystal_mask & 0x7F & ~rg.crystals))) {   /* news for the rivals */
+                    static const char *const BOSS[4] = {"beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley"};
+                    int nb = trk.boss_mask & ~rg.bosses & 15, nc = trk.crystal_mask & 0x7F & ~rg.crystals;
+                    for (int i = 0; i < 4; i++) if (nb >> i & 1) race_event(BOSS[i]);
+                    for (int i = 0; i < 7; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); race_event(m); }
+                    rg.bosses |= nb; rg.crystals |= nc;
+                    int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
+                    race_set_progress(pc > 99 ? 99 : pc);   /* 100 is the finish, from the server */
+                }
                 if (trk.game == 3 && !finished) {
                     finished = 1;
                     states = 0;   /* no state can take a finished run back */
-                    if (!finished_before) { done_popup = 1; final_ms = trk.base_ms + trk.pending_ms; }
+                    if (!finished_before) { done_popup = !rg.on; final_ms = trk.base_ms + trk.pending_ms; }   /* a race has its own card */
+                    if (rg.on && !rg.finish_sent && ui.race.room.state == RACE_RUNNING) {   /* the time is the server's: from the start to this request */
+                        rg.finish_sent = 1;
+                        size_t cap = SMZ_PROOF_MAX * 24;
+                        char *text = malloc(cap), *q = malloc(cap * 2 + 8), *f = malloc(cap * 2 + 16);
+                        if (text && q && f) {
+                            smz_proof_format(&proof, text, cap);
+                            smz_race_quote(text, q, cap * 2 + 8);
+                            snprintf(f, cap * 2 + 16, "\"proof\":%s", q);
+                            race_send("finish", f, 1);
+                        }
+                        free(text); free(q); free(f);
+                        save_proof(slot + 1, &proof);
+                    }
                     else if (win2) finish_start();   /* a finished run played again: its details come up on the tracker's screen */
                     if (daily && !finished_before && !daily_queued) {   /* the challenge's time is the real clock from the game's start */
                         daily_queued = 1;
@@ -1772,11 +1939,14 @@ static void play(int slot, int game_save_only)
             ren = top;
             gfx_use(top);
         }
+        if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !ren2);
         if (leaving) {
+            int abandon = rg.on && ui.race.room.state == RACE_RUNNING;
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
-            gfx_text(ww / 2.0f, wh / 2.0f - 30, 34, C(0xE8, 0xEC, 0xF2), 1, "Leave the run?");
+            gfx_text(ww / 2.0f, wh / 2.0f - 30, 34, C(0xE8, 0xEC, 0xF2), 1, abandon ? "Abandon the race?" : "Leave the run?");
             static const HelpItem LEAVE[] = {{"A", "Enter", "Save and go to the run list"}, {"B", "Esc", "Keep playing"}};
-            help_prompt(ww / 2.0f, wh / 2.0f + 14, 40, LEAVE, 2);
+            static const HelpItem ABANDON[] = {{"A", "Enter", "Leave the race"}, {"B", "Esc", "Keep racing"}};
+            help_prompt(ww / 2.0f, wh / 2.0f + 14, 40, abandon ? ABANDON : LEAVE, 2);
         }
         if (vpanel) {   /* the video options over the game, so each change shows at once */
             int nrows = settings_video_rows();
@@ -1858,6 +2028,11 @@ static void play(int slot, int game_save_only)
     }
 
     if (win2) dual_close();
+    if (rg.on) {   /* out before the finish: the rivals see it at once */
+        const SmzRacePlayer *me = smz_race_me(&ui.race.room);
+        if (ui.race.room.state == RACE_RUNNING && (!me || me->time_ms < 0)) race_send("leave", "", 1);
+        rg.on = 0;
+    }
     if (rw_open) { smz_rewind_step(rw, smz_rewind_count(rw)); emu_state_load(smz_rewind_state(rw), rw_size); }   /* closed mid-rewind: the present is kept */
     smz_rewind_free(rw);
     free(rw_buf);
@@ -1967,6 +2142,68 @@ static const char *welcome_setup(const char *path)
 }
 /* one place for a menu button, whichever screen has the focus */
 /* 1 when the daily slot holds the attempt of this window */
+/* "install", "player", "country" and "version" of a create or join request. */
+static void race_who(char *out, size_t cap)
+{
+    char id[48], name[64];
+    online_install_id(id);
+    smz_race_quote(ui.player, name, sizeof name);
+    snprintf(out, cap, "\"install\":\"%s\",\"player\":%s,\"country\":\"%s\",\"version\":\"%s\"", id, name, ui.country, SMZ3_VERSION);
+}
+
+/* Builds the race's game in its slot from the room's settings with the Link and Samus picked; 0 when it is ready. */
+static int race_build(char *err, size_t cap)
+{
+    uint8_t *sm, *z3;
+    if (store_load_base(&sm, &z3, err, cap)) return -1;
+    static SmzUi gu;
+    static GenJob j;
+    char perr[64];
+    int rc = -1;
+    gu = ui;
+    ui_preset(&gu, 1);
+    ui_apply_run_settings(&gu, ui.race.room.settings);
+    gu.value[UIO_LINK] = ui.value[UIO_LINK]; gu.value[UIO_SAMUS] = ui.value[UIO_SAMUS];
+    gu.value[UIO_PLANDO] = 0;
+    smz_host_set_plando(NULL, 0, perr, sizeof perr);
+    snprintf(gu.start_label, sizeof gu.start_label, "Race %s", ui.race.room.code);
+    memset(&j, 0, sizeof j);
+    j.sm = sm; j.z3 = z3; j.u = &gu; j.slot = RACE_SLOT - 1;
+    j.seed_if_random = 1;
+    generate(&j);
+    size_t sl = strlen(j.run.settings);
+    if (j.rc) snprintf(err, cap, "%s", j.err);
+    else if (sl + 20 >= sizeof j.run.settings || j.run.settings[0] != '{') snprintf(err, cap, "the race's settings do not fit");
+    else {
+        if (!strstr(j.run.settings, "\"challenge\":true")) {   /* no states, fast forward or rewind, as in the daily */
+            memmove(j.run.settings + 18, j.run.settings + 1, sl);
+            memcpy(j.run.settings + 1, "\"challenge\":true,", 17);
+        }
+        static const char *const OLD[] = {"srm", "proof", "discovery", "state"};
+        for (int i = 0; i < 4; i++) remove(store_path("runs/slot%d.%s", RACE_SLOT, OLD[i]));
+        rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
+        j.run.created = j.run.last_played = (int64_t)time(NULL) * 1000;
+        if (store_write(j.run.rom_path, j.rom, SMZ_HOST_ROM_SIZE) || store_run_save(RACE_SLOT, &j.run)) snprintf(err, cap, "cannot write the run files");
+        else rc = 0;
+    }
+    gen_free(&j);
+    free(sm); free(z3);
+    return rc;
+}
+
+/* Hands the race server's answers to the menu. */
+static void race_answers(void)
+{
+    static char ans[32768];
+    int k;
+    while ((k = race_take(ans, sizeof ans)) >= 0) {
+        if (k == RACE_ANS_ROOMS) ui_race_rooms(&ui, ans);
+        else if (k == RACE_ANS_ERROR) ui_race_fail(&ui, ans);
+        else ui_race_update(&ui, ans, online_now_ms());
+    }
+    race_set_since(ui.race.room.since);
+}
+
 static int daily_kept(const char *window)
 {
     SmzDailyRun r;
@@ -2069,6 +2306,7 @@ static void window_main(int start_slot)
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
     ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_QUIT);
+    ui_race_enable(&ui, 1);
     if (start_slot < 0) ui_home_open(&ui);   /* a run named on the command line skips the start menu */
     if (getenv("SMZ3_LADDER") || getenv("SMZ3_KEYS")) ui.screen = UI_SLOTS_SCREEN;   /* the test hooks below drive the run list */
     if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows them from the start */
@@ -2108,10 +2346,12 @@ static void window_main(int start_slot)
             if (!welcome_active()) ui_tick(&ui, (int)(now - last_tick));   /* the logo's time runs once the ROM files are in */
             last_tick = now;
         }
+        race_answers();
         if (pending_play >= 0) {
             if (!instant && !launch_at) launch_at = SDL_GetTicks();
             if (instant || SDL_GetTicks() - launch_at >= LAUNCH_MS) {
                 play(pending_play, pending_state_only);
+                if (pending_play == RACE_SLOT - 1) { race_forget(); ui_race_end(&ui); }   /* a race is played once */
                 pending_play = -1;
                 launch_at = 0;
                 instant = 0;
@@ -2213,6 +2453,38 @@ static void window_main(int start_slot)
             int slot = ui.action_slot;
             ui.action = ACT_NONE;
             if (act == ACT_LADDER) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); if (!g_goals_state) { g_goals_state = 1; detach(goals_thread, NULL); } }
+            else if (act == ACT_RACE_CREATE || act == ACT_RACE_JOIN) {
+                char who[256], f[384];
+                race_who(who, sizeof who);
+                if (act == ACT_RACE_CREATE) snprintf(f, sizeof f, "%s,\"format\":\"%s\",\"size\":%d,\"public\":%s", who, ui_race_format_key(&ui), ui.race.size, ui.race.is_public ? "true" : "false");
+                else snprintf(f, sizeof f, "%s,\"code\":\"%s\"", who, ui.race.code);
+                race_forget();
+                race_send(act == ACT_RACE_CREATE ? "create" : "join", f, 0);
+            }
+            else if (act == ACT_RACE_FIND) race_find();
+            else if (act == ACT_RACE_CLOSE) race_send("close", "", 1);
+            else if (act == ACT_RACE_KICK && slot >= 0 && slot < ui.race.room.n) { char f[48]; snprintf(f, sizeof f, "\"pid\":\"%s\"", ui.race.room.p[slot].pid); race_send("kick", f, 1); }
+            else if (act == ACT_RACE_LEAVE) race_send("leave", "", 1);
+            else if (act == ACT_RACE_READY) {   /* the game is built with the skins picked, then the server hears both */
+                {
+                    float ox, oy; int ww, wh;
+                    fit_width(ren);
+                    ui_draw(&ui);
+                    SDL_GetRendererOutputSize(ren, &ww, &wh);
+                    gfx_ui(&ui, ww, wh, &ox, &oy);
+                    SDL_RenderPresent(ren);
+                }
+                if (race_build(err, sizeof err)) ui_race_fail(&ui, err);
+                else {
+                    char f[160], l[72], sa[72];
+                    smz_race_quote(ui.sprites[0][ui.value[UIO_LINK]], l, sizeof l);
+                    smz_race_quote(ui.sprites[1][ui.value[UIO_SAMUS]], sa, sizeof sa);
+                    snprintf(f, sizeof f, "\"link\":%s,\"samus\":%s", l, sa);
+                    race_send("pick", f, 1);
+                    race_send("ready", "", 1);
+                }
+            }
+            else if (act == ACT_RACE_START) { pending_play = RACE_SLOT - 1; pending_state_only = 0; instant = 1; }   /* the start is the server's: no fade to wait */
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
                 if (slot == UI_OPT_QUIT) quit_menu();
                 else { settings_open(); if (slot == UI_OPT_VIDEO) settings_nav(BTN_DOWN); settings_nav(BTN_A); }

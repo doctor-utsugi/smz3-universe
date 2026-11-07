@@ -28,7 +28,7 @@ CFLAGS += -DSMZ3_VERSION='"$(SMZ3_VERSION)"'
 
 GEN := smz3_generate smz3_fill smz3_world smz3_world_gen smz3_rng smz3_patch smz3_rom smz3_text smz3_sprite smz3_hints smz3_itemopts smz3_plando smz3_md5 smz3_romsetup smz3_romderived smz3_dungeonmaps smz3_goalicons
 SRC := $(addprefix $(CORE)/gen/,$(addsuffix .c,$(GEN))) $(CORE)/smz3_state.c $(CORE)/smz3_locations.c $(CORE)/smz3_inventory.c \
-       $(CORE)/ui/smz3_ui.c $(CORE)/ui/smz3_ui_opts.c $(CORE)/ui/smz3_run.c $(CORE)/ui/smz3_host.c $(CORE)/ui/smz3_tracker.c $(CORE)/ui/smz3_goal.c $(CORE)/ui/smz3_daily.c $(CORE)/ui/smz3_shortcuts.c $(CORE)/ui/smz3_counters.c $(CORE)/ui/smz3_discovery.c $(CORE)/ui/smz3_runlogic.c $(CORE)/ui/smz3_proof.c $(CORE)/ui/smz3_preview.c $(CORE)/ui/smz3_rewind.c \
+       $(CORE)/ui/smz3_ui.c $(CORE)/ui/smz3_ui_opts.c $(CORE)/ui/smz3_run.c $(CORE)/ui/smz3_host.c $(CORE)/ui/smz3_tracker.c $(CORE)/ui/smz3_goal.c $(CORE)/ui/smz3_daily.c $(CORE)/ui/smz3_race.c $(CORE)/ui/smz3_shortcuts.c $(CORE)/ui/smz3_counters.c $(CORE)/ui/smz3_discovery.c $(CORE)/ui/smz3_runlogic.c $(CORE)/ui/smz3_proof.c $(CORE)/ui/smz3_preview.c $(CORE)/ui/smz3_rewind.c \
        $(wildcard pc_*.c) font_data.c $(OUT)/ips_data.c $(OUT)/map_data.c $(OUT)/logo_data.c
 OBJ := $(patsubst %.c,$(OUT)/o/%.o,$(notdir $(SRC)))
 

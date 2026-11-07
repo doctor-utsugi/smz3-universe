@@ -441,3 +441,6 @@ static void daily_flush(void)
     store_write(store_path("runs/daily.result"), line, strlen(line));
     remove(store_path("runs/daily.finish"));
 }
+
+int online_http(const char *method, const char *path, const char *body, char *out, size_t cap) { return http(method, path, body, out, cap); }
+void online_install_id(char out[48]) { install_id(out); }

@@ -26,7 +26,7 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_run.c
     ../../core/ui/smz3_host.c
     ../../core/ui/smz3_goal.c
-    ../../core/ui/smz3_daily.c
+    ../../core/ui/smz3_daily.c ../../core/ui/smz3_race.c
     ../../core/ui/smz3_shortcuts.c
     ../../core/ui/smz3_counters.c
     ../../core/ui/smz3_runlogic.c

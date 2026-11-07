@@ -9,6 +9,8 @@
 
 /* The 1-based run slot of the daily challenge's attempt; it is never listed with the others. */
 #define DAILY_SLOT (UI_SLOTS + 1)
+/* The run slot of the online race being played. */
+#define RACE_SLOT (UI_SLOTS + 2)
 
 /* Loads the stored profile into the menu and enables its Player row. */
 void online_init(SmzUi *u);
@@ -49,5 +51,8 @@ void online_daily_queue_finish(int64_t time_ms);
 int online_daily_result(char *out, size_t cap);
 /* The device clock in ms. */
 int64_t online_now_ms(void);
+/* One request to the server (the races use it): the HTTP status with the answer in out, or -1 without a connection. Blocks. */
+int online_http(const char *method, const char *path, const char *body, char *out, size_t cap);
+void online_install_id(char out[48]);
 
 #endif
