@@ -27,6 +27,8 @@ const LIVE_S = 6 * 3600;            // a running race's key, renewed on every ch
 const DONE_S = 3600;                // a finished race stays readable for its results
 const RETURN_MS = 5 * 60 * 1000;    // a dropped player can come back for this long
 const OUTAGE_MS = 5 * 60 * 1000;    // a server back after longer cancels the races it was running
+const PAUSE_KEEP_MS = 7 * 24 * 3600 * 1000;   // a paused race is cancelled this long after its first pause
+const BACK_WAIT_MS = 10 * 60 * 1000;          // from the resume time, the players back wait this long for the rest
 const LEAD_MS = 20 * 1000;          // the last confirm to the start: every device loads its game and holds the first frame
 const MIN_MS = 3 * 60 * 1000;
 const LOG_KEEP = 200;
@@ -62,10 +64,11 @@ module.exports = function race(ctx) {
 
   async function load(id) { const s = await r.cmd('GET', K('race:' + id)); return s ? JSON.parse(s) : null; }
   async function store(room) {
-    const live = room.state === 'running';
+    const live = room.state === 'running', paused = room.state === 'paused';
     const done = room.state === 'finished' || room.state === 'cancelled';
     const key = K('race:' + room.id), body = JSON.stringify(room);
     if (live) await r.cmd('SET', key, body, 'EX', LIVE_S);
+    else if (paused) await r.cmd('SET', key, body, 'PXAT', room.firstPauseAt + PAUSE_KEEP_MS + 3600 * 1000);
     else if (done) await r.cmd('SET', key, body, 'EX', DONE_S);
     else await r.cmd('SET', key, body, 'PXAT', room.createdAt + ROOM_MS);
     if (room.state === 'open' && room.public) await r.cmd('ZADD', K('open'), room.createdAt, room.id);
@@ -97,6 +100,7 @@ module.exports = function race(ctx) {
 
   // Ends the race when its rules say so; returns true when something changed.
   function settle(room) {
+    if (room.state === 'paused') return settlePaused(room);
     if (room.state !== 'running') return false;
     const now = clock(), left = inRace(room), done = room.players.filter(p => p.timeMs != null);
     let changed = false;
@@ -110,6 +114,45 @@ module.exports = function race(ctx) {
     return changed;
   }
 
+  // A paused race goes on when everyone is back, or at the resume time plus the wait with whoever is back; it ends when
+  // nobody came back, when the others abandoned, or a week after its first pause.
+  function settlePaused(room) {
+    const now = clock(), still = inRace(room), back = still.filter(p => p.back);
+    const end = (state, why) => { room.state = state; room.endedAt = now; room.endWhy = why; record(room); return true; };
+    if (!still.length) return end('cancelled', 'everyone left');
+    if (still.length === 1 && room.players.length > 1) { still[0].forfeitWin = true; return end('finished', 'last one left'); }
+    if (now >= room.firstPauseAt + PAUSE_KEEP_MS) return end('cancelled', 'pause expired');
+    const waited = now >= room.resumeAt + BACK_WAIT_MS;
+    if (!back.length) return waited ? end('cancelled', 'nobody came back') : false;
+    if (back.length < still.length && !waited) return false;
+    for (const p of still) {
+      if (p.back) { p.back = false; p.lastSeen = now; }
+      else { p.left = true; note(room, 'system', p.pid, p.name + ' did not come back'); }
+    }
+    room.state = 'running';
+    room.goAt = now + LEAD_MS;
+    room.pausedMs = (room.pausedMs || 0) + (room.goAt - room.pausedAt);
+    note(room, 'system', null, 'The race goes on');
+    settle(room);
+    return true;
+  }
+
+  // Everyone still racing said yes: the race stops until the resume time.
+  function maybePause(room) {
+    if (!room.vote || !inRace(room).every(p => room.vote.yes.includes(p.pid))) return;
+    room.state = 'paused';
+    room.pausedAt = clock();
+    room.firstPauseAt = room.firstPauseAt || room.pausedAt;
+    room.resumeAt = room.vote.resumeAt;
+    room.pauses = (room.pauses || 0) + 1;
+    room.vote = null;
+    for (const p of room.players) p.back = false;
+    note(room, 'system', null, 'Race paused');
+  }
+
+  // Race time: from the start, without the pauses.
+  const raceMs = (room, at) => at - room.startAt - (room.pausedMs || 0);
+
   // Positions: finishers by time, then the rest.
   function standings(room) {
     const fin = room.players.filter(p => p.timeMs != null).sort((a, b) => a.timeMs - b.timeMs);
@@ -117,7 +160,7 @@ module.exports = function race(ctx) {
       const i = fin.indexOf(p);
       return { pid: p.pid, name: p.name, country: p.country, link: p.link, samus: p.samus, ready: p.ready, left: !!p.left,
         progress: p.progress, timeMs: p.timeMs, place: i >= 0 ? i + 1 : p.forfeitWin ? 1 : 0, held: !!p.held,
-        away: room.state === 'running' && !p.left && p.timeMs == null && clock() - p.lastSeen > 15000 };
+        away: room.state === 'running' && !p.left && p.timeMs == null && clock() - p.lastSeen > 15000, back: !!p.back };
     });
   }
 
@@ -129,7 +172,8 @@ module.exports = function race(ctx) {
 
   function view(room, you) {
     const v = { code: room.code, state: room.state, format: room.format, size: room.size, public: room.public, creator: room.creator,
-      startAt: room.startAt, endAt: room.endAt, players: standings(room), endWhy: room.endWhy };
+      startAt: room.startAt, goAt: room.goAt || room.startAt, endAt: room.endAt, players: standings(room), endWhy: room.endWhy,
+      resumeAt: room.resumeAt, pauses: room.pauses || 0, vote: room.vote || undefined };
     if (room.state !== 'open') { v.seed = room.seed; v.settings = room.settings; }
     return v;
   }
@@ -172,7 +216,10 @@ module.exports = function race(ctx) {
         const room = await load(id);
         if (!room) return r.cmd('SREM', K('active'), id);
         if (room.state === 'running' && beat && gap > OUTAGE_MS) { room.state = 'cancelled'; room.endedAt = clock(); room.endWhy = 'server down'; record(room); }
-        else for (const p of room.players) p.lastSeen = clock();
+        else {
+          for (const p of room.players) p.lastSeen = clock();
+          if (beat && (room.state === 'running' || room.state === 'paused')) room.outages = (room.outages || []).concat([[beat, clock()]]);   // a finish queued in there keeps its own time
+        }
         await store(room);
       });
     } catch (e) { console.error('race startup', e.message); }
@@ -246,7 +293,7 @@ module.exports = function race(ctx) {
         }).catch(() => fail(res, 503, 'race server unavailable'));
         return;
       }
-      if (!onlyKeys(b, ['token', 'since', 'progress', 'events', 'chat', 'pid', 'link', 'samus', 'proof'])) return fail(res, 400, 'invalid');
+      if (!onlyKeys(b, ['token', 'since', 'progress', 'events', 'chat', 'pid', 'link', 'samus', 'proof', 'finishAt', 'resumeAt', 'yes'])) return fail(res, 400, 'invalid');
       onRoom(res, b.token, async (room, me) => {
         const now = clock();
         me.lastSeen = now;
@@ -276,7 +323,7 @@ module.exports = function race(ctx) {
           if (room.state !== 'closed') return fail(res, 409, 'not now');
           me.ready = true;
           note(room, 'system', me.pid, me.name + ' is ready');
-          if (room.players.every(q => q.ready)) { room.state = 'running'; room.startAt = now + LEAD_MS; note(room, 'system', null, 'Everyone is ready'); }
+          if (room.players.every(q => q.ready)) { room.state = 'running'; room.startAt = room.goAt = now + LEAD_MS; note(room, 'system', null, 'Everyone is ready'); }
           return { room: view(room) };
         case 'leave':
           if (me.left) return { room: view(room) };
@@ -285,11 +332,16 @@ module.exports = function race(ctx) {
             if (!room.players.length) { room.state = 'cancelled'; room.endedAt = now; room.endWhy = 'empty'; }
             else if (creator) room.creator = room.players[0].pid;   // the one who has been in longest
             if (room.state === 'closed' && room.players.length < 2) { room.state = 'open'; for (const q of room.players) q.ready = false; }
-          } else if (room.state === 'running') { me.left = true; note(room, 'system', me.pid, me.name + ' left the race'); settle(room); }
+          } else if (room.state === 'running' || room.state === 'paused') {
+            me.left = true;
+            if (room.vote) room.vote = null;
+            note(room, 'system', me.pid, me.name + ' left the race');
+            settle(room);
+          }
           return { room: view(room) };
         case 'poll': {
           if (Number.isInteger(b.progress) && room.state === 'running' && me.timeMs == null) me.progress = Math.max(0, Math.min(100, b.progress));
-          if (Array.isArray(b.events) && room.state === 'running' && now >= room.startAt)
+          if (Array.isArray(b.events) && room.state === 'running' && now >= (room.goAt || room.startAt))
             for (const e of b.events.slice(0, 8)) if (typeof e === 'string' && e.trim()) note(room, 'event', me.pid, e.trim().slice(0, EVENT_LEN));
           if (Array.isArray(b.chat)) {
             me.chat = (me.chat || []).filter(t => now - t < 60000);
@@ -306,22 +358,46 @@ module.exports = function race(ctx) {
         case 'finish': {
           if (room.state !== 'running' || me.left || me.timeMs != null) return fail(res, 409, 'not now');
           if (typeof b.proof !== 'string' || b.proof.length > 12000) return fail(res, 400, 'invalid');
-          const timeMs = now - room.startAt;
+          // A finish queued while the server was down keeps the moment it happened, never later than its arrival.
+          const at = Number(b.finishAt), down = (room.outages || []).some(([from, to]) => at >= from && at <= to);
+          const timeMs = raceMs(room, Number.isFinite(at) && down && at <= now && at >= room.goAt ? at : now);
           if (timeMs < MIN_MS) return fail(res, 400, 'invalid time');
           const verdict = await new Promise(done => verifyProof('race', room.settings, { proof: b.proof }, timeMs, (err, v) => done(err ? { err } : v)));
           if (verdict.err) return fail(res, 400, verdict.err);   // a proof that can't have happened: the finish doesn't count
           me.timeMs = timeMs; me.progress = 100;
+          room.vote = null;   // no pause after the first finish
           if (verdict.suspect) me.held = verdict.reason;   // counts for the race; its ladder entry waits for a review
           note(room, 'finish', me.pid, me.name + ' finished');
           if (room.size > 2 && !room.endAt) room.endAt = now + FORMATS[room.format].countdownMin * 60000;
           settle(room);
           return { room: view(room), timeMs };
         }
+        case 'pause': {   // asks the others to stop until resumeAt (server time); only the Full game, before any finish
+          if (room.state !== 'running' || room.format !== 'full' || me.left || now < room.goAt || room.players.some(q => q.timeMs != null)) return fail(res, 409, 'not now');
+          const at = Number(b.resumeAt), first = room.firstPauseAt || now;
+          if (!Number.isFinite(at) || at < now + 60000 || at > first + PAUSE_KEEP_MS) return fail(res, 400, 'invalid time');
+          room.vote = { by: me.pid, resumeAt: at, yes: [me.pid] };
+          note(room, 'system', me.pid, me.name + ' asks to pause');
+          maybePause(room);
+          return { room: view(room) };
+        }
+        case 'vote':
+          if (room.state !== 'running' || !room.vote || me.left) return fail(res, 409, 'not now');
+          if (b.yes === true) { if (!room.vote.yes.includes(me.pid)) room.vote.yes.push(me.pid); }
+          else { room.vote = null; note(room, 'system', me.pid, me.name + ' said no to the pause'); }
+          maybePause(room);
+          return { room: view(room) };
+        case 'back':   // in the game again after a pause, with the saved state loaded
+          if (room.state !== 'paused' || me.left) return fail(res, 409, 'not now');
+          if (!me.back) { me.back = true; note(room, 'system', me.pid, me.name + ' is back'); }
+          settle(room);
+          return { room: view(room) };
         case 'ladder': {
           const mine = standings(room).find(q => q.pid === me.pid);
-          if (room.state !== 'finished' || !mine || mine.place !== 1 || me.timeMs == null) return fail(res, 409, 'only the winner who finished');
+          // the first finish is first for good, so its time can go on the ladder before the race ends
+          if ((room.state !== 'finished' && room.state !== 'running') || !mine || mine.place !== 1 || me.timeMs == null) return fail(res, 409, 'only the winner who finished');
           const table = db.ladder[room.format], i = table.findIndex(e => e.install === me.install);
-          const entry = { player: me.name, country: me.country, timeMs: me.timeMs, at: now, install: me.install, hold: me.held || undefined };
+          const entry = { player: me.name, country: me.country, timeMs: me.timeMs, at: now, install: me.install, hold: me.held || undefined, paused: room.pauses ? true : undefined };
           if (i < 0) table.push(entry); else if (table[i].timeMs > me.timeMs) table[i] = entry;
           save();
           return { ok: true, held: !!me.held };

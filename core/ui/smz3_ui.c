@@ -212,6 +212,7 @@ void ui_race_update(SmzUi *u, const char *json, int64_t local_now)
     SmzRace *r = &u->race.room;
     int was = r->state;
     if (smz_race_read(r, json, local_now)) return;
+    if (r->state != was) u->notice[0] = 0;   /* an error from the step before no longer applies */
     const SmzRacePlayer *me = smz_race_me(r);
     if (me && me->ready) u->race.getting_ready = 0;
     int on_race = u->screen == UI_BUSY || (u->screen >= UI_RACE_SIZE && u->screen <= UI_RACE_READY) || (u->screen == UI_SPRITES && u->back == UI_RACE_READY);

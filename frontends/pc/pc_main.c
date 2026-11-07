@@ -1272,7 +1272,9 @@ static struct {
 
 static void race_news(const char *text) { snprintf(rg.news, sizeof rg.news, "%s", text); rg.news_until = SDL_GetTicks() + 4000; sfx_play(SFX_OPEN); }
 
-static int race_won(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return me && me->place == 1 && me->time_ms >= 0; }
+/* First place; with a time it can go to the ladder (a win because the others left has none). */
+static int race_first(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return me && me->place == 1; }
+static int race_won(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return race_first() && me->time_ms >= 0; }
 
 /* A on the result card: the winner's time goes to the ladder once; otherwise the card closes and the game goes on. */
 static void race_card_a(void)
@@ -1355,7 +1357,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
     gfx_rect(px, py, pw, ph, (SDL_Color){0x10, 0x16, 0x1F, 240});
     gfx_rect(px, py, pw, 3 * u, won ? (SDL_Color){0xF2, 0xA3, 0x3A, 255} : (SDL_Color){0x87, 0x93, 0xA6, 255});
     gfx_text(ww / 2.0f, py + 22 * u, 44 * u, won ? C(0xF2, 0xA3, 0x3A) : cancelled ? C(0x87, 0x93, 0xA6) : C(0xE0, 0x5A, 0x4F), 1,
-             cancelled ? "RACE CANCELLED" : won ? "VICTORY" : "DEFEAT");
+             cancelled ? "RACE CANCELLED" : race_first() ? "VICTORY" : "DEFEAT");
     gfx_text(ww / 2.0f, py + 78 * u, 20 * u, C(0x87, 0x93, 0xA6), 1, cancelled && r->end_why[0] ? r->end_why : smz_race_format_name(r->format));
     for (int pl = 0, row = 0; pl <= r->n; pl++) {   /* by place, then the ones without one */
         for (int i = 0; i < r->n; i++) {
