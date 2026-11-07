@@ -8545,10 +8545,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..c02391f
+index 0000000..690dd6e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,460 @@
+@@ -0,0 +1,461 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -8733,6 +8733,7 @@ index 0000000..c02391f
 +                    if (pad != lastPad) { lastPad = pad; Timber.i("SMZ3 SM pad word \$8B = %04x".format(pad)) }
 +                }
 +                val sram = view.readMemory(GLRetroView.MEMORY_SAVE_RAM, 0, SRAM_SIZE)
++                if (wram.isEmpty() || sram.isEmpty()) continue   // no game in the core yet (a race's countdown)
 +                Smz3Native.shortcutState(wram, sram).let { st ->
 +                    Smz3Shortcuts.ready = st[0] != 0L
 +                    Smz3Shortcuts.owned = st[1]
