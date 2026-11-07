@@ -1361,10 +1361,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..e9705f1
+index 0000000..751e59b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,853 @@
+@@ -0,0 +1,855 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1826,7 +1826,9 @@ index 0000000..e9705f1
 +                fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
 +                    ?.let { spriteFile(context, game, "$it.rdc") }
 +                val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
++                if (!Smz3Native.raceApplyStart(rom, raw)) error("The Draft's start does not fit")
 +                RunStore.delete(context, RaceClient.SLOT)
++                RunStore.goalsFile(context, RaceClient.SLOT).delete()   // a Draft's kills and rupees count from zero
 +                val romFile = RunStore.newRomFile(context, usedSeed, raw)
 +                romFile.writeBytes(rom)
 +                val totals = Smz3Native.summarize(ByteArray(0), ByteArray(0))
@@ -6624,10 +6626,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..1568550
+index 0000000..9e40339
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,141 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6762,6 +6764,12 @@ index 0000000..1568550
 +    @JvmStatic external fun uiRacePid(i: Int): String
 +    /** The race game's settings in the app's format, the picked sprites kept; "" when they do not fit. */
 +    @JvmStatic external fun raceSettingsJson(): String
++    /** Writes a Draft's start (from its settings) into [rom]; false when the ROM refused it. */
++    @JvmStatic external fun raceApplyStart(rom: ByteArray, settings: String): Boolean
++    /** The goal of a run's settings for people ("Defeat 25 enemies"), "" when it has none. */
++    @JvmStatic external fun raceGoalText(settings: String): String
++    /** The run's kills or rupees goal, 0 to 99 done; -1 for the other goals. */
++    @JvmStatic external fun raceGoalProgress(): Int
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt
 new file mode 100644
@@ -11895,10 +11903,10 @@ index 0000000..2307c70
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..76c6094
+index 0000000..42ce1d6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,491 @@
+@@ -0,0 +1,518 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -11907,6 +11915,10 @@ index 0000000..76c6094
 +import android.graphics.Color
 +import android.os.Handler
 +import android.os.Looper
++import android.text.SpannableString
++import android.text.Spanned
++import android.text.style.ForegroundColorSpan
++import android.text.style.RelativeSizeSpan
 +import android.view.Gravity
 +import android.view.KeyEvent
 +import android.view.View
@@ -11993,6 +12005,7 @@ index 0000000..76c6094
 +    private var code = ""
 +    private var you = ""
 +    private var goAt = 0L
++    private var startAt = 0L
 +    private var endAt = 0L
 +    private var resumeAt = 0L
 +    private var pauses = 0
@@ -12006,6 +12019,7 @@ index 0000000..76c6094
 +    private var need = 11
 +    private var bosses = 0
 +    private var crystals = 0
++    private var goal = ""          // a Draft's goal for people, shown at the 3, 2, 1 and then at the top left
 +    private var finishSent = false
 +    private var ended = false
 +    private var mineShown = false
@@ -12023,6 +12037,7 @@ index 0000000..76c6094
 +    private var news: TextView? = null
 +    private var say: TextView? = null
 +    private var endsIn: TextView? = null
++    private var goalLine: TextView? = null
 +    private var card: AlertDialog? = null
 +    private var box: AlertDialog? = null     // the pause picker, the vote, or the wait for the others' answers
 +    private var boxKind = ""
@@ -12045,6 +12060,7 @@ index 0000000..76c6094
 +        RunStore.load(activity, RaceClient.SLOT)?.settings?.let { s ->
 +            val j = runCatching { JSONObject(s) }.getOrDefault(JSONObject())
 +            need = maxOf(j.optInt("ganonCrystals", 7), j.optInt("ganonsTowerCrystals", 7)) + j.optInt("tourianBosses", 4)
++            goal = Smz3Native.raceGoalText(s)
 +        }
 +        val pad = (8 * activity.resources.displayMetrics.density).toInt()
 +        fun label(gravity: Int, color: Int, bottom: Int) = TextView(activity).apply {
@@ -12055,6 +12071,7 @@ index 0000000..76c6094
 +        news = label(Gravity.TOP or Gravity.END, Color.rgb(0xE8, 0xEC, 0xF2), pad)
 +        say = label(Gravity.BOTTOM or Gravity.END, Color.rgb(0xE8, 0xEC, 0xF2), pad * 12)
 +        endsIn = label(Gravity.TOP or Gravity.CENTER_HORIZONTAL, Color.rgb(0xF2, 0xA3, 0x3A), pad)
++        goalLine = label(Gravity.TOP or Gravity.START, Color.rgb(0xE8, 0xEC, 0xF2), pad).apply { textSize = 12f }
 +        // until the start the game gets no input: the countdown covers it and takes every button and touch
 +        holdText = TextView(activity).apply { gravity = Gravity.CENTER; setTextColor(Color.WHITE); textSize = 28f; text = if (back) "Back in the race ..." else "Waiting for the race ..." }
 +        hold = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
@@ -12112,6 +12129,16 @@ index 0000000..76c6094
 +    private fun first(): Boolean = me()?.optInt("place") == 1
 +    private fun won(): Boolean = first() && myTime() >= 0
 +    private fun serverNow() = System.currentTimeMillis() + offset
++    private fun draft() = format == "draft"
++
++    /** The count (or GO) with a Draft's goal under it, the same for everyone. */
++    private fun withGoal(big: String): CharSequence {
++        if (!draft() || goal.isEmpty()) return big
++        return SpannableString("$big\n$goal").apply {
++            setSpan(RelativeSizeSpan(0.25f), big.length, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
++            setSpan(ForegroundColorSpan(Color.rgb(0xE8, 0xEC, 0xF2)), big.length, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
++        }
++    }
 +
 +    private fun canPause(): Boolean {
 +        if (state != "running" || format != "full" || serverNow() < goAt || voteBy.isNotEmpty()) return false
@@ -12138,7 +12165,7 @@ index 0000000..76c6094
 +        val o = runCatching { JSONObject(text) }.getOrNull() ?: return
 +        val room = o.optJSONObject("room") ?: return
 +        state = room.optString("state"); format = room.optString("format"); endWhy = room.optString("endWhy"); code = room.optString("code", code)
-+        val startAt = room.optLong("startAt", 0L)
++        startAt = room.optLong("startAt", 0L)
 +        goAt = room.optLong("goAt", startAt); endAt = room.optLong("endAt", 0L)
 +        resumeAt = room.optLong("resumeAt", 0L); pauses = room.optInt("pauses")
 +        val vote = room.optJSONObject("vote")
@@ -12224,14 +12251,14 @@ index 0000000..76c6094
 +                holdText?.text = "Waiting for the others: ${inRace.count { it.optBoolean("back") }} of ${inRace.size} back\nIt goes on ${whenAt(resumeAt)} at the latest"
 +            } else if (state == "running" && goIn <= 0) {
 +                if (goUntil == 0L && goIn < -1500) hold?.dismiss()   // back in a race already under way
-+                else if (goUntil == 0L) { goUntil = now + 1000; holdText?.text = "GO"; holdText?.textSize = 96f; holdText?.setTextColor(Color.rgb(0x7F, 0xD8, 0x8F)); Smz3Finish.cue(6) }
++                else if (goUntil == 0L) { goUntil = now + 1000; holdText?.text = withGoal("GO"); holdText?.textSize = 96f; holdText?.setTextColor(Color.rgb(0x7F, 0xD8, 0x8F)); Smz3Finish.cue(6) }
 +                if (now >= goUntil) hold?.dismiss()
 +            } else if (state == "running" && goAt > 0) {
 +                val n = ((goIn + 999) / 1000).toInt()
 +                if (n != lastCount) {
 +                    lastCount = n
 +                    if (n > 3) { holdText?.textSize = 28f; holdText?.text = if (pauses > 0) "The race goes on in $n" else "The race starts in $n" }
-+                    else { holdText?.textSize = 120f; holdText?.setTextColor(Color.rgb(0xF2, 0xA3, 0x3A)); holdText?.text = "$n"; Smz3Finish.cue(1) }
++                    else { holdText?.textSize = 120f; holdText?.setTextColor(Color.rgb(0xF2, 0xA3, 0x3A)); holdText?.text = withGoal("$n"); Smz3Finish.cue(1) }
 +                }
 +            }
 +            if (state == "cancelled" || state == "finished") hold?.dismiss()
@@ -12253,6 +12280,13 @@ index 0000000..76c6094
 +                v.text = "Race ends in %d:%02d".format(left / 60000, left / 1000 % 60); v.visibility = View.VISIBLE
 +            } else v.visibility = View.GONE
 +        }
++        goalLine?.let { v ->   // a Draft: the goal, how far a counted one is, and what is left of its 30 minutes
++            if (draft() && goal.isNotEmpty() && state == "running" && startAt > 0 && hold?.isShowing != true && card?.isShowing != true) {
++                val left = maxOf(0L, startAt + 30 * 60_000L - server)
++                val pc = Smz3Native.raceGoalProgress()
++                v.text = (if (pc >= 0) "$goal  $pc%" else goal) + "  %d:%02d".format(left / 60000, left / 1000 % 60); v.visibility = View.VISIBLE
++            } else v.visibility = View.GONE
++        }
 +        // news for the rivals, and the progress: 100 is the finish, from the server
 +        val snap = Smz3Tracker.latest.value
 +        if (snap != null && snap.started && state == "running" && !back) {
@@ -12263,8 +12297,9 @@ index 0000000..76c6094
 +                for (i in 0 until 4) if ((nb shr i) and 1 != 0) RaceClient.event(names[i])
 +                for (i in 0 until 7) if ((nc shr i) and 1 != 0) RaceClient.event("got Crystal ${i + 1}")
 +                bosses = bosses or nb; crystals = crystals or nc
-+                RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))
++                if (!draft()) RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))
 +            }
++            if (draft()) RaceClient.setProgress(maxOf(0, Smz3Native.raceGoalProgress()))
 +        }
 +        if (Smz3Tracker.currentGame == 3 && !finishSent && state == "running") {   // the server's time, or finishAt if it was down then
 +            finishSent = true
@@ -12362,18 +12397,18 @@ index 0000000..76c6094
 +        ).apply { show() }
 +    }
 +
-+    /** VICTORY, a place, DEFEAT or RACE CANCELLED with the places; A and B answer it, and its buttons take touches. */
++    /** VICTORY, a place, DRAW, DEFEAT or RACE CANCELLED with the places; A and B answer it, and its buttons take touches. */
 +    private fun showCard(saved: Boolean) {
 +        if (activity.isFinishing) return
 +        card?.dismiss()
 +        val cancelled = state == "cancelled"
 +        val running = state == "running"
-+        val ladder = won() && !saved && (state == "finished" || running)
-+        val head = if (cancelled && endWhy.isNotEmpty()) endWhy else when (format) { "sprint" -> "Sprint"; "half" -> "Half"; else -> "Full game" } +
++        val ladder = won() && !draft() && !saved && (state == "finished" || running)
++        val head = if (cancelled && endWhy.isNotEmpty()) endWhy else when (format) { "sprint" -> "Sprint"; "half" -> "Half"; "draft" -> "Online draft"; else -> "Full game" } +
 +            if (running) ": the race goes on" else if (pauses > 0) ", paused" else ""
 +        val text = StringBuilder(head).append("\n").append(table())
 +        if (saved) text.append("\n\nSaved to the ladder")
-+        val title = if (cancelled) "RACE CANCELLED" else if (first()) "VICTORY" else me()?.optInt("place")?.takeIf { it > 0 }?.let { "${ordinal(it).uppercase()} PLACE" } ?: "DEFEAT"
++        val title = if (cancelled) "RACE CANCELLED" else if (first()) "VICTORY" else if (endWhy == "draw") "DRAW" else me()?.optInt("place")?.takeIf { it > 0 }?.let { "${ordinal(it).uppercase()} PLACE" } ?: "DEFEAT"
 +        val b = AlertDialog.Builder(activity)
 +            .setTitle(title)
 +            .setMessage(text.toString())

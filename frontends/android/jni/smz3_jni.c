@@ -12,7 +12,8 @@
 
 #define NATIVE(name) Java_com_swordfish_lemuroid_app_shared_game_viewmodel_Smz3Native_##name
 
-static SmzGoal g_goal;   /* the daily challenge goal of the run being played (smz3_goal.h) */
+static SmzGoal g_goal;   /* the daily challenge or Draft goal of the run being played (smz3_goal.h) */
+static SmzCounters g_counters;   /* the run's counters: world goals, and a Draft's kills and rupees */
 
 /* Takes the goal from the run's settings JSON; a run without one clears it. */
 static int g_dead;   /* the run's Super Metroid bosses dead from the start (a mid-game daily start) */
@@ -135,7 +136,7 @@ JNIEXPORT jintArray JNICALL NATIVE(summarize)(JNIEnv *env, jclass cls, jbyteArra
     jbyte *s = (*env)->GetByteArrayElements(env, sram, NULL);
     smz3_summary sum;
     smz3_summarize((const uint8_t *)w, (size_t)wl, (const uint8_t *)s, (size_t)sl, &sum);
-    if (g_goal.kind != GOAL_NONE && smz_goal_done(&g_goal, (const uint8_t *)w, (size_t)wl, (const uint8_t *)s, (size_t)sl)) sum.finished = 1;
+    if (g_goal.kind != GOAL_NONE && (smz_goal_done(&g_goal, (const uint8_t *)w, (size_t)wl, (const uint8_t *)s, (size_t)sl) || smz_goal_counted(&g_goal, &g_counters))) sum.finished = 1;
     (*env)->ReleaseByteArrayElements(env, wram, w, JNI_ABORT);
     (*env)->ReleaseByteArrayElements(env, sram, s, JNI_ABORT);
 
@@ -695,8 +696,6 @@ JNIEXPORT jstring JNICALL NATIVE(dailySettingsJson)(JNIEnv *env, jclass cls, jst
 }
 
 /* ---- world goal counters of the run being played (see smz3_counters.h) ---- */
-#include "smz3_counters.h"
-static SmzCounters g_counters;
 
 JNIEXPORT void JNICALL NATIVE(countersLoad)(JNIEnv *env, jclass cls, jstring text)
 {
@@ -848,7 +847,7 @@ JNIEXPORT jstring JNICALL NATIVE(uiRacePid)(JNIEnv *env, jclass cls, jint i)
 }
 
 /* The race game's settings in the app's format: the room's, with the Link and Samus picked and marked as a challenge (no
- * states, fast forward or rewind). "" when they do not fit. */
+ * states, fast forward or rewind), with a Draft's goal and start. "" when they do not fit. */
 JNIEXPORT jstring JNICALL NATIVE(raceSettingsJson)(JNIEnv *env, jclass cls)
 {
     static SmzUi u;
@@ -859,11 +858,36 @@ JNIEXPORT jstring JNICALL NATIVE(raceSettingsJson)(JNIEnv *env, jclass cls)
     u.value[UIO_LINK] = g_ui.value[UIO_LINK]; u.value[UIO_SAMUS] = g_ui.value[UIO_SAMUS];
     u.value[UIO_PLANDO] = 0;
     snprintf(u.start_label, sizeof u.start_label, "Race %s", g_ui.race.room.code);
-    if (ui_settings_json(&u, 1, buf, sizeof buf) < 0 || buf[0] != '{') buf[0] = 0;
-    else if (!strstr(buf, "\"challenge\":true")) {
-        size_t n = strlen(buf);
-        if (n + 18 >= sizeof buf) buf[0] = 0;
-        else { memmove(buf + 18, buf + 1, n); memcpy(buf + 1, "\"challenge\":true,", 17); }
-    }
+    if (ui_settings_json(&u, 1, buf, sizeof buf) < 0 || smz_race_mark_settings(buf, sizeof buf, g_ui.race.room.settings)) buf[0] = 0;
     return (*env)->NewStringUTF(env, buf);
+}
+
+/* Writes the start of a Draft's settings into its ROM (and fixes the checksum); false when the ROM refused it. */
+JNIEXPORT jboolean JNICALL NATIVE(raceApplyStart)(JNIEnv *env, jclass cls, jbyteArray rom, jstring settings)
+{
+    if ((*env)->GetArrayLength(env, rom) < 0x410000) return JNI_FALSE;
+    const char *s = (*env)->GetStringUTFChars(env, settings, NULL);
+    jbyte *b = (*env)->GetByteArrayElements(env, rom, NULL);
+    int ok = smz_race_apply_start((uint8_t *)b, s) == 0;
+    (*env)->ReleaseByteArrayElements(env, rom, b, ok ? 0 : JNI_ABORT);
+    (*env)->ReleaseStringUTFChars(env, settings, s);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+/* The goal of a run's settings for people ("Defeat 25 enemies"), "" when it has none. */
+JNIEXPORT jstring JNICALL NATIVE(raceGoalText)(JNIEnv *env, jclass cls, jstring settings)
+{
+    SmzGoal g;
+    char t[64] = "";
+    const char *s = (*env)->GetStringUTFChars(env, settings, NULL);
+    if (!smz_goal_from_settings(s, &g) && g.kind != GOAL_NONE) smz_goal_text(&g, t, sizeof t);
+    (*env)->ReleaseStringUTFChars(env, settings, s);
+    return (*env)->NewStringUTF(env, t);
+}
+
+/* How far the run's counted goal (kills, rupees) is, 0 to 99 (100 is the finish, from the server); -1 for the other kinds. */
+JNIEXPORT jint JNICALL NATIVE(raceGoalProgress)(JNIEnv *env, jclass cls)
+{
+    if (g_goal.kind != GOAL_KILLS && g_goal.kind != GOAL_RUPEES) return -1;
+    return smz_goal_progress(&g_goal, &g_counters, 0);
 }
