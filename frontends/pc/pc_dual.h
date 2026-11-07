@@ -24,6 +24,9 @@ typedef struct {
     int card_open;              /* the top screen still shows the run-complete card */
     int states, qslots, *qslot; /* save states: allowed, how many slots, the active one */
     const SmzRace *race;        /* an online race: its standings go on RUN; else NULL */
+    const SmzDailyChat *chat;   /* a daily run: its window's chat, on the CHAT tab as a race's; else NULL */
+    void (*say)(const char *text);   /* sends a line to that chat */
+    const char *me;             /* the player's name there, not offered to mute */
 } DualFrame;
 
 enum { DUAL_NONE, DUAL_MENU, DUAL_CREDITS };

@@ -49,6 +49,13 @@ void online_daily_save(const SmzDailyRun *r);
 void online_daily_queue_finish(int64_t time_ms);
 /* What the server answered to the finish: 1 with a line for the player, 0 while nothing came back. */
 int online_daily_result(char *out, size_t cap);
+/* The window's chat, newer than the line since: the HTTP status with the answer in out, or -1 without a connection. Blocks. */
+int online_daily_chat(const SmzDailyRun *r, int64_t since, char *out, size_t cap);
+/* Sends a line to the window's chat with the profile's name and country: the HTTP status (200 sent, 409 the window closed,
+ * 429 too fast), or -1. Blocks. */
+int online_daily_say(const SmzDailyRun *r, const char *text);
+/* The player's name and country as the daily's finish sends them. */
+void online_profile(char name[32], char country[4]);
 /* The device clock in ms. */
 int64_t online_now_ms(void);
 /* One request to the server (the races use it): the HTTP status with the answer in out, or -1 without a connection. Blocks. */

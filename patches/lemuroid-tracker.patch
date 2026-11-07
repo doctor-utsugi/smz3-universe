@@ -1116,10 +1116,10 @@ index b4a1df8..3811237 100644
      SYSTEMS(MainRoute.SYSTEMS, R.string.title_systems, Icons.Filled.VideogameAsset, Icons.Outlined.VideogameAsset),
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
 new file mode 100644
-index 0000000..ec3e062
+index 0000000..90cf254
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,201 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -1245,6 +1245,23 @@ index 0000000..ec3e062
 +        playersOf(j)
 +        val began = maxOf(a.beganAt, attempt(context)?.beganAt ?: 0L)   // the game may have started while the hints were on their way
 +        return a.copy(hints = hints, nextHintAt = next, beganAt = began).also { save(context, it) }
++    }
++
++    /** The window's chat lines newer than [since] (GET /api/daily/chat, which also counts this device as playing now), its
++     * player counts kept in [players]; null offline. Call off the main thread. */
++    fun chat(a: DailyAttempt, since: Long): JSONObject? {
++        val (code, text) = request("GET", "/api/daily/chat?token=" + a.token + "&since=" + since)
++        if (code != 200) return null
++        return runCatching { JSONObject(text) }.getOrNull()?.also { playersOf(it) }
++    }
++
++    /** Says [text] in the window's chat, with the name and country the finish sends: the HTTP code (409 once the window has
++     * closed, 429 when too fast, -1 offline). Call off the main thread. */
++    fun say(context: Context, a: DailyAttempt, text: String): Int {
++        val (name, country) = OnlineLadder.profileFor(context)
++        val body = JSONObject().put("token", a.token).put("player", name).put("text", text)
++        if (country.length == 2) body.put("country", country)
++        return request("POST", "/api/daily/chat", body).first
 +    }
 +
 +    /**
@@ -3701,10 +3718,10 @@ index 0000000..1a5680e
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyBlock.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyBlock.kt
 new file mode 100644
-index 0000000..894884c
+index 0000000..7f25828
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyBlock.kt
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,135 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -3716,8 +3733,9 @@ index 0000000..894884c
 +import android.view.View
 +
 +/**
-+ * The daily challenge on the RUN tab: the goal in its box with a thin bar of who is on it (green playing now, gold finished,
-+ * out of everyone who started), the three counts with their pixel icons and the next hint, then the window left.
++ * The daily challenge on the RUN tab: the goal in its box (a boss's with its icon, and where it waits under it) with a thin
++ * bar of who is on it (green playing now, gold finished, out of everyone who started), the three counts with their pixel
++ * icons and the next hint, then the window left.
 + */
 +internal class Smz3DailyBlock(context: Context) : View(context) {
 +    private val density = context.resources.displayMetrics.density
@@ -3725,6 +3743,8 @@ index 0000000..894884c
 +    private val text = Paint(Paint.ANTI_ALIAS_FLAG)
 +    private val r = RectF()
 +    private var goal = ""
++    private var bossIcon: android.graphics.Bitmap? = null
++    private var place = ""
 +    private var done = false
 +    private var playing = -1
 +    private var started = 0
@@ -3748,6 +3768,13 @@ index 0000000..894884c
 +
 +    /** [players]: now, started, finished; null while the server has not said. */
 +    fun set(goal: String, done: Boolean, players: IntArray?, hint: String, window: String, windowWarn: Boolean) {
++        if (goal != this.goal) {
++            val b = Smz3GoalIcon.boss(goal)
++            bossIcon = b?.let { Smz3GoalIcon.icon(context, it.sprite) }
++            val was = place
++            place = b?.let { "in ${it.place}" } ?: ""
++            if (place.isEmpty() != was.isEmpty()) requestLayout()
++        }
 +        this.goal = goal; this.done = done; this.hint = hint; this.window = window; this.windowWarn = windowWarn
 +        playing = players?.getOrNull(0) ?: -1; started = players?.getOrNull(1) ?: 0; finished = players?.getOrNull(2) ?: 0
 +        invalidate()
@@ -3756,7 +3783,7 @@ index 0000000..894884c
 +    private fun dp(v: Float) = v * density
 +
 +    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(76f).toInt())
++        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(if (place.isEmpty()) 76f else 92f).toInt())
 +    }
 +
 +    private fun write(c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, align: Paint.Align = Paint.Align.LEFT): Float {
@@ -3793,7 +3820,12 @@ index 0000000..894884c
 +        r.set(dp(10f), dp(9f), dp(10f) + s, dp(9f) + s)
 +        if (done) { paint.color = green; c.drawRect(r, paint) }
 +        else { paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(1.2f); paint.color = dimColor; c.drawRect(r, paint); paint.style = Paint.Style.FILL }
-+        write(c, goal, dp(26f), dp(18f), 13f, textColor)
++        val gw = write(c, goal, dp(26f), dp(18f), 13f, textColor)
++        bossIcon?.let { b ->   // the boss itself after its name, pixel sharp, as tall as the box allows
++            val ih = dp(16f); val iw = ih * b.width / b.height; val ix = dp(26f) + gw + dp(6f)
++            r.set(ix, dp(18f) - dp(13f), ix + iw, dp(18f) - dp(13f) + ih)
++            paint.isFilterBitmap = false; c.drawBitmap(b, null, r, paint)
++        }
 +        val bx = dp(10f); val bw = w - dp(20f); val by = dp(27f)
 +        paint.color = track; c.drawRect(bx, by, bx + bw, by + dp(3f), paint)
 +        if (started > 0 && playing >= 0) {
@@ -3803,9 +3835,13 @@ index 0000000..894884c
 +            paint.color = gold; c.drawRect(bx + gw, by, bx + gw + fw, by + dp(3f), paint)
 +        }
 +
++        // where the boss waits, under its box
++        val dy = if (place.isEmpty()) 0f else dp(16f)
++        if (place.isNotEmpty()) write(c, place, dp(10f), dp(48f), 11f, dimColor)
++
 +        // counts with their icons, the next hint on the right
 +        val u = dp(1.4f)
-+        val base = dp(54f)
++        val base = dp(54f) + dy
 +        var x = 0f
 +        if (playing >= 0) {
 +            dot(c, x, base - 9 * u, u); x += 10 * u
@@ -3817,16 +3853,16 @@ index 0000000..894884c
 +        }
 +        if (hint.isNotEmpty()) write(c, hint, w, base, 12f, dimColor, Paint.Align.RIGHT)
 +
-+        write(c, "Window", 0f, dp(72f), 12f, dimColor)
-+        write(c, window, w, dp(72f), 12f, if (windowWarn) Color.parseColor("#E05A4F") else textColor, Paint.Align.RIGHT)
++        write(c, "Window", 0f, dp(72f) + dy, 12f, dimColor)
++        write(c, window, w, dp(72f) + dy, 12f, if (windowWarn) Color.parseColor("#E05A4F") else textColor, Paint.Align.RIGHT)
 +    }
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt
 new file mode 100644
-index 0000000..b49ffbf
+index 0000000..079412a
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,235 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -3840,13 +3876,18 @@ index 0000000..b49ffbf
 +import android.widget.TextView
 +import com.swordfish.lemuroid.app.mobile.feature.runs.DailyAttempt
 +import com.swordfish.lemuroid.app.mobile.feature.runs.DailyChallenge
++import com.swordfish.lemuroid.app.mobile.feature.runs.OnlineLadder
 +import com.swordfish.lemuroid.app.mobile.feature.runs.RunStore
++import org.json.JSONArray
++import org.json.JSONObject
 +
 +/**
 + * The daily challenge while playing: the window clock (red in its last 15 minutes), the own time from Start, the goal and
 + * the time to the next hint, each one hideable in the tracker's CONFIG tab, and a new hint for 15 seconds. With a second
 + * screen they go to its strip ([latestNote]); only a phone without one gets the box in the game's top-right corner. The
-+ * TIME IS UP card comes once when the window closes before the goal.
++ * TIME IS UP card comes once when the window closes before the goal. While the window is open its chat is read every 5
++ * seconds into the tracker's CHAT tab ([Smz3RaceState], as a race's): the others' lines show bottom right for two seconds
++ * (a phone without a second screen), and someone's finish top left for four, with the rival's chime.
 + */
 +class Smz3DailyOverlay(private val activity: Activity, private val onLeave: () -> Unit) {
 +    companion object {
@@ -3857,7 +3898,19 @@ index 0000000..b49ffbf
 +        private const val BEAT_MS = 60_000L
 +        private const val PLAYERS_EVERY_MS = 10 * 60_000L
 +        private const val PLAYERS_FOR_MS = 8_000L
++        private const val CHAT_EVERY_MS = 5_000L
++        /** The chat read so far, kept while the activity is made again (a turn of the screen): its window and newest line. */
++        private var chatWindow = ""
++        private var chatSince = 0L
++        private var chatPrimed = false   // the first answer only sets where the chat stands: older lines are not news
 +    }
++    private var news: TextView? = null
++    private var say: TextView? = null
++    private var newsUntil = 0L
++    private var nextChat = 0L
++    private var polling = false
++    private var myName = ""
++    private val sent = ArrayList<String>()   // own lines on their way: the first one back tells this player's pid
 +    private var nextBeat = 0L
 +    private var nextPlayers = 0L
 +    private val main = Handler(Looper.getMainLooper())
@@ -3887,20 +3940,93 @@ index 0000000..b49ffbf
 +            setBackgroundColor(Color.argb(215, 8, 11, 17))
 +            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { setMargins(pad, pad, pad, pad * 3) })
 +        }
++        fun label(gravity: Int, bottom: Int) = TextView(activity).apply {
++            setTextColor(Color.rgb(0xE8, 0xEC, 0xF2)); textSize = 14f; setPadding(pad * 2, pad, pad * 2, pad); visibility = android.view.View.GONE
++            setBackgroundColor(Color.argb(215, 8, 11, 17))
++            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, gravity).apply { setMargins(pad, pad, pad, bottom) })
++        }
++        news = label(Gravity.TOP or Gravity.START, pad)
++        say = label(Gravity.BOTTOM or Gravity.END, pad * 12)
++        myName = OnlineLadder.profileFor(activity).first
++        val race = Smz3RaceState
++        if (chatWindow != attempt!!.window || !race.daily) { chatWindow = attempt!!.window; chatSince = 0; chatPrimed = false; race.lines.clear(); race.you = "" }
++        race.on = true; race.daily = true; race.players = JSONArray(); race.version++
++        race.dailySay = ::sendChat
 +        main.post(tick)
 +    }
 +
-+    fun stop() { main.removeCallbacks(tick) }
++    fun stop() {
++        main.removeCallbacks(tick)
++        if (attempt == null) return
++        Smz3RaceState.on = false; Smz3RaceState.dailySay = null; Smz3RaceState.version++
++    }
++
++    private fun showNews(text: String, chime: Boolean = true) {
++        news?.text = text; news?.visibility = android.view.View.VISIBLE
++        newsUntil = System.currentTimeMillis() + 4000
++        if (chime) Smz3Finish.cue(4)
++    }
++
++    /** Someone's chat line over the game: two seconds, then it fades. */
++    private fun showSay(text: String) {
++        val v = say ?: return
++        v.animate().cancel()
++        v.text = text; v.alpha = 1f; v.visibility = android.view.View.VISIBLE
++        v.animate().alpha(0f).setStartDelay(2000).setDuration(500).withEndAction { v.visibility = android.view.View.GONE }.start()
++    }
++
++    /** Sends a line of the CHAT tab; the next poll comes at once, so it shows there. */
++    private fun sendChat(text: String) {
++        val a = attempt ?: return
++        sent += text
++        if (sent.size > 8) sent.removeAt(0)
++        Thread {
++            val code = DailyChallenge.say(activity, a, text)
++            main.post {
++                nextChat = 0L
++                when (code) {
++                    200 -> {}
++                    409 -> showNews("The window has closed: the chat is over", false)
++                    429 -> showNews("Too fast: wait a moment", false)
++                    -1 -> showNews("No connection: not sent", false)
++                    else -> showNews("Not sent", false)
++                }
++            }
++        }.start()
++    }
++
++    private fun readChat(j: JSONObject) {
++        val race = Smz3RaceState
++        val log = j.optJSONArray("log") ?: return
++        for (i in 0 until log.length()) {
++            val l = log.getJSONObject(i)
++            val seq = l.optLong("seq")
++            if (seq <= chatSince) continue
++            chatSince = seq
++            val line = Smz3RaceState.Line(seq, l.optString("kind"), l.optString("pid"), l.optString("name"), l.optString("text"))
++            if (line.kind == "chat" && race.you.isEmpty() && line.name == myName && sent.remove(line.text)) race.you = line.pid
++            race.lines += line
++            if (race.lines.size > 40) race.lines.removeAt(0)
++            if (!chatPrimed) continue
++            val mine = race.you.isNotEmpty() && line.pid == race.you
++            when (line.kind) {
++                "chat" -> if (!mine && race.shown(line) && !Smz3Tracker.onSecondScreen) showSay("${line.name}: ${line.text}")   // two screens: the CHAT tab has it
++                "finish" -> if (!mine && !(line.name == myName && Smz3Tracker.currentGame == 3)) showNews("${line.name} ${line.text}")
++            }
++        }
++        chatPrimed = true
++        race.version++
++    }
 +
 +    private fun update() {
 +        val a = DailyChallenge.attempt(activity)?.also { attempt = it } ?: attempt ?: return   // the tracker sets the game's start in the file
 +        val now = System.currentTimeMillis()
 +        val finished = Smz3Tracker.currentGame == 3
 +        val left = a.closesAt - now
-+        val lines = ArrayList<Pair<String, Int>>()
++        val lines = ArrayList<Pair<CharSequence, Int>>()
 +        if (DailyChallenge.shown(activity, 0)) lines += (if (left > 0) "Window  ${DailyChallenge.span(left)}" else "Window closed") to (if (left < 15 * 60_000) Color.rgb(0xE0, 0x5A, 0x4F) else Color.WHITE)
 +        if (DailyChallenge.shown(activity, 1) && !finished) lines += "Time  ${DailyChallenge.clock(now - a.clockFrom)}" to Color.WHITE
-+        if (DailyChallenge.shown(activity, 2)) lines += a.goal to Color.rgb(0xF2, 0xA3, 0x3A)
++        if (DailyChallenge.shown(activity, 2)) lines += Smz3GoalIcon.withIcon(activity, a.goal, ((box?.textSize ?: 30f) * 1.2f).toInt()) to Color.rgb(0xF2, 0xA3, 0x3A)
 +        if (DailyChallenge.shown(activity, 3) && a.nextHintAt > 0 && !finished) lines += "Next hint in ${DailyChallenge.span(a.nextHintAt - now)}" to Color.rgb(0x87, 0x93, 0xA6)
 +        val below = Smz3Tracker.onSecondScreen
 +        box?.let { b ->
@@ -3915,6 +4041,17 @@ index 0000000..b49ffbf
 +            b.text = text
 +        }
 +        if (now >= noteUntil || below) note?.visibility = android.view.View.GONE
++        if (now >= newsUntil) news?.visibility = android.view.View.GONE
++        // the window's chat, which also counts this device as playing and keeps the RUN tab's player counts fresh
++        if (!polling && left > 0 && now >= nextChat) {
++            polling = true
++            nextChat = now + CHAT_EVERY_MS
++            val since = chatSince
++            Thread {
++                val j = DailyChallenge.chat(a, since)
++                main.post { polling = false; if (j != null) readChat(j) }
++            }.start()
++        }
 +        // every 10 minutes, for a few seconds: how many are on this window now (only when there is someone else)
 +        val p = DailyChallenge.players
 +        if (p != null && p[0] >= 2 && left > 0 && !finished && now >= nextPlayers) {
@@ -6626,10 +6763,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..9e40339
+index 0000000..bdd03e7
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,145 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6770,6 +6907,10 @@ index 0000000..9e40339
 +    @JvmStatic external fun raceGoalText(settings: String): String
 +    /** The run's kills or rupees goal, 0 to 99 done; -1 for the other goals. */
 +    @JvmStatic external fun raceGoalProgress(): Int
++    /** A goal that defeats one boss ("Defeat Arrghus"): {name, goal icon ("" when none), place}; null for the other goals. */
++    @JvmStatic external fun goalBoss(text: String): Array<String>?
++    /** The daily chat's quick lines, emotes among them. */
++    @JvmStatic external fun dailyPhrases(): Array<String>
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt
 new file mode 100644
@@ -6851,10 +6992,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..359a67e
+index 0000000..b4ad706
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1124 @@
+@@ -0,0 +1,1133 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -6978,7 +7119,7 @@ index 0000000..359a67e
 +        addView(portal, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        addView(visor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        addView(finishPanel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-+        tabs[CHAT_TAB].visibility = View.GONE   // only in an online race
++        tabs[CHAT_TAB].visibility = View.GONE   // only in an online race or the daily challenge
 +        select(0)
 +        applyTheme(theme)
 +        if (!intro) return
@@ -7526,20 +7667,20 @@ index 0000000..359a67e
 +    private lateinit var chatInput: android.widget.EditText
 +    private lateinit var chatToggle: Button
 +    private lateinit var muteRow: LinearLayout
++    private lateinit var phraseBox: LinearLayout
++    private var phrasesShown: List<String>? = null
 +    private var raceVersion = -1
 +    private var mutePlayers = ""
 +
-+    /** The race's chat: the last lines, a line to type with the system keyboard, quick phrases, and mute per player. */
++    /** The race's chat, or the daily window's: the last lines, a line to type with the system keyboard, quick phrases (a
++     * daily's are its emotes), and mute per player. */
 +    private fun buildChatPage(): View {
 +        val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(4), dp(12), dp(4)) }
 +        chatLines = label(13f).apply { setLineSpacing(0f, 1.1f) }
 +        chatScroll = ScrollView(context).apply { isScrollbarFadingEnabled = false; addView(chatLines) }
 +        column.addView(chatScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-+        for (row in Smz3RaceState.phrases.chunked(4)) {
-+            val line = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-+            for (p in row) line.addView(overlayButton(p) { Smz3RaceState.say(p) }.apply { isAllCaps = false; textSize = 12f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-+            column.addView(line)
-+        }
++        phraseBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
++        column.addView(phraseBox)
 +        chatInput = android.widget.EditText(context).apply {
 +            hint = "Say something"
 +            isSingleLine = true
@@ -7567,29 +7708,38 @@ index 0000000..359a67e
 +        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(chatInput.windowToken, 0)
 +    }
 +
-+    /** The CHAT tab and the RUN standings, while an online race is on; redrawn only when the race changed. */
++    /** The CHAT tab and the RUN standings, while an online race (or the daily challenge, chat only) is on; redrawn only when
++     * it changed. */
 +    private fun renderRace() {
 +        val race = Smz3RaceState
 +        if (tabs[CHAT_TAB].visibility != (if (race.on) View.VISIBLE else View.GONE)) {
 +            tabs[CHAT_TAB].visibility = if (race.on) View.VISIBLE else View.GONE
 +            if (!race.on && selectedTab == CHAT_TAB) select(0)
 +        }
-+        standings.visibility = if (race.on && Smz3Tracker.onSecondScreen) View.VISIBLE else View.GONE
++        standings.visibility = if (race.on && !race.daily && Smz3Tracker.onSecondScreen) View.VISIBLE else View.GONE
 +        if (!race.on || race.version == raceVersion) return
 +        raceVersion = race.version
-+        standings.text = race.standings()
++        if (race.phrases != phrasesShown) {
++            phrasesShown = race.phrases
++            phraseBox.removeAllViews()
++            for (row in race.phrases.chunked(4)) {
++                val line = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
++                for (p in row) line.addView(overlayButton(p) { Smz3RaceState.say(p) }.apply { isAllCaps = false; textSize = 12f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
++                phraseBox.addView(line)
++            }
++        }
++        if (!race.daily) standings.text = race.standings()
 +        val shown = race.lines.filter { race.shown(it) }.takeLast(30)
-+        chatLines.text = if (race.chatOff) "Chat is off" else shown.joinToString("\n") { if (it.kind == "chat") "${it.name}: ${it.text}" else if (it.kind == "event") "\u2022 ${it.name} ${it.text}" else "\u2022 ${it.text}" }
++        chatLines.text = if (race.chatOff) "Chat is off" else if (shown.isEmpty() && race.daily) "No one has said anything in this window yet" else shown.joinToString("\n") { race.text(it) }
 +        chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
 +        chatToggle.text = if (race.chatOff) "CHAT ON" else "CHAT OFF"
-+        val rivals = (0 until race.players.length()).map { race.players.getJSONObject(it) }.filter { it.optString("pid") != race.you }
-+        val key = rivals.joinToString { it.optString("pid") + it.optString("name") } + race.muted.joinToString()
++        val others = race.others()
++        val key = others.joinToString { it.first + it.second } + race.muted.joinToString()
 +        if (key == mutePlayers) return
 +        mutePlayers = key
 +        muteRow.removeAllViews()
-+        for (p in rivals) {
-+            val pid = p.optString("pid")
-+            muteRow.addView(overlayButton((if (pid in race.muted) "UNMUTE " else "MUTE ") + p.optString("name")) { race.toggleMute(pid) }.apply { isAllCaps = false; textSize = 12f })
++        for ((pid, name) in others) {
++            muteRow.addView(overlayButton((if (pid in race.muted) "UNMUTE " else "MUTE ") + name) { race.toggleMute(pid) }.apply { isAllCaps = false; textSize = 12f })
 +        }
 +    }
 +
@@ -7703,7 +7853,7 @@ index 0000000..359a67e
 +        val left = a.closesAt - now
 +        // the strip over the tabs, on every tab: what used to sit over the game
 +        val strip = android.text.SpannableStringBuilder()
-+        fun part(t: String, c: Int) {
++        fun part(t: CharSequence, c: Int) {
 +            if (strip.isNotEmpty() && strip.last() != '\n') strip.append("    ")
 +            val from = strip.length
 +            strip.append(t)
@@ -7711,7 +7861,7 @@ index 0000000..359a67e
 +        }
 +        if (daily.shown(context, 0)) part(if (left > 0) "Closes in ${daily.span(left)}" else "Window closed", if (left < 15 * 60_000) Color.rgb(0xE0, 0x5A, 0x4F) else Color.WHITE)
 +        if (daily.shown(context, 1) && !finishedRun) part(daily.clock(now - a.clockFrom), Color.WHITE)
-+        if (daily.shown(context, 2)) part(a.goal, Color.rgb(0xF2, 0xA3, 0x3A))
++        if (daily.shown(context, 2)) part(Smz3GoalIcon.withIcon(context, a.goal, (dailyStrip.textSize * 1.2f).toInt()), Color.rgb(0xF2, 0xA3, 0x3A))
 +        if (daily.shown(context, 3) && a.nextHintAt > 0 && !finishedRun) part("Next hint in ${daily.span(a.nextHintAt - now)}", Color.rgb(0x87, 0x93, 0xA6))
 +        Smz3DailyOverlay.latestNote?.takeIf { it.second > now && daily.shown(context, 2) }?.let { (t, _) -> strip.append("\n"); part("Hint: $t", Color.rgb(0xF2, 0xA3, 0x3A)) }
 +        Smz3DailyOverlay.playersNote?.takeIf { it.second > now && !finishedRun }?.let { (t, _) -> strip.append("\n"); part("\u25CF $t", Color.rgb(0x4C, 0xC3, 0x8A)) }
@@ -11904,10 +12054,10 @@ index 0000000..2307c70
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..42ce1d6
+index 0000000..11e7361
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,518 @@
+@@ -0,0 +1,537 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -11934,11 +12084,15 @@ index 0000000..42ce1d6
 +import java.util.Date
 +import java.util.Locale
 +
-+/** What the tracker's CHAT tab and RUN standings show of the race being played (main thread only). */
++/** What the tracker's CHAT tab and RUN standings show of the race being played, or the CHAT tab of the daily challenge's
++ * window ([daily]: no standings, its own quick lines, sent by [dailySay]) (main thread only). */
 +object Smz3RaceState {
 +    class Line(val seq: Long, val kind: String, val pid: String, val name: String, val text: String)
 +
 +    var on = false
++    var daily = false
++    /** Sends a daily chat line (set by the daily overlay); a race's lines go out with its polls. */
++    var dailySay: ((String) -> Unit)? = null
 +    var you = ""
 +    var players = JSONArray()
 +    val lines = ArrayList<Line>()
@@ -11947,15 +12101,29 @@ index 0000000..42ce1d6
 +    /** Bumped on every change, so the views redraw only then. */
 +    var version = 0
 +
-+    val phrases = listOf("Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow")
++    private val racePhrases = listOf("Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow")
++    private val dailyPhrases by lazy { runCatching { Smz3Native.dailyPhrases().toList() }.getOrDefault(listOf("GL HF!", "GG", ":)", ":D", ":(", "<3", "o7", "!!")) }
++    val phrases get() = if (daily) dailyPhrases else racePhrases
 +
 +    fun shown(l: Line) = l.kind != "chat" || (!chatOff && l.pid !in muted)
 +
 +    fun say(text: String) {
 +        val t = text.trim().filter { it.code in 0x20..0x7E }.take(80)
 +        if (t.isEmpty() || chatOff) return
-+        RaceClient.chat(t)
++        if (daily) dailySay?.invoke(t) else RaceClient.chat(t)
 +        Smz3Finish.cue(6)
++    }
++
++    /** Who can be muted (pid to name): the race's rivals, or whoever has spoken in the daily's chat. */
++    fun others(): List<Pair<String, String>> =
++        if (daily) lines.filter { it.kind == "chat" && it.pid != you }.map { it.pid to it.name }.distinctBy { it.first }
++        else (0 until players.length()).map { players.getJSONObject(it) }.filter { it.optString("pid") != you }.map { it.optString("pid") to it.optString("name") }
++
++    /** A line as the CHAT tab writes it. */
++    fun text(l: Line) = when {
++        l.kind == "chat" -> "${l.name}: ${l.text}"
++        l.kind == "event" || (daily && l.kind == "finish") -> "\u2022 ${l.name} ${l.text}"
++        else -> "\u2022 ${l.text}"
 +    }
 +
 +    fun toggleMute(pid: String) { if (!muted.remove(pid)) muted += pid; version++ }
@@ -12052,6 +12220,7 @@ index 0000000..42ce1d6
 +        if (!RaceClient.joined()) return
 +        on = true
 +        Smz3RaceState.on = true
++        Smz3RaceState.daily = false
 +        Smz3RaceState.lines.clear()
 +        RaceClient.slow = true
 +        val paused = RaceClient.paused(activity)
@@ -12424,5 +12593,60 @@ index 0000000..42ce1d6
 +        RaceClient.send("ladder", null, true)
 +        Smz3Finish.cue(6)
 +        showCard(true)
++    }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalIcon.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalIcon.kt
+new file mode 100644
+index 0000000..b5cf381
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalIcon.kt
+@@ -0,0 +1,49 @@
++package com.swordfish.lemuroid.app.shared.game.viewmodel
++
++import android.content.Context
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import android.graphics.drawable.BitmapDrawable
++import android.text.SpannableString
++import android.text.Spanned
++import android.text.style.ImageSpan
++import java.io.File
++
++/**
++ * A boss goal ("Defeat Arrghus") as the game shows it: the boss's name, its goal icon and where it waits. The icon is the
++ * app's own (assets smz3/goals/<sprite>.png) or else the one cut from the player's ROM (goals/<sprite>.pv: u8 width, u8
++ * height, RGBA), as the menu loads its "goal/" previews; decoded once and kept.
++ */
++internal object Smz3GoalIcon {
++    class Boss(val name: String, val sprite: String, val place: String)
++
++    private val bosses = HashMap<String, Boss?>()
++    private val icons = HashMap<String, Bitmap?>()
++
++    /** The boss [goal] defeats, null for the other goals. */
++    fun boss(goal: String): Boss? = synchronized(bosses) {
++        bosses.getOrPut(goal) { runCatching { Smz3Native.goalBoss(goal) }.getOrNull()?.let { Boss(it[0], it[1], it[2]) } }
++    }
++
++    fun icon(context: Context, sprite: String): Bitmap? = if (sprite.isEmpty()) null else synchronized(icons) { icons.getOrPut(sprite) { load(context, sprite) } }
++
++    private fun load(context: Context, sprite: String): Bitmap? {
++        runCatching { context.assets.open("smz3/goals/$sprite.png").use { BitmapFactory.decodeStream(it) } }.getOrNull()?.let { return cropToArt(it) }
++        return runCatching {
++            val b = File(File(context.filesDir, "goals"), "$sprite.pv").readBytes()
++            val w = b[0].toInt() and 255; val h = b[1].toInt() and 255
++            val px = IntArray(w * h) { i ->
++                val o = 2 + i * 4
++                ((b[o + 3].toInt() and 255) shl 24) or ((b[o].toInt() and 255) shl 16) or ((b[o + 1].toInt() and 255) shl 8) or (b[o + 2].toInt() and 255)
++            }
++            cropToArt(Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888))
++        }.getOrNull()
++    }
++
++    /** [goal] with its boss's icon after it, [height] px tall, for a TextView; the plain text for other goals. */
++    fun withIcon(context: Context, goal: String, height: Int): CharSequence {
++        val bmp = boss(goal)?.let { icon(context, it.sprite) } ?: return goal
++        val d = BitmapDrawable(context.resources, bmp).apply { setBounds(0, 0, maxOf(1, bmp.width * height / bmp.height), height); paint.isFilterBitmap = false }
++        return SpannableString("$goal  ").apply { setSpan(ImageSpan(d, ImageSpan.ALIGN_BOTTOM), length - 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
 +    }
 +}

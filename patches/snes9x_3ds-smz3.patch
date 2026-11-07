@@ -678,10 +678,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..b062d5d
+index 0000000..c129a88
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,875 @@
+@@ -0,0 +1,959 @@
 +#include "smz3online.h"
 +#include "smz3run.h"
 +
@@ -1357,6 +1357,90 @@ index 0000000..b062d5d
 +    if (gHttpReady) spawn(flushThread, NULL);
 +}
 +
++// ---- the daily's chat: one thread at a time sends the lines said, then asks for the lines after since
++
++static char gDcToken[320], gDcSays[3][84], *gDcReply;
++static int64_t gDcSince;
++static int gDcNs, gDcState, gDcRefused;   // state 0 idle, 1 asking, 2 an answer waits; refused: the last line's 409 or 429
++
++static void dailyChatThread(void *)
++{
++    static SmzDailyRun r;
++    static char path[400], body[768], reply[256], says[3][84];
++    char name[32], country[4];
++    LightLock_Lock(&gLock);
++    snprintf(r.token, sizeof r.token, "%s", gDcToken);
++    int ns = gDcNs;
++    memcpy(says, gDcSays, sizeof says);
++    gDcNs = 0;
++    snprintf(path, sizeof path, "/api/daily/chat?token=%s&since=%lld", gDcToken, (long long)gDcSince);
++    LightLock_Unlock(&gLock);
++    playerOf(name, country);
++    for (int i = 0; i < ns; i++) {
++        if (smz_daily_chat_body(&r, name, country, says[i], body, sizeof body)) continue;
++        int code = httpRequest("POST", "/api/daily/chat", body, reply, sizeof reply);
++        if (code == 409 || code == 429) { LightLock_Lock(&gLock); gDcRefused = code; LightLock_Unlock(&gLock); }
++    }
++    bool ok = gDcReply && httpRequest("GET", path, NULL, gDcReply, 24576) == 200;
++    LightLock_Lock(&gLock);
++    gDcState = ok ? 2 : 0;
++    LightLock_Unlock(&gLock);
++}
++
++// Starts the thread unless it runs or an answer waits (the caller holds gLock).
++static bool dailyChatKick()
++{
++    if (gDcState || !gDcToken[0]) return false;
++    if (!gDcReply && !(gDcReply = (char *)malloc(24576))) return false;
++    gDcState = 1;
++    return true;
++}
++
++void smzDailyChatPoll(const char *token, int64_t since)
++{
++    lockInit();
++    netUp();
++    if (!gHttpReady) return;
++    LightLock_Lock(&gLock);
++    snprintf(gDcToken, sizeof gDcToken, "%s", token);
++    gDcSince = since;
++    bool go = dailyChatKick();
++    LightLock_Unlock(&gLock);
++    if (go) spawn(dailyChatThread, NULL);
++}
++
++void smzDailyChatSay(const char *text)
++{
++    lockInit();
++    netUp();
++    if (!gHttpReady) return;
++    LightLock_Lock(&gLock);
++    if (gDcNs < 3) snprintf(gDcSays[gDcNs++], sizeof gDcSays[0], "%s", text);
++    bool go = dailyChatKick();
++    LightLock_Unlock(&gLock);
++    if (go) spawn(dailyChatThread, NULL);
++}
++
++bool smzDailyChatTake(char *out, size_t cap)
++{
++    lockInit();
++    LightLock_Lock(&gLock);
++    bool ok = gDcState == 2;
++    if (ok) { snprintf(out, cap, "%s", gDcReply); gDcState = 0; }
++    LightLock_Unlock(&gLock);
++    return ok;
++}
++
++int smzDailyChatRefused(void)
++{
++    lockInit();
++    LightLock_Lock(&gLock);
++    int r = gDcRefused;
++    gDcRefused = 0;
++    LightLock_Unlock(&gLock);
++    return r;
++}
++
 +// ---- online races
 +
 +#define RACE_QN 8
@@ -1559,10 +1643,10 @@ index 0000000..b062d5d
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..1204d65
+index 0000000..43fd676
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,104 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -1628,6 +1712,14 @@ index 0000000..1204d65
 +void smzDailyQueueFinish(int64_t timeMs);
 +bool smzDailyResult(char *out, size_t cap);
 +
++// The window's chat (GET and POST /api/daily/chat) on a thread. Poll asks for the lines after since (the asking also counts the
++// player as playing now); Say queues a line, sent with the next ask, which starts at once when none runs. Take copies the answer
++// once it came; Refused returns once the status of a line the server turned down (409 window closed, 429 too fast), else 0.
++void smzDailyChatPoll(const char *token, int64_t since);
++void smzDailyChatSay(const char *text);
++bool smzDailyChatTake(char *out, size_t cap);
++int smzDailyChatRefused(void);
++
 +// ---- online races (server/ladder/race.js): one thread sends the requests in order and polls the room the player is in,
 +// every second in the rooms and every two in the race; the menu and the game take the answers. Nothing blocks the caller.
 +
@@ -1661,10 +1753,10 @@ index 0000000..1204d65
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..50c1474
+index 0000000..573a0bd
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5452 @@
+@@ -0,0 +1,5555 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3234,6 +3326,10 @@ index 0000000..50c1474
 +static SmzDailyRun dr;   // the daily challenge's attempt when the daily slot is played
 +static bool daily = false;
 +static int64_t dailyDoneMs = 0, newHintUntil = 0, playersNoteUntil = 0;   // the strip shows a new hint, or who else is on the daily, for a while
++// The window's chat while the daily is played, shown with the race's CHAT tab (rg keeps the typing, the mutes and chat off).
++static SmzDailyChat dchat;
++static int64_t dchatShown;   // the newest line told; -1 until the first answer, whose older lines are told nowhere
++static char dchatMine[12], dchatSent[84];   // this player's id in the chat, learned from the line it sent last
 +static char runName[64];
 +static bool finishedBefore = false;   // the run had ended when it was loaded
 +static bool goalsRun;   // a monthly or weekly run: the RUN tab shows its goals instead of the completion bars
@@ -3310,7 +3406,7 @@ index 0000000..50c1474
 +static bool tabShown(int t)
 +{
 +    if (t == TAB_HELP) return daily || help.mode != 2;
-+    if (t == TAB_CHAT) return rg.on;   // an online race's
++    if (t == TAB_CHAT) return rg.on || daily;   // an online race's, or the daily window's
 +    return true;
 +}
 +
@@ -3370,7 +3466,8 @@ index 0000000..50c1474
 +            textFit(x, 1, 316 - x, 0x8793A6, line);
 +        }
 +    }
-+    if (now < newHintUntil && dr.n_hints > 0) {
++    if (rg.sayAt && osGetTime() - rg.sayAt < 6000 && tab != TAB_CHAT) textFit(6, 15, 308, 0xE8ECF2, rg.say);   // a new chat line, as in a race
++    else if (now < newHintUntil && dr.n_hints > 0) {
 +        snprintf(line, sizeof line, "Hint: %s", dr.hint[dr.n_hints - 1]);
 +        textFit(6, 15, 308, 0xF2A33A, line);
 +    } else if (now < playersNoteUntil && dr.players_known) {
@@ -4458,20 +4555,46 @@ index 0000000..50c1474
 +    fill(x + 4, y + 2, x + 6, y + 4, 0xE9A23B);
 +}
 +
++// A menu picture ("goal/boss_arrghus") fitted in a size x size box, keeping its aspect; nothing when it is missing.
++static void drawPicture(const char *key, int x, int y, int size)
++{
++    const Preview *p = getPreview(key);
++    if (!p) return;
++    int dw = size, dh = size;
++    if (p->w > p->h) dh = p->h * size / p->w; else dw = p->w * size / p->h;
++    if (dw < 1) dw = 1;
++    if (dh < 1) dh = 1;
++    x += (size - dw) / 2; y += (size - dh) / 2;
++    for (int dy = 0; dy < dh; dy++)
++        for (int dx = 0; dx < dw; dx++) {
++            const unsigned char *px = p->rgba + ((dy * p->h / dh) * p->w + dx * p->w / dw) * 4;
++            if (px[3] > 16) fillAlpha(x + dx, y + dy, x + dx + 1, y + dy + 1, px[0] << 16 | px[1] << 8 | px[2], px[3]);
++        }
++}
++
 +// The daily challenge in place of the completion bars (the Thor's Smz3DailyBlock): the goal in its box with a bar of who is
 +// on it (green playing now, gold finished, out of everyone who started), the counts and the next hint, then the window.
++// A boss goal has the boss's icon after its name and where it waits under it.
 +static int drawDailyBlock(int x, int y, int cw)
 +{
-+    char s[96], a[24];
++    char s[96], a[24], where[64] = "";
 +    int64_t now = smzDailyNowMs(), left = dr.closes_at - now;
 +    bool done = trk.game == 3 || finishedBefore;
-+    int lines = textWrap(x + 18, y + 3, cw - 22, theme.text, dr.goal, 3, false) - (y + 3);
++    const char *icon = "", *place = "";
++    bool boss = smz_goal_boss(dr.goal, NULL, &icon, &place);
++    if (boss) snprintf(where, sizeof where, "in %s", place);
++    int gl = textWrap(x + 18, y + 3, cw - 22, theme.text, dr.goal, 3, false) - (y + 3);
++    int lines = gl + (boss ? textWrap(x + 18, 0, cw - 22, theme.dim, where, 2, false) : 0);
 +    int h = lines + 11;
 +    fill(x, y, x + cw, y + h, 0x141B27);
 +    fill(x, y, x + 2, y + h, theme.accent);
 +    if (done) fill(x + 6, y + 5, x + 14, y + 13, 0x4CC38A);
 +    else { fill(x + 6, y + 5, x + 14, y + 13, theme.dim); fill(x + 7, y + 6, x + 13, y + 12, 0x141B27); }
 +    textWrap(x + 18, y + 3, cw - 22, theme.text, dr.goal, 3);
++    if (boss) {
++        if (icon[0] && gl == 14 && textW(dr.goal) + 17 <= cw - 22) { snprintf(s, sizeof s, "goal/%s", icon); drawPicture(s, x + 21 + textW(dr.goal), y + 3, 14); }
++        textWrap(x + 18, y + 3 + gl, cw - 22, theme.dim, where, 2);
++    }
 +    int bx = x + 6, bw = cw - 12, by = y + h - 5;
 +    fill(bx, by, bx + bw, by + 3, 0x25324A);
 +    if (dr.players_known && dr.players_started > 0) {
@@ -5129,6 +5252,8 @@ index 0000000..50c1474
 +static const char *const PHRASES[] = {"Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow"};
 +#define N_PHRASES ((int)(sizeof PHRASES / sizeof PHRASES[0]))
 +
++static_assert(N_PHRASES == SMZ_DAILY_PHRASES, "the chat tab draws the race's and the daily's phrases in the same buttons");
++
 +static int64_t raceNow() { return smzDailyNowMs() + rg.room.offset; }   // the server's clock
 +static int64_t raceGoIn() { return rg.room.go_at ? rg.room.go_at - raceNow() : 0; }
 +static bool raceWaiting() { return rg.on && raceGoIn() > 0; }   // no input until the start; the game's intro plays meanwhile
@@ -5185,10 +5310,13 @@ index 0000000..50c1474
 +    if (rg.nMuted < RACE_MAX) { char id[sizeof rg.muted[0]]; snprintf(id, sizeof id, "%s", pid); memcpy(rg.muted[rg.nMuted++], id, sizeof id); }   // pid can be the room's, inside rg
 +}
 +
++static bool chatClosed() { return !rg.on && smzDailyNowMs() >= dr.closes_at; }   // the daily's window is over: its chat takes no lines
++
 +static void raceSay(const char *text)
 +{
-+    if (!text[0] || rg.chatOff) return;
-+    smzRaceChat(text);
++    if (!text[0] || rg.chatOff || chatClosed()) return;
++    if (rg.on) smzRaceChat(text);
++    else { smzDailyChatSay(text); snprintf(dchatSent, sizeof dchatSent, "%s", text); }
 +    uiCueSound(UI_CUE_CONFIRM);
 +}
 +
@@ -5455,6 +5583,33 @@ index 0000000..50c1474
 +static ChatHit chatHits[80];
 +static int nChatHits;
 +static const char *const KB_ROWS[4] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"};
++static char chatWho[RACE_MAX][12];   // the mute buttons' players, as drawn
++
++// The chat's lines: the race's, or the daily window's.
++static const SmzRaceLine *chatLines(int *n)
++{
++    if (rg.on) { *n = rg.room.lines; return rg.room.line; }
++    *n = dchat.lines;
++    return dchat.line;
++}
++
++// Who the mute buttons offer: a race's rivals, or who wrote in the daily's chat (the newest first). Returns how many.
++static int chatPeople(char pid[][12], char name[][25])
++{
++    int n = 0;
++    if (rg.on) {
++        for (int i = 0; i < rg.room.n && n < RACE_MAX; i++)
++            if (strcmp(rg.room.p[i].pid, rg.room.you)) { snprintf(pid[n], 12, "%s", rg.room.p[i].pid); snprintf(name[n++], 25, "%s", rg.room.p[i].name); }
++        return n;
++    }
++    for (int i = dchat.lines - 1; i >= 0 && n < RACE_MAX; i--) {
++        const SmzRaceLine *l = &dchat.line[i];
++        bool seen = l->kind != RACE_LINE_CHAT || !l->pid[0] || !strcmp(l->pid, dchatMine);
++        for (int k = 0; k < n && !seen; k++) seen = !strcmp(pid[k], l->pid);
++        if (!seen) { snprintf(pid[n], 12, "%s", l->pid); snprintf(name[n++], 25, "%s", l->name); }
++    }
++    return n;
++}
 +
 +static void chatButton(int x0, int y0, int x1, int y1, int bg, int ink, const char *label, int id, int arg)
 +{
@@ -5465,7 +5620,6 @@ index 0000000..50c1474
 +
 +static void drawChat(int y0, int y1)
 +{
-+    const SmzRace *r = &rg.room;
 +    nChatHits = 0;
 +    if (rg.kb) {   // the keyboard: the line, four rows of keys, then shift, space, delete, send and close
 +        char line[96];
@@ -5488,37 +5642,39 @@ index 0000000..50c1474
 +        return;
 +    }
 +    int py = y1 - 2 * 20 - 22;   // the phrases at the bottom, two rows of four, and a row of controls above them
-+    for (int i = 0; i < N_PHRASES; i++) {
++    bool mute = rg.chatOff || chatClosed();
++    for (int i = 0; i < N_PHRASES; i++) {   // the daily has its own, emotes among them
 +        int x = 4 + (i % 4) * 78, y = py + 22 + (i / 4) * 20;
-+        chatButton(x, y, x + 76, y + 18, rg.chatOff ? theme.panel : theme.tab, rg.chatOff ? theme.dim : theme.text, PHRASES[i], CH_PHRASE, i);
++        chatButton(x, y, x + 76, y + 18, mute ? theme.panel : theme.tab, mute ? theme.dim : theme.text, rg.on ? PHRASES[i] : SMZ_DAILY_PHRASE[i], CH_PHRASE, i);
 +    }
 +    int x = 4;
 +    chatButton(x, py, x + 62, py + 18, theme.tab, theme.text, "Keyboard", CH_KB, 0);
 +    x += 66;
 +    chatButton(x, py, x + 54, py + 18, rg.chatOff ? theme.accent : theme.tab, rg.chatOff ? 0x10161F : theme.text, rg.chatOff ? "Chat off" : "Chat on", CH_OFF, 0);
 +    x += 58;
-+    for (int i = 0; i < r->n && x < 300; i++) {   // the rivals: a tap mutes or unmutes
-+        const SmzRacePlayer *p = &r->p[i];
-+        if (!strcmp(p->pid, r->you)) continue;
++    char names[RACE_MAX][25];
++    int people = chatPeople(chatWho, names);
++    for (int i = 0; i < people && x < 300; i++) {   // the rivals (in the daily, who wrote): a tap mutes or unmutes
 +        char s[40];
-+        snprintf(s, sizeof s, "%s%s", raceMuted(p->pid) ? "x " : "", p->name);
++        snprintf(s, sizeof s, "%s%.24s", raceMuted(chatWho[i]) ? "x " : "", names[i]);
 +        int w = textW(s) + 8;
 +        if (w > 316 - x) w = 316 - x;
-+        chatButton(x, py, x + w, py + 18, theme.panel, raceMuted(p->pid) ? theme.dim : theme.text, s, CH_MUTE, i);
++        chatButton(x, py, x + w, py + 18, theme.panel, raceMuted(chatWho[i]) ? theme.dim : theme.text, s, CH_MUTE, i);
 +        x += w + 4;
 +    }
-+    int y = py - 4;   // the lines, newest at the bottom, up to the tabs
-+    for (int i = r->lines - 1; i >= 0 && y - 13 >= y0; i--) {
-+        const SmzRaceLine *l = &r->line[i];
++    int y = py - 4, nl;   // the lines, newest at the bottom, up to the tabs
++    const SmzRaceLine *lines = chatLines(&nl);
++    for (int i = nl - 1; i >= 0 && y - 13 >= y0; i--) {
++        const SmzRaceLine *l = &lines[i];
 +        if (l->kind == RACE_LINE_CHAT && (rg.chatOff || raceMuted(l->pid))) continue;
 +        char s[128];
 +        if (l->kind == RACE_LINE_CHAT) snprintf(s, sizeof s, "%s: %s", l->name, l->text);
-+        else if (l->kind == RACE_LINE_EVENT) snprintf(s, sizeof s, "%s %s", l->name, l->text);
++        else if (l->kind == RACE_LINE_EVENT || !rg.on) snprintf(s, sizeof s, "%s %s", l->name, l->text);   // the daily's finishes too
 +        else snprintf(s, sizeof s, "%s", l->text);
 +        y -= 13;
 +        textFit(6, y, 308, l->kind == RACE_LINE_CHAT ? theme.text : theme.dim, s);
 +    }
-+    if (y == py - 4) text(6, y0 + 6, theme.dim, rg.chatOff ? "Chat is off" : "No messages yet");
++    if (y == py - 4) text(6, y0 + 6, theme.dim, rg.chatOff ? "Chat is off" : chatClosed() ? "The window is closed" : "No messages yet");
 +}
 +
 +static void chatTap(int x, int y)
@@ -5528,10 +5684,10 @@ index 0000000..50c1474
 +        if (x < h.x0 || x >= h.x1 || y < h.y0 || y >= h.y1) continue;
 +        size_t n = strlen(rg.typed);
 +        switch (h.id) {
-+        case CH_PHRASE: raceSay(PHRASES[h.arg]); break;
++        case CH_PHRASE: raceSay(rg.on ? PHRASES[h.arg] : SMZ_DAILY_PHRASE[h.arg]); break;
 +        case CH_KB: rg.kb = true; break;
 +        case CH_OFF: rg.chatOff = !rg.chatOff; break;
-+        case CH_MUTE: if (h.arg < rg.room.n) raceMute(rg.room.p[h.arg].pid); break;
++        case CH_MUTE: if (h.arg < RACE_MAX && chatWho[h.arg][0]) raceMute(chatWho[h.arg]); break;
 +        case CH_KEY: if (n + 1 < sizeof rg.typed - 4) { rg.typed[n] = (char)h.arg; rg.typed[n + 1] = 0; } break;
 +        case CH_SHIFT: rg.kbUpper = !rg.kbUpper; break;
 +        case CH_SPACE: if (n && n + 1 < sizeof rg.typed - 4) { rg.typed[n] = ' '; rg.typed[n + 1] = 0; } break;
@@ -5643,7 +5799,7 @@ index 0000000..50c1474
 +// What the game screen's layer shows in a race, as a number that changes with it (0: nothing). Plays the countdown's sounds.
 +static int raceLayerSig()
 +{
-+    if (!rg.on) return 0;
++    if (!rg.on) return daily && osGetTime() < rg.newsUntil ? (int)((unsigned)(rg.newsSeq % 1000 + 1) * 31 | 1) : 0;   // the daily: only the news
 +    int64_t go = raceGoIn();
 +    int count = go > 0 ? (int)((go + 999) / 1000) : go > -1000 && rg.room.state == RACE_RUNNING ? 0 : -1;
 +    if (count != rg.lastCount) {
@@ -5663,11 +5819,25 @@ index 0000000..50c1474
 +    return (int)(h | 1);
 +}
 +
++// The news in the top right corner of the game: a rival's (or in the daily, a player's finish) for a few seconds.
++static void drawNews()
++{
++    if (osGetTime() >= rg.newsUntil) return;
++    char cut[96];
++    ui3dsEllipsize(rg.news, cut, sizeof cut, cvW * 6 / 10);
++    int w = ui3dsGetStringWidth(cut);
++    cvRect(cvW - w - 22, 6, cvW - 6, 26, 0x080B11, 215);
++    cvRect(cvW - w - 22, 6, cvW - w - 20, 26, 0x4FC3F7, 255);
++    cvText(cvW - 12, 9, 13, 0xE8ECF2, 255, cut, 2);
++}
++
 +// The game screen's layer in a race: the countdown, the rivals' news in the top right corner, the pause boxes, the card.
++// In the daily, only the news.
 +static void raceRender()
 +{
 +    cvW = settings3DS.GameScreenWidth < CV_W ? settings3DS.GameScreenWidth : CV_W;
 +    memset(cv, 0, sizeof cv);
++    if (!rg.on) { drawNews(); return; }
 +    float mx = cvW / 2.0f;
 +    if (rg.card) {
 +        const SmzRacePlayer *me = smz_race_me(&rg.room);
@@ -5740,14 +5910,7 @@ index 0000000..50c1474
 +        cvRect(mx - w / 2 - 14, 156, mx + w / 2 + 14, 184, 0x080B11, 225);
 +        cvText(mx, 162, 15, 0xE8ECF2, 255, m, 1);
 +    }
-+    if (osGetTime() < rg.newsUntil) {   // top right of the game
-+        char cut[96];
-+        ui3dsEllipsize(rg.news, cut, sizeof cut, cvW * 6 / 10);
-+        int w = ui3dsGetStringWidth(cut);
-+        cvRect(cvW - w - 22, 6, cvW - 6, 26, 0x080B11, 215);
-+        cvRect(cvW - w - 22, 6, cvW - w - 20, 26, 0x4FC3F7, 255);
-+        cvText(cvW - 12, 9, 13, 0xE8ECF2, 255, cut, 2);
-+    }
++    drawNews();
 +}
 +
 +static bool cardTexReady, cardTexFailed;
@@ -6183,6 +6346,33 @@ index 0000000..50c1474
 +static u64 turboWallMs;   // wall time spent in fast forward since the last reading, and the SNES time it emulated
 +static double turboEmuMs;
 +
++// The daily chat's answer, once it came: the players on the window, new lines in the strip (chat) or over the game (a finish),
++// as a race tells its own; this player's lines are not told back.
++static void dailyChatTake()
++{
++    static char ans[24576];
++    if (!smzDailyChatTake(ans, sizeof ans) || smz_daily_parse_chat(ans, &dchat, &dr)) {
++        int why = smzDailyChatRefused();
++        if (why) { snprintf(rg.say, sizeof rg.say, "%s", why == 409 ? "The window is closed: the chat is over" : "Too many lines: wait a little"); rg.sayAt = osGetTime(); dirty = true; }
++        return;
++    }
++    char me[96] = "";
++    smzOnlineProfileLoad(me, sizeof me);
++    me[strcspn(me, "\t")] = 0;
++    if (!me[0]) snprintf(me, sizeof me, "Player");
++    for (int i = 0; i < dchat.lines; i++) {
++        const SmzRaceLine *l = &dchat.line[i];
++        if (l->seq <= dchatShown) continue;
++        if (l->kind == RACE_LINE_CHAT && dchatSent[0] && !strcmp(l->name, me) && !strcmp(l->text, dchatSent)) { snprintf(dchatMine, sizeof dchatMine, "%s", l->pid); dchatSent[0] = 0; }
++        bool mine = dchatMine[0] ? !strcmp(l->pid, dchatMine) : dailyDoneMs && !strcmp(l->name, me);
++        if (dchatShown < 0 || mine) continue;   // the first answer: what was said before this game is only in the CHAT tab
++        if (l->kind == RACE_LINE_CHAT) { if (!rg.chatOff && !raceMuted(l->pid)) { snprintf(rg.say, sizeof rg.say, "%s: %s", l->name, l->text); rg.sayAt = osGetTime(); } }
++        else { char m[112]; snprintf(m, sizeof m, "%s %s", l->name, l->text); raceNews(m); }
++    }
++    dchatShown = dchat.since;
++    dirty = true;
++}
++
 +static void trackerUpdate()
 +{
 +    static u64 startedAt = 0;
@@ -6207,7 +6397,7 @@ index 0000000..50c1474
 +    static int calls = 0, proofDirty = 0, queued = 0;
 +    static u64 lastMs = 0, nextToken = 0;
 +    static int deadBosses = 0;
-+    static int64_t nextHintAsk = 0, nextBeat = 0, nextPlayersNote = 0;
++    static int64_t nextHintAsk = 0, nextBeat = 0, nextPlayersNote = 0, nextChatPoll = 0;
 +    static u64 nextGoals = 0;
 +    char discPath[96];
 +    snprintf(discPath, sizeof discPath, RUN_DIR "/slot%d.discovery", curSlot);
@@ -6256,7 +6446,10 @@ index 0000000..50c1474
 +        dailyDoneMs = r0.game == 3 ? 1 : 0;   // finished before: its time was sent then
 +        smz_counters_load(&goalc, r0.goals);
 +        nextGoals = osGetTime() + 300000;
-+        nextHintAsk = newHintUntil = playersNoteUntil = nextBeat = nextPlayersNote = 0;
++        nextHintAsk = newHintUntil = playersNoteUntil = nextBeat = nextPlayersNote = nextChatPoll = 0;
++        memset(&dchat, 0, sizeof dchat);
++        dchatShown = -1;
++        dchatMine[0] = dchatSent[0] = 0;
 +        shownGame = 0;   // the first game shown after a load opens no portal
 +        portalAt = 0;
 +        visorAt = osGetTime();   // the game opens from the menu: the tracker boots like a visor
@@ -6351,6 +6544,8 @@ index 0000000..50c1474
 +        // a heartbeat once a minute: the server counts who is playing from it, and answers with the players
 +        else if (playing && now >= nextBeat) { nextBeat = now + 60000; smzDailyRequestHints(&dr); }
 +        if (playing && dr.players_known && dr.players_now >= 2 && now >= nextPlayersNote && now >= newHintUntil) { playersNoteUntil = now + 8000; nextPlayersNote = now + 600000; }
++        if (now < dr.closes_at && now >= nextChatPoll) { nextChatPoll = now + 6000; smzDailyChatPoll(dr.token, dchat.since); }   // also the heartbeat
++        dailyChatTake();
 +    }
 +    // debug aid: with SMZ_DIR/debug_panel.txt present, where Samus and Link are goes to debug_state.txt, which is how a
 +    // blind input route can be followed on an emulator whose picture is garbled

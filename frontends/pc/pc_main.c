@@ -775,6 +775,13 @@ static void *daily_thread(void *arg) { (void)arg; SmzDailyInfo d; online_daily_i
 static SmzDailyRun g_hint_run;
 static volatile int g_hint_state;
 static void *hints_thread(void *arg) { (void)arg; g_hint_state = online_daily_hints(&g_hint_run) == 0 ? 2 : 0; return NULL; }
+/* the window's chat, polled the same way while it is open (0 idle, 1 asking, 2 answered), and one line on its way at a time */
+static SmzDailyRun g_chat_run, g_say_run;
+static int64_t g_chat_since;
+static char g_chat_ans[32768], g_say_text[84];
+static volatile int g_chat_state, g_say_state, g_say_code;
+static void *chat_thread(void *arg) { (void)arg; g_chat_state = online_daily_chat(&g_chat_run, g_chat_since, g_chat_ans, sizeof g_chat_ans) == 200 ? 2 : 0; return NULL; }
+static void *say_thread(void *arg) { (void)arg; g_say_code = online_daily_say(&g_say_run, g_say_text); g_say_state = 2; return NULL; }
 static void *token_thread(void *arg) { online_ensure_token((int)(intptr_t)arg); return NULL; }
 static void detach(void *(*fn)(void *), void *arg) { pthread_t t; if (!pthread_create(&t, NULL, fn, arg)) pthread_detach(t); }
 static void refill_slots(void) { store_fill_slots(&ui); for (int i = 0; i < UI_SLOTS; i++) ui_set_slot_online(&ui, i, online_slot_kind(i + 1)); }
@@ -1044,7 +1051,7 @@ enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_COUNT, TAB_DAILY =
 static const char *const TAB_NAMES[TAB_COUNT + 1] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "DAILY"};
 
 /* The daily challenge over the top-right corner of the game: the window clock (red in its last 15 minutes), the own time
- * from Start, the goal and the time to the next hint; each can be hidden in the video options. */
+ * from Start, the goal and the time to the next hint; each can be hidden in the video options. Returns its bottom (0: none). */
 /* The rewind bar under the game: a direction mark, how far back the cursor is and the minute kept as a track. The picture
  * stays as it is, so the moment can be read. */
 static void rewind_bar(SmzRewind *rw, int dir, float gx, float gw, int wh)
@@ -1079,7 +1086,7 @@ static void rewind_bar(SmzRewind *rw, int dir, float gx, float gw, int wh)
     help_prompt(gx + gw / 2, by + 66 * u, 24 * u, RW, 3);
 }
 
-static void daily_hud(const SmzDailyRun *r, int finished, float gx, float gw, int wh)
+static float daily_hud(const SmzDailyRun *r, int finished, float gx, float gw, int wh)
 {
     float u = wh / 720.0f, px = 19 * u, lh = 25 * u, pad = 10 * u;
     int64_t now = online_now_ms(), left = r->closes_at - now;
@@ -1102,17 +1109,18 @@ static void daily_hud(const SmzDailyRun *r, int finished, float gx, float gw, in
         snprintf(line[n], sizeof line[n], "Next hint in %s", t);
         col[n++] = C(0x87, 0x93, 0xA6);
     }
-    if (!n) return;
+    if (!n) return 0;
     float w = 0;
     for (int i = 0; i < n; i++) w = fmaxf(w, gfx_text_width(px, line[i]));
     float x = gx + gw - w - 2 * pad - 8 * u, y = 8 * u;
     gfx_rect(x, y, w + 2 * pad, n * lh + pad, (SDL_Color){0x08, 0x0B, 0x11, 190});
     for (int i = 0; i < n; i++) gfx_text(x + pad, y + pad / 2 + i * lh, px, col[i], 0, line[i]);
+    return y + n * lh + pad;
 }
 
 static void race_chat_tab(float x, float y, float w, float bottom, float u);
 
-/* chat: an online race, whose CHAT tab takes the Daily's place and whose game never pauses here */
+/* chat: an online race, whose CHAT tab takes the Daily's place and whose game never pauses here; a daily run has both */
 static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, int pause, int win_w, int win_h, float ax, float aw, MapView *mv,
                     const SmzDiscovery *disc, int discovered_only, const uint8_t *in_logic, const uint8_t *wram, size_t wram_len,
                     const uint8_t *sram, size_t sram_len, DungeonView *dv, const DungeonLive *live, const SmzDailyRun *dr, int chat)
@@ -1123,11 +1131,11 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     SDL_Color back = {0x08, 0x0B, 0x11, 250};
     gfx_rect(x0 - 12 * u, y0 - 16 * u, w + 24 * u, win_h - 2 * y0 + 32 * u, back);
     float x = x0;
-    int ntabs = dr || chat ? TAB_COUNT + 1 : TAB_COUNT;
+    int ct = chat ? TAB_COUNT : dr ? TAB_COUNT + 1 : -1, ntabs = ct >= 0 ? ct + 1 : TAB_COUNT;   /* ct: the CHAT tab */
     for (int i = 0; i < ntabs; i++) {
         float tw = fminf(130 * u, w / ntabs);
         gfx_rect(x, y0, tw - 6 * u, 36 * u, i == tab ? C(0x2E, 0x4A, 0x6B) : C(0x1D, 0x24, 0x30));
-        gfx_text(x + (tw - 6 * u) / 2, y0 + 5 * u, 24 * u, i == tab ? C(0xE9, 0xA2, 0x3B) : C(0x87, 0x93, 0xA6), 1, i == TAB_COUNT && chat ? "CHAT" : TAB_NAMES[i]);
+        gfx_text(x + (tw - 6 * u) / 2, y0 + 5 * u, 24 * u, i == tab ? C(0xE9, 0xA2, 0x3B) : C(0x87, 0x93, 0xA6), 1, i == ct ? "CHAT" : TAB_NAMES[i]);
         x += tw;
     }
     float y = y0 + 56 * u, line = 26 * u, bottom = win_h - y0 - 10 * u;
@@ -1145,7 +1153,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             gfx_text(x0, y, 20 * u, C(0xE8, 0xEC, 0xF2), 0, row);
         }
         if (t->game == 3) gfx_text(x0, y + 10 * u, 24 * u, C(0x4C, 0xC3, 0x8A), 0, "Run finished");
-    } else if (tab == TAB_COUNT && chat) {
+    } else if (tab == ct) {
         race_chat_tab(x0, y, w, bottom, u);
     } else if (tab == TAB_DAILY && dr) {
         int64_t now = online_now_ms(), left = dr->closes_at - now;
@@ -1155,7 +1163,12 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         fmt_time(now - smz_daily_clock_from(dr), b, sizeof b);
         if (left > 0) snprintf(row, sizeof row, "Window closes in %s    Own time %s", a, b);
         else snprintf(row, sizeof row, "The window has closed: no prize    Own time %s", b);
-        gfx_text(x0, y, 22 * u, left < 15 * 60000 ? C(0xE0, 0x5A, 0x4F) : C(0x87, 0x93, 0xA6), 0, row); y += 44 * u;
+        gfx_text(x0, y, 22 * u, left < 15 * 60000 ? C(0xE0, 0x5A, 0x4F) : C(0x87, 0x93, 0xA6), 0, row); y += 32 * u;
+        if (dr->players_known) {
+            snprintf(row, sizeof row, "%d playing now, %d finished", dr->players_now, dr->players_done);
+            gfx_text(x0, y, 22 * u, C(0x87, 0x93, 0xA6), 0, row);
+        }
+        y += 44 * u;
         gfx_text(x0, y, 22 * u, C(0xE9, 0xA2, 0x3B), 0, "Hints"); y += 32 * u;
         if (!dr->n_hints) { gfx_text(x0, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "None yet"); y += line; }
         int first = scroll < dr->n_hints ? scroll : dr->n_hints - 1;
@@ -1233,8 +1246,8 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     }
     HelpItem bar[10];
     int nb = 0;
-    bar[nb++] = (HelpItem){"LR2", chat && tab == TAB_COUNT ? "<" : "Q E", "Tabs"};
-    if (chat && tab == TAB_COUNT) {
+    bar[nb++] = (HelpItem){"LR2", tab == ct ? "<" : "Q E", "Tabs"};
+    if (tab == ct) {
         bar[nb++] = (HelpItem){"LR", NULL, "Phrase"}; bar[nb++] = (HelpItem){"A", "Enter", "Send"};
         bar[nb++] = (HelpItem){"UD", "^", "Player"}; bar[nb++] = (HelpItem){"X", "F2", "Mute"}; bar[nb++] = (HelpItem){"Y", "F3", "Chat on/off"};
     }
@@ -1248,7 +1261,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         bar[nb++] = (HelpItem){"A", "F", mv->follow ? "Following" : "Follow"}; bar[nb++] = (HelpItem){"Y", "D", "Dungeons"};
     }
     if (!chat) bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};
-    if (!(chat && tab == TAB_COUNT)) bar[nb++] = (HelpItem){"X", "V", "Video"};
+    if (tab != ct) bar[nb++] = (HelpItem){"X", "V", "Video"};
     bar[nb++] = (HelpItem){"R3", "Tab", "Close"};
     help_bar(0, win_h - 44 * u, (float)win_w, 44 * u, bar, nb);
 }
@@ -1283,6 +1296,10 @@ static struct {
     char muted[RACE_MAX][12];
     char news[96], say[112];
     Uint32 news_until, say_at;
+    int daily, primed;                                    /* a daily run: its window's chat takes the race's place on the CHAT tab */
+    const SmzDailyRun *dr;
+    SmzDailyChat dchat;
+    char me[32], country[4];                              /* the profile, whose own lines bring no news */
 } rg;
 
 enum { CARD_RESULT = 1, CARD_PAUSED };
@@ -1304,32 +1321,101 @@ static void race_mute(const char *pid)
     if (rg.n_muted < RACE_MAX) snprintf(rg.muted[rg.n_muted++], sizeof rg.muted[0], "%s", pid);
 }
 
+static void race_news(const char *text) { snprintf(rg.news, sizeof rg.news, "%s", text); rg.news_until = SDL_GetTicks() + 4000; sfx_play(SFX_OPEN); }
+
+/* Who the CHAT tab lists to mute: the race's players, or those who spoke in the daily's chat (the newest first). */
+typedef struct { char pid[12], name[25]; int me; } ChatWho;
+#define CHAT_WHO RACE_LINES
+static int chat_who(ChatWho *w)
+{
+    int n = 0;
+    if (!rg.daily) {
+        for (int i = 0; i < ui.race.room.n; i++, n++) {
+            const SmzRacePlayer *p = &ui.race.room.p[i];
+            snprintf(w[n].pid, sizeof w[n].pid, "%s", p->pid);
+            snprintf(w[n].name, sizeof w[n].name, "%s", p->name);
+            w[n].me = !strcmp(p->pid, ui.race.room.you);
+        }
+        return n;
+    }
+    for (int i = rg.dchat.lines - 1; i >= 0 && n < CHAT_WHO; i--) {
+        const SmzRaceLine *l = &rg.dchat.line[i];
+        int k = 0;
+        while (k < n && strcmp(w[k].pid, l->pid)) k++;
+        if (k < n || l->kind != RACE_LINE_CHAT || !l->pid[0]) continue;
+        snprintf(w[n].pid, sizeof w[n].pid, "%s", l->pid);
+        snprintf(w[n].name, sizeof w[n].name, "%s", l->name);
+        w[n++].me = !strcmp(l->name, rg.me);
+    }
+    return n;
+}
+
+static const char *const *chat_phrases(int *n)
+{
+    if (rg.daily) { *n = SMZ_DAILY_PHRASES; return SMZ_DAILY_PHRASE; }
+    *n = N_PHRASES;
+    return PHRASES;
+}
+
+/* A line for the daily's chat, sent in the background (the dual screen's CHAT tab calls it too). */
+static void daily_say(const char *text)
+{
+    if (!rg.dr || !text[0]) return;
+    if (online_now_ms() >= rg.dr->closes_at) { race_news("The window has closed: the chat is over"); return; }
+    if (g_say_state) { race_news("Wait a moment: a line is on its way"); return; }
+    g_say_run = *rg.dr;
+    snprintf(g_say_text, sizeof g_say_text, "%s", text);
+    g_say_state = 1;
+    detach(say_thread, NULL);
+}
+
 static void race_say(const char *text)
 {
     if (!text[0] || rg.chat_off) return;
-    race_chat(text);
+    if (rg.daily) daily_say(text); else race_chat(text);
     sfx_play(SFX_CONFIRM);
+}
+
+/* The picked player is muted or heard again (never this player). */
+static void chat_mute_picked(void)
+{
+    ChatWho w[CHAT_WHO];
+    int n = chat_who(w);
+    if (n && !w[rg.who % n].me) race_mute(w[rg.who % n].pid);
+    sfx_play(SFX_SELECT);
+}
+
+static void chat_pick(int up)
+{
+    ChatWho w[CHAT_WHO];
+    int n = chat_who(w);
+    if (n) rg.who = (rg.who % n + (up ? n - 1 : 1)) % n;
+    sfx_play(SFX_MOVE);
 }
 
 /* The CHAT tab's keys and buttons; 1 when it took the press. */
 static int race_chat_key(SDL_Keycode k)
 {
     size_t n = strlen(rg.typed);
-    if (k == SDLK_RETURN || k == SDLK_KP_ENTER) { race_say(n ? rg.typed : PHRASES[rg.phrase]); rg.typed[0] = 0; }
+    int np;
+    const char *const *ph = chat_phrases(&np);
+    if (k == SDLK_RETURN || k == SDLK_KP_ENTER) { race_say(n ? rg.typed : ph[rg.phrase % np]); rg.typed[0] = 0; }
     else if (k == SDLK_BACKSPACE) { if (n) rg.typed[n - 1] = 0; }
-    else if (k == SDLK_F2 && ui.race.room.n) { const SmzRacePlayer *p = &ui.race.room.p[rg.who % ui.race.room.n]; if (strcmp(p->pid, ui.race.room.you)) race_mute(p->pid); sfx_play(SFX_SELECT); }
+    else if (k == SDLK_F2) chat_mute_picked();
     else if (k == SDLK_F3) { rg.chat_off = !rg.chat_off; sfx_play(SFX_SELECT); }
-    else if (k == SDLK_UP || k == SDLK_DOWN) { if (ui.race.room.n) rg.who = (rg.who + (k == SDLK_UP ? ui.race.room.n - 1 : 1)) % ui.race.room.n; sfx_play(SFX_MOVE); }
+    else if (k == SDLK_UP || k == SDLK_DOWN) chat_pick(k == SDLK_UP);
     else return k != SDLK_ESCAPE && k != SDLK_TAB && k != SDLK_LEFT && k != SDLK_RIGHT && k != SDLK_F11;   /* letters are typing, not shortcuts */
     return 1;
 }
 
 static int race_chat_pad(int b)
 {
-    if (b == SDL_CONTROLLER_BUTTON_A) race_say(PHRASES[rg.phrase]);
-    else if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT || b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) { rg.phrase = (rg.phrase + (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? N_PHRASES - 1 : 1)) % N_PHRASES; sfx_play(SFX_MOVE); }
-    else if ((b == SDL_CONTROLLER_BUTTON_DPAD_UP || b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) && ui.race.room.n) { rg.who = (rg.who + (b == SDL_CONTROLLER_BUTTON_DPAD_UP ? ui.race.room.n - 1 : 1)) % ui.race.room.n; sfx_play(SFX_MOVE); }
-    else if (b == SDL_CONTROLLER_BUTTON_X && ui.race.room.n) { const SmzRacePlayer *p = &ui.race.room.p[rg.who % ui.race.room.n]; if (strcmp(p->pid, ui.race.room.you)) race_mute(p->pid); sfx_play(SFX_SELECT); }
+    int np;
+    const char *const *ph = chat_phrases(&np);
+    if (b == SDL_CONTROLLER_BUTTON_A) race_say(ph[rg.phrase % np]);
+    else if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT || b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) { rg.phrase = (rg.phrase + (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? np - 1 : 1)) % np; sfx_play(SFX_MOVE); }
+    else if (b == SDL_CONTROLLER_BUTTON_DPAD_UP || b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) chat_pick(b == SDL_CONTROLLER_BUTTON_DPAD_UP);
+    else if (b == SDL_CONTROLLER_BUTTON_X) chat_mute_picked();
     else if (b == SDL_CONTROLLER_BUTTON_Y) { rg.chat_off = !rg.chat_off; sfx_play(SFX_SELECT); }
     else return 0;
     return 1;
@@ -1342,7 +1428,21 @@ static void race_typed(const char *text)
     rg.typed[n] = 0;
 }
 
-static void race_news(const char *text) { snprintf(rg.news, sizeof rg.news, "%s", text); rg.news_until = SDL_GetTicks() + 4000; sfx_play(SFX_OPEN); }
+/* The daily chat's answer, taken in the game: new chat lines go to the fading box, finishes to the corner. What was said
+ * before the game opened only fills the list. */
+static void daily_chat_in_game(SmzDailyRun *dr)
+{
+    if (smz_daily_parse_chat(g_chat_ans, &rg.dchat, dr)) return;
+    if (!rg.primed) { rg.primed = 1; rg.shown = rg.dchat.since; return; }
+    for (int i = 0; i < rg.dchat.lines; i++) {
+        const SmzRaceLine *l = &rg.dchat.line[i];
+        if (l->seq <= rg.shown) continue;
+        rg.shown = l->seq;
+        if (!strcmp(l->name, rg.me)) continue;
+        if (l->kind == RACE_LINE_FINISH) { char m[112]; snprintf(m, sizeof m, "%s %s", l->name, l->text); race_news(m); }
+        else if (!rg.chat_off && !race_muted(l->pid)) { snprintf(rg.say, sizeof rg.say, "%s: %s", l->name, l->text); rg.say_at = SDL_GetTicks(); }
+    }
+}
 
 /* First place; with a time it can go to the ladder (a win because the others left has none). */
 static int race_first(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return me && me->place == 1; }
@@ -1449,15 +1549,19 @@ static void race_in_game(void)
     if (rg.back && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED || r->state == RACE_RUNNING)) { if (r->state != RACE_RUNNING) rg.back = 0; race_forget_paused(); }
 }
 
-/* The CHAT tab: the race's lines, newest at the bottom, the players with their mute, and the line to send. */
+/* The CHAT tab: the race's lines (or the daily window's), newest at the bottom, the players with their mute, and the line to send. */
 static void race_chat_tab(float x, float y, float w, float bottom, float u)
 {
-    const SmzRace *r = &ui.race.room;
-    float lw = w * 0.68f, px = x + lw + 24 * u, line = 26 * u, iy = bottom - 40 * u;
+    const SmzRaceLine *lines = rg.daily ? rg.dchat.line : ui.race.room.line;
+    int nl = rg.daily ? rg.dchat.lines : ui.race.room.lines, np;
+    const char *const *ph = chat_phrases(&np);
+    ChatWho who[CHAT_WHO];
+    int n = chat_who(who);
+    float lw = w * 0.68f, px = x + lw + 24 * u, line = 26 * u, iy = bottom - 40 * u, top = y;
     int fit = (int)((iy - y - 10 * u) / line), k = 0;
     const SmzRaceLine *show[RACE_LINES];
-    for (int i = r->lines - 1; i >= 0 && k < fit; i--) {
-        const SmzRaceLine *l = &r->line[i];
+    for (int i = nl - 1; i >= 0 && k < fit; i--) {
+        const SmzRaceLine *l = &lines[i];
         if (l->kind == RACE_LINE_CHAT && (rg.chat_off || race_muted(l->pid))) continue;
         show[k++] = l;
     }
@@ -1466,24 +1570,30 @@ static void race_chat_tab(float x, float y, float w, float bottom, float u)
         const SmzRaceLine *l = show[i];
         char row[128];
         if (l->kind == RACE_LINE_CHAT) snprintf(row, sizeof row, "%s: %s", l->name, l->text);
-        else if (l->kind == RACE_LINE_EVENT) snprintf(row, sizeof row, "%s %s", l->name, l->text);
+        else if (l->kind == RACE_LINE_EVENT || (rg.daily && l->kind == RACE_LINE_FINISH)) snprintf(row, sizeof row, "%s %s", l->name, l->text);
         else snprintf(row, sizeof row, "%s", l->text);
         gfx_text(x, y, 20 * u, l->kind == RACE_LINE_CHAT ? C(0xE8, 0xEC, 0xF2) : C(0x87, 0x93, 0xA6), 0, row);
     }
-    float py = bottom - (r->n + 1) * line - 60 * u;
-    gfx_text(px, py, 20 * u, C(0xE9, 0xA2, 0x3B), 0, "Players"); py += line + 4 * u;
-    for (int i = 0; i < r->n; i++, py += line) {
-        const SmzRacePlayer *p = &r->p[i];
-        int sel = i == rg.who % (r->n ? r->n : 1), me = !strcmp(p->pid, r->you);
+    float py = bottom - (n + 1) * line - 60 * u;
+    if (py < top) py = top;
+    gfx_text(px, py, 20 * u, C(0xE9, 0xA2, 0x3B), 0, rg.daily ? "In the chat" : "Players"); py += line + 4 * u;
+    for (int i = 0; i < n && py < iy - line; i++, py += line) {
+        int sel = i == rg.who % n;
         if (sel) gfx_rect(px - 8 * u, py - 3 * u, w - lw - 16 * u, line, (SDL_Color){0x3A, 0x2C, 0x14, 255});
         char row[48];
-        snprintf(row, sizeof row, "%s%s", p->name, me ? " (you)" : race_muted(p->pid) ? "  muted" : "");
-        gfx_text(px, py, 20 * u, race_muted(p->pid) ? C(0x87, 0x93, 0xA6) : C(0xE8, 0xEC, 0xF2), 0, row);
+        snprintf(row, sizeof row, "%s%s", who[i].name, who[i].me ? " (you)" : race_muted(who[i].pid) ? "  muted" : "");
+        gfx_text(px, py, 20 * u, race_muted(who[i].pid) ? C(0x87, 0x93, 0xA6) : C(0xE8, 0xEC, 0xF2), 0, row);
+    }
+    if (rg.daily && rg.dr->players_known) {   /* who is on the window, from the last answer */
+        char row[64];
+        snprintf(row, sizeof row, "%d playing now, %d finished", rg.dr->players_now, rg.dr->players_done);
+        gfx_text(px, iy, 18 * u, C(0x87, 0x93, 0xA6), 0, row);
     }
     char in[112];
     if (rg.chat_off) snprintf(in, sizeof in, "Chat is off");
+    else if (rg.daily && online_now_ms() >= rg.dr->closes_at) snprintf(in, sizeof in, "The window has closed");
     else if (rg.typed[0]) snprintf(in, sizeof in, "> %s_", rg.typed);
-    else snprintf(in, sizeof in, "<  %s  >     or type a message", PHRASES[rg.phrase]);
+    else snprintf(in, sizeof in, "<  %s  >     or type a message", ph[rg.phrase % np]);
     gfx_rect(x - 6 * u, iy - 6 * u, lw, 36 * u, (SDL_Color){0x1D, 0x24, 0x30, 255});
     gfx_text(x, iy, 20 * u, rg.typed[0] ? C(0xE8, 0xEC, 0xF2) : C(0xE9, 0xA2, 0x3B), 0, in);
 }
@@ -1501,12 +1611,32 @@ static void race_box(float gx, float gw, int wh, const char *title, const char *
     help_prompt(gx + gw / 2, by + 118 * u, 40 * u, items, n);
 }
 
+/* The corner news (16 * u down, or under the daily's box) and the fading chat box over the game at gx..gx+gw. */
+static void chat_notes(float gx, float gw, int wh, float top, int one_screen)
+{
+    float u = wh / 720.0f;
+    Uint32 now = SDL_GetTicks();
+    if (now < rg.news_until) {   /* top right of the game */
+        float px = 20 * u, tw = fminf(gfx_text_width(px, rg.news), gw * 0.6f);
+        gfx_rect(gx + gw - tw - 40 * u, top, tw + 24 * u, 36 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
+        gfx_rect(gx + gw - tw - 40 * u, top, 3 * u, 36 * u, (SDL_Color){0x4F, 0xC3, 0xF7, 255});
+        gfx_text(gx + gw - 28 * u, top + 7 * u, px, C(0xE8, 0xEC, 0xF2), 2, rg.news);
+    }
+    if (one_screen && rg.say_at && now - rg.say_at < 2500) {   /* bottom right of the game: two seconds, then it fades */
+        Uint32 t = now - rg.say_at;
+        float a = t < 2000 ? 1 : 1 - (t - 2000) / 500.0f, px = 20 * u, tw = fminf(gfx_text_width(px, rg.say), gw * 0.6f);
+        gfx_rect(gx + gw - tw - 40 * u, wh - 120 * u, tw + 24 * u, 36 * u, (SDL_Color){0x10, 0x16, 0x1F, (Uint8)(225 * a)});
+        SDL_Color c = C(0xE8, 0xEC, 0xF2);
+        c.a = (Uint8)(255 * a);
+        gfx_text(gx + gw - 28 * u, wh - 113 * u, px, c, 2, rg.say);
+    }
+}
+
 /* The countdown, the news, the chat box, the time left, the pause boxes and the result card, over the game at gx..gx+gw. */
 static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one_screen)
 {
     const SmzRace *r = &ui.race.room;
     float u = wh / 720.0f;
-    Uint32 now = SDL_GetTicks();
     if (rg.back && r->state == RACE_PAUSED) {   /* back in a paused race: the others come back too */
         int in = 0, back = 0;
         for (int i = 0; i < r->n; i++) if (!r->p[i].left) { in++; back += r->p[i].back; }
@@ -1559,20 +1689,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
         gfx_rect(gx + (gw - tw) / 2 - 14 * u, 14 * u, tw + 28 * u, 38 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
         gfx_text(gx + gw / 2, 21 * u, 22 * u, C(0xF2, 0xA3, 0x3A), 1, m);
     }
-    if (now < rg.news_until) {   /* top right of the game */
-        float px = 20 * u, tw = fminf(gfx_text_width(px, rg.news), gw * 0.6f);
-        gfx_rect(gx + gw - tw - 40 * u, 16 * u, tw + 24 * u, 36 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
-        gfx_rect(gx + gw - tw - 40 * u, 16 * u, 3 * u, 36 * u, (SDL_Color){0x4F, 0xC3, 0xF7, 255});
-        gfx_text(gx + gw - 28 * u, 23 * u, px, C(0xE8, 0xEC, 0xF2), 2, rg.news);
-    }
-    if (one_screen && rg.say_at && now - rg.say_at < 2500) {   /* bottom right of the game: two seconds, then it fades */
-        Uint32 t = now - rg.say_at;
-        float a = t < 2000 ? 1 : 1 - (t - 2000) / 500.0f, px = 20 * u, tw = fminf(gfx_text_width(px, rg.say), gw * 0.6f);
-        gfx_rect(gx + gw - tw - 40 * u, wh - 120 * u, tw + 24 * u, 36 * u, (SDL_Color){0x10, 0x16, 0x1F, (Uint8)(225 * a)});
-        SDL_Color c = C(0xE8, 0xEC, 0xF2);
-        c.a = (Uint8)(255 * a);
-        gfx_text(gx + gw - 28 * u, wh - 113 * u, px, c, 2, rg.say);
-    }
+    chat_notes(gx, gw, wh, 16 * u, one_screen);
     if (rg.pick) {
         char line[64], when[24];
         int h = PAUSE_HOURS[rg.pick_i];
@@ -1728,11 +1845,11 @@ static void play(int slot, int game_save_only)
     Uint32 rw_since = 0, rw_tick = 0;
     int dead_bosses = smz_daily_prepared_bosses(run.settings);   /* a mid-game start keeps these bosses dead */
     static SmzDailyRun dr;   /* the attempt of the daily slot: its clock, goal and hints */
-    int daily = slot + 1 == DAILY_SLOT && online_daily_load(&dr) == 0, ntabs = daily ? TAB_COUNT + 1 : TAB_COUNT;
+    int daily = slot + 1 == DAILY_SLOT && online_daily_load(&dr) == 0, ntabs = daily ? TAB_COUNT + 2 : TAB_COUNT;   /* DAILY and CHAT */
     int fail_popup = 0, fail_seen = run.game == 3, daily_queued = 0;
-    Uint32 next_hints = 0, hint_until = 0;
+    Uint32 next_hints = 0, hint_until = 0, next_chat = 0;
     char hint_note[SMZ_DAILY_HINT_LEN + 8] = "";
-    g_hint_state = 0;
+    g_hint_state = g_chat_state = 0;
     static SmzProof proof;
     {
         size_t pn;
@@ -1775,6 +1892,12 @@ static void play(int slot, int game_save_only)
             race_send("back", "", 1);
         }
     }
+    if (daily) {   /* the window's chat on the CHAT tab beside DAILY */
+        rg.daily = 1;
+        rg.dr = &dr;
+        online_profile(rg.me, rg.country);
+    }
+    int chat_tab = rg.on ? TAB_COUNT : daily ? TAB_COUNT + 1 : -1;
     int64_t go_in = 0;   /* ms to the race's start, by the server's clock */
     if (getenv("SMZ3_DONE")) { done_popup = 1; finished = 1; final_ms = atoll(getenv("SMZ3_DONE")); }   /* test hook: the run-complete card */
     int vpanel = getenv("SMZ3_VIDEO") != NULL, vrow = 0, vchanges = 0;   /* the video panel over the game: open, row, changes made (for its sound) */
@@ -1831,7 +1954,7 @@ static void play(int slot, int game_save_only)
                     else if (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_RETURN) { settings_video_change(vrow, k == SDLK_LEFT ? -1 : 1); vchanges++; }
                     continue;
                 }
-                if (rg.on && show && tab == TAB_COUNT && race_chat_key(k)) continue;
+                if (show && tab == chat_tab && race_chat_key(k)) continue;
                 if (!show && !leaving && sc_key_press(k)) continue;   /* an item shortcut; it acts only in normal play */
                 if (k == SDLK_v && !leaving) { vpanel = 1; show = 0; continue; }
                 if (leaving) {
@@ -1865,7 +1988,7 @@ static void play(int slot, int game_save_only)
                     else if (k == SDLK_PAGEUP && tab != TAB_MAP) scroll = scroll > 15 ? scroll - 15 : 0;
                 }
             } else if (e.type == SDL_TEXTINPUT) {
-                if (rg.on && show && tab == TAB_COUNT && !rg.chat_off) race_typed(e.text.text);
+                if (show && tab == chat_tab && !rg.chat_off) race_typed(e.text.text);
             } else if (pcode >= 0) {
                 int b = pcode;
                 if (exit_at) continue;
@@ -1906,7 +2029,7 @@ static void play(int slot, int game_save_only)
                     continue;
                 }
                 if (!show && !leaving && sc_pad_press(b)) continue;
-                if (rg.on && show && tab == TAB_COUNT && race_chat_pad(b)) continue;
+                if (show && tab == chat_tab && race_chat_pad(b)) continue;
                 if (show && b == SDL_CONTROLLER_BUTTON_X) { vpanel = 1; show = 0; continue; }
                 if (leaving) {
                     if (b == SDL_CONTROLLER_BUTTON_Y && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
@@ -2153,6 +2276,22 @@ static void play(int slot, int game_save_only)
                 g_hint_state = 1;
                 detach(hints_thread, NULL);
             }
+            if (g_chat_state == 2) { daily_chat_in_game(&dr); g_chat_state = 0; }
+            if (g_chat_state == 0 && wall < dr.closes_at && SDL_GetTicks() >= next_chat) {   /* every 5 seconds while the window is open */
+                next_chat = SDL_GetTicks() + 5000;
+                g_chat_run = dr;
+                g_chat_since = rg.dchat.since;
+                g_chat_state = 1;
+                detach(chat_thread, NULL);
+            }
+            if (g_say_state == 2) {   /* a line sent: it comes back with the next poll, asked for at once */
+                int code = g_say_code;
+                g_say_state = 0;
+                if (code == 200) next_chat = 0;
+                else if (code == 409) race_news("The window has closed: the chat is over");
+                else if (code == 429) race_news("Too fast: wait a moment");
+                else race_news("Not sent: no connection");
+            }
         }
         if ((now - last_save) * 1000 / freq >= 5000) {
             last_save = now;
@@ -2215,7 +2354,7 @@ static void play(int slot, int game_save_only)
             panel_left(&trk, &run, 0, gx, (float)wh, on && mside == 1 ? &mm : NULL, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), daily ? &dr : NULL, finished);
             panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
         }
-        if (daily && !show && gx < 90) daily_hud(&dr, finished, gx, gw, wh);
+        float hud_bottom = daily && !show && gx < 90 ? daily_hud(&dr, finished, gx, gw, wh) : 0;
         if (rw_open) rewind_bar(rw, rw_dir, gx, gw, wh);   /* no side panels: the only room left is a corner of the game */
         {   /* a new hint, and the short notes (states, slots) while playing */
             const char *msg = SDL_GetTicks() < hint_until ? hint_note : SDL_GetTicks() < g_note_until ? g_note : NULL;
@@ -2245,13 +2384,15 @@ static void play(int slot, int game_save_only)
                              finished_before ? (unsigned)run.zelda_cleared : trk.zelda_cleared, trk.zelda_total,
                              finished_before ? (unsigned)run.metroid_cleared : trk.metroid_cleared, trk.metroid_total};
             DualFrame df = {&trk, &disc, discovered_only, have_logic ? in_logic : NULL, ow, sram, owl, sl, have_live ? &live : NULL, daily ? &dr : NULL,
-                            !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), finished ? &fc : NULL, done_popup != 0, states, QSLOTS, &qslot, rg.on ? &ui.race.room : NULL};
+                            !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), finished ? &fc : NULL, done_popup != 0, states, QSLOTS, &qslot, rg.on ? &ui.race.room : NULL,
+                            daily ? &rg.dchat : NULL, daily_say, rg.me};
             dual_draw(ren2, &df, bw, bh);
             present2();
             ren = top;
             gfx_use(top);
         }
         if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !ren2 && !(show && tab == TAB_COUNT));   /* no chat box over the CHAT tab */
+        if (daily && !rw_open) chat_notes(gx, gw, wh, hud_bottom ? hud_bottom + 8 * (wh / 720.0f) : 16 * (wh / 720.0f), !ren2 && !(show && tab == chat_tab));
         if (leaving) {
             int abandon = rg.on && (ui.race.room.state == RACE_RUNNING || rg.back), pause = abandon && race_can_pause(go_in);
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});

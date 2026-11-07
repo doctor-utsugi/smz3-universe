@@ -61,11 +61,12 @@ static char note[SMZ_HELP_TEXT + 16];
 
 static struct { int on, moved, drag, has_hit; float x0, y0, x, y; Uint32 at; Hit hit; } P;
 
-/* The CHAT tab of a race: quick phrases by touch, chat off, and the players muted (their pids). */
+/* The CHAT tab of a race or a daily run: quick phrases by touch, chat off, and the players muted (their pids). */
 static const char *const PHRASES[] = {"Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow"};
 #define N_PHRASES ((int)(sizeof PHRASES / sizeof PHRASES[0]))
 static int chat_off, n_muted;
 static char muted[RACE_MAX][12];
+static char chat_pid[RACE_LINES][12];   /* the players the tab offered to mute, by HIT_MUTE's arg */
 static struct { SDL_FingerID id; float x, y; } finger[2];
 static int n_fingers, pinching;
 static float pinch_dist;
@@ -602,6 +603,10 @@ static void page_daily(float x, float w, float y, float top)
     if (left > 0) snprintf(s, sizeof s, "Window closes in %s    Own time %s", a, b);
     else snprintf(s, sizeof s, "The window has closed: no prize    Own time %s", b);
     y = wrapped(x, y + 4 * u, w, 13 * u, left < 15 * 60000 ? RED : DIM, s);
+    if (dr->players_known) {   /* who is on the window, from the last answer */
+        snprintf(s, sizeof s, "%d playing now, %d finished", dr->players_now, dr->players_done);
+        y = wrapped(x, y + 2 * u, w, 13 * u, DIM, s);
+    }
     if (dr->next_hint_at) {
         smz_daily_span(dr->next_hint_at - now, a, sizeof a);
         snprintf(s, sizeof s, "Hints come on a timer. Next one in %s.", a);
@@ -624,25 +629,33 @@ static int is_muted(const char *pid)
 static void page_chat(float top)
 {
     const SmzRace *r = F.race;
+    const SmzRaceLine *lines = r ? r->line : F.chat->line;
+    int nl = r ? r->lines : F.chat->lines, np = r ? N_PHRASES : SMZ_DAILY_PHRASES;
+    const char *const *ph = r ? PHRASES : SMZ_DAILY_PHRASE;
     float x = 12 * u, w = W - 24 * u, bh = 30 * u, gap = 6 * u, bw = (w - 3 * gap) / 4;
     float y = page_begin(TAB_CHAT, 0, top, (float)W, H - top) + 8 * u;
-    for (int i = 0; i < N_PHRASES; i++) {   /* two rows of phrases, a tap sends one */
+    for (int i = 0; i < np; i++) {   /* two rows of phrases, a tap sends one */
         float bx = x + (i % 4) * (bw + gap), by = y + (i / 4) * (bh + gap);
         gfx_rect(bx, by, bw, bh, chat_off ? C(0x10, 0x16, 0x1F) : C(0x1D, 0x24, 0x30));
-        gfx_text(bx + bw / 2, by + 8 * u, fit_px(PHRASES[i], bw - 8 * u, 13 * u, 8 * u), chat_off ? DIM : TEXT, 1, PHRASES[i]);
+        gfx_text(bx + bw / 2, by + 8 * u, fit_px(ph[i], bw - 8 * u, 13 * u, 8 * u), chat_off ? DIM : TEXT, 1, ph[i]);
         if (!chat_off) add_hit(bx, by, bw, bh, HIT_PHRASE, i);
     }
     y += 2 * (bh + gap) + 4 * u;
-    for (int i = 0; i < r->n; i++) {   /* the players: a tap mutes or unmutes */
-        const SmzRacePlayer *p = &r->p[i];
-        if (!strcmp(p->pid, r->you)) continue;
+    int n = 0;   /* the players: a race's, or who spoke in the daily's chat; a tap mutes or unmutes */
+    for (int i = r ? 0 : nl - 1; r ? i < r->n : i >= 0; i += r ? 1 : -1) {
+        const char *pid = r ? r->p[i].pid : lines[i].pid, *name = r ? r->p[i].name : lines[i].name;
+        if (r ? !strcmp(pid, r->you) : lines[i].kind != RACE_LINE_CHAT || !pid[0] || (F.me && !strcmp(name, F.me))) continue;
+        int k = 0;
+        while (k < n && strcmp(chat_pid[k], pid)) k++;
+        if (k < n) continue;
         char s[48];
-        snprintf(s, sizeof s, "%s%s", p->name, is_muted(p->pid) ? " (muted)" : "");
+        snprintf(s, sizeof s, "%s%s", name, is_muted(pid) ? " (muted)" : "");
         float tw = gfx_text_width(13 * u, s) + 16 * u;
-        if (x + tw > W - 12 * u) break;
+        if (x + tw > W - 24 * u - gfx_text_width(13 * u, "Chat off") - 16 * u || n == RACE_LINES) break;
+        snprintf(chat_pid[n], sizeof chat_pid[n], "%s", pid);
         gfx_rect(x, y, tw, 24 * u, C(0x10, 0x16, 0x1F));
-        gfx_text(x + 8 * u, y + 5 * u, 13 * u, is_muted(p->pid) ? DIM : TEXT, 0, s);
-        add_hit(x, y, tw, 24 * u, HIT_MUTE, i);
+        gfx_text(x + 8 * u, y + 5 * u, 13 * u, is_muted(pid) ? DIM : TEXT, 0, s);
+        add_hit(x, y, tw, 24 * u, HIT_MUTE, n++);
         x += tw + gap;
     }
     x = 12 * u;
@@ -652,12 +665,13 @@ static void page_chat(float top)
     gfx_text(W - 12 * u - ow / 2, y + 5 * u, 13 * u, AMBER, 1, off);
     add_hit(W - 12 * u - ow, y, ow, 24 * u, HIT_CHAT_OFF, 0);
     y += 34 * u;
-    for (int i = r->lines - 1; i >= 0; i--) {   /* newest first */
-        const SmzRaceLine *l = &r->line[i];
+    if (!r && F.daily && online_now_ms() >= F.daily->closes_at) y = wrapped(x, y, w, 14 * u, DIM, "The window has closed: the chat is over.") + 6 * u;
+    for (int i = nl - 1; i >= 0; i--) {   /* newest first */
+        const SmzRaceLine *l = &lines[i];
         if (l->kind == RACE_LINE_CHAT && (chat_off || is_muted(l->pid))) continue;
         char s[128];
         if (l->kind == RACE_LINE_CHAT) snprintf(s, sizeof s, "%s: %s", l->name, l->text);
-        else if (l->kind == RACE_LINE_EVENT) snprintf(s, sizeof s, "%s %s", l->name, l->text);
+        else if (l->kind == RACE_LINE_EVENT || (!r && l->kind == RACE_LINE_FINISH)) snprintf(s, sizeof s, "%s %s", l->name, l->text);
         else snprintf(s, sizeof s, "%s", l->text);
         y = wrapped(x, y, w, 14 * u, l->kind == RACE_LINE_CHAT ? TEXT : DIM, s) + 4 * u;
     }
@@ -824,8 +838,8 @@ static void portal_check(void)
 static void draw_tabs(void)
 {
     int shown[TAB_COUNT], n = 0, help = hints_mode() != HELP_NONE || F.daily;
-    if ((tab == TAB_HELP && !help) || (tab == TAB_CHAT && !F.race)) tab = TAB_RUN;
-    for (int i = 0; i < TAB_COUNT; i++) if ((i != TAB_HELP || help) && (i != TAB_CHAT || F.race)) shown[n++] = i;
+    if ((tab == TAB_HELP && !help) || (tab == TAB_CHAT && !F.race && !F.chat)) tab = TAB_RUN;
+    for (int i = 0; i < TAB_COUNT; i++) if ((i != TAB_HELP || help) && (i != TAB_CHAT || F.race || F.chat)) shown[n++] = i;
     float tw = (float)W / n;
     tab_h = 30 * u;
     for (int i = 0; i < n; i++) {
@@ -947,11 +961,11 @@ static void do_hit(const Hit *h)
     case HIT_CONFIG: config_tap(h->arg); break;
     case HIT_FIN_MENU: case HIT_FIN_BACK: action = DUAL_MENU; break;
     case HIT_FIN_CREDITS: action = DUAL_CREDITS; break;
-    case HIT_PHRASE: race_chat(PHRASES[h->arg]); break;
+    case HIT_PHRASE: if (F.race) race_chat(PHRASES[h->arg]); else if (F.say) F.say(SMZ_DAILY_PHRASE[h->arg]); break;
     case HIT_CHAT_OFF: chat_off = !chat_off; break;
     case HIT_MUTE:
-        if (F.race && h->arg < F.race->n) {
-            const char *pid = F.race->p[h->arg].pid;
+        if (h->arg < RACE_LINES) {
+            const char *pid = chat_pid[h->arg];
             int i = 0;
             while (i < n_muted && strcmp(muted[i], pid)) i++;
             if (i < n_muted) { memmove(muted + i, muted + i + 1, sizeof muted[0] * (n_muted - i - 1)); n_muted--; }

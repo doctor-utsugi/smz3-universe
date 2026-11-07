@@ -891,3 +891,25 @@ JNIEXPORT jint JNICALL NATIVE(raceGoalProgress)(JNIEnv *env, jclass cls)
     if (g_goal.kind != GOAL_KILLS && g_goal.kind != GOAL_RUPEES) return -1;
     return smz_goal_progress(&g_goal, &g_counters, 0);
 }
+
+/* A goal text that defeats one boss ("Defeat Arrghus"): {name, goal icon ("" when none), place}; null when it names no boss. */
+JNIEXPORT jobjectArray JNICALL NATIVE(goalBoss)(JNIEnv *env, jclass cls, jstring text)
+{
+    const char *name, *sprite, *place;
+    const char *t = (*env)->GetStringUTFChars(env, text, NULL);
+    int found = smz_goal_boss(t, &name, &sprite, &place);
+    (*env)->ReleaseStringUTFChars(env, text, t);
+    if (!found) return NULL;
+    const char *parts[3] = {name, sprite, place};
+    jobjectArray r = (*env)->NewObjectArray(env, 3, (*env)->FindClass(env, "java/lang/String"), NULL);
+    for (int i = 0; i < 3; i++) (*env)->SetObjectArrayElement(env, r, i, (*env)->NewStringUTF(env, parts[i]));
+    return r;
+}
+
+/* The daily chat's quick lines (SMZ_DAILY_PHRASE), emotes among them. */
+JNIEXPORT jobjectArray JNICALL NATIVE(dailyPhrases)(JNIEnv *env, jclass cls)
+{
+    jobjectArray r = (*env)->NewObjectArray(env, SMZ_DAILY_PHRASES, (*env)->FindClass(env, "java/lang/String"), NULL);
+    for (int i = 0; i < SMZ_DAILY_PHRASES; i++) (*env)->SetObjectArrayElement(env, r, i, (*env)->NewStringUTF(env, SMZ_DAILY_PHRASE[i]));
+    return r;
+}

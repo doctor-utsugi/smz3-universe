@@ -442,5 +442,22 @@ static void daily_flush(void)
     remove(store_path("runs/daily.finish"));
 }
 
+int online_daily_chat(const SmzDailyRun *r, int64_t since, char *out, size_t cap)
+{
+    char path[420];
+    snprintf(path, sizeof path, "/api/daily/chat?token=%s&since=%lld", r->token, (long long)since);
+    return http("GET", path, NULL, out, cap);
+}
+
+int online_daily_say(const SmzDailyRun *r, const char *text)
+{
+    char name[32], country[4], body[768], reply[256];
+    profile(name, country);
+    if (smz_daily_chat_body(r, name, country, text, body, sizeof body)) return -1;
+    return http("POST", "/api/daily/chat", body, reply, sizeof reply);
+}
+
+void online_profile(char name[32], char country[4]) { profile(name, country); }
+
 int online_http(const char *method, const char *path, const char *body, char *out, size_t cap) { return http(method, path, body, out, cap); }
 void online_install_id(char out[48]) { install_id(out); }
