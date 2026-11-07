@@ -199,7 +199,7 @@ void smz_race_when(int64_t ms, char *out, size_t cap)
     snprintf(out, cap, "%s %02d:%02d", DAY[tm->tm_wday % 7], tm->tm_hour, tm->tm_min);
 }
 
-const char *smz_race_format_name(const char *f) { return !strcmp(f, "sprint") ? "Sprint" : !strcmp(f, "half") ? "Half" : "Full game"; }
+const char *smz_race_format_name(const char *f) { return !strcmp(f, "sprint") ? "Sprint" : !strcmp(f, "half") ? "Half" : !strcmp(f, "draft") ? "Draft" : "Full game"; }
 
 void smz_race_quote(const char *s, char *out, size_t cap)
 {

@@ -162,8 +162,8 @@ static void home_input(SmzUi *u, UiButton b)
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
-    else if (u->home_cursor == 2 && u->race.on) { u->screen = UI_RACE_SIZE; u->race.cursor = 0; }
-    else snprintf(u->notice, sizeof u->notice, u->home_cursor == 2 ? "Online races need a connection" : "Online draft isn't ready yet");
+    else if (u->race.on) { u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->screen = UI_RACE_SIZE; u->race.cursor = 0; }
+    else snprintf(u->notice, sizeof u->notice, "Online races need a connection");
 }
 
 static void options_input(SmzUi *u, UiButton b)
@@ -186,7 +186,10 @@ static void options_input(SmzUi *u, UiButton b)
 
 static int sprite_opt(int game);
 void ui_race_enable(SmzUi *u, int on) { u->race.on = on; }
-const char *ui_race_format_key(const SmzUi *u) { return u->race.format == 1 ? "sprint" : u->race.format == 2 ? "half" : "full"; }
+const char *ui_race_format_key(const SmzUi *u) { return u->race.format == RACE_DRAFT ? "draft" : u->race.format == 1 ? "sprint" : u->race.format == 2 ? "half" : "full"; }
+
+/* The paused race row: Championship only, since a Draft never pauses. */
+static int paused_row(const SmzUi *u) { return u->race.paused_code[0] && u->race.format != RACE_DRAFT; }
 
 static void race_reset(SmzUi *u) { memset(&u->race.room, 0, sizeof u->race.room); u->race.getting_ready = u->race.started = 0; }
 
@@ -208,6 +211,10 @@ void ui_race_fail(SmzUi *u, const char *msg)
 void ui_race_rooms(SmzUi *u, const char *json)
 {
     u->race.room_count = smz_race_rooms(json, u->race.rooms, RACE_ROOMS);
+    int n = 0;   /* Online draft lists Drafts, Championship the rest */
+    for (int i = 0; i < u->race.room_count; i++)
+        if (!strcmp(u->race.rooms[i].format, "draft") == (u->race.format == RACE_DRAFT)) u->race.rooms[n++] = u->race.rooms[i];
+    u->race.room_count = n;
     u->race.rooms_loaded = json ? 1 : -1;
     if (u->race.cursor >= u->race.room_count) u->race.cursor = 0;
 }
@@ -232,7 +239,7 @@ void ui_race_update(SmzUi *u, const char *json, int64_t local_now)
 static int race_rows(const SmzUi *u)
 {
     switch (u->screen) {
-    case UI_RACE_SIZE: return 2 + (u->race.paused_code[0] != 0);
+    case UI_RACE_SIZE: return 2 + paused_row(u);
     case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC: return 2;
     case UI_RACE_WAY: return 3;
     case UI_RACE_LIST: return u->race.room_count;
@@ -250,10 +257,13 @@ static void race_input(SmzUi *u, UiButton b)
     if (b == BTN_B) {
         switch (u->screen) {
         case UI_RACE_SIZE: u->screen = UI_HOME; break;
-        case UI_RACE_WAY: u->screen = UI_RACE_SIZE; *c = (u->race.size == 2 ? 0 : 1) + (u->race.paused_code[0] != 0); break;
+        case UI_RACE_WAY: u->screen = UI_RACE_SIZE; *c = (u->race.size == 2 ? 0 : 1) + paused_row(u); break;
         case UI_RACE_FORMAT: u->screen = UI_RACE_WAY; *c = 0; break;
         case UI_RACE_LENGTH: u->screen = UI_RACE_FORMAT; *c = 1; break;
-        case UI_RACE_PUBLIC: u->screen = u->race.format ? UI_RACE_LENGTH : UI_RACE_FORMAT; *c = u->race.format ? u->race.format - 1 : 0; break;
+        case UI_RACE_PUBLIC:
+            if (u->race.format == RACE_DRAFT) { u->screen = UI_RACE_WAY; *c = 0; break; }
+            u->screen = u->race.format ? UI_RACE_LENGTH : UI_RACE_FORMAT; *c = u->race.format ? u->race.format - 1 : 0;
+            break;
         case UI_RACE_LIST: u->screen = UI_RACE_WAY; *c = 2; break;
         case UI_RACE_ROOM: case UI_RACE_READY: u->action = ACT_RACE_LEAVE; race_reset(u); u->screen = UI_RACE_WAY; *c = 0; break;
         default: break;
@@ -263,13 +273,13 @@ static void race_input(SmzUi *u, UiButton b)
     if (b != BTN_A) return;
     switch (u->screen) {
     case UI_RACE_SIZE: {
-        int k = *c - (u->race.paused_code[0] != 0);   /* -1: the paused race */
+        int k = *c - paused_row(u);   /* -1: the paused race */
         if (k < 0) { u->action = ACT_RACE_RESUME; break; }
         u->race.size = k ? 8 : 2; u->screen = UI_RACE_WAY; *c = 0;
         break;
     }
     case UI_RACE_WAY:
-        if (*c == 0) { u->screen = UI_RACE_FORMAT; *c = 0; }
+        if (*c == 0) { u->screen = u->race.format == RACE_DRAFT ? UI_RACE_PUBLIC : UI_RACE_FORMAT; *c = 0; }
         else if (*c == 1) { u->name_for = 2; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; }
         else { u->race.rooms_loaded = 0; u->race.room_count = 0; u->screen = UI_RACE_LIST; *c = 0; u->action = ACT_RACE_FIND; }
         break;
@@ -1751,10 +1761,10 @@ static void race_draw(SmzUi *u)
     SmzRace *r = &u->race.room;
     switch (u->screen) {
     case UI_RACE_SIZE:
-        title(u, "Championship");
-        text(u, 10, 34, C_DIM, 0, "A normal run from the start. First to the goal wins.");
+        title(u, u->race.format == RACE_DRAFT ? "Online draft" : "Championship");
+        text(u, 10, 34, C_DIM, 0, u->race.format == RACE_DRAFT ? "One goal, the same start for everyone. 5 to 15 minutes." : "A normal run from the start. First to the goal wins.");
     {
-        int p = u->race.paused_code[0] != 0;
+        int p = paused_row(u);
         if (p) {
             char when[24];
             smz_race_when(u->race.paused_resume, when, sizeof when);
@@ -1807,7 +1817,8 @@ static void race_draw(SmzUi *u)
     case UI_RACE_ROOM: {
         int creator = !strcmp(r->you, r->creator);
         title(u, "Room");
-        snprintf(buf, sizeof buf, "Championship, %s", smz_race_format_name(r->format));
+        if (!strcmp(r->format, "draft")) snprintf(buf, sizeof buf, "Online draft");
+        else snprintf(buf, sizeof buf, "Championship, %s", smz_race_format_name(r->format));
         text(u, 10, 34, C_DIM, 0, buf);
         snprintf(buf, sizeof buf, "Code  %s", r->code);
         text(u, UI_W - 10, 34, C_ACCENT, 2, buf);
@@ -2054,12 +2065,12 @@ void ui_draw(SmzUi *u)
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, "logo");
         text(u, UI_W / 2, 48, C_ACCENT, 1, "SMZ3");
         for (int r = 0; r < HOME_ROWS; r++) {
-            int y = 70 + r * 34, online = r == 1 || (r == 2 && !u->race.on);
+            int y = 70 + r * 34, off = (r == 1 || r == 2) && !u->race.on;   /* the online rows, without a connection */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
-            rect(u, 24, y, 5, 28, online ? C_DIM : C_ACCENT);
+            rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
             hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
-            text(u, 38, y + 8, online ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
-            if (online) text(u, UI_W - 32, y + 8, C_DIM, 2, "Soon");
+            text(u, 38, y + 8, off ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
+            if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, "Offline");
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         legend(u, "A Choose");

@@ -216,10 +216,11 @@ void ui_home_enable(SmzUi *u, int mask);
 void ui_home_open(SmzUi *u);
 void ui_tick(SmzUi *u, int ms);
 /* Online races: once enabled, Championship opens the race screens. The host answers the actions: ACT_RACE_CREATE (race.size,
- * race.format 0 full 1 sprint 2 half, race.is_public), ACT_RACE_JOIN (race.code), ACT_RACE_FIND (then ui_race_rooms), ACT_RACE_CLOSE,
+ * race.format 0 full 1 sprint 2 half, RACE_DRAFT a Draft, race.is_public), ACT_RACE_JOIN (race.code), ACT_RACE_FIND (then ui_race_rooms), ACT_RACE_CLOSE,
  * ACT_RACE_KICK (the player in action_slot), ACT_RACE_READY (the host builds the game with the Link and Samus picked, then
  * confirms), ACT_RACE_LEAVE, and ACT_RACE_START once the race runs. Every server answer goes to ui_race_update, a failure to
  * ui_race_fail. */
+#define RACE_DRAFT 3   /* race.format of Online draft */
 void ui_race_enable(SmzUi *u, int on);
 /* A paused race this device keeps: Championship shows it first, and choosing it is ACT_RACE_RESUME. Code "" when none. */
 void ui_race_set_paused(SmzUi *u, const char *code, int64_t resume_at);

@@ -1275,6 +1275,8 @@ static void snapshot_run(SmzRun *r, SmzTracker *t, int finished)
 static struct {
     int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count, mine_shown;
     int back, skip_old, kept, offline_noted, pick, pick_i;   /* back: a paused race loaded again and waiting to go on */
+    int draft;                                            /* a Draft: its goal, shown at the 3, 2, 1, is the finish */
+    SmzGoal goal;
     int64_t shown, vote_done;
     char typed[84];                                       /* the CHAT tab: the line being typed, the quick phrase, the player picked */
     int phrase, who, chat_off, n_muted;
@@ -1409,7 +1411,7 @@ static int race_card_a(void)
 {
     if (rg.card == CARD_PAUSED) return 1;
     int st = ui.race.room.state;
-    if (race_won() && !rg.ladder && (st == RACE_FINISHED || st == RACE_RUNNING)) { rg.ladder = 1; race_send("ladder", "", 1); sfx_play(SFX_CONFIRM); }
+    if (race_won() && !rg.draft && !rg.ladder && (st == RACE_FINISHED || st == RACE_RUNNING)) { rg.ladder = 1; race_send("ladder", "", 1); sfx_play(SFX_CONFIRM); }
     else rg.card = 0;
     return 0;
 }
@@ -1529,6 +1531,25 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
             gfx_text(gx + gw / 2, wh / 2.0f - 80 * u, 160 * u, n ? C(0xF2, 0xA3, 0x3A) : C(0x7F, 0xD8, 0x8F), 1, m);
         }
     }
+    if (rg.draft && r->state == RACE_RUNNING && go_in < 4000 && go_in > -6000) {   /* the goal, shown to everyone at the 3, 2, 1 */
+        char m[64];
+        smz_goal_text(&rg.goal, m, sizeof m);
+        float tw = gfx_text_width(30 * u, m);
+        gfx_rect(gx + (gw - tw) / 2 - 20 * u, wh / 2.0f + 100 * u, tw + 40 * u, 52 * u, (SDL_Color){0x08, 0x0B, 0x11, 225});
+        gfx_text(gx + gw / 2, wh / 2.0f + 110 * u, 30 * u, C(0xE8, 0xEC, 0xF2), 1, m);
+    }
+    if (rg.draft && r->state == RACE_RUNNING && go_in <= -6000 && !rg.card) {   /* the goal and the 30 minute limit, small at the top left */
+        char m[96], g[64];
+        int64_t left = r->start_at + 30 * 60000LL - race_now();
+        if (left < 0) left = 0;
+        smz_goal_text(&rg.goal, g, sizeof g);
+        int pc = smz_goal_progress(&rg.goal, &g_goalc, 0);
+        if (rg.goal.kind == GOAL_KILLS || rg.goal.kind == GOAL_RUPEES) snprintf(m, sizeof m, "%s  %d%%  %d:%02d", g, pc, (int)(left / 60000), (int)(left / 1000 % 60));
+        else snprintf(m, sizeof m, "%s  %d:%02d", g, (int)(left / 60000), (int)(left / 1000 % 60));
+        float tw = gfx_text_width(18 * u, m);
+        gfx_rect(gx + 14 * u, 14 * u, tw + 24 * u, 32 * u, (SDL_Color){0x08, 0x0B, 0x11, 190});
+        gfx_text(gx + 26 * u, 20 * u, 18 * u, C(0xE8, 0xEC, 0xF2), 0, m);
+    }
     if (r->state == RACE_RUNNING && r->end_at) {   /* a multi race after the first finish */
         int64_t left = r->end_at - race_now();
         if (left < 0) left = 0;
@@ -1583,6 +1604,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
     if (paused) snprintf(title, sizeof title, "RACE PAUSED");
     else if (cancelled) snprintf(title, sizeof title, "RACE CANCELLED");
     else if (race_first()) snprintf(title, sizeof title, "VICTORY");
+    else if (!strcmp(r->end_why, "draw")) snprintf(title, sizeof title, "DRAW");
     else if (me && me->place) snprintf(title, sizeof title, "%d%s PLACE", me->place, ordinal(me->place));
     else snprintf(title, sizeof title, "DEFEAT");
     gfx_text(ww / 2.0f, py + 22 * u, 44 * u, paused || race_first() ? C(0xF2, 0xA3, 0x3A) : cancelled ? C(0x87, 0x93, 0xA6) : C(0xE0, 0x5A, 0x4F), 1, title);
@@ -1612,7 +1634,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
         gfx_text(ww / 2.0f, by - 30 * u, 20 * u, C(0x4F, 0xC3, 0xF7), 1, "Saved to the ladder");
         static const HelpItem DONE[] = {{"A", "Enter", "Keep watching"}, {"B", "Esc", "Close"}};
         help_prompt(ww / 2.0f, by, 40 * u, DONE, 2);
-    } else if (won && (r->state == RACE_FINISHED || r->state == RACE_RUNNING)) {
+    } else if (won && !rg.draft && (r->state == RACE_FINISHED || r->state == RACE_RUNNING)) {
         static const HelpItem WIN[] = {{"A", "Enter", "Save to ladder"}, {"B", "Esc", "Close"}};
         help_prompt(ww / 2.0f, by, 40 * u, WIN, 2);
     } else {
@@ -1693,7 +1715,8 @@ static void play(int slot, int game_save_only)
     smz_tracker_reset(&trk, run.play_ms, run.save_ms, run.save_zelda, run.save_metroid);
     smz_counters_load(&g_goalc, run.goals);
     Uint32 next_goals = SDL_GetTicks() + 300000;
-    smz_goal_from_settings(run.settings, &trk.goal);   /* a daily challenge ends at its goal */
+    smz_goal_from_settings(run.settings, &trk.goal);   /* a daily challenge or a Draft ends at its goal */
+    trk.counts = &g_goalc;
     int challenge = strstr(run.settings, "\"challenge\":true") != NULL;   /* no fast forward (save states are off in its settings) */
     /* rewind, only when the run asks for it and sends nothing online: a state every frame for up to a minute, packed as
      * the changes between frames; without it nothing is kept or saved */
@@ -1733,6 +1756,8 @@ static void play(int slot, int game_save_only)
         rg.shown = ui.race.room.since;
         int gc = json_num(run.settings, "ganonCrystals", 7), tc = json_num(run.settings, "ganonsTowerCrystals", 7);
         rg.need = (gc > tc ? gc : tc) + json_num(run.settings, "tourianBosses", 4);
+        rg.draft = !strcmp(ui.race.room.format, "draft");
+        rg.goal = trk.goal;
         ntabs = TAB_COUNT + 1;   /* CHAT */
         pause_on_overlay = 0;    /* a race never stops for the tracker */
         size_t n;
@@ -2059,8 +2084,9 @@ static void play(int slot, int game_save_only)
                     for (int i = 0; i < 7; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); race_event(m); }
                     rg.bosses |= nb; rg.crystals |= nc;
                     int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
-                    race_set_progress(pc > 99 ? 99 : pc);   /* 100 is the finish, from the server */
+                    if (!rg.draft) race_set_progress(pc > 99 ? 99 : pc);   /* 100 is the finish, from the server */
                 }
+                if (rg.on && rg.draft) race_set_progress(smz_goal_progress(&trk.goal, &g_goalc, 0));
                 if (trk.game == 3 && !finished) {
                     finished = 1;
                     states = 0;   /* no state can take a finished run back */
@@ -2462,12 +2488,10 @@ static int race_build(char *err, size_t cap)
     generate(&j);
     size_t sl = strlen(j.run.settings);
     if (j.rc) snprintf(err, cap, "%s", j.err);
-    else if (sl + 20 >= sizeof j.run.settings || j.run.settings[0] != '{') snprintf(err, cap, "the race's settings do not fit");
+    else if (sl + 80 >= sizeof j.run.settings || j.run.settings[0] != '{') snprintf(err, cap, "the race's settings do not fit");
     else {
-        if (!strstr(j.run.settings, "\"challenge\":true")) {   /* no states, fast forward or rewind, as in the daily */
-            memmove(j.run.settings + 18, j.run.settings + 1, sl);
-            memcpy(j.run.settings + 1, "\"challenge\":true,", 17);
-        }
+        smz_race_mark_settings(j.run.settings, sizeof j.run.settings, ui.race.room.settings);   /* checked above to fit */
+        if (smz_race_apply_start(j.rom, ui.race.room.settings)) { snprintf(err, cap, "the Draft's start does not fit this ROM"); goto done; }
         static const char *const OLD[] = {"srm", "proof", "discovery", "state"};
         for (int i = 0; i < 4; i++) remove(store_path("runs/slot%d.%s", RACE_SLOT, OLD[i]));
         rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
@@ -2475,6 +2499,7 @@ static int race_build(char *err, size_t cap)
         if (store_write(j.run.rom_path, j.rom, SMZ_HOST_ROM_SIZE) || store_run_save(RACE_SLOT, &j.run)) snprintf(err, cap, "cannot write the run files");
         else rc = 0;
     }
+done:
     gen_free(&j);
     free(sm); free(z3);
     return rc;

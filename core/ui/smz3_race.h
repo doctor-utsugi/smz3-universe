@@ -54,7 +54,7 @@ void smz_race_error(const char *json, char *out, size_t cap);
 const SmzRacePlayer *smz_race_me(const SmzRace *r);
 /* Server time now, from this device's clock. */
 int64_t smz_race_server_now(const SmzRace *r, int64_t local_now);
-/* The format's name for people ("Full game", "Sprint", "Half"). */
+/* The format's name for people ("Full game", "Sprint", "Half", "Draft"). */
 const char *smz_race_format_name(const char *format);
 /* Whether this player said yes to the pause being voted. */
 int smz_race_voted(const SmzRace *r);
