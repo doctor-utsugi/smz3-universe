@@ -193,8 +193,11 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
    in `core/ui`, with the online entries greyed out until step 5. Options opens Buttons and Video only on PC and the Linux
    handhelds; Android sets the buttons in the game's CONFIG tab and the 3DS in its game menu, so there Options has Player and
    Quit.
-3. **Move to salamando.** The ladder and daily with their data, keeping `smz3.indieviral.com` as the address, because released versions have it built in.
-4. **Server.** Rooms, poll, ready, finish, on salamando, with Redis.
+3. **Move to salamando.** Not needed: `smz3.indieviral.com` already runs on salamando, behind its Apache.
+4. **Server.** Built: `server/ladder/race.js`, loaded by `server.js`, with `redis.js`, a client of its own so the server keeps
+   no packages. Rooms live in Redis database 5 under `smz3:`, finished races and the race ladders in `data/races.json`.
+   Salamando's Redis is shared and saves snapshots (RDB), not every write, so its config stays as it is. Pause and Draft
+   are not in it yet.
 5. **Core and PC.** `smz3_race.c`, skin pick, ready room, shared start with the hold on the first frame, Championship Full 1 vs 1.
 6. **Android and 3DS** join the same race, each with its own hold. This is where polling on a real 3DS gets measured.
 7. **Multi race,** positions, abandon rules, Partial lengths, pause by agreement, ladder.
