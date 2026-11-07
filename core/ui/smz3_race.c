@@ -1,4 +1,5 @@
 #include "smz3_race.h"
+#include "smz3_rom.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -213,4 +214,31 @@ void smz_race_quote(const char *s, char *out, size_t cap)
     }
     out[n++] = '"';
     out[n] = 0;
+}
+
+int smz_race_mark_settings(char *json, size_t cap, const char *room)
+{
+    char goal[32], start[16], add[96];
+    str(room ? get(room, "goal") : NULL, goal, sizeof goal);
+    str(room ? get(room, "start") : NULL, start, sizeof start);
+    int an = 0;
+    if (!strstr(json, "\"challenge\":")) an += snprintf(add + an, sizeof add - an, "\"challenge\":true,");   /* no states, fast forward or rewind */
+    if (goal[0] && !strstr(json, "\"goal\":")) an += snprintf(add + an, sizeof add - an, "\"goal\":\"%s\",", goal);
+    if (start[0] && !strstr(json, "\"start\":")) an += snprintf(add + an, sizeof add - an, "\"start\":\"%s\",", start);
+    size_t n = strlen(json);
+    if (json[0] != '{' || n + (size_t)an + 1 > cap) return -1;
+    memmove(json + 1 + an, json + 1, n);   /* the terminator moves too */
+    memcpy(json + 1, add, (size_t)an);
+    return 0;
+}
+
+int smz_race_apply_start(uint8_t *rom, const char *settings)
+{
+    char start[16];
+    int a, b;
+    str(settings ? get(settings, "start") : NULL, start, sizeof start);
+    if (!start[0]) return 0;
+    int rc = sscanf(start, "sm:%d:%d", &a, &b) == 2 ? smz_rom_start_sm(rom, a, b) : sscanf(start, "z3:%d", &a) == 1 ? smz_rom_start_z3(rom, a) : -1;
+    if (!rc) smz_rom_checksum(rom);
+    return rc;
 }

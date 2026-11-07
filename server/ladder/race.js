@@ -1,5 +1,5 @@
 // Online races (docs/RACES.md): rooms of 2 to 8 players on one seed, kept live in Redis, results kept in data/races.json.
-// Championship only for now; Draft needs its start points first.
+// Championship (a run from the start, Full or Partial) and Draft (a short goal from a start spot, made by smz3daily --draft).
 //   POST /api/race/create {install, player, country, version, format, size, public}  -> {token, id, code}
 //   POST /api/race/join   {install, player, country, version, code}                   -> {token, id, code}
 //   GET  /api/race/open                                         -> {rooms: [{code, format, size, players, creator}]}
@@ -11,9 +11,10 @@
 //   POST /api/race/finish {token, proof}          the time is the server's arrival time minus startAt
 //   POST /api/race/leave  {token}
 //   POST /api/race/ladder {token}                 the winner keeps their time
-//   GET  /api/race/ladder?format=full|sprint|half
+//   GET  /api/race/ladder?format=full|sprint|half   (Draft has no ladder)
 // Room states: open (players join), closed (skins, ready room; the seed is out), running (from startAt), finished, cancelled.
 const fs = require('fs');
+const { execFile } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -21,7 +22,12 @@ const FORMATS = {   // the Championship lengths: the run's rules, and the countd
   full: { rules: {}, countdownMin: 60 },
   sprint: { rules: { ganonCrystals: 2, ganonsTowerCrystals: 2, tourianBosses: 1 }, countdownMin: 15 },
   half: { rules: { ganonCrystals: 4, ganonsTowerCrystals: 4, tourianBosses: 2 }, countdownMin: 30 },
+  draft: { rules: {}, countdownMin: 5 },
 };
+const LADDERS = ['full', 'sprint', 'half'];
+const DRAFT_MS = 30 * 60 * 1000;    // a Draft ends here even if nobody reached the goal
+const DRAFT_MIN_MS = 30 * 1000;     // a Draft finish this soon can't be real
+const DRAFT_POOL = 6;               // Drafts made and checked ahead, so closing a room doesn't wait for the generator
 const ROOM_MS = 3600 * 1000;        // a room that never gets going
 const LIVE_S = 6 * 3600;            // a running race's key, renewed on every change and poll
 const DONE_S = 3600;                // a finished race stays readable for its results
@@ -42,9 +48,33 @@ module.exports = function race(ctx) {
   const K = s => 'smz3:' + s;
   const FILE = path.join(DIR, 'races.json');
   const VERSION = process.env.SMZ3_APP_VERSION || '';   // when set, rooms only take this app version
+  const DRAFT_BIN = process.env.SMZ3DRAFT || path.join(__dirname, 'smz3draft');   // smz3daily built with the app version that plays the Drafts
+
+  // The Draft reserve: each one new (a random id), never handed out twice.
+  const drafts = [];
+  let making = false;
+  function makeDraft(done) {
+    execFile(DRAFT_BIN, ['--draft', crypto.randomBytes(6).toString('hex')], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
+      let d = null;
+      try { if (!err) d = JSON.parse(out); } catch (e) {}
+      done(d && d.settings && d.goal ? d : null);
+    });
+  }
+  function fillDrafts() {
+    if (making || drafts.length >= DRAFT_POOL) return;
+    making = true;
+    makeDraft(d => { making = false; if (d) { drafts.push(d); fillDrafts(); } });
+  }
+  fillDrafts();
+  const takeDraft = () => new Promise(done => {
+    const d = drafts.shift();
+    fillDrafts();
+    if (d) return done(d);
+    makeDraft(done);
+  });
 
   // results: finished races; ladder[format]: one best time per install
-  let db = { results: [], ladder: { full: [], sprint: [], half: [] } };
+  let db = { results: [], ladder: { full: [], sprint: [], half: [] } };   // Draft has no ladder: its goals never repeat
   try { db = Object.assign(db, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) {}
   function save() {
     db.results = db.results.slice(-2000);
@@ -107,6 +137,14 @@ module.exports = function race(ctx) {
     for (const p of left) if (p.timeMs == null && now - p.lastSeen > RETURN_MS) { p.left = true; note(room, 'system', p.pid, p.name + ' left the race'); changed = true; }
     const still = inRace(room).filter(p => p.timeMs == null);
     const end = (why) => { room.state = 'finished'; room.endedAt = now; room.endWhy = why; record(room); return true; };
+    if (room.format === 'draft' && now >= room.startAt + DRAFT_MS) {
+      // time is up: the finishers keep their places; with none, a multi race goes to the highest %, and 1 vs 1 is a draw
+      if (!done.length && room.size > 2) {
+        const top = Math.max(0, ...still.map(p => p.progress || 0));
+        if (top > 0) for (const p of still) if ((p.progress || 0) === top) p.topPlace = 1;
+      }
+      return end(done.length ? 'time' : 'draw');
+    }
     if (room.size === 2 && done.length) return end('finish');
     if (!inRace(room).length) { room.state = 'cancelled'; room.endedAt = now; room.endWhy = 'everyone left'; record(room); return true; }
     if (inRace(room).length === 1 && !done.length && room.players.length > 1) { inRace(room)[0].forfeitWin = true; return end('last one left'); }
@@ -159,7 +197,7 @@ module.exports = function race(ctx) {
     return room.players.map(p => {
       const i = fin.indexOf(p);
       return { pid: p.pid, name: p.name, country: p.country, link: p.link, samus: p.samus, ready: p.ready, left: !!p.left,
-        progress: p.progress, timeMs: p.timeMs, place: i >= 0 ? i + 1 : p.forfeitWin ? 1 : 0, held: !!p.held,
+        progress: p.progress, timeMs: p.timeMs, place: i >= 0 ? i + 1 : p.forfeitWin || p.topPlace ? 1 : 0, held: !!p.held,
         away: room.state === 'running' && !p.left && p.timeMs == null && clock() - p.lastSeen > 15000, back: !!p.back };
     });
   }
@@ -174,7 +212,8 @@ module.exports = function race(ctx) {
     const v = { code: room.code, state: room.state, format: room.format, size: room.size, public: room.public, creator: room.creator,
       startAt: room.startAt, goAt: room.goAt || room.startAt, endAt: room.endAt, players: standings(room), endWhy: room.endWhy,
       resumeAt: room.resumeAt, pauses: room.pauses || 0, vote: room.vote || undefined };
-    if (room.state !== 'open') { v.seed = room.seed; v.settings = room.settings; }
+    if (room.state !== 'open') { v.seed = room.seed; v.settings = room.settings; if (room.draft) v.draft = room.draft; }
+    if (room.format === 'draft' && room.startAt) v.limitAt = room.startAt + DRAFT_MS + (room.pausedMs || 0);
     return v;
   }
 
@@ -250,7 +289,7 @@ module.exports = function race(ctx) {
       return true;
     }
     if (req.method === 'GET' && p === '/api/race/ladder') {
-      const f = FORMATS[url.searchParams.get('format')] ? url.searchParams.get('format') : 'full';
+      const f = LADDERS.includes(url.searchParams.get('format')) ? url.searchParams.get('format') : 'full';
       send(res, 200, { format: f, runs: db.ladder[f].filter(e => !e.hold).sort((a, b) => a.timeMs - b.timeMs).slice(0, 100).map(({ install, hold, ...e }) => e) });
       return true;
     }
@@ -265,7 +304,7 @@ module.exports = function race(ctx) {
         const size = b.size === 2 ? 2 : 8;
         newCode().then(code => {
           const id = crypto.randomBytes(8).toString('hex'), me = newPlayer(b);
-          const room = { id, code, public: !!b.public, mode: 'championship', format: b.format, size, version: String(b.version || ''), creator: me.pid,
+          const room = { id, code, public: !!b.public, mode: b.format === 'draft' ? 'draft' : 'championship', format: b.format, size, version: String(b.version || ''), creator: me.pid,
             state: 'open', createdAt: clock(), players: [me], seq: 0, log: [] };
           return r.cmd('SET', K('code:' + code), id, 'PX', ROOM_MS).then(() => store(room)).then(() => send(res, 200, { token: tokenOf(id, me.pid), id, code }));
         }).catch(() => fail(res, 503, 'race server unavailable'));
@@ -302,9 +341,17 @@ module.exports = function race(ctx) {
         case 'close':
           if (!creator || room.state !== 'open') return fail(res, 409, 'not now');
           if (room.players.length < 2) return fail(res, 409, 'needs 2 players');
+          if (room.format === 'draft') {
+            const d = await takeDraft();
+            if (!d) return fail(res, 503, 'no Draft ready, try again');
+            room.seed = String(d.seed);
+            room.settings = d.settings;
+            room.draft = { spot: d.spot, start: d.start, goal: d.goal.text, estimateMin: d.estimateMin };
+          } else {
+            room.seed = String(crypto.randomInt(100000000, 1000000000));
+            room.settings = JSON.stringify(Object.assign({ seed: room.seed, challenge: true }, FORMATS[room.format].rules));
+          }
           room.state = 'closed';
-          room.seed = String(crypto.randomInt(100000000, 1000000000));
-          room.settings = JSON.stringify(Object.assign({ seed: room.seed, challenge: true }, FORMATS[room.format].rules));
           note(room, 'system', me.pid, 'Room closed: pick your skins');
           return { room: view(room) };
         case 'kick': {
@@ -361,14 +408,16 @@ module.exports = function race(ctx) {
           // A finish queued while the server was down keeps the moment it happened, never later than its arrival.
           const at = Number(b.finishAt), down = (room.outages || []).some(([from, to]) => at >= from && at <= to);
           const timeMs = raceMs(room, Number.isFinite(at) && down && at <= now && at >= room.goAt ? at : now);
-          if (timeMs < MIN_MS) return fail(res, 400, 'invalid time');
-          const verdict = await new Promise(done => verifyProof('race', room.settings, { proof: b.proof }, timeMs, (err, v) => done(err ? { err } : v)));
+          if (timeMs < (room.format === 'draft' ? DRAFT_MIN_MS : MIN_MS)) return fail(res, 400, 'invalid time');
+          // a Draft's goal may open no check at all (enemies, rupees), so its finish is trusted: only the time is checked
+          const verdict = room.format === 'draft' ? {} : await new Promise(done => verifyProof('race', room.settings, { proof: b.proof }, timeMs, (err, v) => done(err ? { err } : v)));
           if (verdict.err) return fail(res, 400, verdict.err);   // a proof that can't have happened: the finish doesn't count
           me.timeMs = timeMs; me.progress = 100;
           room.vote = null;   // no pause after the first finish
           if (verdict.suspect) me.held = verdict.reason;   // counts for the race; its ladder entry waits for a review
           note(room, 'finish', me.pid, me.name + ' finished');
           if (room.size > 2 && !room.endAt) room.endAt = now + FORMATS[room.format].countdownMin * 60000;
+          if (room.format === 'draft' && room.endAt) room.endAt = Math.min(room.endAt, room.startAt + DRAFT_MS);
           settle(room);
           return { room: view(room), timeMs };
         }
@@ -395,6 +444,7 @@ module.exports = function race(ctx) {
         case 'ladder': {
           const mine = standings(room).find(q => q.pid === me.pid);
           // the first finish is first for good, so its time can go on the ladder before the race ends
+          if (!LADDERS.includes(room.format)) return fail(res, 409, 'no ladder for this race');
           if ((room.state !== 'finished' && room.state !== 'running') || !mine || mine.place !== 1 || me.timeMs == null) return fail(res, 409, 'only the winner who finished');
           const table = db.ladder[room.format], i = table.findIndex(e => e.install === me.install);
           const entry = { player: me.name, country: me.country, timeMs: me.timeMs, at: now, install: me.install, hold: me.held || undefined, paused: room.pauses ? true : undefined };

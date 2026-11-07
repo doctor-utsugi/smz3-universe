@@ -6,14 +6,18 @@
  *   crystals:<n>  at least n crystals
  *   smbosses:<n>  at least n of the four Super Metroid bosses
  *   zdungeon:<hex> Link is inside that dungeon ($7E040C)
- *   smarea:<n>    Samus is in that area ($7E079F: 0 Crateria, 1 Brinstar, 2 Norfair, 3 Wrecked Ship, 4 Maridia, 5 Tourian) */
+ *   smarea:<n>    Samus is in that area ($7E079F: 0 Crateria, 1 Brinstar, 2 Norfair, 3 Wrecked Ship, 4 Maridia, 5 Tourian)
+ * Draft races add two counted goals, read from the run's counters instead of memory:
+ *   kills:<n>     n enemies defeated, in either game
+ *   rupees:<n>    n rupees picked up */
 #ifndef SMZ3_GOAL_H
 #define SMZ3_GOAL_H
 
 #include <stddef.h>
 #include <stdint.h>
+#include "smz3_counters.h"
 
-typedef enum { GOAL_NONE, GOAL_LOC, GOAL_ZBOSS, GOAL_AGA, GOAL_SMBOSS, GOAL_CRYSTALS, GOAL_SMBOSSES, GOAL_ZDUNGEON, GOAL_SMAREA } SmzGoalKind;
+typedef enum { GOAL_NONE, GOAL_LOC, GOAL_ZBOSS, GOAL_AGA, GOAL_SMBOSS, GOAL_CRYSTALS, GOAL_SMBOSSES, GOAL_ZDUNGEON, GOAL_SMAREA, GOAL_KILLS, GOAL_RUPEES } SmzGoalKind;
 
 typedef struct { SmzGoalKind kind; int value; } SmzGoal;
 
@@ -23,5 +27,11 @@ int smz_goal_parse(const char *text, SmzGoal *g);
 int smz_goal_from_settings(const char *settings_json, SmzGoal *g);
 /* 1 when the goal is met in this memory. */
 int smz_goal_done(const SmzGoal *g, const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len);
+/* 1 when a counted goal (kills, rupees) is met by these counters; 0 for the other kinds or without counters. */
+int smz_goal_counted(const SmzGoal *g, const SmzCounters *c);
+/* How far the goal is, 0 to 100: the count so far for a counted goal, otherwise 0 until done. */
+int smz_goal_progress(const SmzGoal *g, const SmzCounters *c, int done);
+/* The goal for people ("Defeat 25 enemies", "Defeat Kraid"). */
+void smz_goal_text(const SmzGoal *g, char *out, size_t cap);
 
 #endif

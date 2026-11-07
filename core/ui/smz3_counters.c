@@ -9,6 +9,7 @@ static const char *const KEYS[SMC_COUNT] = {
     "metroid", "pirate", "zoomer", "sidehopper",
     "kraid", "phantoon", "draygon", "ridley", "sporespawn", "crocomire", "botwoon", "goldentorizo", "bombtorizo",
     "swaps", "items", "runs",
+    "kills",
 };
 
 const char *smz_counter_key(int i) { return i >= 0 && i < SMC_COUNT ? KEYS[i] : ""; }
@@ -87,8 +88,9 @@ void smz_counters_tick(SmzCounters *c, int game, const uint8_t *wram, size_t wl,
         if (same && rupees > c->rupees && rupees - c->rupees <= 300) c->n[SMC_RUPEES] += rupees - c->rupees;
         for (int i = 0; i < 16; i++) {
             unsigned st = at(wram, wl, 0x0DD0 + i), ty = at(wram, wl, 0x0E20 + i);
-            int e = zelda_enemy(ty);
-            if (same && e >= 0 && st == 0x06 && (c->zstate[i] != 0x06 || c->ztype[i] != ty)) c->n[e]++;   /* just started dying */
+            int e = zelda_enemy(ty), dying = same && st == 0x06 && (c->zstate[i] != 0x06 || c->ztype[i] != ty);   /* just started dying */
+            if (dying && e >= 0) c->n[e]++;
+            if (dying) c->n[SMC_KILLS]++;
             c->zstate[i] = (uint8_t)st; c->ztype[i] = (uint8_t)ty;
         }
     }
@@ -96,8 +98,9 @@ void smz_counters_tick(SmzCounters *c, int game, const uint8_t *wram, size_t wl,
         int same = c->have && c->game == 2 && c->smstate == 8 && c->room == room;
         for (int i = 0; i < 32; i++) {
             unsigned id = at16(wram, wl, 0x0F78 + i * 0x40), hp = at16(wram, wl, 0x0F8C + i * 0x40);
-            int e = metroid_enemy(c->sid[i]);
-            if (same && e >= 0 && c->shp[i] > 0 && (id != c->sid[i] || hp == 0)) c->n[e]++;
+            int e = metroid_enemy(c->sid[i]), died = same && c->sid[i] && c->shp[i] > 0 && (id != c->sid[i] || hp == 0);
+            if (died && e >= 0) c->n[e]++;
+            if (died) c->n[SMC_KILLS]++;
             c->sid[i] = (uint16_t)id; c->shp[i] = (uint16_t)hp;
         }
     }

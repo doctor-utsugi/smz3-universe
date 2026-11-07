@@ -146,7 +146,7 @@ void smz_tracker_tick(SmzTracker *t, const uint8_t *wram, size_t wram_len, const
     int was_over = t->game == SMZ3_GAME_CREDITS;   /* the read that sees the end still counts the time up to it */
     /* an end only counts on a run already seen started, never on the read where memory first looks like a game */
     int may_end = t->started && started && t->base_ms + t->pending_ms >= t->min_end_ms;
-    if (may_end && t->goal.kind != GOAL_NONE && smz_goal_done(&t->goal, wram, wram_len, sram, sram_len)) t->goal_met = 1;
+    if (may_end && t->goal.kind != GOAL_NONE && (smz_goal_done(&t->goal, wram, wram_len, sram, sram_len) || smz_goal_counted(&t->goal, t->counts))) t->goal_met = 1;
     t->game = (s.finished && may_end) || t->goal_met ? SMZ3_GAME_CREDITS : s.game; t->started = started;   /* game 3 tells the hosts the run is over */
     t->zelda_cleared = s.zelda_cleared; t->zelda_total = s.zelda_total;
     t->metroid_cleared = s.metroid_cleared; t->metroid_total = s.metroid_total;

@@ -15,6 +15,7 @@ enum {
     SMC_KRAID, SMC_PHANTOON, SMC_DRAYGON, SMC_RIDLEY, SMC_SPORE_SPAWN, SMC_CROCOMIRE, SMC_BOTWOON, SMC_GOLDEN_TORIZO,
     SMC_BOMB_TORIZO,
     SMC_SWAPS, SMC_ITEMS, SMC_RUNS,
+    SMC_KILLS,                     /* any enemy in either game (a Draft goal; no world goal uses it) */
     SMC_COUNT
 };
 #define SMC_FIRST_BOSS SMC_ARMOS   /* SMC_ARMOS..SMC_TRINEXX and SMC_KRAID..SMC_BOMB_TORIZO count once per run */

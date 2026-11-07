@@ -28,6 +28,7 @@ typedef struct {
     int64_t save_ms; int save_zelda, save_metroid;   /* the game's own save: valid when save_ms > 0 */
     int save_changed;                        /* set when the save RAM changed during the last tick */
     SmzGoal goal;                            /* a daily challenge's goal (set by the host after reset); GOAL_NONE otherwise */
+    const SmzCounters *counts;               /* the run's counters, for the counted goals of a Draft (set by the host) */
     int goal_met;                            /* stays set once the goal was seen: the run is over */
     int64_t min_end_ms;                      /* set by the host after reset: no goal or finish counts before this much play time */
     int state_loaded;                        /* set by the host after loading a save state: the next reads drop the recent checks and items it undid */

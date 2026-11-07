@@ -60,6 +60,12 @@ const char *smz_race_format_name(const char *format);
 int smz_race_voted(const SmzRace *r);
 /* A server time as this device's local day and hour ("Sat 18:30"). */
 void smz_race_when(int64_t ms, char *out, size_t cap);
+/* Marks a race run's settings JSON (as the host generated it from the room's) as a challenge, with the room's Draft goal
+ * and start when it has them. 0, or -1 when they do not fit in cap. */
+int smz_race_mark_settings(char *json, size_t cap, const char *room_settings);
+/* Writes a Draft's start ("start": "sm:<area>:<station>" or "z3:<exit>") into the ROM and fixes its checksum; 0 when the
+ * settings have no start or it was written, -1 when the ROM refused it. */
+int smz_race_apply_start(uint8_t *rom, const char *settings);
 /* A JSON string with quotes and escapes, for the requests (out gets at most cap bytes). */
 void smz_race_quote(const char *s, char *out, size_t cap);
 

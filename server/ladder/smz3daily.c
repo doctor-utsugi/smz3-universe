@@ -2,7 +2,10 @@
  * shortest item route to the goal with the generator's logic, turns it into timed hints and estimates how long it takes.
  * Prints the first candidate whose estimate is in range as one JSON object (see docs/DAILY.md).
  *   smz3daily <window-id>             the challenge for that window
- *   smz3daily --stats <prefix> <n>    one line per window <prefix>-0 .. <prefix>-(n-1), for tuning the estimate */
+ *   smz3daily --stats <prefix> <n>    one line per window <prefix>-0 .. <prefix>-(n-1), for tuning the estimate
+ *   smz3daily --draft <id>            a Draft race (docs/RACES.md): a start spot, fixed starting items and a goal that is
+ *                                     open from the start and takes 5 to 15 minutes
+ *   smz3daily --draft-stats <prefix> <n>  one line per Draft, for tuning */
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -428,6 +431,7 @@ static int try_candidate(Challenge *c, int attempt)
 static void goal_check(const Challenge *c, char *out, size_t cap)
 {
     const Goal *g = &c->goal;
+    snprintf(out, cap, "?");
     switch (g->kind) {
     case G_ITEM: {
         int idx = -1;
@@ -546,6 +550,203 @@ static int same_seed(const Challenge *c)
     return !memcmp(again.world.item_at, c->seed.world.item_at, sizeof again.world.item_at);
 }
 
+/* ---------- Draft races ---------- */
+
+#define DRAFT_MIN 5.0
+#define DRAFT_MAX 15.0
+
+enum { D_KILLS = 10, D_RUPEES };
+
+/* Where a Draft starts: the spot the ROM patch takes a new game to (core/gen/smz3_rom.h), the logic region it is in and
+ * what it gives so the player is not stuck there. A spot counts only when the logic, with the starting items alone, can
+ * reach its region from the ship, so the way back is open too. */
+typedef struct { const char *code, *name; int region; const char *needs[4]; } DraftSpot;
+static const DraftSpot SPOTS[] = {
+    {"sm:0:0", "the Landing Site", REG_CentralCrateria, {NULL}},
+    {"sm:0:1", "the Crateria save room", REG_CentralCrateria, {"Start with Morph Ball", NULL}},
+    {"sm:1:1", "the Green Brinstar save room", REG_GreenBrinstar, {"Start with Morph Ball", "Start with Morph Bombs", NULL}},
+    {"sm:1:0", "the Pink Brinstar save room", REG_PinkBrinstar, {"Start with Morph Ball", "Start with Morph Bombs", "Start with 5 Super Missiles", NULL}},
+    {"sm:1:4", "the Red Brinstar save room", REG_RedBrinstar, {"Start with Morph Ball", "Start with 5 Power Bombs", "Start with 5 Super Missiles", NULL}},
+    {"sm:1:3", "Kraid's Lair", REG_KraidsLair, {"Start with Morph Ball", "Start with 5 Power Bombs", "Start with 5 Super Missiles", NULL}},
+    {"sm:3:0", "the Wrecked Ship", REG_WreckedShip, {"Start with Morph Ball", "Start with 5 Power Bombs", "Start with 5 Super Missiles", "Start with Speed Booster"}},
+    {"z3:0", "the fortune teller's", REG_LightWorldSouth, {"Start with Fighter's Sword", NULL}},
+    {"z3:1", "Death Mountain", REG_LightWorldDeathMountainWest, {"Start with Fighter's Sword", "Start with Lamp", "Start with Power Glove", NULL}},
+};
+#define N_SPOTS (int)(sizeof SPOTS / sizeof SPOTS[0])
+
+static int draft_spot;
+
+/* The option of the group whose display name is this one, as (group, option); -1 when there is none. */
+static int find_opt(const char *display, int *group)
+{
+    for (int g = 0; g < SMZ_ITEMOPT_GROUPS; g++)
+        for (int o = 0; o < SMZ_ITEMOPT_GROUP[g].count; o++)
+            if (!strcmp(SMZ_ITEMOPT[SMZ_ITEMOPT_GROUP[g].first + o].display, display)) { *group = g; return o; }
+    return -1;
+}
+
+/* What the logic holds before the first check: the starting items and the assumed keys. */
+static void start_prog(const Challenge *c, SmzProg *p)
+{
+    int items[1200], ni = smz_assumed_items(&c->seed, items, 600), ids[512];
+    smz_reachable_prog(&c->seed, items, ni, ids, 512, p);
+}
+
+/* The start-with option that gives exactly this item, as (group, option); -1 when there is none. */
+static int opt_for_item(int type, int *group)
+{
+    for (int g = 0; g < SMZ_ITEMOPT_GROUPS; g++)
+        for (int o = 0; o < SMZ_ITEMOPT_GROUP[g].count; o++) {
+            const SmzItemOpt *x = &SMZ_ITEMOPT[SMZ_ITEMOPT_GROUP[g].first + o];
+            if (x->has_mem && x->match_count == 1 && SMZ_ITEMOPT_MATCH[x->match_first] == type) { *group = g; return o; }
+        }
+    return -1;
+}
+
+static int crystal_open(const Challenge *c, const SmzProg *p)
+{
+    const SmzWorld *w = &c->seed.world;
+    for (int r = 0; r < REG_COUNT; r++)
+        if ((w->reward_of[r] == REWARD_CrystalBlue || w->reward_of[r] == REWARD_CrystalRed) && region_can_retrieve_reward(w, r, p, false)) return 1;
+    return 0;
+}
+
+/* A boss or crystal goal: the items its shortest route needs become starting items too, so it is open from the start;
+ * the seed is filled again with them. 0 when that worked. */
+static int open_goal(Challenge *c, int boss, int crystal)
+{
+    c->goal.kind = G_BOSS; c->goal.target = boss;
+    if (route(c)) return -1;
+    if (c->n_steps > 4) return 1;
+    for (int i = 0; i < c->n_steps; i++) {
+        int g, o = opt_for_item(c->steps[i].item, &g);
+        if (o < 0) return 1;
+        c->s.item_opt[g] = (uint8_t)o;
+    }
+    c->n_steps = 0;
+    SmzSettings eff;
+    if (smz_fill_valid(&c->seed, &c->s, &eff)) return -1;
+    c->n_start_types = smz_start_items(&c->s, c->start_types, SMZ_MAX_START_ITEMS);
+    SmzProg p;
+    start_prog(c, &p);
+    int r = boss_region(&c->seed.world, boss);
+    if (r < 0 || !region_can_enter(&c->seed.world, SPOTS[draft_spot].region, &p, false)) return -1;
+    if (crystal ? !crystal_open(c, &p) : !region_can_beat_boss(&c->seed.world, r, &p, false)) return 1;
+    if (crystal) { c->goal.kind = G_CRYSTALS; c->goal.count = 1; snprintf(c->goal.text, sizeof c->goal.text, "Get a crystal"); }
+    else snprintf(c->goal.text, sizeof c->goal.text, "Defeat %s", boss_name(boss));
+    return 0;
+}
+
+static int pick_draft_goal(Challenge *c, int roll)
+{
+    Goal *g = &c->goal;
+    g->count = 0;
+    if (roll < 30) {
+        g->kind = D_KILLS; g->count = 15 + rnd_n(5) * 5;
+        snprintf(g->text, sizeof g->text, "Defeat %d enemies", g->count);
+        return 0;
+    }
+    if (roll < 45) {
+        g->kind = D_RUPEES; g->count = 50 + rnd_n(9) * 10;
+        snprintf(g->text, sizeof g->text, "Collect %d rupees", g->count);
+        return 0;
+    }
+    /* bosses whose fight and dungeon fit the time */
+    static const int B[] = {BOSS_Kraid, BOSS_Phantoon, BOSS_ArmosKnights, BOSS_Lanmolas, BOSS_Moldorm, BOSS_HelmasaurKing, BOSS_Arrghus,
+                            BOSS_Mothula, BOSS_Blind, BOSS_Kholdstare};
+    if (roll < 85) return open_goal(c, B[rnd_n(sizeof B / sizeof B[0])], 0);
+    /* a crystal: the dungeon of one of them, wherever this seed put them (the light world ones are the quick ones) */
+    const SmzWorld *w = &c->seed.world;
+    int cr[REG_COUNT], nc = 0;
+    for (int r = 0; r < REG_COUNT; r++) if ((w->reward_of[r] == REWARD_CrystalBlue || w->reward_of[r] == REWARD_CrystalRed) && w->boss_of[r] > 0) cr[nc++] = r;
+    return nc ? open_goal(c, w->boss_of[cr[rnd_n(nc)]], 1) : -1;
+}
+
+/* Minutes for a player who knows nothing of the seed but already holds what the goal needs. */
+static void draft_estimate(Challenge *c)
+{
+    int start_sm = SPOTS[draft_spot].code[0] == 's';
+    double m;
+    int goal_sm;
+    switch (c->goal.kind) {
+    case D_KILLS: m = 0.3 * c->goal.count; goal_sm = start_sm; break;
+    case D_RUPEES: m = c->goal.count / 12.0; goal_sm = 0; break;
+    case G_BOSS: m = c->goal.target <= BOSS_Ridley ? 6.0 : 8.0; goal_sm = c->goal.target <= BOSS_Ridley; break;
+    default: m = 9.0; goal_sm = 0; break;   /* a crystal: the nearest dungeon */
+    }
+    if (goal_sm != start_sm) m += 2.5;   /* to a portal and through it */
+    c->est_search = c->est_route = m + 1.0;
+}
+
+/* 0 when the candidate is accepted. */
+static int try_draft(Challenge *c, int attempt)
+{
+    char key[96];
+    snprintf(key, sizeof key, "draft:%s#%d", c->window, attempt);
+    rng_state = hash_str(key);
+    smz_settings_defaults(&c->s);
+    c->dead = 0;
+    c->n_steps = c->n_hints = 0;
+    draft_spot = rnd_n(N_SPOTS);
+    const DraftSpot *sp = &SPOTS[draft_spot];
+    for (int i = 0; i < 4 && sp->needs[i]; i++) { int g, o = find_opt(sp->needs[i], &g); if (o > 0) c->s.item_opt[g] = (uint8_t)o; }
+    for (int k = 1 + rnd_n(3); k > 0; k--) {   /* and a few more, never rupees: they would give a rupee goal away */
+        int g = rnd_n(SMZ_ITEMOPT_GROUPS);
+        if (c->s.item_opt[g] || !strcmp(SMZ_ITEMOPT_GROUP[g].name, "Rupees")) continue;
+        int starts[8], ns = 0;
+        for (int o = 0; o < SMZ_ITEMOPT_GROUP[g].count && ns < 8; o++) if (SMZ_ITEMOPT[SMZ_ITEMOPT_GROUP[g].first + o].has_mem) starts[ns++] = o;
+        if (ns) c->s.item_opt[g] = (uint8_t)starts[rnd_n(ns)];
+    }
+    c->s.seed = (int32_t)(rnd() & 0x7FFFFFFF);
+    SmzSettings eff;
+    if (smz_fill_valid(&c->seed, &c->s, &eff)) return -1;
+    c->n_start_types = smz_start_items(&c->s, c->start_types, SMZ_MAX_START_ITEMS);
+    SmzProg p;
+    start_prog(c, &p);
+    if (!region_can_enter(&c->seed.world, sp->region, &p, false)) return -1;
+    char kk[96];   /* the kind of goal stays the same over the tries of one Draft, so the slow kinds come up as often */
+    snprintf(kk, sizeof kk, "draft:%s#kind", c->window);
+    if (pick_draft_goal(c, (int)((hash_str(kk) >> 20) % 100))) return -1;
+    draft_estimate(c);
+    return c->est_search >= DRAFT_MIN && c->est_search <= DRAFT_MAX ? 0 : 1;
+}
+
+static void draft_check(const Challenge *c, char *out, size_t cap)
+{
+    if (c->goal.kind == D_KILLS) snprintf(out, cap, "kills:%d", c->goal.count);
+    else if (c->goal.kind == D_RUPEES) snprintf(out, cap, "rupees:%d", c->goal.count);
+    else goal_check(c, out, cap);
+}
+
+static void print_draft(const Challenge *c, int attempt)
+{
+    static char js[8192];
+    char check[32];
+    draft_check(c, check, sizeof check);
+    settings_json(c, js, sizeof js);
+    /* the goal and the start go in the run settings the apps keep: swap the daily's goal for the Draft's */
+    char *gp = strstr(js, "\"goal\":\"");
+    if (gp) {
+        char *ge = strchr(gp + 8, '"');
+        char tail[8192];
+        snprintf(tail, sizeof tail, "%s", ge + 1);
+        snprintf(gp, sizeof js - (size_t)(gp - js), "\"goal\":\"%s\",\"start\":\"%s\"%s", check, SPOTS[draft_spot].code, tail);
+    }
+    printf("{\"draft\":");
+    json_str(stdout, c->window);
+    printf(",\"attempt\":%d,\"seed\":%d,\"settings\":", attempt, (int)c->s.seed);
+    json_str(stdout, js);
+    printf(",\"spot\":");
+    json_str(stdout, SPOTS[draft_spot].name);
+    printf(",\"start\":[");
+    int first = 1;
+    for (int g = 0; g < SMZ_ITEMOPT_GROUPS; g++)
+        if (c->s.item_opt[g]) { printf("%s", first ? "" : ","); json_str(stdout, SMZ_ITEMOPT[SMZ_ITEMOPT_GROUP[g].first + c->s.item_opt[g]].display); first = 0; }
+    printf("],\"goal\":{\"check\":\"%s\",\"text\":", check);
+    json_str(stdout, c->goal.text);
+    printf("},\"estimateMin\":%.0f}\n", c->est_search);
+}
+
 static int argc_g;
 static char **argv_g;
 static int result = 1;
@@ -554,6 +755,21 @@ static void *work(void *arg)
 {
     (void)arg;
     static Challenge c;
+    if (argc_g >= 3 && !strncmp(argv_g[1], "--draft", 7)) {
+        int stats = !strcmp(argv_g[1], "--draft-stats"), n = stats && argc_g >= 4 ? atoi(argv_g[3]) : 1;
+        for (int w = 0; w < n; w++) {
+            if (stats) snprintf(c.window, sizeof c.window, "%s-%d", argv_g[2], w);
+            else snprintf(c.window, sizeof c.window, "%s", argv_g[2]);
+            int a, ok = -1;
+            for (a = 0; a < MAX_TRIES && ok != 0; a++) ok = try_draft(&c, a);
+            if (ok) { fprintf(stderr, "no Draft after %d tries\n", MAX_TRIES); if (!stats) return NULL; continue; }
+            if (!same_seed(&c)) { fprintf(stderr, "settings JSON does not rebuild the seed\n"); return NULL; }
+            if (stats) printf("%s tries=%d spot=%s est=%.0f goal=\"%s\"\n", c.window, a, SPOTS[draft_spot].code, c.est_search, c.goal.text);
+            else print_draft(&c, a - 1);
+        }
+        result = 0;
+        return NULL;
+    }
     if (argc_g >= 4 && !strcmp(argv_g[1], "--stats")) {
         int n = atoi(argv_g[3]);
         for (int w = 0; w < n; w++) {
@@ -581,7 +797,7 @@ static void *work(void *arg)
 
 int main(int argc, char **argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: smz3daily <window-id> | --stats <prefix> <n>\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: smz3daily <window-id> | --stats <prefix> <n> | --draft <id> | --draft-stats <prefix> <n>\n"); return 2; }
     argc_g = argc; argv_g = argv;
     pthread_attr_t at;
     pthread_attr_init(&at);
