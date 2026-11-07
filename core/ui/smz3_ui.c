@@ -192,6 +192,12 @@ static void race_reset(SmzUi *u) { memset(&u->race.room, 0, sizeof u->race.room)
 
 void ui_race_end(SmzUi *u) { race_reset(u); u->screen = UI_HOME; }
 
+void ui_race_set_paused(SmzUi *u, const char *code, int64_t resume_at)
+{
+    snprintf(u->race.paused_code, sizeof u->race.paused_code, "%s", code ? code : "");
+    u->race.paused_resume = resume_at;
+}
+
 void ui_race_fail(SmzUi *u, const char *msg)
 {
     snprintf(u->notice, sizeof u->notice, "%.31s", msg);
@@ -226,7 +232,8 @@ void ui_race_update(SmzUi *u, const char *json, int64_t local_now)
 static int race_rows(const SmzUi *u)
 {
     switch (u->screen) {
-    case UI_RACE_SIZE: case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC: return 2;
+    case UI_RACE_SIZE: return 2 + (u->race.paused_code[0] != 0);
+    case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC: return 2;
     case UI_RACE_WAY: return 3;
     case UI_RACE_LIST: return u->race.room_count;
     case UI_RACE_ROOM: return u->race.room.n + (!strcmp(u->race.room.you, u->race.room.creator));   /* the creator also has Close */
@@ -243,7 +250,7 @@ static void race_input(SmzUi *u, UiButton b)
     if (b == BTN_B) {
         switch (u->screen) {
         case UI_RACE_SIZE: u->screen = UI_HOME; break;
-        case UI_RACE_WAY: u->screen = UI_RACE_SIZE; *c = u->race.size == 2 ? 0 : 1; break;
+        case UI_RACE_WAY: u->screen = UI_RACE_SIZE; *c = (u->race.size == 2 ? 0 : 1) + (u->race.paused_code[0] != 0); break;
         case UI_RACE_FORMAT: u->screen = UI_RACE_WAY; *c = 0; break;
         case UI_RACE_LENGTH: u->screen = UI_RACE_FORMAT; *c = 1; break;
         case UI_RACE_PUBLIC: u->screen = u->race.format ? UI_RACE_LENGTH : UI_RACE_FORMAT; *c = u->race.format ? u->race.format - 1 : 0; break;
@@ -255,7 +262,12 @@ static void race_input(SmzUi *u, UiButton b)
     }
     if (b != BTN_A) return;
     switch (u->screen) {
-    case UI_RACE_SIZE: u->race.size = *c ? 8 : 2; u->screen = UI_RACE_WAY; *c = 0; break;
+    case UI_RACE_SIZE: {
+        int k = *c - (u->race.paused_code[0] != 0);   /* -1: the paused race */
+        if (k < 0) { u->action = ACT_RACE_RESUME; break; }
+        u->race.size = k ? 8 : 2; u->screen = UI_RACE_WAY; *c = 0;
+        break;
+    }
     case UI_RACE_WAY:
         if (*c == 0) { u->screen = UI_RACE_FORMAT; *c = 0; }
         else if (*c == 1) { u->name_for = 2; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; }
@@ -1741,8 +1753,18 @@ static void race_draw(SmzUi *u)
     case UI_RACE_SIZE:
         title(u, "Championship");
         text(u, 10, 34, C_DIM, 0, "A normal run from the start. First to the goal wins.");
-        race_row(u, 0, 52, "1 vs 1 race", "2 players", C_TEXT);
-        race_row(u, 1, 86, "Multi race", "up to 8 players", C_TEXT);
+    {
+        int p = u->race.paused_code[0] != 0;
+        if (p) {
+            char when[24];
+            smz_race_when(u->race.paused_resume, when, sizeof when);
+            snprintf(buf, sizeof buf, "Paused race %s", u->race.paused_code);
+            snprintf(note, sizeof note, "goes on %s", when);
+            race_row(u, 0, 52, buf, note, C_GOLD);
+        }
+        race_row(u, p, 52 + 34 * p, "1 vs 1 race", "2 players", C_TEXT);
+        race_row(u, p + 1, 86 + 34 * p, "Multi race", "up to 8 players", C_TEXT);
+    }
         legend(u, "A Choose  B Back");
         break;
     case UI_RACE_WAY:

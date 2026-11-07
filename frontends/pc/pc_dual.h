@@ -7,6 +7,7 @@
 #include "pc_finish.h"
 #include "smz3_daily.h"
 #include "smz3_discovery.h"
+#include "smz3_race.h"
 #include "smz3_run.h"
 #include "smz3_tracker.h"
 
@@ -22,6 +23,7 @@ typedef struct {
     const FinishCard *card;     /* the run has ended: its details take the screen */
     int card_open;              /* the top screen still shows the run-complete card */
     int states, qslots, *qslot; /* save states: allowed, how many slots, the active one */
+    const SmzRace *race;        /* an online race: its standings go on RUN; else NULL */
 } DualFrame;
 
 enum { DUAL_NONE, DUAL_MENU, DUAL_CREDITS };

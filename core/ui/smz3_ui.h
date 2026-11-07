@@ -32,7 +32,7 @@ typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
 typedef enum { ACT_NONE, ACT_CONTINUE, ACT_DELETE, ACT_GENERATE, ACT_LOAD_SAVE, ACT_LOAD_STATE, ACT_LADDER, ACT_DAILY, ACT_OPTIONS,
-               ACT_RACE_CREATE, ACT_RACE_JOIN, ACT_RACE_FIND, ACT_RACE_CLOSE, ACT_RACE_KICK, ACT_RACE_READY, ACT_RACE_LEAVE, ACT_RACE_START } UiAction;
+               ACT_RACE_CREATE, ACT_RACE_JOIN, ACT_RACE_FIND, ACT_RACE_CLOSE, ACT_RACE_KICK, ACT_RACE_READY, ACT_RACE_LEAVE, ACT_RACE_START, ACT_RACE_RESUME } UiAction;
 
 typedef struct {
     const char *key;             /* C# property name for logic options */
@@ -111,6 +111,8 @@ typedef struct {
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
     struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started;
              char code[8];                    /* the code typed to join, or the room picked in the list */
+             char paused_code[8];             /* a paused race kept on this device ("" none), and when it goes on */
+             int64_t paused_resume;
              SmzRaceRoom rooms[RACE_ROOMS];
              SmzRace room; } race;            /* the online race being set up (see ui_race_*) */
     int rules_scroll;            /* first row shown on the rules screen */
@@ -219,6 +221,8 @@ void ui_tick(SmzUi *u, int ms);
  * confirms), ACT_RACE_LEAVE, and ACT_RACE_START once the race runs. Every server answer goes to ui_race_update, a failure to
  * ui_race_fail. */
 void ui_race_enable(SmzUi *u, int on);
+/* A paused race this device keeps: Championship shows it first, and choosing it is ACT_RACE_RESUME. Code "" when none. */
+void ui_race_set_paused(SmzUi *u, const char *code, int64_t resume_at);
 void ui_race_update(SmzUi *u, const char *json, int64_t local_now);
 void ui_race_rooms(SmzUi *u, const char *json);
 void ui_race_fail(SmzUi *u, const char *msg);

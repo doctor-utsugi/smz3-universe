@@ -17,6 +17,11 @@ int race_take(char *out, size_t cap);
 /* Stops polling and forgets the room, once the requests queued before it are sent. */
 void race_forget(void);
 int race_joined(void);
+/* How long the polls have failed in a row, in ms (0 while the server answers). */
+int64_t race_offline_ms(void);
+/* The room's token, to keep a paused race; race_resume takes it back and starts polling again. */
+void race_token(char *out, size_t cap);
+void race_resume(const char *token);
 /* What the next poll carries: the last log line read, the progress (0..100), a note for the rivals and chat lines. */
 void race_set_since(int64_t since);
 void race_set_progress(int progress);

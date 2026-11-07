@@ -8,6 +8,7 @@
 #include "pc_hotkeys.h"
 #include "pc_map.h"
 #include "pc_online.h"
+#include "pc_race.h"
 #include "pc_settings.h"
 #include "pc_shortcuts.h"
 #include "smz3_shortcuts.h"
@@ -20,11 +21,12 @@
 #define DOUBLE_TAP_MS 300
 #define LEAVE_MS 3000
 
-enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_CONFIG, TAB_COUNT };
-static const char *const TAB_NAMES[TAB_COUNT] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "CONFIG"};
+enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_CONFIG, TAB_CHAT, TAB_COUNT };
+static const char *const TAB_NAMES[TAB_COUNT] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "CONFIG", "CHAT"};
 
 enum { HIT_TAB, HIT_ZOOM, HIT_SLOT, HIT_SHORTCUT, HIT_PICK, HIT_PICK_CLEAR, HIT_PICK_CLOSE, HIT_REGION, HIT_HINT, HIT_REVEAL, HIT_REVEAL_REGION, HIT_CENTER, HIT_FOLLOW, HIT_DUNGEONS,
-       HIT_CHIP, HIT_MINI_CHIP, HIT_CONFIG, HIT_HOTKEY, HIT_RESET, HIT_LEAVE, HIT_FIN_MENU, HIT_FIN_CREDITS, HIT_FIN_BACK };
+       HIT_CHIP, HIT_MINI_CHIP, HIT_CONFIG, HIT_HOTKEY, HIT_RESET, HIT_LEAVE, HIT_FIN_MENU, HIT_FIN_CREDITS, HIT_FIN_BACK,
+       HIT_PHRASE, HIT_CHAT_OFF, HIT_MUTE };
 enum { CF_SLOT, CF_SPEED, CF_SHAPE, CF_SCREENS, CF_FIXED, CF_ROW, CF_WEAPONS, CF_DAILY };
 enum { VIDEO_ASPECT = 2, VIDEO_DAILY = 6, VIDEO_SCREENS = 10 };   /* settings_video_row's rows */
 enum { DRAG_NONE, DRAG_SCROLL, DRAG_PAN };
@@ -58,6 +60,12 @@ static int region_list;       /* HELP: the regions to reveal are listed */
 static char note[SMZ_HELP_TEXT + 16];
 
 static struct { int on, moved, drag, has_hit; float x0, y0, x, y; Uint32 at; Hit hit; } P;
+
+/* The CHAT tab of a race: quick phrases by touch, chat off, and the players muted (their pids). */
+static const char *const PHRASES[] = {"Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow"};
+#define N_PHRASES ((int)(sizeof PHRASES / sizeof PHRASES[0]))
+static int chat_off, n_muted;
+static char muted[RACE_MAX][12];
 static struct { SDL_FingerID id; float x, y; } finger[2];
 static int n_fingers, pinching;
 static float pinch_dist;
@@ -263,6 +271,27 @@ static void run_left(float x, float top, float cw, float h)
     fmt_time(F.clock_ms >= 0 ? F.clock_ms : played, s, sizeof s);
     gfx_text(hx, y + 24 * u, fit_px(s, hw, 20 * u, 12 * u), TEXT, 0, s);
     y += 54 * u;
+    if (F.race) {   /* the race: the top three and this player, each with a time or the % done */
+        const SmzRace *r = F.race;
+        int order[RACE_MAX], n = 0;
+        for (int pl = 0; pl <= r->n; pl++)
+            for (int i = 0; i < r->n; i++) if ((pl < r->n && r->p[i].place == pl + 1) || (pl == r->n && !r->p[i].place)) order[n++] = i;
+        for (int i = 1; i < n; i++)   /* the ones without a place by their % */
+            for (int j = i; j > 0 && !r->p[order[j]].place && !r->p[order[j - 1]].place && r->p[order[j]].progress > r->p[order[j - 1]].progress; j--) { int k = order[j]; order[j] = order[j - 1]; order[j - 1] = k; }
+        gfx_text(x, y, 12 * u, DIM, 0, "RACE"); y += 16 * u;
+        for (int k = 0; k < n; k++) {
+            const SmzRacePlayer *p = &r->p[order[k]];
+            int mine = r->you[0] && !strcmp(p->pid, r->you);
+            if (k >= 3 && !mine) continue;
+            char v[24];
+            if (p->time_ms >= 0) fmt_time(p->time_ms, v, sizeof v); else if (p->left) snprintf(v, sizeof v, "left"); else snprintf(v, sizeof v, "%d%%", p->progress);
+            snprintf(s, sizeof s, "%d  %s", k + 1, p->name);
+            gfx_text(x, y, 13 * u, mine ? AMBER : TEXT, 0, cut_text(s, cw - 60 * u, 13 * u));
+            gfx_text(x + cw, y, 13 * u, mine ? AMBER : DIM, 2, v);
+            y += 17 * u;
+        }
+        y += 6 * u;
+    }
     snprintf(s, sizeof s, "Zelda  %u / %u", t->zelda_cleared, t->zelda_total);
     gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
     bar(x, y, cw, 8 * u, t->zelda_total ? (float)t->zelda_cleared / t->zelda_total : 0, GREEN); y += 12 * u;
@@ -586,6 +615,55 @@ static void page_daily(float x, float w, float y, float top)
     page_end(TAB_HELP, top, y + 12 * u);
 }
 
+static int is_muted(const char *pid)
+{
+    for (int i = 0; i < n_muted; i++) if (!strcmp(muted[i], pid)) return 1;
+    return 0;
+}
+
+static void page_chat(float top)
+{
+    const SmzRace *r = F.race;
+    float x = 12 * u, w = W - 24 * u, bh = 30 * u, gap = 6 * u, bw = (w - 3 * gap) / 4;
+    float y = page_begin(TAB_CHAT, 0, top, (float)W, H - top) + 8 * u;
+    for (int i = 0; i < N_PHRASES; i++) {   /* two rows of phrases, a tap sends one */
+        float bx = x + (i % 4) * (bw + gap), by = y + (i / 4) * (bh + gap);
+        gfx_rect(bx, by, bw, bh, chat_off ? C(0x10, 0x16, 0x1F) : C(0x1D, 0x24, 0x30));
+        gfx_text(bx + bw / 2, by + 8 * u, fit_px(PHRASES[i], bw - 8 * u, 13 * u, 8 * u), chat_off ? DIM : TEXT, 1, PHRASES[i]);
+        if (!chat_off) add_hit(bx, by, bw, bh, HIT_PHRASE, i);
+    }
+    y += 2 * (bh + gap) + 4 * u;
+    for (int i = 0; i < r->n; i++) {   /* the players: a tap mutes or unmutes */
+        const SmzRacePlayer *p = &r->p[i];
+        if (!strcmp(p->pid, r->you)) continue;
+        char s[48];
+        snprintf(s, sizeof s, "%s%s", p->name, is_muted(p->pid) ? " (muted)" : "");
+        float tw = gfx_text_width(13 * u, s) + 16 * u;
+        if (x + tw > W - 12 * u) break;
+        gfx_rect(x, y, tw, 24 * u, C(0x10, 0x16, 0x1F));
+        gfx_text(x + 8 * u, y + 5 * u, 13 * u, is_muted(p->pid) ? DIM : TEXT, 0, s);
+        add_hit(x, y, tw, 24 * u, HIT_MUTE, i);
+        x += tw + gap;
+    }
+    x = 12 * u;
+    const char *off = chat_off ? "Chat off" : "Chat on";
+    float ow = gfx_text_width(13 * u, off) + 16 * u;
+    gfx_rect(W - 12 * u - ow, y, ow, 24 * u, chat_off ? C(0x3A, 0x2C, 0x14) : C(0x10, 0x16, 0x1F));
+    gfx_text(W - 12 * u - ow / 2, y + 5 * u, 13 * u, AMBER, 1, off);
+    add_hit(W - 12 * u - ow, y, ow, 24 * u, HIT_CHAT_OFF, 0);
+    y += 34 * u;
+    for (int i = r->lines - 1; i >= 0; i--) {   /* newest first */
+        const SmzRaceLine *l = &r->line[i];
+        if (l->kind == RACE_LINE_CHAT && (chat_off || is_muted(l->pid))) continue;
+        char s[128];
+        if (l->kind == RACE_LINE_CHAT) snprintf(s, sizeof s, "%s: %s", l->name, l->text);
+        else if (l->kind == RACE_LINE_EVENT) snprintf(s, sizeof s, "%s %s", l->name, l->text);
+        else snprintf(s, sizeof s, "%s", l->text);
+        y = wrapped(x, y, w, 14 * u, l->kind == RACE_LINE_CHAT ? TEXT : DIM, s) + 4 * u;
+    }
+    page_end(TAB_CHAT, top, y + 8 * u);
+}
+
 static void page_help(float top)
 {
     float x = 16 * u, w = W - 32 * u, y = page_begin(TAB_HELP, 0, top, (float)W, H - top) + 12 * u;
@@ -746,8 +824,8 @@ static void portal_check(void)
 static void draw_tabs(void)
 {
     int shown[TAB_COUNT], n = 0, help = hints_mode() != HELP_NONE || F.daily;
-    if (tab == TAB_HELP && !help) tab = TAB_RUN;
-    for (int i = 0; i < TAB_COUNT; i++) if (i != TAB_HELP || help) shown[n++] = i;
+    if ((tab == TAB_HELP && !help) || (tab == TAB_CHAT && !F.race)) tab = TAB_RUN;
+    for (int i = 0; i < TAB_COUNT; i++) if ((i != TAB_HELP || help) && (i != TAB_CHAT || F.race)) shown[n++] = i;
     float tw = (float)W / n;
     tab_h = 30 * u;
     for (int i = 0; i < n; i++) {
@@ -789,6 +867,7 @@ void dual_draw(SDL_Renderer *r, const DualFrame *f, int w, int h)
     else if (tab == TAB_CHECKS) page_checks(top);
     else if (tab == TAB_MAP) page_map(top);
     else if (tab == TAB_HELP) page_help(top);
+    else if (tab == TAB_CHAT) page_chat(top);
     else page_config(top);
     card_up = f->card != NULL;
     if (card_up) {
@@ -868,6 +947,17 @@ static void do_hit(const Hit *h)
     case HIT_CONFIG: config_tap(h->arg); break;
     case HIT_FIN_MENU: case HIT_FIN_BACK: action = DUAL_MENU; break;
     case HIT_FIN_CREDITS: action = DUAL_CREDITS; break;
+    case HIT_PHRASE: race_chat(PHRASES[h->arg]); break;
+    case HIT_CHAT_OFF: chat_off = !chat_off; break;
+    case HIT_MUTE:
+        if (F.race && h->arg < F.race->n) {
+            const char *pid = F.race->p[h->arg].pid;
+            int i = 0;
+            while (i < n_muted && strcmp(muted[i], pid)) i++;
+            if (i < n_muted) { memmove(muted + i, muted + i + 1, sizeof muted[0] * (n_muted - i - 1)); n_muted--; }
+            else if (n_muted < RACE_MAX) snprintf(muted[n_muted++], sizeof muted[0], "%s", pid);
+        }
+        break;
     }
 }
 

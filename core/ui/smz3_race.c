@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* A small JSON reader: pointers into the text, values skipped whole. Enough for the race server's answers. */
 static const char *ws(const char *p) { while (p && (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')) p++; return p; }
@@ -83,8 +84,8 @@ static const char *next(const char *el) { const char *p = ws(skip(el)); if (!p |
 
 static int state_of(const char *s)
 {
-    static const char *const N[] = {"", "open", "closed", "running", "finished", "cancelled"};
-    for (int i = 1; i < 6; i++) if (!strcmp(s, N[i])) return i;
+    static const char *const N[] = {"", "open", "closed", "running", "finished", "cancelled", "paused"};
+    for (int i = 1; i < 7; i++) if (!strcmp(s, N[i])) return i;
     return RACE_NONE;
 }
 
@@ -101,6 +102,14 @@ static void room(SmzRace *r, const char *o)
     r->is_public = flag(get(o, "public"));
     r->start_at = num(get(o, "startAt"), 0);
     r->end_at = num(get(o, "endAt"), 0);
+    r->go_at = num(get(o, "goAt"), r->start_at);
+    r->resume_at = num(get(o, "resumeAt"), 0);
+    r->pauses = (int)num(get(o, "pauses"), 0);
+    const char *v = get(o, "vote");
+    str(v ? get(v, "by") : NULL, r->vote_by, sizeof r->vote_by);
+    r->vote_at = v ? num(get(v, "resumeAt"), 0) : 0;
+    r->vote_n = 0;
+    for (const char *e = first(v ? get(v, "yes") : NULL); e && r->vote_n < RACE_MAX; e = next(e)) str(e, r->vote_yes[r->vote_n++], sizeof r->vote_yes[0]);
     if (get(o, "seed")) str(get(o, "seed"), r->seed, sizeof r->seed);
     if (get(o, "settings")) str(get(o, "settings"), r->settings, sizeof r->settings);
     r->n = 0;
@@ -115,6 +124,7 @@ static void room(SmzRace *r, const char *o)
         p->left = flag(get(e, "left"));
         p->held = flag(get(e, "held"));
         p->away = flag(get(e, "away"));
+        p->back = flag(get(e, "back"));
         p->progress = (int)num(get(e, "progress"), 0);
         p->place = (int)num(get(e, "place"), 0);
         p->time_ms = num(get(e, "timeMs"), -1);
@@ -172,6 +182,21 @@ const SmzRacePlayer *smz_race_me(const SmzRace *r)
 }
 
 int64_t smz_race_server_now(const SmzRace *r, int64_t local_now) { return local_now + r->offset; }
+
+int smz_race_voted(const SmzRace *r)
+{
+    for (int i = 0; i < r->vote_n; i++) if (r->you[0] && !strcmp(r->vote_yes[i], r->you)) return 1;
+    return 0;
+}
+
+void smz_race_when(int64_t ms, char *out, size_t cap)
+{
+    static const char *const DAY[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    time_t t = (time_t)(ms / 1000);
+    struct tm *tm = localtime(&t);
+    if (!tm) { snprintf(out, cap, "?"); return; }
+    snprintf(out, cap, "%s %02d:%02d", DAY[tm->tm_wday % 7], tm->tm_hour, tm->tm_min);
+}
 
 const char *smz_race_format_name(const char *f) { return !strcmp(f, "sprint") ? "Sprint" : !strcmp(f, "half") ? "Half" : "Full game"; }
 

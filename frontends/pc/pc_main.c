@@ -1110,9 +1110,12 @@ static void daily_hud(const SmzDailyRun *r, int finished, float gx, float gw, in
     for (int i = 0; i < n; i++) gfx_text(x + pad, y + pad / 2 + i * lh, px, col[i], 0, line[i]);
 }
 
+static void race_chat_tab(float x, float y, float w, float bottom, float u);
+
+/* chat: an online race, whose CHAT tab takes the Daily's place and whose game never pauses here */
 static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, int pause, int win_w, int win_h, float ax, float aw, MapView *mv,
                     const SmzDiscovery *disc, int discovered_only, const uint8_t *in_logic, const uint8_t *wram, size_t wram_len,
-                    const uint8_t *sram, size_t sram_len, DungeonView *dv, const DungeonLive *live, const SmzDailyRun *dr)
+                    const uint8_t *sram, size_t sram_len, DungeonView *dv, const DungeonLive *live, const SmzDailyRun *dr, int chat)
 {
     /* ax..ax+aw: the room between the side panels (the whole window when they have none) */
     if (aw < win_w * 0.5f) { ax = win_w * 0.08f; aw = win_w * 0.84f; }
@@ -1120,11 +1123,11 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     SDL_Color back = {0x08, 0x0B, 0x11, 250};
     gfx_rect(x0 - 12 * u, y0 - 16 * u, w + 24 * u, win_h - 2 * y0 + 32 * u, back);
     float x = x0;
-    int ntabs = dr ? TAB_COUNT + 1 : TAB_COUNT;
+    int ntabs = dr || chat ? TAB_COUNT + 1 : TAB_COUNT;
     for (int i = 0; i < ntabs; i++) {
         float tw = fminf(130 * u, w / ntabs);
         gfx_rect(x, y0, tw - 6 * u, 36 * u, i == tab ? C(0x2E, 0x4A, 0x6B) : C(0x1D, 0x24, 0x30));
-        gfx_text(x + (tw - 6 * u) / 2, y0 + 5 * u, 24 * u, i == tab ? C(0xE9, 0xA2, 0x3B) : C(0x87, 0x93, 0xA6), 1, TAB_NAMES[i]);
+        gfx_text(x + (tw - 6 * u) / 2, y0 + 5 * u, 24 * u, i == tab ? C(0xE9, 0xA2, 0x3B) : C(0x87, 0x93, 0xA6), 1, i == TAB_COUNT && chat ? "CHAT" : TAB_NAMES[i]);
         x += tw;
     }
     float y = y0 + 56 * u, line = 26 * u, bottom = win_h - y0 - 10 * u;
@@ -1142,6 +1145,8 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             gfx_text(x0, y, 20 * u, C(0xE8, 0xEC, 0xF2), 0, row);
         }
         if (t->game == 3) gfx_text(x0, y + 10 * u, 24 * u, C(0x4C, 0xC3, 0x8A), 0, "Run finished");
+    } else if (tab == TAB_COUNT && chat) {
+        race_chat_tab(x0, y, w, bottom, u);
     } else if (tab == TAB_DAILY && dr) {
         int64_t now = online_now_ms(), left = dr->closes_at - now;
         char a[32], b[32], row[200];
@@ -1228,8 +1233,12 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     }
     HelpItem bar[10];
     int nb = 0;
-    bar[nb++] = (HelpItem){"LR2", "Q E", "Tabs"};
-    if (tab == TAB_CHECKS) { bar[nb++] = (HelpItem){"UD", "^", "Scroll"}; bar[nb++] = (HelpItem){NULL, "PgUp", "Page"}; }
+    bar[nb++] = (HelpItem){"LR2", chat && tab == TAB_COUNT ? "<" : "Q E", "Tabs"};
+    if (chat && tab == TAB_COUNT) {
+        bar[nb++] = (HelpItem){"LR", NULL, "Phrase"}; bar[nb++] = (HelpItem){"A", "Enter", "Send"};
+        bar[nb++] = (HelpItem){"UD", "^", "Player"}; bar[nb++] = (HelpItem){"X", "F2", "Mute"}; bar[nb++] = (HelpItem){"Y", "F3", "Chat on/off"};
+    }
+    else if (tab == TAB_CHECKS) { bar[nb++] = (HelpItem){"UD", "^", "Scroll"}; bar[nb++] = (HelpItem){NULL, "PgUp", "Page"}; }
     else if (tab == TAB_ITEMS || tab == TAB_RUN || tab == TAB_HELP || tab == TAB_DAILY) { bar[nb++] = (HelpItem){"UD", "^", "Scroll"}; }
     else if (tab == TAB_MAP && dungeon_showing(dv, live)) {
         bar[nb++] = (HelpItem){"LR", "<", "Dungeon"}; bar[nb++] = (HelpItem){"UD", "^", "Floor"};
@@ -1238,8 +1247,8 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         bar[nb++] = (HelpItem){"STICK", "<", "Pan"}; bar[nb++] = (HelpItem){"RT", "+", "Zoom in"}; bar[nb++] = (HelpItem){"LT", "-", "Zoom out"};
         bar[nb++] = (HelpItem){"A", "F", mv->follow ? "Following" : "Follow"}; bar[nb++] = (HelpItem){"Y", "D", "Dungeons"};
     }
-    bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};
-    bar[nb++] = (HelpItem){"X", "V", "Video"};
+    if (!chat) bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};
+    if (!(chat && tab == TAB_COUNT)) bar[nb++] = (HelpItem){"X", "V", "Video"};
     bar[nb++] = (HelpItem){"R3", "Tab", "Close"};
     help_bar(0, win_h - 44 * u, (float)win_w, 44 * u, bar, nb);
 }
@@ -1262,25 +1271,147 @@ static void snapshot_run(SmzRun *r, SmzTracker *t, int finished)
 }
 
 /* mode 0: the autosave state (or the game save when there is none), 1: the game save only */
-/* An online race in play: the rivals' news in a corner, their chat in a fading box, and the result card at the end. */
+/* An online race in play: the rivals' news in a corner, their chat in a fading box, the pause vote, and the result card. */
 static struct {
-    int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count;
-    int64_t shown;
+    int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count, mine_shown;
+    int back, skip_old, kept, offline_noted, pick, pick_i;   /* back: a paused race loaded again and waiting to go on */
+    int64_t shown, vote_done;
+    char typed[84];                                       /* the CHAT tab: the line being typed, the quick phrase, the player picked */
+    int phrase, who, chat_off, n_muted;
+    char muted[RACE_MAX][12];
     char news[96], say[112];
     Uint32 news_until, say_at;
 } rg;
+
+enum { CARD_RESULT = 1, CARD_PAUSED };
+static const int PAUSE_HOURS[] = {1, 3, 8, 24, 48, 72, 168};
+#define PAUSE_CHOICES ((int)(sizeof PAUSE_HOURS / sizeof PAUSE_HOURS[0]))
+
+static const char *const PHRASES[] = {"Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow"};
+#define N_PHRASES ((int)(sizeof PHRASES / sizeof PHRASES[0]))
+
+static int race_muted(const char *pid)
+{
+    for (int i = 0; i < rg.n_muted; i++) if (!strcmp(rg.muted[i], pid)) return 1;
+    return 0;
+}
+
+static void race_mute(const char *pid)
+{
+    for (int i = 0; i < rg.n_muted; i++) if (!strcmp(rg.muted[i], pid)) { memmove(rg.muted + i, rg.muted + i + 1, sizeof rg.muted[0] * (rg.n_muted - i - 1)); rg.n_muted--; return; }
+    if (rg.n_muted < RACE_MAX) snprintf(rg.muted[rg.n_muted++], sizeof rg.muted[0], "%s", pid);
+}
+
+static void race_say(const char *text)
+{
+    if (!text[0] || rg.chat_off) return;
+    race_chat(text);
+    sfx_play(SFX_CONFIRM);
+}
+
+/* The CHAT tab's keys and buttons; 1 when it took the press. */
+static int race_chat_key(SDL_Keycode k)
+{
+    size_t n = strlen(rg.typed);
+    if (k == SDLK_RETURN || k == SDLK_KP_ENTER) { race_say(n ? rg.typed : PHRASES[rg.phrase]); rg.typed[0] = 0; }
+    else if (k == SDLK_BACKSPACE) { if (n) rg.typed[n - 1] = 0; }
+    else if (k == SDLK_F2 && ui.race.room.n) { const SmzRacePlayer *p = &ui.race.room.p[rg.who % ui.race.room.n]; if (strcmp(p->pid, ui.race.room.you)) race_mute(p->pid); sfx_play(SFX_SELECT); }
+    else if (k == SDLK_F3) { rg.chat_off = !rg.chat_off; sfx_play(SFX_SELECT); }
+    else if (k == SDLK_UP || k == SDLK_DOWN) { if (ui.race.room.n) rg.who = (rg.who + (k == SDLK_UP ? ui.race.room.n - 1 : 1)) % ui.race.room.n; sfx_play(SFX_MOVE); }
+    else return k != SDLK_ESCAPE && k != SDLK_TAB && k != SDLK_LEFT && k != SDLK_RIGHT && k != SDLK_F11;   /* letters are typing, not shortcuts */
+    return 1;
+}
+
+static int race_chat_pad(int b)
+{
+    if (b == SDL_CONTROLLER_BUTTON_A) race_say(PHRASES[rg.phrase]);
+    else if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT || b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) { rg.phrase = (rg.phrase + (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? N_PHRASES - 1 : 1)) % N_PHRASES; sfx_play(SFX_MOVE); }
+    else if ((b == SDL_CONTROLLER_BUTTON_DPAD_UP || b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) && ui.race.room.n) { rg.who = (rg.who + (b == SDL_CONTROLLER_BUTTON_DPAD_UP ? ui.race.room.n - 1 : 1)) % ui.race.room.n; sfx_play(SFX_MOVE); }
+    else if (b == SDL_CONTROLLER_BUTTON_X && ui.race.room.n) { const SmzRacePlayer *p = &ui.race.room.p[rg.who % ui.race.room.n]; if (strcmp(p->pid, ui.race.room.you)) race_mute(p->pid); sfx_play(SFX_SELECT); }
+    else if (b == SDL_CONTROLLER_BUTTON_Y) { rg.chat_off = !rg.chat_off; sfx_play(SFX_SELECT); }
+    else return 0;
+    return 1;
+}
+
+static void race_typed(const char *text)
+{
+    size_t n = strlen(rg.typed);
+    for (; *text && n + 1 < sizeof rg.typed - 4; text++) if ((unsigned char)*text >= 0x20 && (unsigned char)*text < 0x7F) rg.typed[n++] = *text;   /* the font has ASCII */
+    rg.typed[n] = 0;
+}
 
 static void race_news(const char *text) { snprintf(rg.news, sizeof rg.news, "%s", text); rg.news_until = SDL_GetTicks() + 4000; sfx_play(SFX_OPEN); }
 
 /* First place; with a time it can go to the ladder (a win because the others left has none). */
 static int race_first(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return me && me->place == 1; }
 static int race_won(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return race_first() && me->time_ms >= 0; }
+static int64_t race_now(void) { return online_now_ms() + ui.race.room.offset; }
 
-/* A on the result card: the winner's time goes to the ladder once; otherwise the card closes and the game goes on. */
-static void race_card_a(void)
+/* A pause can be asked in the Full game, once it started and before anyone finished, with no other vote open. */
+static int race_can_pause(int64_t go_in)
 {
-    if (race_won() && !rg.ladder && ui.race.room.state == RACE_FINISHED) { rg.ladder = 1; race_send("ladder", "", 1); sfx_play(SFX_CONFIRM); }
+    const SmzRace *r = &ui.race.room;
+    if (r->state != RACE_RUNNING || strcmp(r->format, "full") || go_in > 0 || r->vote_by[0]) return 0;
+    for (int i = 0; i < r->n; i++) if (r->p[i].time_ms >= 0) return 0;
+    return 1;
+}
+
+/* A rival's pause this player hasn't answered. */
+static int race_vote_open(void)
+{
+    const SmzRace *r = &ui.race.room;
+    return r->state == RACE_RUNNING && r->vote_by[0] && strcmp(r->vote_by, r->you) && !smz_race_voted(r) && r->vote_at != rg.vote_done;
+}
+
+static void race_vote(int yes) { rg.vote_done = ui.race.room.vote_at; race_send("vote", yes ? "\"yes\":true" : "\"yes\":false", 1); sfx_play(yes ? SFX_CONFIRM : SFX_BACK); }
+
+static void race_ask_pause(void)
+{
+    char f[48];
+    snprintf(f, sizeof f, "\"resumeAt\":%lld", (long long)(race_now() + PAUSE_HOURS[rg.pick_i] * 3600000LL));
+    race_send("pause", f, 1);
+    rg.pick = 0;
+    sfx_play(SFX_CONFIRM);
+}
+
+/* The paused race this computer keeps: its token, code and resume time, and the game's state beside it. */
+static void race_forget_paused(void) { remove(store_path("runs/race.paused")); remove(store_path("runs/slot%d.racestate", RACE_SLOT)); }
+
+static void race_keep_paused(void)
+{
+    char tok[100], text[200];
+    size_t n = emu_state_size();
+    uint8_t *buf = n ? malloc(n) : NULL;
+    if (buf && emu_state_save(buf, n) == 0) store_write(store_path("runs/slot%d.racestate", RACE_SLOT), buf, n);
+    free(buf);
+    race_token(tok, sizeof tok);
+    snprintf(text, sizeof text, "%s\n%s\n%lld\n", tok, ui.race.room.code, (long long)ui.race.room.resume_at);
+    store_write(store_path("runs/race.paused"), text, strlen(text));
+}
+
+/* The paused race kept here, for the menu: its token, code and resume time; 0 when there is one. */
+static int race_paused_read(char *tok, size_t tcap, char code[8], int64_t *resume)
+{
+    size_t n;
+    char *t = (char *)store_read(store_path("runs/race.paused"), &n);
+    if (!t) return -1;
+    t[n] = 0;
+    char *a = strtok(t, "\n"), *b = a ? strtok(NULL, "\n") : NULL, *c = b ? strtok(NULL, "\n") : NULL;
+    int ok = a && b && c;
+    if (ok) { snprintf(tok, tcap, "%s", a); snprintf(code, 8, "%s", b); *resume = atoll(c); }
+    free(t);
+    return ok ? 0 : -1;
+}
+
+/* A on the result card: the winner's time goes to the ladder once; otherwise the card closes and the game goes on.
+ * Returns 1 when the card sends the player to the menu. */
+static int race_card_a(void)
+{
+    if (rg.card == CARD_PAUSED) return 1;
+    int st = ui.race.room.state;
+    if (race_won() && !rg.ladder && (st == RACE_FINISHED || st == RACE_RUNNING)) { rg.ladder = 1; race_send("ladder", "", 1); sfx_play(SFX_CONFIRM); }
     else rg.card = 0;
+    return 0;
 }
 
 /* The race's answers while in the game, and what they bring: new lines for the corner and the chat box, the end. */
@@ -1290,35 +1421,107 @@ static void race_in_game(void)
     SmzRace *r = &ui.race.room;
     int k;
     while ((k = race_take(ans, sizeof ans)) >= 0) {
-        if (k == RACE_ANS_ERROR) race_news(ans);
-        else smz_race_read(r, ans, online_now_ms());
+        if (k == RACE_ANS_ERROR) {
+            if (rg.back && r->state == RACE_NONE) { r->state = RACE_CANCELLED; snprintf(r->end_why, sizeof r->end_why, "The race is gone"); }   /* expired while away */
+            else race_news(ans);
+        } else smz_race_read(r, ans, online_now_ms());
     }
+    if (rg.skip_old && r->state != RACE_NONE) { rg.shown = r->since; rg.skip_old = 0; }   /* back after a pause: only what is new */
     race_set_since(r->since);
     for (int i = 0; i < r->lines; i++) {
         const SmzRaceLine *l = &r->line[i];
         if (l->seq <= rg.shown) continue;
         rg.shown = l->seq;
         int mine = r->you[0] && !strcmp(l->pid, r->you);
-        if (l->kind == RACE_LINE_CHAT) { if (!mine) { snprintf(rg.say, sizeof rg.say, "%s: %s", l->name, l->text); rg.say_at = SDL_GetTicks(); } }
+        if (l->kind == RACE_LINE_CHAT) { if (!mine && !rg.chat_off && !race_muted(l->pid)) { snprintf(rg.say, sizeof rg.say, "%s: %s", l->name, l->text); rg.say_at = SDL_GetTicks(); } }
         else if (l->kind == RACE_LINE_EVENT) { if (!mine) { char m[112]; snprintf(m, sizeof m, "%s %s", l->name, l->text); race_news(m); } }
-        else if (!mine || l->kind == RACE_LINE_SYSTEM) race_news(l->text);
+        else if (!mine) race_news(l->text);
     }
-    if (!rg.ended && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED)) { rg.ended = 1; rg.card = 1; }
+    int64_t off = race_offline_ms();
+    if (!off) rg.offline_noted = 0;
+    else if (off > 10000 && !rg.offline_noted) { rg.offline_noted = 1; race_news("No connection: the race goes on"); }
+    if (off > 5 * 60000 && r->state == RACE_RUNNING) { r->state = RACE_CANCELLED; snprintf(r->end_why, sizeof r->end_why, "No connection"); }
+    const SmzRacePlayer *me = smz_race_me(r);
+    if (me && me->time_ms >= 0 && !rg.mine_shown && r->state == RACE_RUNNING) { rg.mine_shown = 1; rg.card = CARD_RESULT; }   /* a multi race goes on: the places so far */
+    if (!rg.ended && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED)) { rg.ended = 1; rg.card = CARD_RESULT; }
+    if (rg.back && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED || r->state == RACE_RUNNING)) { if (r->state != RACE_RUNNING) rg.back = 0; race_forget_paused(); }
 }
 
-/* The countdown, the news, the chat box, the time left and the result card, over the game at gx..gx+gw. */
+/* The CHAT tab: the race's lines, newest at the bottom, the players with their mute, and the line to send. */
+static void race_chat_tab(float x, float y, float w, float bottom, float u)
+{
+    const SmzRace *r = &ui.race.room;
+    float lw = w * 0.68f, px = x + lw + 24 * u, line = 26 * u, iy = bottom - 40 * u;
+    int fit = (int)((iy - y - 10 * u) / line), k = 0;
+    const SmzRaceLine *show[RACE_LINES];
+    for (int i = r->lines - 1; i >= 0 && k < fit; i--) {
+        const SmzRaceLine *l = &r->line[i];
+        if (l->kind == RACE_LINE_CHAT && (rg.chat_off || race_muted(l->pid))) continue;
+        show[k++] = l;
+    }
+    if (!k) gfx_text(x, y, 20 * u, C(0x87, 0x93, 0xA6), 0, rg.chat_off ? "Chat is off" : "No messages yet");
+    for (int i = k - 1; i >= 0; i--, y += line) {
+        const SmzRaceLine *l = show[i];
+        char row[128];
+        if (l->kind == RACE_LINE_CHAT) snprintf(row, sizeof row, "%s: %s", l->name, l->text);
+        else if (l->kind == RACE_LINE_EVENT) snprintf(row, sizeof row, "%s %s", l->name, l->text);
+        else snprintf(row, sizeof row, "%s", l->text);
+        gfx_text(x, y, 20 * u, l->kind == RACE_LINE_CHAT ? C(0xE8, 0xEC, 0xF2) : C(0x87, 0x93, 0xA6), 0, row);
+    }
+    float py = bottom - (r->n + 1) * line - 60 * u;
+    gfx_text(px, py, 20 * u, C(0xE9, 0xA2, 0x3B), 0, "Players"); py += line + 4 * u;
+    for (int i = 0; i < r->n; i++, py += line) {
+        const SmzRacePlayer *p = &r->p[i];
+        int sel = i == rg.who % (r->n ? r->n : 1), me = !strcmp(p->pid, r->you);
+        if (sel) gfx_rect(px - 8 * u, py - 3 * u, w - lw - 16 * u, line, (SDL_Color){0x3A, 0x2C, 0x14, 255});
+        char row[48];
+        snprintf(row, sizeof row, "%s%s", p->name, me ? " (you)" : race_muted(p->pid) ? "  muted" : "");
+        gfx_text(px, py, 20 * u, race_muted(p->pid) ? C(0x87, 0x93, 0xA6) : C(0xE8, 0xEC, 0xF2), 0, row);
+    }
+    char in[112];
+    if (rg.chat_off) snprintf(in, sizeof in, "Chat is off");
+    else if (rg.typed[0]) snprintf(in, sizeof in, "> %s_", rg.typed);
+    else snprintf(in, sizeof in, "<  %s  >     or type a message", PHRASES[rg.phrase]);
+    gfx_rect(x - 6 * u, iy - 6 * u, lw, 36 * u, (SDL_Color){0x1D, 0x24, 0x30, 255});
+    gfx_text(x, iy, 20 * u, rg.typed[0] ? C(0xE8, 0xEC, 0xF2) : C(0xE9, 0xA2, 0x3B), 0, in);
+}
+
+static const char *ordinal(int n) { return n % 100 / 10 == 1 ? "th" : n % 10 == 1 ? "st" : n % 10 == 2 ? "nd" : n % 10 == 3 ? "rd" : "th"; }
+
+/* A box over the game with a title, a line and its buttons. */
+static void race_box(float gx, float gw, int wh, const char *title, const char *line, const HelpItem *items, int n)
+{
+    float u = wh / 720.0f, bw = fmaxf(520 * u, gfx_text_width(22 * u, line) + 60 * u), bx = gx + (gw - bw) / 2, by = wh / 2.0f - 90 * u;
+    gfx_rect(bx, by, bw, 180 * u, (SDL_Color){0x10, 0x16, 0x1F, 240});
+    gfx_rect(bx, by, bw, 3 * u, (SDL_Color){0xF2, 0xA3, 0x3A, 255});
+    gfx_text(gx + gw / 2, by + 20 * u, 30 * u, C(0xF2, 0xA3, 0x3A), 1, title);
+    gfx_text(gx + gw / 2, by + 70 * u, 22 * u, C(0xE8, 0xEC, 0xF2), 1, line);
+    help_prompt(gx + gw / 2, by + 118 * u, 40 * u, items, n);
+}
+
+/* The countdown, the news, the chat box, the time left, the pause boxes and the result card, over the game at gx..gx+gw. */
 static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one_screen)
 {
     const SmzRace *r = &ui.race.room;
     float u = wh / 720.0f;
     Uint32 now = SDL_GetTicks();
-    if (go_in > 0 || (go_in > -1000 && r->state == RACE_RUNNING)) {
+    if (rg.back && r->state == RACE_PAUSED) {   /* back in a paused race: the others come back too */
+        int in = 0, back = 0;
+        for (int i = 0; i < r->n; i++) if (!r->p[i].left) { in++; back += r->p[i].back; }
+        char m[64], when[24];
+        smz_race_when(r->resume_at, when, sizeof when);
+        snprintf(m, sizeof m, "Waiting for the others: %d of %d back", back, in);
+        gfx_rect(gx + gw / 2 - 260 * u, wh / 2.0f - 50 * u, 520 * u, 100 * u, (SDL_Color){0x08, 0x0B, 0x11, 225});
+        gfx_text(gx + gw / 2, wh / 2.0f - 36 * u, 28 * u, C(0xE8, 0xEC, 0xF2), 1, m);
+        snprintf(m, sizeof m, "It goes on %s at the latest", when);
+        gfx_text(gx + gw / 2, wh / 2.0f + 8 * u, 20 * u, C(0x87, 0x93, 0xA6), 1, m);
+    } else if (go_in > 0 || (go_in > -1000 && r->state == RACE_RUNNING)) {
         int n = go_in > 0 ? (int)((go_in + 999) / 1000) : 0;
         if (n != rg.last_count) { rg.last_count = n; if (n <= 3) sfx_play(n ? SFX_TICK : SFX_CONFIRM); }
         if (n > 3) {
             char m[48];
-            snprintf(m, sizeof m, "The race starts in %d", n);
-            gfx_rect(gx + gw / 2 - 220 * u, wh / 2.0f - 34 * u, 440 * u, 68 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
+            snprintf(m, sizeof m, "%s in %d", r->pauses ? "The race goes on" : "The race starts", n);
+            gfx_rect(gx + gw / 2 - 240 * u, wh / 2.0f - 34 * u, 480 * u, 68 * u, (SDL_Color){0x08, 0x0B, 0x11, 215});
             gfx_text(gx + gw / 2, wh / 2.0f - 18 * u, 32 * u, C(0xE8, 0xEC, 0xF2), 1, m);
         } else {
             char m[8];
@@ -1327,7 +1530,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
         }
     }
     if (r->state == RACE_RUNNING && r->end_at) {   /* a multi race after the first finish */
-        int64_t left = r->end_at - (online_now_ms() + r->offset);
+        int64_t left = r->end_at - race_now();
         if (left < 0) left = 0;
         char m[48];
         snprintf(m, sizeof m, "Race ends in %d:%02d", (int)(left / 60000), (int)(left / 1000 % 60));
@@ -1349,23 +1552,51 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
         c.a = (Uint8)(255 * a);
         gfx_text(gx + gw - 28 * u, wh - 113 * u, px, c, 2, rg.say);
     }
+    if (rg.pick) {
+        char line[64], when[24];
+        int h = PAUSE_HOURS[rg.pick_i];
+        smz_race_when(race_now() + h * 3600000LL, when, sizeof when);
+        if (h < 24) snprintf(line, sizeof line, "<  in %d hour%s, %s  >", h, h > 1 ? "s" : "", when);
+        else snprintf(line, sizeof line, "<  in %d day%s, %s  >", h / 24, h > 24 ? "s" : "", when);
+        static const HelpItem PICK[] = {{"A", "Enter", "Ask the others"}, {"B", "Esc", "Cancel"}};
+        race_box(gx, gw, wh, "Pause until", line, PICK, 2);
+    } else if (r->state == RACE_RUNNING && r->vote_by[0] && !race_vote_open() && !rg.card) {   /* asked or answered: the others still to say */
+        static const HelpItem NONE[] = {{"", "", ""}};
+        race_box(gx, gw, wh, "Pause the race?", "Waiting for the others to answer", NONE, 0);
+    } else if (race_vote_open() && !rg.card) {
+        char line[96], when[24];
+        const char *who = "A rival";
+        for (int i = 0; i < r->n; i++) if (!strcmp(r->p[i].pid, r->vote_by)) who = r->p[i].name;
+        smz_race_when(r->vote_at, when, sizeof when);
+        snprintf(line, sizeof line, "%s asks to pause until %s", who, when);
+        static const HelpItem VOTE[] = {{"A", "Enter", "Yes"}, {"B", "Esc", "No"}};
+        race_box(gx, gw, wh, "Pause the race?", line, VOTE, 2);
+    }
     if (!rg.card) return;
     const SmzRacePlayer *me = smz_race_me(r);
-    int won = race_won(), cancelled = r->state == RACE_CANCELLED;
+    int won = race_won(), cancelled = r->state == RACE_CANCELLED, paused = rg.card == CARD_PAUSED;
     gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 180});
     float pw = 620 * u, ph = (150 + 34 * r->n + 70) * u, px = (ww - pw) / 2, py = (wh - ph) / 2;
     gfx_rect(px, py, pw, ph, (SDL_Color){0x10, 0x16, 0x1F, 240});
-    gfx_rect(px, py, pw, 3 * u, won ? (SDL_Color){0xF2, 0xA3, 0x3A, 255} : (SDL_Color){0x87, 0x93, 0xA6, 255});
-    gfx_text(ww / 2.0f, py + 22 * u, 44 * u, won ? C(0xF2, 0xA3, 0x3A) : cancelled ? C(0x87, 0x93, 0xA6) : C(0xE0, 0x5A, 0x4F), 1,
-             cancelled ? "RACE CANCELLED" : race_first() ? "VICTORY" : "DEFEAT");
-    gfx_text(ww / 2.0f, py + 78 * u, 20 * u, C(0x87, 0x93, 0xA6), 1, cancelled && r->end_why[0] ? r->end_why : smz_race_format_name(r->format));
+    gfx_rect(px, py, pw, 3 * u, race_first() ? (SDL_Color){0xF2, 0xA3, 0x3A, 255} : (SDL_Color){0x87, 0x93, 0xA6, 255});
+    char title[32], sub[96];
+    if (paused) snprintf(title, sizeof title, "RACE PAUSED");
+    else if (cancelled) snprintf(title, sizeof title, "RACE CANCELLED");
+    else if (race_first()) snprintf(title, sizeof title, "VICTORY");
+    else if (me && me->place) snprintf(title, sizeof title, "%d%s PLACE", me->place, ordinal(me->place));
+    else snprintf(title, sizeof title, "DEFEAT");
+    gfx_text(ww / 2.0f, py + 22 * u, 44 * u, paused || race_first() ? C(0xF2, 0xA3, 0x3A) : cancelled ? C(0x87, 0x93, 0xA6) : C(0xE0, 0x5A, 0x4F), 1, title);
+    if (paused) { char when[24]; smz_race_when(r->resume_at, when, sizeof when); snprintf(sub, sizeof sub, "Goes on %s. Come back on this computer, from Championship.", when); }
+    else if (cancelled && r->end_why[0]) snprintf(sub, sizeof sub, "%s", r->end_why);
+    else snprintf(sub, sizeof sub, "%s%s", smz_race_format_name(r->format), r->state == RACE_RUNNING ? ": the race goes on" : r->pauses ? ", paused" : "");
+    gfx_text(ww / 2.0f, py + 78 * u, 20 * u, C(0x87, 0x93, 0xA6), 1, sub);
     for (int pl = 0, row = 0; pl <= r->n; pl++) {   /* by place, then the ones without one */
         for (int i = 0; i < r->n; i++) {
             const SmzRacePlayer *p = &r->p[i];
             if ((pl < r->n && p->place != pl + 1) || (pl == r->n && p->place)) continue;
             float ry = py + (120 + 34 * row++) * u;
             char t[24], pos[8];
-            if (p->time_ms >= 0) fmt_time_cs(p->time_ms, t, sizeof t); else snprintf(t, sizeof t, "%s", p->left ? "Left" : "-");
+            if (p->time_ms >= 0) fmt_time_cs(p->time_ms, t, sizeof t); else snprintf(t, sizeof t, "%s", p->left ? "Left" : r->state == RACE_RUNNING ? "racing" : "-");
             snprintf(pos, sizeof pos, p->place ? "%d" : "", p->place);
             SDL_Color c = p == me ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2);
             gfx_text(px + 40 * u, ry, 22 * u, c, 0, pos);
@@ -1374,11 +1605,14 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
         }
     }
     float by = py + ph - 56 * u;
-    if (rg.ladder) {
+    if (paused) {
+        static const HelpItem MENU[] = {{"A", "Enter", "Back to menu"}};
+        help_prompt(ww / 2.0f, by, 40 * u, MENU, 1);
+    } else if (rg.ladder) {
         gfx_text(ww / 2.0f, by - 30 * u, 20 * u, C(0x4F, 0xC3, 0xF7), 1, "Saved to the ladder");
-        static const HelpItem DONE[] = {{"B", "Esc", "Close"}};
-        help_prompt(ww / 2.0f, by, 40 * u, DONE, 1);
-    } else if (won && r->state == RACE_FINISHED) {
+        static const HelpItem DONE[] = {{"A", "Enter", "Keep watching"}, {"B", "Esc", "Close"}};
+        help_prompt(ww / 2.0f, by, 40 * u, DONE, 2);
+    } else if (won && (r->state == RACE_FINISHED || r->state == RACE_RUNNING)) {
         static const HelpItem WIN[] = {{"A", "Enter", "Save to ladder"}, {"B", "Esc", "Close"}};
         help_prompt(ww / 2.0f, by, 40 * u, WIN, 2);
     } else {
@@ -1499,6 +1733,22 @@ static void play(int slot, int game_save_only)
         rg.shown = ui.race.room.since;
         int gc = json_num(run.settings, "ganonCrystals", 7), tc = json_num(run.settings, "ganonsTowerCrystals", 7);
         rg.need = (gc > tc ? gc : tc) + json_num(run.settings, "tourianBosses", 4);
+        ntabs = TAB_COUNT + 1;   /* CHAT */
+        pause_on_overlay = 0;    /* a race never stops for the tracker */
+        size_t n;
+        uint8_t *st = store_read(store_path("runs/slot%d.racestate", RACE_SLOT), &n);
+        if (st) {   /* a paused race: its state loads once, then the server hears this player is back */
+            emu_state_load(st, n);
+            free(st);
+            remove(store_path("runs/slot%d.racestate", RACE_SLOT));
+            trk.state_loaded = 3;
+            emu_set_pad(0);   /* one silent frame, so the picture shows while the others come back */
+            emu_run_frame();
+            size_t an;
+            emu_take_audio(&an);
+            rg.back = rg.skip_old = 1;
+            race_send("back", "", 1);
+        }
     }
     int64_t go_in = 0;   /* ms to the race's start, by the server's clock */
     if (getenv("SMZ3_DONE")) { done_popup = 1; finished = 1; final_ms = atoll(getenv("SMZ3_DONE")); }   /* test hook: the run-complete card */
@@ -1532,7 +1782,14 @@ static void play(int slot, int game_save_only)
             else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
                 SDL_Keycode k = e.key.keysym.sym;
                 if (exit_at) continue;
-                if (rg.card) { if (k == SDLK_RETURN || k == SDLK_SPACE) race_card_a(); else if (k == SDLK_ESCAPE) { rg.card = 0; exit_at = SDL_GetTicks(); } continue; }
+                if (rg.card) { if (k == SDLK_RETURN || k == SDLK_SPACE) { if (race_card_a()) exit_at = SDL_GetTicks(); } else if (k == SDLK_ESCAPE) { rg.card = 0; exit_at = SDL_GetTicks(); } continue; }
+                if (rg.pick) {
+                    if (k == SDLK_LEFT || k == SDLK_RIGHT) { rg.pick_i = (rg.pick_i + (k == SDLK_LEFT ? PAUSE_CHOICES - 1 : 1)) % PAUSE_CHOICES; sfx_play(SFX_MOVE); }
+                    else if (k == SDLK_RETURN || k == SDLK_SPACE) race_ask_pause();
+                    else if (k == SDLK_ESCAPE) { rg.pick = 0; sfx_play(SFX_BACK); }
+                    continue;
+                }
+                if (rg.on && race_vote_open()) { if (k == SDLK_RETURN || k == SDLK_SPACE) race_vote(1); else if (k == SDLK_ESCAPE) race_vote(0); continue; }
                 if (done_popup && (k == SDLK_RETURN || k == SDLK_SPACE || k == SDLK_ESCAPE) && finish_skip()) continue;   /* the first press only ends the animation */
                 if (done_popup) { if (k == SDLK_RETURN || k == SDLK_SPACE) { done_popup = 0; exit_at = SDL_GetTicks(); } else if (k == SDLK_ESCAPE) done_popup = 0; continue; }   /* main menu, or stay for the credits */
                 if (fail_popup) { if (k == SDLK_RETURN || k == SDLK_SPACE) fail_popup = 0; else if (k == SDLK_ESCAPE) { fail_popup = 0; exit_at = SDL_GetTicks(); } continue; }
@@ -1549,9 +1806,15 @@ static void play(int slot, int game_save_only)
                     else if (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_RETURN) { settings_video_change(vrow, k == SDLK_LEFT ? -1 : 1); vchanges++; }
                     continue;
                 }
+                if (rg.on && show && tab == TAB_COUNT && race_chat_key(k)) continue;
                 if (!show && !leaving && sc_key_press(k)) continue;   /* an item shortcut; it acts only in normal play */
                 if (k == SDLK_v && !leaving) { vpanel = 1; show = 0; continue; }
-                if (leaving) { if (k == SDLK_RETURN) exit_at = SDL_GetTicks(); leaving = 0; continue; }
+                if (leaving) {
+                    if (k == SDLK_p && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
+                    else if (k == SDLK_RETURN) exit_at = SDL_GetTicks();
+                    leaving = 0;
+                    continue;
+                }
                 if (k == SDLK_TAB && !ren2) show = !show;
                 else if (states && !show && k == SDLK_F5) quick_state(slot, qslot, 1);
                 else if (states && !show && k == SDLK_F7) { if (quick_state(slot, qslot, 0)) trk.state_loaded = 3; }
@@ -1569,17 +1832,26 @@ static void play(int slot, int game_save_only)
                 else if (show) {
                     if (k == SDLK_e || (k == SDLK_RIGHT && tab != TAB_MAP)) tab = (tab + 1) % ntabs;
                     else if (k == SDLK_q || (k == SDLK_LEFT && tab != TAB_MAP)) tab = (tab + ntabs - 1) % ntabs;
-                    else if (k == SDLK_p) pause_on_overlay = !pause_on_overlay;
+                    else if (k == SDLK_p && !rg.on) pause_on_overlay = !pause_on_overlay;   /* a race never stops */
                     else if (k == SDLK_f && tab == TAB_MAP) mv.follow = !mv.follow;
                     else if (k == SDLK_DOWN && tab != TAB_MAP) scroll++;
                     else if (k == SDLK_UP && scroll > 0 && tab != TAB_MAP) scroll--;
                     else if (k == SDLK_PAGEDOWN && tab != TAB_MAP) scroll += 15;
                     else if (k == SDLK_PAGEUP && tab != TAB_MAP) scroll = scroll > 15 ? scroll - 15 : 0;
                 }
+            } else if (e.type == SDL_TEXTINPUT) {
+                if (rg.on && show && tab == TAB_COUNT && !rg.chat_off) race_typed(e.text.text);
             } else if (pcode >= 0) {
                 int b = pcode;
                 if (exit_at) continue;
-                if (rg.card) { if (b == SDL_CONTROLLER_BUTTON_A) race_card_a(); else if (b == SDL_CONTROLLER_BUTTON_B) { rg.card = 0; exit_at = SDL_GetTicks(); } continue; }
+                if (rg.card) { if (b == SDL_CONTROLLER_BUTTON_A) { if (race_card_a()) exit_at = SDL_GetTicks(); } else if (b == SDL_CONTROLLER_BUTTON_B) { rg.card = 0; exit_at = SDL_GetTicks(); } continue; }
+                if (rg.pick) {
+                    if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT || b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) { rg.pick_i = (rg.pick_i + (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? PAUSE_CHOICES - 1 : 1)) % PAUSE_CHOICES; sfx_play(SFX_MOVE); }
+                    else if (b == SDL_CONTROLLER_BUTTON_A) race_ask_pause();
+                    else if (b == SDL_CONTROLLER_BUTTON_B) { rg.pick = 0; sfx_play(SFX_BACK); }
+                    continue;
+                }
+                if (rg.on && race_vote_open()) { if (b == SDL_CONTROLLER_BUTTON_A) race_vote(1); else if (b == SDL_CONTROLLER_BUTTON_B) race_vote(0); continue; }
                 if (done_popup && (b == SDL_CONTROLLER_BUTTON_A || b == SDL_CONTROLLER_BUTTON_B) && finish_skip()) continue;
                 if (done_popup) { if (b == SDL_CONTROLLER_BUTTON_A) { done_popup = 0; exit_at = SDL_GetTicks(); } else if (b == SDL_CONTROLLER_BUTTON_B) done_popup = 0; continue; }
                 if (fail_popup) { if (b == SDL_CONTROLLER_BUTTON_A) fail_popup = 0; else if (b == SDL_CONTROLLER_BUTTON_B) { fail_popup = 0; exit_at = SDL_GetTicks(); } continue; }
@@ -1609,8 +1881,14 @@ static void play(int slot, int game_save_only)
                     continue;
                 }
                 if (!show && !leaving && sc_pad_press(b)) continue;
+                if (rg.on && show && tab == TAB_COUNT && race_chat_pad(b)) continue;
                 if (show && b == SDL_CONTROLLER_BUTTON_X) { vpanel = 1; show = 0; continue; }
-                if (leaving) { if (b == SDL_CONTROLLER_BUTTON_A) exit_at = SDL_GetTicks(); leaving = 0; continue; }
+                if (leaving) {
+                    if (b == SDL_CONTROLLER_BUTTON_Y && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
+                    else if (b == SDL_CONTROLLER_BUTTON_A) exit_at = SDL_GetTicks();
+                    leaving = 0;
+                    continue;
+                }
                 int combo = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK);
                 int qs = b == pad_code(PA_QSAVE) || (combo && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
                 int ql = b == pad_code(PA_QLOAD) || (combo && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
@@ -1719,13 +1997,18 @@ static void play(int slot, int game_save_only)
             map_view_move(&mv, dx, dy, dz);
         }
         if (win2) hk_tick(pad);
-        if (rg.on) { race_in_game(); go_in = ui.race.room.start_at ? ui.race.room.start_at - (online_now_ms() + ui.race.room.offset) : 0; }
+        if (rg.on) {
+            race_in_game();
+            go_in = ui.race.room.go_at ? ui.race.room.go_at - race_now() : 0;
+            if (ui.race.room.state == RACE_PAUSED && !rg.back && !rg.kept) { rg.kept = 1; race_keep_paused(); rg.card = CARD_PAUSED; rg.pick = 0; show = leaving = 0; }
+        }
         int waiting = rg.on && go_in > 0;   /* no input until the start; the game's intro plays meanwhile */
-        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || rg.card ? 0 : pad_bits(keys);
+        int frozen = rg.on && (rg.back || rg.kept || rg.pick || (ui.race.room.state == RACE_RUNNING && ui.race.room.vote_by[0] && !rg.card));   /* a paused game must not move; a pause vote stops everyone until it is settled */
+        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || frozen || rg.card ? 0 : pad_bits(keys);
         SDL_Keycode ffk = pad_key(PA_FAST);
         fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || (win2 ? hk_held(pad, HK_FAST) : pad_held(pad, pad_code(PA_FAST))));
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
-        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || rg.card;
+        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || rg.card;
         if (!hold) {
             emu_set_pad(input);
             /* fast forward keeps the music at its pitch: one frame of sound out of every four, each one blended into the
@@ -1781,20 +2064,20 @@ static void play(int slot, int game_save_only)
                     finished = 1;
                     states = 0;   /* no state can take a finished run back */
                     if (!finished_before) { done_popup = !rg.on; final_ms = trk.base_ms + trk.pending_ms; }   /* a race has its own card */
-                    if (rg.on && !rg.finish_sent && ui.race.room.state == RACE_RUNNING) {   /* the time is the server's: from the start to this request */
+                    else if (win2) finish_start();   /* a finished run played again: its details come up on the tracker's screen */
+                    if (rg.on && !rg.finish_sent && ui.race.room.state == RACE_RUNNING) {   /* the time is the server's, from the start to this request or to finishAt if the server was down */
                         rg.finish_sent = 1;
                         size_t cap = SMZ_PROOF_MAX * 24;
-                        char *text = malloc(cap), *q = malloc(cap * 2 + 8), *f = malloc(cap * 2 + 16);
+                        char *text = malloc(cap), *q = malloc(cap * 2 + 8), *f = malloc(cap * 2 + 48);
                         if (text && q && f) {
                             smz_proof_format(&proof, text, cap);
                             smz_race_quote(text, q, cap * 2 + 8);
-                            snprintf(f, cap * 2 + 16, "\"proof\":%s", q);
+                            snprintf(f, cap * 2 + 48, "\"finishAt\":%lld,\"proof\":%s", (long long)race_now(), q);
                             race_send("finish", f, 1);
                         }
                         free(text); free(q); free(f);
                         save_proof(slot + 1, &proof);
                     }
-                    else if (win2) finish_start();   /* a finished run played again: its details come up on the tracker's screen */
                     if (daily && !finished_before && !daily_queued) {   /* the challenge's time is the real clock from the game's start */
                         daily_queued = 1;
                         final_ms = online_now_ms() - smz_daily_clock_from(&dr);
@@ -1918,7 +2201,7 @@ static void play(int slot, int game_save_only)
         if (show && !ren2) {
             size_t owl;
             const uint8_t *ow = emu_wram(&owl);
-            overlay(&trk, &run, tab, scroll, pause_on_overlay, ww, wh, (float)gx, (float)gw, &mv, &disc, discovered_only, have_logic ? in_logic : NULL, ow, owl, sram, sl, &dv, have_live ? &live : NULL, daily ? &dr : NULL);
+            overlay(&trk, &run, tab, scroll, pause_on_overlay, ww, wh, (float)gx, (float)gw, &mv, &disc, discovered_only, have_logic ? in_logic : NULL, ow, owl, sram, sl, &dv, have_live ? &live : NULL, daily ? &dr : NULL, rg.on);
         }
         if (done_popup == 1) { finish_start(); done_popup = 2; }
         if (ren2) {   /* dual screen: the tracker fills the bottom display; the helpers draw on the global renderer, so it is swapped */
@@ -1935,20 +2218,22 @@ static void play(int slot, int game_save_only)
                              finished_before ? (unsigned)run.zelda_cleared : trk.zelda_cleared, trk.zelda_total,
                              finished_before ? (unsigned)run.metroid_cleared : trk.metroid_cleared, trk.metroid_total};
             DualFrame df = {&trk, &disc, discovered_only, have_logic ? in_logic : NULL, ow, sram, owl, sl, have_live ? &live : NULL, daily ? &dr : NULL,
-                            !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), finished ? &fc : NULL, done_popup != 0, states, QSLOTS, &qslot};
+                            !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), finished ? &fc : NULL, done_popup != 0, states, QSLOTS, &qslot, rg.on ? &ui.race.room : NULL};
             dual_draw(ren2, &df, bw, bh);
             present2();
             ren = top;
             gfx_use(top);
         }
-        if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !ren2);
+        if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !ren2 && !(show && tab == TAB_COUNT));   /* no chat box over the CHAT tab */
         if (leaving) {
-            int abandon = rg.on && ui.race.room.state == RACE_RUNNING;
+            int abandon = rg.on && (ui.race.room.state == RACE_RUNNING || rg.back), pause = abandon && race_can_pause(go_in);
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
             gfx_text(ww / 2.0f, wh / 2.0f - 30, 34, C(0xE8, 0xEC, 0xF2), 1, abandon ? "Abandon the race?" : "Leave the run?");
             static const HelpItem LEAVE[] = {{"A", "Enter", "Save and go to the run list"}, {"B", "Esc", "Keep playing"}};
             static const HelpItem ABANDON[] = {{"A", "Enter", "Leave the race"}, {"B", "Esc", "Keep racing"}};
-            help_prompt(ww / 2.0f, wh / 2.0f + 14, 40, abandon ? ABANDON : LEAVE, 2);
+            static const HelpItem ABANDON_PAUSE[] = {{"A", "Enter", "Leave the race"}, {"Y", "P", "Ask to pause"}, {"B", "Esc", "Keep racing"}};
+            if (pause) help_prompt(ww / 2.0f, wh / 2.0f + 14, 40, ABANDON_PAUSE, 3);
+            else help_prompt(ww / 2.0f, wh / 2.0f + 14, 40, abandon ? ABANDON : LEAVE, 2);
         }
         if (vpanel) {   /* the video options over the game, so each change shows at once */
             int nrows = settings_video_rows();
@@ -2032,7 +2317,8 @@ static void play(int slot, int game_save_only)
     if (win2) dual_close();
     if (rg.on) {   /* out before the finish: the rivals see it at once */
         const SmzRacePlayer *me = smz_race_me(&ui.race.room);
-        if (ui.race.room.state == RACE_RUNNING && (!me || me->time_ms < 0)) race_send("leave", "", 1);
+        int st = ui.race.room.state;
+        if ((st == RACE_RUNNING && (!me || me->time_ms < 0) && !rg.kept) || (st == RACE_PAUSED && rg.back)) { race_send("leave", "", 1); race_forget_paused(); }   /* back from a pause and gone again: abandoned */
         rg.on = 0;
     }
     if (rw_open) { smz_rewind_step(rw, smz_rewind_count(rw)); emu_state_load(smz_rewind_state(rw), rw_size); }   /* closed mid-rewind: the present is kept */
@@ -2193,6 +2479,15 @@ static int race_build(char *err, size_t cap)
     return rc;
 }
 
+/* The paused race kept here, if any, for Championship's first row. */
+static void race_paused_show(void)
+{
+    char tok[100], code[8];
+    int64_t at;
+    if (race_paused_read(tok, sizeof tok, code, &at)) ui_race_set_paused(&ui, "", 0);
+    else ui_race_set_paused(&ui, code, at);
+}
+
 /* Hands the race server's answers to the menu. */
 static void race_answers(void)
 {
@@ -2309,6 +2604,7 @@ static void window_main(int start_slot)
     ui_daily_enable(&ui, 1);
     ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_QUIT);
     ui_race_enable(&ui, 1);
+    race_paused_show();
     if (start_slot < 0) ui_home_open(&ui);   /* a run named on the command line skips the start menu */
     if (getenv("SMZ3_LADDER") || getenv("SMZ3_KEYS")) ui.screen = UI_SLOTS_SCREEN;   /* the test hooks below drive the run list */
     if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows them from the start */
@@ -2353,7 +2649,7 @@ static void window_main(int start_slot)
             if (!instant && !launch_at) launch_at = SDL_GetTicks();
             if (instant || SDL_GetTicks() - launch_at >= LAUNCH_MS) {
                 play(pending_play, pending_state_only);
-                if (pending_play == RACE_SLOT - 1) { race_forget(); ui_race_end(&ui); }   /* a race is played once */
+                if (pending_play == RACE_SLOT - 1) { race_forget(); ui_race_end(&ui); race_paused_show(); }   /* a race is played once, or kept paused */
                 pending_play = -1;
                 launch_at = 0;
                 instant = 0;
@@ -2485,6 +2781,12 @@ static void window_main(int start_slot)
                     race_send("pick", f, 1);
                     race_send("ready", "", 1);
                 }
+            }
+            else if (act == ACT_RACE_RESUME) {   /* the paused race: its game loads its state and tells the server */
+                char tok[100], code[8];
+                int64_t at;
+                if (race_paused_read(tok, sizeof tok, code, &at)) { ui_race_set_paused(&ui, "", 0); note("That paused race is gone"); }
+                else { race_resume(tok); pending_play = RACE_SLOT - 1; pending_state_only = 0; instant = 1; }
             }
             else if (act == ACT_RACE_START) { pending_play = RACE_SLOT - 1; pending_state_only = 0; instant = 1; }   /* the start is the server's: no fade to wait */
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */

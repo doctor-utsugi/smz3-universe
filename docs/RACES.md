@@ -212,7 +212,17 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
    so its finish can arrive up to a second later than on PC. Closing the 3DS app mid-race sends nothing, so the server drops
    the player after five minutes; Android sends the leave as the game closes.
 7. **Multi race,** positions, abandon rules, Partial lengths, pause by agreement, ladder.
+   Built on the server and PC, tried live against the server with a scripted second player. In a multi race the card
+   shows the places so far when you finish, and the first finish can go to the ladder at once, since nobody can beat it.
+   A pause is asked from the abandon prompt with a resume time from 1 hour to 7 days, and the game stops for everyone
+   until the vote is settled. Once paused, each PC keeps its state and the room's token, and Championship shows the paused
+   race first; choosing it loads the state once and waits for the others. A finish sent while the server was down
+   carries its own moment, which counts only inside an outage the server recorded. Requests that can't be lost (finish,
+   ladder, vote, back) are sent again until the server answers. After 5 minutes without the server the race shows as
+   cancelled. On two screens RUN lists the top three and you.
 8. **Chat,** with the touch keyboard on 3DS.
+   Built on PC: a CHAT tab in the tracker overlay, which no longer pauses a race. The keyboard types; a pad sends quick
+   phrases. Players can be muted and chat turned off. On two screens the CHAT tab has the phrases by touch.
 9. **Draft start points.** Try one spot in each game, on all three emulators: the SRAM idea for Super Metroid, and a boot patch or prepared state for Zelda. If Super Metroid fails, Draft has to be rethought; if only Zelda fails, Draft starts in Super Metroid.
 10. **Draft goals.** New goal kinds, a generator with its own length estimate, its own finish check. Start spots are a hand-made list, and each one names the items needed to leave it, so a Draft's starting items can't trap the player. Count goals and Super Metroid boss goals can't be proved, so the server trusts the client and only checks they are plausible.
 11. **Balance.** Real times adjust the lengths.
