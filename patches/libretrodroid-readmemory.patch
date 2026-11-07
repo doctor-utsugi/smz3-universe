@@ -24,7 +24,7 @@ index 5a845df..de2109d 100644
          core.h
          core.cpp
 diff --git a/libretrodroid/src/main/cpp/libretrodroid.cpp b/libretrodroid/src/main/cpp/libretrodroid.cpp
-index 60640c4..9b53539 100644
+index 60640c4..6a70c34 100644
 --- a/libretrodroid/src/main/cpp/libretrodroid.cpp
 +++ b/libretrodroid/src/main/cpp/libretrodroid.cpp
 @@ -173,6 +173,7 @@ JNIEXPORT jboolean JNICALL LibretroDroid::unserializeSRAM(int8_t* data, size_t s
@@ -84,14 +84,16 @@ index 60640c4..9b53539 100644
      video = nullptr;
      core = nullptr;
      rumble = nullptr;
-@@ -456,8 +492,18 @@ void LibretroDroid::step() {
+@@ -456,8 +492,20 @@ void LibretroDroid::step() {
          frames = std::min(requestedFrames, 2u);
      }
  
 -    for (size_t i = 0; i < frames * frameSpeed; i++)
 -        core->retro_run();
 +    syncRewind();
-+    if (!(rewind && stepRewind())) {
++    if (held) {
++        if (video) video->markDirty();   // as a paused rewind: the frame on screen is drawn again
++    } else if (!(rewind && stepRewind())) {
 +        for (size_t i = 0; i < frames * frameSpeed; i++)
 +            core->retro_run();
 +
@@ -105,7 +107,7 @@ index 60640c4..9b53539 100644
  
      if (video && !video->rendersInVideoCallback()) {
          video->renderFrame();
-@@ -491,6 +537,7 @@ void LibretroDroid::step() {
+@@ -491,6 +539,7 @@ void LibretroDroid::step() {
  }
  
  float LibretroDroid::getAspectRatio() {
@@ -113,11 +115,12 @@ index 60640c4..9b53539 100644
      float gameAspectRatio = Environment::getInstance().retrieveGameSpecificAspectRatio();
      return gameAspectRatio > 0 ? gameAspectRatio : defaultAspectRatio;
  }
-@@ -512,6 +559,78 @@ void LibretroDroid::setFrameSpeed(unsigned int speed) {
+@@ -512,6 +561,79 @@ void LibretroDroid::setFrameSpeed(unsigned int speed) {
      updateAudioSampleRateMultiplier();
  }
  
 +void LibretroDroid::setRewindEnabled(bool enabled) { rewindWanted = enabled; }
++void LibretroDroid::setHeld(bool value) { held = value; }
 +
 +// Under the core lock, on each frame: the history is made once the game is running and freed when rewind is turned off.
 +void LibretroDroid::syncRewind() {
@@ -192,7 +195,7 @@ index 60640c4..9b53539 100644
  void LibretroDroid::setAudioEnabled(bool enabled) {
      audioEnabled = enabled;
  }
-@@ -572,6 +691,7 @@ void LibretroDroid::reset() {
+@@ -572,6 +694,7 @@ void LibretroDroid::reset() {
  
  std::pair<int8_t*, size_t> LibretroDroid::serializeState() {
      std::lock_guard<std::mutex> lock(coreLock);
@@ -200,7 +203,7 @@ index 60640c4..9b53539 100644
  
      size_t size = core->retro_serialize_size();
      auto data = new int8_t[size];
-@@ -643,6 +763,13 @@ void LibretroDroid::setViewport(Rect viewportRect) {
+@@ -643,6 +766,13 @@ void LibretroDroid::setViewport(Rect viewportRect) {
      }
  }
  
@@ -215,7 +218,7 @@ index 60640c4..9b53539 100644
      this-> viewportAlignment = viewportAlignment;
  
 diff --git a/libretrodroid/src/main/cpp/libretrodroid.h b/libretrodroid/src/main/cpp/libretrodroid.h
-index b507aee..7e32a61 100644
+index b507aee..e969584 100644
 --- a/libretrodroid/src/main/cpp/libretrodroid.h
 +++ b/libretrodroid/src/main/cpp/libretrodroid.h
 @@ -45,6 +45,8 @@
@@ -236,7 +239,7 @@ index b507aee..7e32a61 100644
      jboolean unserializeSRAM(int8_t *data, size_t size);
  
      void onSurfaceCreated();
-@@ -130,10 +134,23 @@ public:
+@@ -130,10 +134,24 @@ public:
  
      void setAudioEnabled(bool enabled);
  
@@ -244,6 +247,7 @@ index b507aee..7e32a61 100644
 +     * frame, hold moves the cursor (-1 back, 1 forward, 0 still), close plays on from the cursor or goes back to the
 +     * present. The requests are carried out on the next frame. */
 +    void setRewindEnabled(bool enabled);
++    void setHeld(bool held);
 +    void rewindOpen();
 +    void rewindHold(int direction);
 +    void rewindClose(bool playFromCursor);
@@ -260,7 +264,7 @@ index b507aee..7e32a61 100644
      void resetGlobalVariables();
  
      // Handle callbacks
-@@ -156,6 +173,19 @@ protected:
+@@ -156,6 +174,20 @@ protected:
      static void callback_retro_set_input_poll();
  
  private:
@@ -271,6 +275,7 @@ index b507aee..7e32a61 100644
 +    SmzRewind* rewind = nullptr;
 +    std::vector<uint8_t> rewindBuffer;
 +    std::atomic<bool> rewindWanted {false};
++    std::atomic<bool> held {false};   // the game stands still on its frame (an online race waiting or paused)
 +    std::atomic<int> rewindRequest {0};   // 1 open, 2 play from the cursor, 3 back to the present
 +    std::atomic<int> rewindDirection {0};
 +    std::atomic<int> rewindCursor {-1}, rewindCount {-1}, rewindIsOpen {-1};
@@ -280,7 +285,7 @@ index b507aee..7e32a61 100644
      unsigned int frameSpeed = 1;
      bool audioEnabled = true;
      bool preferLowLatencyAudio = false;
-@@ -167,6 +197,7 @@ private:
+@@ -167,6 +199,7 @@ private:
  
      Rect viewportRect = Rect(0.0F, 0.0F, 1.0F, 1.0F);
      unsigned int viewportAlignment = V_ALIGN_CENTER;
@@ -289,10 +294,10 @@ index b507aee..7e32a61 100644
      int openglESVersion = 2;
      bool skipDuplicateFrames = false;
 diff --git a/libretrodroid/src/main/cpp/libretrodroidjni.cpp b/libretrodroid/src/main/cpp/libretrodroidjni.cpp
-index 2ec15cf..526c726 100644
+index 2ec15cf..541eec2 100644
 --- a/libretrodroid/src/main/cpp/libretrodroidjni.cpp
 +++ b/libretrodroid/src/main/cpp/libretrodroidjni.cpp
-@@ -282,6 +282,74 @@ JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_seri
+@@ -282,6 +282,78 @@ JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_seri
      return nullptr;
  }
  
@@ -320,6 +325,10 @@ index 2ec15cf..526c726 100644
 +
 +JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setRewindEnabled(JNIEnv* env, jclass obj, jboolean enabled) {
 +    LibretroDroid::getInstance().setRewindEnabled(enabled);
++}
++
++JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setHeld(JNIEnv* env, jclass obj, jboolean held) {
++    LibretroDroid::getInstance().setHeld(held);
 +}
 +
 +JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_rewindOpen(JNIEnv* env, jclass obj) {
@@ -367,7 +376,7 @@ index 2ec15cf..526c726 100644
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_reset(
      JNIEnv* env,
      jclass obj
-@@ -591,6 +659,14 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setViewpor
+@@ -591,6 +663,14 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setViewpor
      LibretroDroid::getInstance().setViewport(Rect(x, y, width, height));
  }
  
@@ -383,7 +392,7 @@ index 2ec15cf..526c726 100644
          JNIEnv* env,
          jclass obj,
 diff --git a/libretrodroid/src/main/cpp/libretrodroidjni.h b/libretrodroid/src/main/cpp/libretrodroidjni.h
-index 02ab0fc..eecd96d 100644
+index 02ab0fc..974e095 100644
 --- a/libretrodroid/src/main/cpp/libretrodroidjni.h
 +++ b/libretrodroid/src/main/cpp/libretrodroidjni.h
 @@ -27,6 +27,8 @@ JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_seri
@@ -395,12 +404,13 @@ index 02ab0fc..eecd96d 100644
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_onSurfaceCreated(JNIEnv* env, jclass obj);
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_onSurfaceChanged(JNIEnv* env, jclass obj, jint width, jint height);
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_pause(JNIEnv* env, jclass obj);
-@@ -50,6 +52,11 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_changeDisk
+@@ -50,6 +52,12 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_changeDisk
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setRumbleEnabled(JNIEnv* env, jclass obj, jboolean enabled);
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setFrameSpeed(JNIEnv* env, jclass obj, jint speed);
  JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setAudioEnabled(JNIEnv* env, jclass obj, jboolean enabled);
 +JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setRewindEnabled(JNIEnv* env, jclass obj, jboolean enabled);
 +JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_rewindOpen(JNIEnv* env, jclass obj);
++JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setHeld(JNIEnv* env, jclass obj, jboolean held);
 +JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_rewindHold(JNIEnv* env, jclass obj, jint direction);
 +JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_rewindClose(JNIEnv* env, jclass obj, jboolean playFromCursor);
 +JNIEXPORT jintArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_rewindPosition(JNIEnv* env, jclass obj);
@@ -445,10 +455,10 @@ index 05bd6b6..c80b410 100644
  
      uintptr_t getCurrentFramebuffer() {
 diff --git a/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt b/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
-index 7eb8602..fada8a7 100644
+index 7eb8602..1f50c8d 100644
 --- a/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
 +++ b/libretrodroid/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
-@@ -57,6 +57,23 @@ class GLRetroView(
+@@ -57,6 +57,26 @@ class GLRetroView(
          LibretroDroid.setFrameSpeed(value)
      }
  
@@ -459,6 +469,9 @@ index 7eb8602..fada8a7 100644
 +
 +    /** Stops the game on the newest frame kept; [rewindHold] then moves through them. */
 +    fun rewindOpen() = LibretroDroid.rewindOpen()
++
++    /** Holds the game on its frame (no core frames run, the picture stays) until released. */
++    fun setHeld(held: Boolean) = LibretroDroid.setHeld(held)
 +
 +    /** -1 back, 1 forward, 0 still, until changed. */
 +    fun rewindHold(direction: Int) = LibretroDroid.rewindHold(direction)
@@ -472,7 +485,7 @@ index 7eb8602..fada8a7 100644
      var shader: ShaderConfig by Delegates.observable(data.shader) { _, _, value ->
          LibretroDroid.setShaderConfig(buildShader(value))
      }
-@@ -67,6 +84,11 @@ class GLRetroView(
+@@ -67,6 +87,11 @@ class GLRetroView(
          }
      }
  
@@ -484,7 +497,7 @@ index 7eb8602..fada8a7 100644
      var viewportAlignment: ViewportAlignment by Delegates.observable(ViewportAlignment.CENTER) { _, _, value ->
          LibretroDroid.setViewportAlignment(value.value)
      }
-@@ -192,6 +214,20 @@ class GLRetroView(
+@@ -192,6 +217,20 @@ class GLRetroView(
          }
      }
  
@@ -505,7 +518,7 @@ index 7eb8602..fada8a7 100644
      fun reset(useEmulationThread: Boolean = true) = runOnEmulationThread(useEmulationThread) {
          LibretroDroid.reset()
      }
-@@ -504,6 +540,10 @@ class GLRetroView(
+@@ -504,6 +543,10 @@ class GLRetroView(
      }
  
      companion object {
@@ -517,7 +530,7 @@ index 7eb8602..fada8a7 100644
  
          const val MOTION_SOURCE_DPAD = LibretroDroid.MOTION_SOURCE_DPAD
 diff --git a/libretrodroid/src/main/java/com/swordfish/libretrodroid/LibretroDroid.java b/libretrodroid/src/main/java/com/swordfish/libretrodroid/LibretroDroid.java
-index 50eafa1..0882f20 100644
+index 50eafa1..e9f38d2 100644
 --- a/libretrodroid/src/main/java/com/swordfish/libretrodroid/LibretroDroid.java
 +++ b/libretrodroid/src/main/java/com/swordfish/libretrodroid/LibretroDroid.java
 @@ -116,6 +116,8 @@ public class LibretroDroid {
@@ -529,7 +542,7 @@ index 50eafa1..0882f20 100644
      public static native byte[] serializeState();
      public static native boolean unserializeState(byte[] state);
  
-@@ -124,6 +126,15 @@ public class LibretroDroid {
+@@ -124,6 +126,16 @@ public class LibretroDroid {
  
      public static native byte[] serializeSRAM();
      public static native boolean unserializeSRAM(byte[] sram);
@@ -537,6 +550,7 @@ index 50eafa1..0882f20 100644
 +
 +    public static native void setRewindEnabled(boolean enabled);
 +    public static native void rewindOpen();
++    public static native void setHeld(boolean held);
 +    public static native void rewindHold(int direction);
 +    public static native void rewindClose(boolean playFromCursor);
 +    public static native int[] rewindPosition();

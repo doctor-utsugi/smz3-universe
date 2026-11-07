@@ -1361,10 +1361,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..a0f45a9
+index 0000000..e9705f1
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,836 @@
+@@ -0,0 +1,853 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1455,7 +1455,7 @@ index 0000000..a0f45a9
 +}
 +
 +private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY, OPTIONS,
-+    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START }
++    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME }
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_OPT_QUIT = 8
@@ -1599,7 +1599,12 @@ index 0000000..a0f45a9
 +    // coming back from a run: its progress changed while this list was waiting
 +    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 +    DisposableEffect(lifecycleOwner) {
-+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) { refreshSlots(); dailyAgain.set(true) } }
++        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
++            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
++                refreshSlots(); dailyAgain.set(true)
++                RaceClient.paused(context).let { Smz3Native.uiRaceSetPaused(it?.code ?: "", it?.resumeAt ?: 0L) }   // a race paused in the game just closed
++            }
++        }
 +        lifecycleOwner.lifecycle.addObserver(observer)
 +        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
 +    }
@@ -1617,6 +1622,7 @@ index 0000000..a0f45a9
 +        Smz3Native.uiDailyEnable(true)
 +        Smz3Native.uiRaceEnable(true)
 +        RaceClient.init(context)
++        RaceClient.paused(context).let { Smz3Native.uiRaceSetPaused(it?.code ?: "", it?.resumeAt ?: 0L) }
 +        Smz3Native.uiHomeEnable(UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
 +        if (!homeShown) { homeShown = true; Smz3Native.uiHomeOpen() }
 +        Thread { pendingMonthly.set(OnlineLadder.monthly(context)); pendingWeekly.set(OnlineLadder.weekly(context)) }.start()
@@ -1887,6 +1893,17 @@ index 0000000..a0f45a9
 +                RaceClient.handOver()
 +                play(it, false)
 +                Smz3Native.uiRaceEnd()
++            }
++            Act.RACE_RESUME -> {   // the paused race: its game loads the state kept and tells the server
++                val p = RaceClient.paused(context)
++                val run = RunStore.load(context, RaceClient.SLOT)
++                if (p == null || run == null) Smz3Native.uiRaceSetPaused("", 0L)
++                else {
++                    RaceClient.resumePaused(context, p)
++                    RaceClient.handOver()
++                    play(run, false)
++                    Smz3Native.uiRaceEnd()
++                }
 +            }
 +            Act.NONE -> {}
 +        }
@@ -3202,7 +3219,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..3a1a553 100644
+index 6d06420..3594e64 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3243,7 +3260,15 @@ index 6d06420..3a1a553 100644
  
          lifecycleScope.launch {
              baseGameScreenViewModel.loadGame(
-@@ -209,7 +219,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -141,6 +151,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+             this,
+             object : OnBackPressedCallback(true) {
+                 override fun handleOnBackPressed() {
++                    if (raceOverlay?.handleBack() == true) return
+                     baseGameScreenViewModel.requestFinish()
+                 }
+             },
+@@ -209,7 +220,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                      GameMenuContract.EXTRA_AUDIO_ENABLED,
                      baseGameScreenViewModel.retroGameView.retroGameView?.audioEnabled,
                  )
@@ -3252,7 +3277,7 @@ index 6d06420..3a1a553 100644
                  this.putExtra(
                      GameMenuContract.EXTRA_FAST_FORWARD,
                      (baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1) > 1,
-@@ -244,7 +254,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -244,7 +255,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                              it.currentTiltConfiguration,
                              it.tiltConfigurations,
                          )
@@ -3261,7 +3286,7 @@ index 6d06420..3a1a553 100644
                      is GameViewModelSideEffects.UiEffect.SuccessfulFinish -> performSuccessfulActivityFinish()
                      is GameViewModelSideEffects.UiEffect.FailureFinish -> performErrorFinish(it.message)
                      is GameViewModelSideEffects.UiEffect.SaveQuickSave -> performSaveQuickSave()
-@@ -262,6 +272,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -262,6 +273,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          baseGameScreenViewModel.loadQuickSave()
      }
  
@@ -3337,7 +3362,7 @@ index 6d06420..3a1a553 100644
      private fun performToggleFastForward() {
          baseGameScreenViewModel.toggleFastForward()
      }
-@@ -344,6 +423,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -344,6 +424,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onStop() {
@@ -3345,7 +3370,7 @@ index 6d06420..3a1a553 100644
          if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
              baseGameScreenViewModel.requestBackgroundSave()
          }
-@@ -351,6 +431,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -351,6 +432,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onDestroy() {
@@ -6599,10 +6624,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..492e6c5
+index 0000000..1568550
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,135 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6731,6 +6756,7 @@ index 0000000..492e6c5
 +    @JvmStatic external fun uiRaceRooms(json: String)
 +    @JvmStatic external fun uiRaceFail(msg: String)
 +    @JvmStatic external fun uiRaceEnd()
++    @JvmStatic external fun uiRaceSetPaused(code: String, resumeAt: Long)
 +    /** {format key, size, public (0/1), code typed, room code, last log line read, Link, Samus}. */
 +    @JvmStatic external fun uiRaceInfo(): Array<String>
 +    @JvmStatic external fun uiRacePid(i: Int): String
@@ -6817,10 +6843,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..527c9a5
+index 0000000..359a67e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1044 @@
+@@ -0,0 +1,1124 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -6874,7 +6900,7 @@ index 0000000..527c9a5
 +    private val density = context.resources.displayMetrics.density
 +    private fun dp(v: Int) = (v * density).toInt()
 +
-+    private companion object { const val HELP_TAB = 4; const val MAP_TAB = 3 }
++    private companion object { const val HELP_TAB = 4; const val MAP_TAB = 3; const val CHAT_TAB = 6 }
 +
 +    private enum class Role { TEXT, DIM, ACCENT }
 +
@@ -6920,7 +6946,7 @@ index 0000000..527c9a5
 +        root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 +        tabRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 +        val content = FrameLayout(context)
-+        val pageViews = listOf("RUN" to buildRunPage(), "ITEMS" to buildItemsPage(), "CHECKS" to buildChecksPage(), "MAP" to buildMapPage(), "HELP" to buildHelpPage(), "CONFIG" to buildConfigPage())
++        val pageViews = listOf("RUN" to buildRunPage(), "ITEMS" to buildItemsPage(), "CHECKS" to buildChecksPage(), "MAP" to buildMapPage(), "HELP" to buildHelpPage(), "CONFIG" to buildConfigPage(), "CHAT" to buildChatPage())
 +        pageViews.forEachIndexed { i, (title, page) ->
 +            val tab = label(15f, Role.DIM).apply {
 +                text = title
@@ -6944,6 +6970,7 @@ index 0000000..527c9a5
 +        addView(portal, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        addView(visor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +        addView(finishPanel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
++        tabs[CHAT_TAB].visibility = View.GONE   // only in an online race
 +        select(0)
 +        applyTheme(theme)
 +        if (!intro) return
@@ -6961,7 +6988,10 @@ index 0000000..527c9a5
 +
 +    /** Moves [delta] tabs to the right (left when negative), wrapping around. */
 +    fun step(delta: Int) {
-+        if (pages.isNotEmpty()) select((selectedTab + delta + pages.size) % pages.size)
++        if (pages.isEmpty()) return
++        var next = selectedTab
++        do next = (next + delta + pages.size) % pages.size while (tabs[next].visibility != View.VISIBLE && next != selectedTab)   // hidden tabs are skipped
++        select(next)
 +    }
 +
 +    private fun select(index: Int) {
@@ -7050,6 +7080,8 @@ index 0000000..527c9a5
 +        column.addView(head, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 +        goals = Smz3GoalsView(context).apply { visibility = View.GONE; setTheme(theme) }
 +        dailyBlock = Smz3DailyBlock(context).apply { visibility = View.GONE; setTheme(theme) }
++        standings = label(13f, Role.TEXT).apply { visibility = View.GONE; setLineSpacing(0f, 1.1f) }
++        column.addView(standings, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
 +        listOf(zeldaText, zeldaBar, metroidText, metroidBar, goals, dailyBlock, stats).forEach {
 +            column.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (it is ProgressBar) dp(8) else ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (it === zeldaText || it === goals || it === dailyBlock || it === stats) topMargin = dp(4) })
 +        }
@@ -7480,6 +7512,79 @@ index 0000000..527c9a5
 +
 +    private val configButtons = mutableListOf<() -> Unit>()
 +
++    private lateinit var standings: TextView
++    private lateinit var chatLines: TextView
++    private lateinit var chatScroll: ScrollView
++    private lateinit var chatInput: android.widget.EditText
++    private lateinit var chatToggle: Button
++    private lateinit var muteRow: LinearLayout
++    private var raceVersion = -1
++    private var mutePlayers = ""
++
++    /** The race's chat: the last lines, a line to type with the system keyboard, quick phrases, and mute per player. */
++    private fun buildChatPage(): View {
++        val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(4), dp(12), dp(4)) }
++        chatLines = label(13f).apply { setLineSpacing(0f, 1.1f) }
++        chatScroll = ScrollView(context).apply { isScrollbarFadingEnabled = false; addView(chatLines) }
++        column.addView(chatScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
++        for (row in Smz3RaceState.phrases.chunked(4)) {
++            val line = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
++            for (p in row) line.addView(overlayButton(p) { Smz3RaceState.say(p) }.apply { isAllCaps = false; textSize = 12f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
++            column.addView(line)
++        }
++        chatInput = android.widget.EditText(context).apply {
++            hint = "Say something"
++            isSingleLine = true
++            filters = arrayOf(android.text.InputFilter.LengthFilter(80))
++            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or android.view.inputmethod.EditorInfo.IME_ACTION_SEND
++            textSize = 14f
++            setTextColor(Color.WHITE)
++            setHintTextColor(Color.GRAY)
++            setOnEditorActionListener { _, _, _ -> sendChat(); true }
++        }
++        val input = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
++        input.addView(chatInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
++        input.addView(overlayButton("SEND") { sendChat() })
++        chatToggle = overlayButton("") { Smz3RaceState.toggleChat() }
++        input.addView(chatToggle)
++        column.addView(input)
++        muteRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
++        column.addView(android.widget.HorizontalScrollView(context).apply { addView(muteRow) })
++        return column
++    }
++
++    private fun sendChat() {
++        Smz3RaceState.say(chatInput.text.toString())
++        chatInput.setText("")
++        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(chatInput.windowToken, 0)
++    }
++
++    /** The CHAT tab and the RUN standings, while an online race is on; redrawn only when the race changed. */
++    private fun renderRace() {
++        val race = Smz3RaceState
++        if (tabs[CHAT_TAB].visibility != (if (race.on) View.VISIBLE else View.GONE)) {
++            tabs[CHAT_TAB].visibility = if (race.on) View.VISIBLE else View.GONE
++            if (!race.on && selectedTab == CHAT_TAB) select(0)
++        }
++        standings.visibility = if (race.on && Smz3Tracker.onSecondScreen) View.VISIBLE else View.GONE
++        if (!race.on || race.version == raceVersion) return
++        raceVersion = race.version
++        standings.text = race.standings()
++        val shown = race.lines.filter { race.shown(it) }.takeLast(30)
++        chatLines.text = if (race.chatOff) "Chat is off" else shown.joinToString("\n") { if (it.kind == "chat") "${it.name}: ${it.text}" else if (it.kind == "event") "\u2022 ${it.name} ${it.text}" else "\u2022 ${it.text}" }
++        chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
++        chatToggle.text = if (race.chatOff) "CHAT ON" else "CHAT OFF"
++        val rivals = (0 until race.players.length()).map { race.players.getJSONObject(it) }.filter { it.optString("pid") != race.you }
++        val key = rivals.joinToString { it.optString("pid") + it.optString("name") } + race.muted.joinToString()
++        if (key == mutePlayers) return
++        mutePlayers = key
++        muteRow.removeAllViews()
++        for (p in rivals) {
++            val pid = p.optString("pid")
++            muteRow.addView(overlayButton((if (pid in race.muted) "UNMUTE " else "MUTE ") + p.optString("name")) { race.toggleMute(pid) }.apply { isAllCaps = false; textSize = 12f })
++        }
++    }
++
 +    private fun runShape(): String = com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.activeSlot(context)
 +        ?.let { com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.load(context, it) }
 +        ?.let { runCatching { org.json.JSONObject(it.settings).optString("screenShape", "original") }.getOrNull() } ?: "original"
@@ -7828,6 +7933,7 @@ index 0000000..527c9a5
 +        renderShortcuts(if (s.started) s.game else 0)
 +        val daily = renderDaily(s.game == 3)
 +        renderGoalsMode(daily)
++        renderRace()
 +        if (!daily) renderHelp(s.help)
 +        map?.setVisibleChecks(s.help.visibleChecks)
 +        miniMap?.setVisibleChecks(s.help.visibleChecks)
@@ -11582,10 +11688,10 @@ index c3c69c7..13cb599 100644
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
 new file mode 100644
-index 0000000..cafa04b
+index 0000000..2307c70
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,201 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -11622,6 +11728,7 @@ index 0000000..cafa04b
 +    private var progress = 0
 +    @Volatile var slow = false
 +    private var tokenFile: File? = null
++    private var offlineSince = 0L   // elapsedRealtime of the first failed poll in a row; 0 while the server answers
 +    private var worker: Thread? = null
 +    @Volatile private var busy = false
 +
@@ -11642,6 +11749,32 @@ index 0000000..cafa04b
 +        init(context)
 +        synchronized(lock) { token = runCatching { tokenFile!!.readText().trim() }.getOrDefault("") }
 +    }
++
++    /** A paused race kept on this device: its token, code and resume time (server ms), and the game's state beside it. */
++    class Paused(val token: String, val code: String, val resumeAt: Long)
++
++    fun stateFile(context: Context) = File(File(context.filesDir, "runs"), "slot$SLOT.racestate")
++
++    fun paused(context: Context): Paused? = runCatching {
++        val l = File(File(context.filesDir, "runs"), "race.paused").readLines()
++        Paused(l[0], l[1], l[2].toLong())
++    }.getOrNull()
++
++    fun keepPaused(context: Context, code: String, resumeAt: Long, state: ByteArray?) {
++        if (state != null) stateFile(context).writeBytes(state)
++        File(File(context.filesDir, "runs").apply { mkdirs() }, "race.paused").writeText("${synchronized(lock) { token }}\n$code\n$resumeAt\n")
++    }
++
++    fun forgetPaused(context: Context) { File(File(context.filesDir, "runs"), "race.paused").delete(); stateFile(context).delete() }
++
++    /** The menu picks the paused race again: its token goes to the game's process like a joined room's. */
++    fun resumePaused(context: Context, p: Paused) {
++        init(context)
++        synchronized(lock) { queue.removeAll { it.what == "forget" }; token = p.token; since = 0; progress = 0; events.clear(); chats.clear(); offlineSince = 0; saveToken() }
++    }
++
++    /** How long the polls have failed in a row, in ms (0 while the server answers). */
++    fun offlineMs(): Long = synchronized(lock) { if (offlineSince == 0L) 0L else SystemClock.elapsedRealtime() - offlineSince }
 +
 +    /** The player as the requests carry it. */
 +    fun who(context: Context): JSONObject {
@@ -11700,55 +11833,72 @@ index 0000000..cafa04b
 +        Pair(c.responseCode, text).also { c.disconnect() }
 +    }.getOrDefault(Pair(-1, ""))
 +
-+    /** Sends one request and files its answer; a create or join answer brings the room's token. */
-+    private fun request(r: Req) {
++    /** What can't be lost in a race: sent again until the server answers. */
++    private fun keeps(what: String) = what == "finish" || what == "ladder" || what == "back" || what == "vote" || what == "pause"
++
++    /** Sends one request and files its answer; a create or join answer brings the room's token. False when the server
++     * could not be reached. */
++    private fun request(r: Req): Boolean {
 +        when (r.what) {
-+            "forget" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear(); slow = false; saveToken() }; return }
-+            "handover" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear() }; return }
++            "forget" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear(); slow = false; offlineSince = 0; saveToken() }; return true }
++            "handover" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear() }; return true }
 +        }
 +        val (code, text) = if (r.what == "open") http("GET", "/api/race/open", null) else {
 +            val body = JSONObject(r.fields?.toString() ?: "{}")
 +            if (r.withToken) body.put("token", synchronized(lock) { token })
 +            http("POST", "/api/race/${r.what}", body.toString())
 +        }
-+        if (r.what == "leave") { synchronized(lock) { token = ""; since = 0; saveToken() }; return }   // gone either way
-+        if (code < 0) { answer(ERROR, "No connection"); return }
++        if (r.what == "leave") { synchronized(lock) { token = ""; since = 0; saveToken() }; return true }   // gone either way
++        synchronized(lock) { if (code < 0) { if (offlineSince == 0L) offlineSince = SystemClock.elapsedRealtime() } else offlineSince = 0 }
++        if (code < 0) { if (!keeps(r.what) && r.what != "poll") answer(ERROR, "No connection"); return false }
 +        if (code != 200) {
 +            val err = runCatching { JSONObject(text).optString("error") }.getOrDefault("")
 +            answer(ERROR, if (err == "version") "Update the app to join this room" else err.ifEmpty { "The server said no" })
-+            return
++            return true
 +        }
-+        if (r.what == "open") { answer(ROOMS, text); return }
++        if (r.what == "open") { answer(ROOMS, text); return true }
 +        if (r.what == "create" || r.what == "join") {
 +            val t = runCatching { JSONObject(text).optString("token") }.getOrDefault("")
-+            if (t.isNotEmpty()) { synchronized(lock) { token = t; saveToken() }; return }   // the room itself comes with the next poll, at once
++            if (t.isNotEmpty()) { synchronized(lock) { token = t; saveToken() }; return true }   // the room itself comes with the next poll, at once
 +        }
 +        answer(ROOM, text)
++        return true
 +    }
 +
 +    private fun loop() {
 +        var last = 0L
 +        while (true) {
 +            val r = synchronized(lock) { queue.removeFirstOrNull().also { busy = it != null } }
-+            if (r != null) { request(r); busy = false; last = 0L; continue }   // a poll right after, so the room shows the change
++            if (r != null) {
++                if (!request(r) && keeps(r.what)) { synchronized(lock) { queue.addFirst(r) }; busy = false; Thread.sleep(2000); continue }   // first in the queue again, a little later
++                busy = false; last = 0L; continue   // a poll right after, so the room shows the change
++            }
 +            val now = SystemClock.elapsedRealtime()
++            var sentEvents = 0
++            var sentChats = 0
 +            val body = synchronized(lock) {
 +                if (token.isEmpty() || now - last < if (slow) 2000 else 1000) null
-+                else JSONObject().put("token", token).put("since", since).put("progress", progress)
-+                    .put("events", JSONArray(events.toList())).put("chat", JSONArray(chats.toList())).also { events.clear(); chats.clear() }
++                else {
++                    sentEvents = events.size; sentChats = chats.size
++                    JSONObject().put("token", token).put("since", since).put("progress", progress)
++                        .put("events", JSONArray(events.toList())).put("chat", JSONArray(chats.toList()))
++                }
 +            }
 +            if (body == null) { Thread.sleep(50); continue }
 +            last = now
-+            request(Req("poll", body, false))
++            if (request(Req("poll", body, false))) synchronized(lock) {   // sent: off the lists, keeping what came in meanwhile
++                repeat(minOf(sentEvents, events.size)) { events.removeAt(0) }
++                repeat(minOf(sentChats, chats.size)) { chats.removeAt(0) }
++            }
 +        }
 +    }
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..7f01ad4
+index 0000000..76c6094
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,491 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -11767,23 +11917,89 @@ index 0000000..7f01ad4
 +import com.swordfish.lemuroid.app.mobile.feature.runs.RunStore
 +import org.json.JSONArray
 +import org.json.JSONObject
++import java.text.SimpleDateFormat
++import java.util.Date
++import java.util.Locale
++
++/** What the tracker's CHAT tab and RUN standings show of the race being played (main thread only). */
++object Smz3RaceState {
++    class Line(val seq: Long, val kind: String, val pid: String, val name: String, val text: String)
++
++    var on = false
++    var you = ""
++    var players = JSONArray()
++    val lines = ArrayList<Line>()
++    val muted = HashSet<String>()
++    var chatOff = false
++    /** Bumped on every change, so the views redraw only then. */
++    var version = 0
++
++    val phrases = listOf("Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow")
++
++    fun shown(l: Line) = l.kind != "chat" || (!chatOff && l.pid !in muted)
++
++    fun say(text: String) {
++        val t = text.trim().filter { it.code in 0x20..0x7E }.take(80)
++        if (t.isEmpty() || chatOff) return
++        RaceClient.chat(t)
++        Smz3Finish.cue(6)
++    }
++
++    fun toggleMute(pid: String) { if (!muted.remove(pid)) muted += pid; version++ }
++
++    fun toggleChat() { chatOff = !chatOff; version++ }
++
++    /** The top three and this player, each with a time or the % done. */
++    fun standings(): String {
++        val all = (0 until players.length()).map { players.getJSONObject(it) }
++        val rows = all.sortedWith(compareBy<JSONObject>({ if (it.optInt("place") > 0) it.optInt("place") else 99 }, { -it.optInt("progress") }))
++        val sb = StringBuilder("RACE")
++        rows.forEachIndexed { i, p ->
++            val mine = p.optString("pid") == you
++            if (i >= 3 && !mine) return@forEachIndexed
++            val v = if (!p.isNull("timeMs") && p.has("timeMs")) Smz3RaceOverlay.clock(p.optLong("timeMs")) else if (p.optBoolean("left")) "left" else "${p.optInt("progress")}%"
++            sb.append("\n").append(i + 1).append("  ").append(p.optString("name")).append(if (mine) " (you)" else "").append("   ").append(v)
++        }
++        return sb.toString()
++    }
++}
 +
 +/**
 + * An online race while playing, as on PC: the game takes no input until the server's start (a countdown over it), bosses
 + * and crystals go out as news and progress, the end sends the proof, the rivals' news shows top right for four seconds and
 + * their chat bottom right for two, "Race ends in" counts down a multi race after the first finish, and the result card
-+ * comes once the room is over. Leaving before the finish tells the rivals at once.
++ * comes once the room is over (or with the places so far when this player finishes a multi race). The Full game can be
++ * paused by a vote: the game stands still while it is open, keeps a state when it passes, and comes back from the menu,
++ * where it waits for the others. Leaving before the finish tells the rivals at once.
 + */
 +class Smz3RaceOverlay(private val activity: Activity, private val onLeave: () -> Unit) {
++    companion object {
++        private val PAUSE_HOURS = intArrayOf(1, 3, 8, 24, 48, 72, 168)
++        /** This process already kept the paused game: a remade activity (a turn of the screen) only shows the card again. */
++        private var keptHere = false
++
++        fun clock(ms: Long) = "%d:%02d:%02d.%02d".format(ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms / 10 % 100)
++
++        /** A server time as this device's day and hour ("Sat 18:30"). */
++        fun whenAt(ms: Long): String = SimpleDateFormat("EEE HH:mm", Locale.US).format(Date(ms))
++    }
++
 +    private val main = Handler(Looper.getMainLooper())
 +    private var on = false
 +    private var primed = false   // the first answer only sets where the log stands: older lines are not news
 +    private var state = ""
 +    private var format = ""
 +    private var endWhy = ""
++    private var code = ""
 +    private var you = ""
-+    private var startAt = 0L
++    private var goAt = 0L
 +    private var endAt = 0L
++    private var resumeAt = 0L
++    private var pauses = 0
++    private var voteBy = ""
++    private var voteAt = 0L
++    private var voteYes = JSONArray()
++    private var voteDone = 0L
 +    private var offset = 0L
 +    private var since = 0L
 +    private var players = JSONArray()
@@ -11792,16 +12008,24 @@ index 0000000..7f01ad4
 +    private var crystals = 0
 +    private var finishSent = false
 +    private var ended = false
++    private var mineShown = false
 +    private var lastCount = -1
 +    private var goUntil = 0L
 +    private var newsUntil = 0L
 +    private var sayAt = 0L
++    private var offlineNoted = false
++    private var back = false       // a paused race loaded again, waiting for the others and the start
++    private var stateLoaded = false
++    private var kept = false       // this game was paused here: its state is kept, the card sends it to the menu
++    private var held: Boolean? = null   // the core stands still; unknown until set, as a remade activity finds it as it was
 +    private var hold: Dialog? = null
 +    private var holdText: TextView? = null
 +    private var news: TextView? = null
 +    private var say: TextView? = null
 +    private var endsIn: TextView? = null
 +    private var card: AlertDialog? = null
++    private var box: AlertDialog? = null     // the pause picker, the vote, or the wait for the others' answers
++    private var boxKind = ""
 +    private val tick = object : Runnable {
 +        override fun run() { update(); main.postDelayed(this, 200) }
 +    }
@@ -11811,7 +12035,13 @@ index 0000000..7f01ad4
 +        RaceClient.resume(activity)
 +        if (!RaceClient.joined()) return
 +        on = true
++        Smz3RaceState.on = true
++        Smz3RaceState.lines.clear()
 +        RaceClient.slow = true
++        val paused = RaceClient.paused(activity)
++        kept = keptHere && paused != null
++        back = paused != null && !kept
++        if (kept) { resumeAt = paused!!.resumeAt; main.post { showPausedCard() } }
 +        RunStore.load(activity, RaceClient.SLOT)?.settings?.let { s ->
 +            val j = runCatching { JSONObject(s) }.getOrDefault(JSONObject())
 +            need = maxOf(j.optInt("ganonCrystals", 7), j.optInt("ganonsTowerCrystals", 7)) + j.optInt("tourianBosses", 4)
@@ -11826,7 +12056,7 @@ index 0000000..7f01ad4
 +        say = label(Gravity.BOTTOM or Gravity.END, Color.rgb(0xE8, 0xEC, 0xF2), pad * 12)
 +        endsIn = label(Gravity.TOP or Gravity.CENTER_HORIZONTAL, Color.rgb(0xF2, 0xA3, 0x3A), pad)
 +        // until the start the game gets no input: the countdown covers it and takes every button and touch
-+        holdText = TextView(activity).apply { gravity = Gravity.CENTER; setTextColor(Color.WHITE); textSize = 28f; text = "Waiting for the race ..." }
++        holdText = TextView(activity).apply { gravity = Gravity.CENTER; setTextColor(Color.WHITE); textSize = 28f; text = if (back) "Back in the race ..." else "Waiting for the race ..." }
 +        hold = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
 +            setContentView(holdText!!)
 +            setCancelable(false)
@@ -11840,17 +12070,63 @@ index 0000000..7f01ad4
 +     * activity is only being made again (a turn of the screen), the race goes on. */
 +    fun stop(closing: Boolean) {
 +        main.removeCallbacks(tick)
-+        hold?.dismiss(); card?.dismiss()
++        hold?.dismiss(); card?.dismiss(); box?.dismiss()
 +        if (!on || !closing) return
 +        on = false
-+        val leaving = state == "running" && myTime() < 0
++        Smz3RaceState.on = false
++        setHeld(false)
++        // back from a pause and gone again counts as abandoning; a game paused here only closes
++        val leaving = (state == "running" && myTime() < 0 && !kept) || (state == "paused" && back)
++        if (leaving) RaceClient.forgetPaused(activity)
 +        // the game's process closes right after: what is queued (a finish, the ladder) and the leave go out before
 +        Thread { RaceClient.drain(1500); RaceClient.now(if (leaving) "leave" else "forget") }.apply { start(); join(3000) }
 +    }
 +
++    /** The back button in a race: the abandon prompt, with the pause when it can be asked. True when it took the press. */
++    fun handleBack(): Boolean {
++        if (!on || (state != "running" && !back) || kept) return false
++        if (card?.isShowing == true || box?.isShowing == true) return true
++        val b = AlertDialog.Builder(activity)
++            .setTitle("Abandon the race?")
++            .setPositiveButton("Leave the race") { _, _ -> onLeave() }
++            .setNegativeButton("Keep racing", null)
++        val pause = canPause()
++        if (pause) b.setNeutralButton("Ask to pause") { _, _ -> showPicker() }
++        b.create().apply {
++            setOnKeyListener { d, k, e ->
++                if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener k == KeyEvent.KEYCODE_BUTTON_A || k == KeyEvent.KEYCODE_BUTTON_B || k == KeyEvent.KEYCODE_BUTTON_Y
++                when (k) {
++                    KeyEvent.KEYCODE_BUTTON_A -> { d.dismiss(); onLeave(); true }
++                    KeyEvent.KEYCODE_BUTTON_B -> { d.dismiss(); true }
++                    KeyEvent.KEYCODE_BUTTON_Y -> { if (pause) { d.dismiss(); showPicker() }; true }
++                    else -> false
++                }
++            }
++            show()
++        }
++        return true
++    }
++
 +    private fun me(): JSONObject? = (0 until players.length()).map { players.getJSONObject(it) }.firstOrNull { it.optString("pid") == you }
 +    private fun myTime(): Long = me()?.let { if (it.isNull("timeMs")) -1L else it.optLong("timeMs", -1L) } ?: -1L
-+    private fun won(): Boolean = me()?.let { it.optInt("place") == 1 && myTime() >= 0 } ?: false
++    private fun first(): Boolean = me()?.optInt("place") == 1
++    private fun won(): Boolean = first() && myTime() >= 0
++    private fun serverNow() = System.currentTimeMillis() + offset
++
++    private fun canPause(): Boolean {
++        if (state != "running" || format != "full" || serverNow() < goAt || voteBy.isNotEmpty()) return false
++        return (0 until players.length()).none { val p = players.getJSONObject(it); p.has("timeMs") && !p.isNull("timeMs") }
++    }
++
++    private fun voted() = (0 until voteYes.length()).any { voteYes.optString(it) == you }
++    private fun voteOpen() = state == "running" && voteBy.isNotEmpty() && voteBy != you && !voted() && voteAt != voteDone
++
++    private fun setHeld(value: Boolean) {
++        if (value == held) return
++        val view = Smz3Rewind.view ?: return
++        held = value
++        view.setHeld(value)
++    }
 +
 +    private fun showNews(text: String) {
 +        news?.text = text; news?.visibility = View.VISIBLE
@@ -11861,25 +12137,35 @@ index 0000000..7f01ad4
 +    private fun read(text: String) {
 +        val o = runCatching { JSONObject(text) }.getOrNull() ?: return
 +        val room = o.optJSONObject("room") ?: return
-+        state = room.optString("state"); format = room.optString("format"); endWhy = room.optString("endWhy")
-+        startAt = room.optLong("startAt", 0L); endAt = room.optLong("endAt", 0L)
++        state = room.optString("state"); format = room.optString("format"); endWhy = room.optString("endWhy"); code = room.optString("code", code)
++        val startAt = room.optLong("startAt", 0L)
++        goAt = room.optLong("goAt", startAt); endAt = room.optLong("endAt", 0L)
++        resumeAt = room.optLong("resumeAt", 0L); pauses = room.optInt("pauses")
++        val vote = room.optJSONObject("vote")
++        voteBy = vote?.optString("by") ?: ""; voteAt = vote?.optLong("resumeAt") ?: 0L; voteYes = vote?.optJSONArray("yes") ?: JSONArray()
 +        players = room.optJSONArray("players") ?: players
 +        if (o.has("now")) offset = o.optLong("now") - System.currentTimeMillis()
 +        if (o.has("you")) you = o.optString("you")
++        Smz3RaceState.you = you
++        Smz3RaceState.players = players
++        Smz3RaceState.version++
 +        val log = o.optJSONArray("log") ?: return
 +        for (i in 0 until log.length()) {
 +            val l = log.getJSONObject(i)
 +            val seq = l.optLong("seq")
 +            if (seq <= since) continue
 +            since = seq
++            val line = Smz3RaceState.Line(seq, l.optString("kind"), l.optString("pid"), l.optString("name"), l.optString("text"))
++            Smz3RaceState.lines += line
++            if (Smz3RaceState.lines.size > 40) Smz3RaceState.lines.removeAt(0)
 +            if (!primed) continue
-+            val mine = you.isNotEmpty() && l.optString("pid") == you
-+            val t = l.optString("text")
-+            when (l.optString("kind")) {
-+                "chat" -> if (!mine) { say?.text = "${l.optString("name")}: $t"; say?.alpha = 1f; say?.visibility = View.VISIBLE; sayAt = System.currentTimeMillis() }
-+                "event" -> if (!mine) showNews("${l.optString("name")} $t")
-+                "system" -> showNews(t)
-+                else -> if (!mine) showNews(t)
++            val mine = you.isNotEmpty() && line.pid == you
++            when (line.kind) {
++                "chat" -> if (!mine && Smz3RaceState.shown(line) && !Smz3Tracker.onSecondScreen) {   // two screens: it goes to the CHAT tab
++                    say?.text = "${line.name}: ${line.text}"; say?.alpha = 1f; say?.visibility = View.VISIBLE; sayAt = System.currentTimeMillis()
++                }
++                "event" -> if (!mine) showNews("${line.name} ${line.text}")
++                else -> if (!mine) showNews(line.text)
 +            }
 +        }
 +    }
@@ -11887,28 +12173,75 @@ index 0000000..7f01ad4
 +    private fun update() {
 +        while (true) {
 +            val (kind, text) = RaceClient.take() ?: break
-+            if (kind == RaceClient.ERROR) showNews(text) else { read(text); primed = true }
++            if (kind == RaceClient.ERROR) {
++                if (back && state.isEmpty()) { state = "cancelled"; endWhy = "The race is gone" }   // expired while away
++                else showNews(text)
++            } else { read(text); primed = true }
 +        }
 +        RaceClient.setSince(since)
 +        val now = System.currentTimeMillis()
 +        val server = now + offset
-+        // the countdown, then GO for a second
++        val goIn = if (goAt > 0) goAt - server else Long.MAX_VALUE
++        // no connection: the race goes on, and after five minutes it counts as cancelled
++        val off = RaceClient.offlineMs()
++        if (off == 0L) offlineNoted = false
++        else if (off > 10_000 && !offlineNoted) { offlineNoted = true; showNews("No connection: the race goes on") }
++        if (off > 5 * 60_000 && state == "running") { state = "cancelled"; endWhy = "No connection" }
++        // back after a pause: the state kept loads once (the core running), then the server hears this player is back
++        if (back && !stateLoaded && Smz3Rewind.view != null && Smz3Tracker.latest.value != null) {
++            stateLoaded = true
++            val view = Smz3Rewind.view!!
++            setHeld(true)
++            val bytes = runCatching { RaceClient.stateFile(activity).readBytes() }.getOrNull()
++            Thread {
++                if (bytes != null && view.unserializeState(bytes)) {
++                    Smz3Tracker.stateLoaded = 3
++                    view.setHeld(false); Thread.sleep(40); view.setHeld(true)   // one frame, so the picture shows while waiting
++                }
++                RaceClient.stateFile(activity).delete()
++                RaceClient.send("back", null, true)
++            }.start()
++        }
++        if (back && (state == "finished" || state == "cancelled" || (state == "running" && goIn <= 0))) { back = false; RaceClient.forgetPaused(activity) }
++        // the room was paused while playing here: keep the game's state, then the card sends this player to the menu
++        if (state == "paused" && !back && !kept) {
++            kept = true
++            keptHere = true
++            box?.dismiss()
++            setHeld(true)
++            val view = Smz3Rewind.view
++            Thread {
++                val bytes = runCatching { view?.serializeState() }.getOrNull()
++                RaceClient.keepPaused(activity, code, resumeAt, bytes)
++                main.post { showPausedCard() }
++            }.start()
++        }
++        // the countdown, then GO for a second; waiting for the others when back from a pause
 +        if (hold?.isShowing == true) {
-+            val goIn = if (startAt > 0) startAt - server else Long.MAX_VALUE
-+            if (state == "running" && goIn <= 0) {
++            if (back && state == "paused") {
++                val inRace = (0 until players.length()).map { players.getJSONObject(it) }.filter { !it.optBoolean("left") }
++                holdText?.textSize = 24f
++                holdText?.text = "Waiting for the others: ${inRace.count { it.optBoolean("back") }} of ${inRace.size} back\nIt goes on ${whenAt(resumeAt)} at the latest"
++            } else if (state == "running" && goIn <= 0) {
 +                if (goUntil == 0L && goIn < -1500) hold?.dismiss()   // back in a race already under way
 +                else if (goUntil == 0L) { goUntil = now + 1000; holdText?.text = "GO"; holdText?.textSize = 96f; holdText?.setTextColor(Color.rgb(0x7F, 0xD8, 0x8F)); Smz3Finish.cue(6) }
 +                if (now >= goUntil) hold?.dismiss()
-+            } else if (startAt > 0) {
++            } else if (state == "running" && goAt > 0) {
 +                val n = ((goIn + 999) / 1000).toInt()
 +                if (n != lastCount) {
 +                    lastCount = n
-+                    if (n > 3) { holdText?.textSize = 28f; holdText?.text = "The race starts in $n" }
++                    if (n > 3) { holdText?.textSize = 28f; holdText?.text = if (pauses > 0) "The race goes on in $n" else "The race starts in $n" }
 +                    else { holdText?.textSize = 120f; holdText?.setTextColor(Color.rgb(0xF2, 0xA3, 0x3A)); holdText?.text = "$n"; Smz3Finish.cue(1) }
 +                }
 +            }
 +            if (state == "cancelled" || state == "finished") hold?.dismiss()
 +        }
++        // a paused game must not move, nor may any game while a pause vote is open
++        val voting = state == "running" && voteBy.isNotEmpty() && card?.isShowing != true
++        setHeld(on && (back || kept || voting))
++        if (voteOpen() && card?.isShowing != true && boxKind != "vote") showVote()
++        else if (voting && !voteOpen() && boxKind != "wait" && boxKind != "pick") showWait()
++        else if (!voting && (boxKind == "vote" || boxKind == "wait")) { box?.dismiss(); boxKind = "" }
 +        if (now >= newsUntil) news?.visibility = View.GONE
 +        say?.let { v ->   // two seconds, then it fades
 +            val t = now - sayAt
@@ -11922,7 +12255,7 @@ index 0000000..7f01ad4
 +        }
 +        // news for the rivals, and the progress: 100 is the finish, from the server
 +        val snap = Smz3Tracker.latest.value
-+        if (snap != null && snap.started && state == "running") {
++        if (snap != null && snap.started && state == "running" && !back) {
 +            val nb = snap.bossMask and 15 and bosses.inv()
 +            val nc = snap.crystalMask and 0x7F and crystals.inv()
 +            if (nb != 0 || nc != 0) {
@@ -11933,51 +12266,122 @@ index 0000000..7f01ad4
 +                RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))
 +            }
 +        }
-+        if (Smz3Tracker.currentGame == 3 && !finishSent && state == "running") {   // the time is the server's: from the start to this request
++        if (Smz3Tracker.currentGame == 3 && !finishSent && state == "running") {   // the server's time, or finishAt if it was down then
 +            finishSent = true
 +            val proof = runCatching { RaceClient.proofFile(activity).readText() }.getOrDefault("")
-+            RaceClient.send("finish", JSONObject().put("proof", proof), true)
++            RaceClient.send("finish", JSONObject().put("finishAt", server).put("proof", proof), true)
 +        }
-+        if (!ended && (state == "finished" || state == "cancelled")) { ended = true; showCard(false) }
++        if (myTime() >= 0 && !mineShown && state == "running") { mineShown = true; showCard(false) }   // a multi race goes on: the places so far
++        if (!ended && (state == "finished" || state == "cancelled")) { ended = true; box?.dismiss(); boxKind = ""; showCard(false) }
 +    }
 +
 +    private fun place(p: JSONObject) = p.optInt("place").takeIf { it > 0 }?.toString() ?: ""
 +
 +    private fun timeOf(p: JSONObject): String {
-+        if (p.isNull("timeMs") || !p.has("timeMs")) return if (p.optBoolean("left")) "Left" else "-"
-+        val ms = p.optLong("timeMs")
-+        return "%d:%02d:%02d.%02d".format(ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms / 10 % 100)
++        if (p.isNull("timeMs") || !p.has("timeMs")) return if (p.optBoolean("left")) "Left" else if (state == "running") "racing" else "-"
++        return clock(p.optLong("timeMs"))
 +    }
 +
-+    /** VICTORY, DEFEAT or RACE CANCELLED with the places; A and B answer it, and its buttons take touches. */
++    private fun ordinal(n: Int) = n.toString() + if (n % 100 / 10 == 1) "th" else when (n % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
++
++    private fun table(): String {
++        val rows = (0 until players.length()).map { players.getJSONObject(it) }.sortedBy { if (it.optInt("place") > 0) it.optInt("place") else 99 }
++        val text = StringBuilder()
++        for (p in rows) text.append("\n").append(place(p).padEnd(3)).append(p.optString("name")).append("   ").append(timeOf(p))
++        return text.toString()
++    }
++
++    /** A box with A and B (and Y) that takes those buttons; the game behind it stands still while it is a pause box. */
++    private fun keyed(d: AlertDialog, a: (() -> Unit)?, b: (() -> Unit)?, extra: ((Int) -> Boolean)? = null) = d.apply {
++        setOnKeyListener { dd, k, e ->
++            if (extra != null && e.action == KeyEvent.ACTION_DOWN && extra(k)) return@setOnKeyListener true
++            if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener k == KeyEvent.KEYCODE_BUTTON_A || k == KeyEvent.KEYCODE_BUTTON_B
++            when (k) {
++                KeyEvent.KEYCODE_BUTTON_A -> { if (a != null) { dd.dismiss(); a() }; true }
++                KeyEvent.KEYCODE_BUTTON_B -> { if (b != null) { dd.dismiss(); b() }; true }
++                else -> false
++            }
++        }
++    }
++
++    /** The resume time, from an hour to a week from now; the others vote on it. */
++    private fun showPicker() {
++        var i = 1
++        fun line() = PAUSE_HOURS[i].let { h -> "<  in " + (if (h < 24) "$h hour${if (h > 1) "s" else ""}" else "${h / 24} day${if (h > 24) "s" else ""}") + ", ${whenAt(serverNow() + h * 3_600_000L)}  >" }
++        val ask = { RaceClient.send("pause", JSONObject().put("resumeAt", serverNow() + PAUSE_HOURS[i] * 3_600_000L), true); Smz3Finish.cue(6); boxKind = "" }
++        val cancel = { boxKind = "" }
++        boxKind = "pick"
++        box = keyed(
++            AlertDialog.Builder(activity).setTitle("Pause until").setMessage(line()).setCancelable(false)
++                .setPositiveButton("Ask the others") { _, _ -> ask() }
++                .setNegativeButton("Cancel") { _, _ -> cancel() }
++                .setNeutralButton("Next time", null)
++                .create(),
++            ask, cancel,
++        ) { k ->
++            val step = when (k) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
++            if (step != 0) { i = (i + step + PAUSE_HOURS.size) % PAUSE_HOURS.size; box?.setMessage(line()); Smz3Finish.cue(0) }
++            step != 0
++        }.apply {
++            show()
++            // touch: the neutral button moves to the next time instead of closing the box
++            getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener { i = (i + 1) % PAUSE_HOURS.size; setMessage(line()) }
++        }
++    }
++
++    private fun showVote() {
++        box?.dismiss()
++        boxKind = "vote"
++        val who = (0 until players.length()).map { players.getJSONObject(it) }.firstOrNull { it.optString("pid") == voteBy }?.optString("name") ?: "A rival"
++        val at = voteAt
++        val yes = { voteDone = at; RaceClient.send("vote", JSONObject().put("yes", true), true); Smz3Finish.cue(6); boxKind = "" }
++        val no = { voteDone = at; RaceClient.send("vote", JSONObject().put("yes", false), true); Smz3Finish.cue(5); boxKind = "" }
++        box = keyed(
++            AlertDialog.Builder(activity).setTitle("Pause the race?").setMessage("$who asks to pause until ${whenAt(at)}").setCancelable(false)
++                .setPositiveButton("Yes") { _, _ -> yes() }.setNegativeButton("No") { _, _ -> no() }.create(),
++            yes, no,
++        ).apply { show() }
++    }
++
++    private fun showWait() {
++        box?.dismiss()
++        boxKind = "wait"
++        box = keyed(AlertDialog.Builder(activity).setTitle("Pause the race?").setMessage("Waiting for the others to answer").setCancelable(false).create(), null, null).apply { show() }
++    }
++
++    private fun showPausedCard() {
++        if (activity.isFinishing) return
++        card?.dismiss()
++        card = keyed(
++            AlertDialog.Builder(activity).setTitle("RACE PAUSED")
++                .setMessage("Goes on ${whenAt(resumeAt)}. Come back on this device, from Championship.\n" + table())
++                .setCancelable(false)
++                .setPositiveButton("Back to menu") { _, _ -> onLeave() }
++                .create(),
++            onLeave, onLeave,
++        ).apply { show() }
++    }
++
++    /** VICTORY, a place, DEFEAT or RACE CANCELLED with the places; A and B answer it, and its buttons take touches. */
 +    private fun showCard(saved: Boolean) {
 +        if (activity.isFinishing) return
++        card?.dismiss()
 +        val cancelled = state == "cancelled"
-+        val win = won() && state == "finished"
-+        val rows = (0 until players.length()).map { players.getJSONObject(it) }.sortedBy { if (it.optInt("place") > 0) it.optInt("place") else 99 }
-+        val text = StringBuilder(if (cancelled && endWhy.isNotEmpty()) endWhy else when (format) { "sprint" -> "Sprint"; "half" -> "Half"; else -> "Full game" })
-+        text.append("\n")
-+        for (p in rows) text.append("\n").append(place(p).padEnd(3)).append(p.optString("name")).append("   ").append(timeOf(p))
++        val running = state == "running"
++        val ladder = won() && !saved && (state == "finished" || running)
++        val head = if (cancelled && endWhy.isNotEmpty()) endWhy else when (format) { "sprint" -> "Sprint"; "half" -> "Half"; else -> "Full game" } +
++            if (running) ": the race goes on" else if (pauses > 0) ", paused" else ""
++        val text = StringBuilder(head).append("\n").append(table())
 +        if (saved) text.append("\n\nSaved to the ladder")
++        val title = if (cancelled) "RACE CANCELLED" else if (first()) "VICTORY" else me()?.optInt("place")?.takeIf { it > 0 }?.let { "${ordinal(it).uppercase()} PLACE" } ?: "DEFEAT"
 +        val b = AlertDialog.Builder(activity)
-+            .setTitle(if (cancelled) "RACE CANCELLED" else if (won()) "VICTORY" else "DEFEAT")
++            .setTitle(title)
 +            .setMessage(text.toString())
 +            .setCancelable(false)
 +            .setNegativeButton("Close") { _, _ -> onLeave() }
-+        val ladder = win && !saved
 +        if (ladder) b.setPositiveButton("Save to ladder") { _, _ -> saveToLadder() }
-+        else if (!saved) b.setPositiveButton("Keep playing", null)
-+        card = b.create().apply {
-+            setOnKeyListener { d, code, e ->
-+                if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener code == KeyEvent.KEYCODE_BUTTON_A || code == KeyEvent.KEYCODE_BUTTON_B
-+                when (code) {
-+                    KeyEvent.KEYCODE_BUTTON_A -> { if (ladder) { d.dismiss(); saveToLadder() } else if (!saved) d.dismiss(); true }
-+                    KeyEvent.KEYCODE_BUTTON_B -> { d.dismiss(); onLeave(); true }
-+                    else -> false
-+                }
-+            }
-+            show()
-+        }
++        else b.setPositiveButton(if (saved || myTime() >= 0) "Keep watching" else "Keep playing", null)
++        card = keyed(b.create(), if (ladder) ({ saveToLadder() }) else ({ }), onLeave).apply { show() }
 +    }
 +
 +    private fun saveToLadder() {

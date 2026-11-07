@@ -819,6 +819,14 @@ JNIEXPORT void JNICALL NATIVE(uiRaceFail)(JNIEnv *env, jclass cls, jstring msg)
 
 JNIEXPORT void JNICALL NATIVE(uiRaceEnd)(JNIEnv *env, jclass cls) { ui_race_end(&g_ui); }
 
+/* The paused race this device keeps ("" none): Championship lists it first. */
+JNIEXPORT void JNICALL NATIVE(uiRaceSetPaused)(JNIEnv *env, jclass cls, jstring code, jlong resumeAt)
+{
+    const char *c = (*env)->GetStringUTFChars(env, code, NULL);
+    ui_race_set_paused(&g_ui, c, resumeAt);
+    (*env)->ReleaseStringUTFChars(env, code, c);
+}
+
 /* What the actions need: {format key, size, public (0/1), code typed, room code, last log line read, Link, Samus}. */
 JNIEXPORT jobjectArray JNICALL NATIVE(uiRaceInfo)(JNIEnv *env, jclass cls)
 {

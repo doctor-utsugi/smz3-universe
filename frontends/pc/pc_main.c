@@ -2000,6 +2000,7 @@ static void play(int slot, int game_save_only)
         if (rg.on) {
             race_in_game();
             go_in = ui.race.room.go_at ? ui.race.room.go_at - race_now() : 0;
+            if (rg.back && ui.race.room.state == RACE_RUNNING && go_in <= 0) rg.back = 0;   /* everyone is back and the countdown is over */
             if (ui.race.room.state == RACE_PAUSED && !rg.back && !rg.kept) { rg.kept = 1; race_keep_paused(); rg.card = CARD_PAUSED; rg.pick = 0; show = leaving = 0; }
         }
         int waiting = rg.on && go_in > 0;   /* no input until the start; the game's intro plays meanwhile */

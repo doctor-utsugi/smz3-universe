@@ -678,10 +678,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..3b8b28a
+index 0000000..b062d5d
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,836 @@
+@@ -0,0 +1,875 @@
 +#include "smz3online.h"
 +#include "smz3run.h"
 +
@@ -1374,6 +1374,7 @@ index 0000000..3b8b28a
 +static bool gRaceSlow;
 +static char gRaceEvents[8][48], gRaceChats[3][84];
 +static int gRaceNe, gRaceNc;
++static u64 gRaceOfflineSince;   // osGetTime of the first failed poll in a row; 0 while the server answers
 +
 +static void raceLock() { if (!gRaceLockReady) { LightLock_Init(&gRaceLock); gRaceLockReady = true; } LightLock_Lock(&gRaceLock); }
 +static void raceUnlock() { LightLock_Unlock(&gRaceLock); }
@@ -1398,10 +1399,15 @@ index 0000000..3b8b28a
 +    if (k < cap) snprintf(out + k, cap - k, "]");
 +}
 +
-+// Sends one request and files its answer; a create or join answer brings the room's token.
-+static void raceRequest(const char *what, const char *fields, bool withToken, bool find, char *buf)
++// What can't be lost in a race: sent again until the server answers.
++static bool raceKeeps(const char *what) { return !strcmp(what, "finish") || !strcmp(what, "ladder") || !strcmp(what, "back") || !strcmp(what, "vote") || !strcmp(what, "pause"); }
++
++// Sends one request and files its answer; a create or join answer brings the room's token. Returns -1 when the server
++// could not be reached.
++static int raceRequest(const char *what, const char *fields, bool withToken, bool find, char *buf)
 +{
-+    if (!strcmp(what, "forget")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; gRaceProgress = 0; gRaceNe = gRaceNc = 0; gRaceSlow = false; raceUnlock(); return; }
++    if (!strcmp(what, "nop")) return 0;
++    if (!strcmp(what, "forget")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; gRaceProgress = 0; gRaceNe = gRaceNc = 0; gRaceSlow = false; gRaceOfflineSince = 0; raceUnlock(); return 0; }
 +    int code;
 +    if (find) code = httpRequest("GET", "/api/race/open", NULL, buf, RACE_ANS_CAP);
 +    else {
@@ -1411,20 +1417,24 @@ index 0000000..3b8b28a
 +        smz_race_quote(gRaceToken, tok, sizeof tok);
 +        raceUnlock();
 +        char *body = (char *)malloc(RACE_ANS_CAP);
-+        if (!body) { raceAnswer(SMZ_RACE_ERROR, "Out of memory"); return; }
++        if (!body) { raceAnswer(SMZ_RACE_ERROR, "Out of memory"); return 0; }
 +        snprintf(body, RACE_ANS_CAP, "{%s%s%s%s}", withToken ? "\"token\":" : "", withToken ? tok : "", withToken && fields[0] ? "," : "", fields);
 +        code = httpRequest("POST", path, body, buf, RACE_ANS_CAP);
 +        free(body);
 +    }
-+    if (!strcmp(what, "leave")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; raceUnlock(); return; }   // gone either way
-+    if (code < 0) { raceAnswer(SMZ_RACE_ERROR, "No connection"); return; }
++    if (!strcmp(what, "leave")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; raceUnlock(); return 0; }   // gone either way
++    raceLock();
++    if (code < 0) { if (!gRaceOfflineSince) gRaceOfflineSince = osGetTime(); }
++    else gRaceOfflineSince = 0;
++    raceUnlock();
++    if (code < 0) { if (!raceKeeps(what) && strcmp(what, "poll")) raceAnswer(SMZ_RACE_ERROR, "No connection"); return -1; }
 +    if (code != 200) {
 +        char err[64];
 +        smz_race_error(buf, err, sizeof err);
 +        raceAnswer(SMZ_RACE_ERROR, !strcmp(err, "version") ? "Update the app to join this room" : err[0] ? err : "The server said no");
-+        return;
++        return 0;
 +    }
-+    if (find) { raceAnswer(SMZ_RACE_ROOMS, buf); return; }
++    if (find) { raceAnswer(SMZ_RACE_ROOMS, buf); return 0; }
 +    const char *t = strstr(buf, "\"token\":\"");
 +    if (t && (!strcmp(what, "create") || !strcmp(what, "join"))) {
 +        t += 9;
@@ -1432,9 +1442,10 @@ index 0000000..3b8b28a
 +        raceLock();
 +        if (n < sizeof gRaceToken) { memcpy(gRaceToken, t, n); gRaceToken[n] = 0; }
 +        raceUnlock();
-+        return;   // the room itself comes with the next poll, at once
++        return 0;   // the room itself comes with the next poll, at once
 +    }
 +    raceAnswer(SMZ_RACE_ROOM, buf);
++    return 0;
 +}
 +
 +static void raceThread(void *)
@@ -1450,7 +1461,18 @@ index 0000000..3b8b28a
 +            memmove(gRaceQueue, gRaceQueue + 1, sizeof gRaceQueue[0] * (RACE_QN - 1));
 +            gRaceQn--;
 +            raceUnlock();
-+            if (buf) raceRequest(what, fields ? fields : "", tk, find, buf);
++            if (buf && raceRequest(what, fields ? fields : "", tk, find, buf) < 0 && raceKeeps(what)) {   // first in the queue again, a little later
++                raceLock();
++                if (gRaceQn < RACE_QN) {
++                    memmove(gRaceQueue + 1, gRaceQueue, sizeof gRaceQueue[0] * gRaceQn);
++                    snprintf(gRaceQueue[0].what, sizeof gRaceQueue[0].what, "%s", what);
++                    gRaceQueue[0].fields = fields; gRaceQueue[0].token = tk; gRaceQueue[0].find = find;
++                    gRaceQn++;
++                    fields = NULL;
++                }
++                raceUnlock();
++                svcSleepThread(2000 * 1000 * 1000LL);
++            }
 +            free(fields);
 +            last = 0;   // a poll right after, so the room shows the change
 +            continue;
@@ -1459,13 +1481,17 @@ index 0000000..3b8b28a
 +        u64 now = osGetTime();
 +        if (now - last < (gRaceSlow ? 2000u : 1000u)) { raceUnlock(); svcSleepThread(50 * 1000 * 1000LL); continue; }
 +        char ev[512], ch[400], fields[1024];
++        int sentE = gRaceNe, sentC = gRaceNc;
 +        raceList(ev, sizeof ev, gRaceEvents[0], gRaceNe, sizeof gRaceEvents[0]);
 +        raceList(ch, sizeof ch, gRaceChats[0], gRaceNc, sizeof gRaceChats[0]);
-+        gRaceNe = gRaceNc = 0;
 +        snprintf(fields, sizeof fields, "\"since\":%lld,\"progress\":%d,\"events\":%s,\"chat\":%s", (long long)gRaceSince, gRaceProgress, ev, ch);
 +        last = now;
 +        raceUnlock();
-+        raceRequest("poll", fields, true, false, buf);
++        if (raceRequest("poll", fields, true, false, buf) < 0) continue;   // the news waits for the next poll
++        raceLock();   // sent: off the lists, keeping what came in meanwhile
++        memmove(gRaceEvents, gRaceEvents + sentE, sizeof gRaceEvents[0] * (gRaceNe - sentE)); gRaceNe -= sentE;
++        memmove(gRaceChats, gRaceChats + sentC, sizeof gRaceChats[0] * (gRaceNc - sentC)); gRaceNc -= sentC;
++        raceUnlock();
 +    }
 +    free(buf);
 +}
@@ -1505,6 +1531,19 @@ index 0000000..3b8b28a
 +}
 +
 +bool smzRaceJoined(void) { raceLock(); bool j = gRaceToken[0] != 0; raceUnlock(); return j; }
++int64_t smzRaceOfflineMs(void) { raceLock(); int64_t t = gRaceOfflineSince ? (int64_t)(osGetTime() - gRaceOfflineSince) : 0; raceUnlock(); return t; }
++void smzRaceToken(char *out, size_t cap) { raceLock(); snprintf(out, cap, "%s", gRaceToken); raceUnlock(); }
++
++void smzRaceResume(const char *token)
++{
++    raceLock();
++    for (int i = 0; i < gRaceQn; i++)   // a queued forget would drop this token
++        if (!strcmp(gRaceQueue[i].what, "forget")) { free(gRaceQueue[i].fields); memmove(gRaceQueue + i, gRaceQueue + i + 1, sizeof gRaceQueue[0] * (gRaceQn - i - 1)); gRaceQn--; i--; }
++    snprintf(gRaceToken, sizeof gRaceToken, "%s", token);
++    gRaceSince = 0; gRaceProgress = 0; gRaceNe = gRaceNc = 0; gRaceOfflineSince = 0;
++    raceUnlock();
++    raceEnqueue("nop", NULL, false, false);   // starts the worker, which then polls
++}
 +void smzRaceSetSince(int64_t since) { raceLock(); gRaceSince = since; raceUnlock(); }
 +void smzRaceSetProgress(int progress) { raceLock(); gRaceProgress = progress < 0 ? 0 : progress > 100 ? 100 : progress; raceUnlock(); }
 +void smzRaceSetSlow(bool slow) { raceLock(); gRaceSlow = slow; raceUnlock(); }
@@ -1520,10 +1559,10 @@ index 0000000..3b8b28a
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..234aab4
+index 0000000..1204d65
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,96 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -1604,6 +1643,11 @@ index 0000000..234aab4
 +// Stops polling and forgets the room, once the requests queued before it are sent.
 +void smzRaceForget(void);
 +bool smzRaceJoined(void);
++// How long the polls have failed in a row, in ms (0 while the server answers).
++int64_t smzRaceOfflineMs(void);
++// The room's token, to keep a paused race; smzRaceResume takes it back and starts polling again.
++void smzRaceToken(char *out, size_t cap);
++void smzRaceResume(const char *token);
 +// What the next poll carries: the last log line read, the progress (0..100), a note for the rivals and chat lines.
 +void smzRaceSetSince(int64_t since);
 +void smzRaceSetProgress(int progress);
@@ -1617,10 +1661,10 @@ index 0000000..234aab4
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..4f506c4
+index 0000000..9a2105c
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,4975 @@
+@@ -0,0 +1,5418 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1683,11 +1727,16 @@ index 0000000..4f506c4
 +
 +// An online race: the menu keeps the room until its start (armed), then the game reads it (on): the rivals' news in a corner
 +// of the game, a strip over the tracker, and the result card at the end.
++// A Full race can pause: the game is kept in the race slot's own state, and the token and code in a file for the menu.
++#define RACE_STATE_FILE RUN_DIR "/race.state"
++#define RACE_PAUSED_FILE RUN_DIR "/race.paused"
 +static struct {
 +    bool armed, on, finishSent, card, ladder, ended;
-+    int bosses, crystals, need, lastCount, newsSeq;
-+    int64_t shown;
-+    char news[96], say[112];
++    bool resume, loadPending, back, skipOld, kept, paused, offlineNoted, mineShown, pick;   // the pause: resumed, loading, back, kept here, asking
++    bool chatOff, kb, kbUpper;
++    int bosses, crystals, need, lastCount, newsSeq, pickI, nMuted;
++    int64_t shown, voteDone;
++    char news[96], say[112], typed[84], muted[RACE_MAX][12];
 +    u64 newsUntil, sayAt;
 +    SmzRace room;
 +} rg;
@@ -2575,14 +2624,53 @@ index 0000000..4f506c4
 +    else if (act == ACT_RACE_START) { rg.room = u->race.room; rg.armed = true; }
 +}
 +
++static void raceHold(bool hold);
++
 +// Back from a race's game (or out before it began): out before the finish, the rivals see it at once.
 +static bool raceLeave()
 +{
 +    if (!rg.armed && !rg.on) return false;
 +    const SmzRacePlayer *me = smz_race_me(&rg.room);
-+    if (rg.room.state == RACE_RUNNING && (!me || me->time_ms < 0)) smzRaceSend("leave", "", true);
++    bool away = rg.back && rg.room.state == RACE_PAUSED;   // back from a pause and out again before it went on: that is leaving
++    if ((rg.room.state == RACE_RUNNING && (!me || me->time_ms < 0) && !rg.kept) || away) smzRaceSend("leave", "", true);
++    if (away || !rg.kept) { remove(RACE_PAUSED_FILE); remove(RACE_STATE_FILE); }
 +    smzRaceForget();
-+    rg.armed = rg.on = false;
++    rg.armed = rg.on = rg.resume = false;
++    raceHold(false);
++    return true;
++}
++
++// The paused race this 3DS keeps: token, code and resume time (this 3DS's clock), one per line. False when there is none.
++static bool racePausedRead(char *tok, size_t tcap, char code[8], int64_t *resume)
++{
++    FILE *f = fopen(RACE_PAUSED_FILE, "rb");
++    if (!f) return false;
++    char line[3][112] = {};
++    for (int i = 0; i < 3 && fgets(line[i], sizeof line[i], f); i++) line[i][strcspn(line[i], "\r\n")] = 0;
++    fclose(f);
++    snprintf(tok, tcap, "%.99s", line[0]);
++    snprintf(code, 8, "%.7s", line[1]);
++    *resume = strtoll(line[2], NULL, 10);
++    return tok[0] && code[0];
++}
++
++static void racePausedShow(SmzUi *u)
++{
++    char tok[100], code[8];
++    int64_t at;
++    if (racePausedRead(tok, sizeof tok, code, &at)) ui_race_set_paused(u, code, at);
++    else ui_race_set_paused(u, "", 0);
++}
++
++// Championship > the paused race: the server takes the token again, and the race slot loads with its state.
++static bool raceResume()
++{
++    char tok[100], code[8];
++    int64_t at;
++    if (!racePausedRead(tok, sizeof tok, code, &at)) return false;
++    smzRaceResume(tok);
++    memset(&rg.room, 0, sizeof rg.room);
++    rg.armed = rg.resume = true;
 +    return true;
 +}
 +
@@ -2657,6 +2745,7 @@ index 0000000..4f506c4
 +    ui_home_enable(&ui, UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
 +    ui_race_enable(&ui, 1);
 +    if (fromRace) ui_race_end(&ui);   // a race is played once: the start menu
++    racePausedShow(&ui);
 +    static bool booted;
 +    if (!booted && !smz3IsRun()) ui_home_open(&ui);   // the start menu at boot; a run left goes back to the run list
 +    booted = true;
@@ -2758,6 +2847,7 @@ index 0000000..4f506c4
 +            if (act == ACT_DAILY && dailyKept(ui.daily.window)) { act = ACT_CONTINUE; slot = SMZ_DAILY_SLOT; }
 +            if (act >= ACT_RACE_CREATE && act <= ACT_RACE_START) raceAction(&ui, act, slot, note, sizeof note);
 +            if (act == ACT_RACE_START) { act = ACT_CONTINUE; slot = SMZ_RACE_SLOT; }   // the start is the server's: the game loads now
++            if (act == ACT_RACE_RESUME) { if (raceResume()) { act = ACT_CONTINUE; slot = SMZ_RACE_SLOT; } else racePausedShow(&ui); }
 +            if (act == ACT_GENERATE && slot < UI_SLOTS) {   // a new run starts at once
 +                ui_busy(&ui, "Generating the seed ...");
 +                drawUi(&ui);
@@ -2853,8 +2943,8 @@ index 0000000..4f506c4
 +static const TrkTheme THEME_ZELDA = {0x14231A, 0x1F3A24, 0xE8C14A, 0xF3EBC8, 0xA8A27A, 0x5BBF6A, 0x2B4A30, 0xFFD54A, 0x7BE08A};
 +static const TrkTheme THEME_METROID = {0x05080C, 0x0C1A24, 0xFF9A1F, 0xD8F6FF, 0x5E8DA0, 0x19D3C5, 0x13303F, 0xFF9A1F, 0x19D3C5};
 +
-+enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_COUNT };
-+static const char *const TAB_NAMES[TAB_COUNT] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP"};
++enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_CHAT, TAB_COUNT };
++static const char *const TAB_NAMES[TAB_COUNT] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "CHAT"};
 +
 +#define TAB_H 20
 +#define STRIP_H 30
@@ -3216,6 +3306,7 @@ index 0000000..4f506c4
 +static bool tabShown(int t)
 +{
 +    if (t == TAB_HELP) return daily || help.mode != 2;
++    if (t == TAB_CHAT) return rg.on;   // an online race's
 +    return true;
 +}
 +
@@ -4412,6 +4503,8 @@ index 0000000..4f506c4
 +    return y + 16;
 +}
 +
++static int drawRaceStandings(int x, int y, int cw);
++
 +static void drawRun(int y0, int y1)
 +{
 +    char s[96];
@@ -4427,6 +4520,7 @@ index 0000000..4f506c4
 +    bool bars = !daily && !goalsRun;   // a challenge shows what it asks for instead
 +    if (daily) y = drawDailyBlock(x, y, cw);
 +    else if (goalsRun) y = drawGoals(x, y, cw);
++    else if (rg.on) y = drawRaceStandings(x, y, cw);   // the race's top three and this player
 +    else {
 +        textf(x, y, theme.text, "Zelda  %u / %u", trk.zelda_cleared, trk.zelda_total);
 +        bar(x, y + 14, cw, 3, trk.zelda_cleared, trk.zelda_total, theme);
@@ -5026,14 +5120,87 @@ index 0000000..4f506c4
 +
 +#define CARD_BTN_Y 196   // the buttons of this screen's cards: the run's details and the race's result
 +
++static const int PAUSE_HOURS[] = {1, 3, 8, 24, 48, 72, 168};
++#define PAUSE_CHOICES ((int)(sizeof PAUSE_HOURS / sizeof PAUSE_HOURS[0]))
++static const char *const PHRASES[] = {"Good luck!", "GG", "Nice!", "Close one!", "brb", "Back", "Ready?", "Wow"};
++#define N_PHRASES ((int)(sizeof PHRASES / sizeof PHRASES[0]))
++
 +static int64_t raceNow() { return smzDailyNowMs() + rg.room.offset; }   // the server's clock
-+static int64_t raceGoIn() { return rg.room.start_at ? rg.room.start_at - raceNow() : 0; }
++static int64_t raceGoIn() { return rg.room.go_at ? rg.room.go_at - raceNow() : 0; }
 +static bool raceWaiting() { return rg.on && raceGoIn() > 0; }   // no input until the start; the game's intro plays meanwhile
-+static bool raceWon() { const SmzRacePlayer *me = smz_race_me(&rg.room); return me && me->place == 1 && me->time_ms >= 0; }
++static bool raceFirst() { const SmzRacePlayer *me = smz_race_me(&rg.room); return me && me->place == 1; }
++// First with a time: it can go to the ladder (a win because the others left has none).
++static bool raceWon() { const SmzRacePlayer *me = smz_race_me(&rg.room); return raceFirst() && me->time_ms >= 0; }
 +// In the race and not done: leaving now is abandoning it.
-+static bool raceRunning() { const SmzRacePlayer *me = smz_race_me(&rg.room); return rg.on && rg.room.state == RACE_RUNNING && (!me || me->time_ms < 0); }
++static bool raceRunning() { const SmzRacePlayer *me = smz_race_me(&rg.room); return rg.on && ((rg.room.state == RACE_RUNNING && (!me || me->time_ms < 0)) || rg.back); }
++// A server time as this 3DS's day and hour: its clock is local time.
++static void raceWhen(int64_t ms, char *out, size_t cap) { smz_race_when(ms - rg.room.offset, out, cap); }
 +
 +static void raceNews(const char *text) { snprintf(rg.news, sizeof rg.news, "%.95s", text); rg.newsUntil = osGetTime() + 4000; rg.newsSeq++; uiCueSound(UI_CUE_OPEN); }
++
++// A pause can be asked in the Full game, once it started and before anyone finished, with no other vote open.
++static bool raceCanPause()
++{
++    const SmzRace *r = &rg.room;
++    if (!rg.on || r->state != RACE_RUNNING || strcmp(r->format, "full") || raceGoIn() > 0 || r->vote_by[0]) return false;
++    for (int i = 0; i < r->n; i++) if (r->p[i].time_ms >= 0) return false;
++    return true;
++}
++
++// A rival's pause this player hasn't answered.
++static bool raceVoteOpen()
++{
++    const SmzRace *r = &rg.room;
++    return rg.on && r->state == RACE_RUNNING && r->vote_by[0] && strcmp(r->vote_by, r->you) && !smz_race_voted(r) && r->vote_at != rg.voteDone;
++}
++
++// The game stands still: a paused race loaded again, the pause asked or kept, or a vote every game waits on.
++static bool raceFrozen() { return rg.on && (rg.back || rg.kept || rg.pick || (rg.room.state == RACE_RUNNING && rg.room.vote_by[0] && !rg.card)); }
++
++static void raceVote(bool yes) { rg.voteDone = rg.room.vote_at; smzRaceSend("vote", yes ? "\"yes\":true" : "\"yes\":false", true); uiCueSound(yes ? UI_CUE_CONFIRM : UI_CUE_BACK); dirty = true; }
++
++static void raceAskPause()
++{
++    char f[48];
++    snprintf(f, sizeof f, "\"resumeAt\":%lld", (long long)(raceNow() + PAUSE_HOURS[rg.pickI] * 3600000LL));
++    smzRaceSend("pause", f, true);
++    rg.pick = false;
++    uiCueSound(UI_CUE_CONFIRM);
++    dirty = true;
++}
++
++static bool raceMuted(const char *pid)
++{
++    for (int i = 0; i < rg.nMuted; i++) if (!strcmp(rg.muted[i], pid)) return true;
++    return false;
++}
++
++static void raceMute(const char *pid)
++{
++    for (int i = 0; i < rg.nMuted; i++) if (!strcmp(rg.muted[i], pid)) { memmove(rg.muted + i, rg.muted + i + 1, sizeof rg.muted[0] * (rg.nMuted - i - 1)); rg.nMuted--; return; }
++    if (rg.nMuted < RACE_MAX) { char id[sizeof rg.muted[0]]; snprintf(id, sizeof id, "%s", pid); memcpy(rg.muted[rg.nMuted++], id, sizeof id); }   // pid can be the room's, inside rg
++}
++
++static void raceSay(const char *text)
++{
++    if (!text[0] || rg.chatOff) return;
++    smzRaceChat(text);
++    uiCueSound(UI_CUE_CONFIRM);
++}
++
++// The paused race this 3DS keeps: the game's state, and the token, code and resume time (as this 3DS's clock) for the menu.
++static void raceKeepPaused()
++{
++    snd3dsDrainMixing();
++    impl3dsSaveState(RACE_STATE_FILE);
++    snd3dsResumeMixing();
++    char tok[100], text[200];
++    smzRaceToken(tok, sizeof tok);
++    int n = snprintf(text, sizeof text, "%s\n%s\n%lld\n", tok, rg.room.code, (long long)(rg.room.resume_at - rg.room.offset));
++    mkdir(RUN_DIR, 0777);
++    FILE *f = fopen(RACE_PAUSED_FILE, "wb");
++    if (f) { fwrite(text, 1, (size_t)n, f); fclose(f); }
++}
 +
 +// The run in the race slot has been loaded (needs read from its settings): the race goes on if the menu started one.
 +static void raceStart()
@@ -5041,39 +5208,95 @@ index 0000000..4f506c4
 +    rg.on = rg.armed && curSlot == SMZ_RACE_SLOT && smzRaceJoined();
 +    rg.armed = false;
 +    rg.finishSent = rg.card = rg.ladder = rg.ended = false;
++    rg.back = rg.skipOld = rg.kept = rg.offlineNoted = rg.mineShown = rg.pick = rg.paused = rg.loadPending = false;
++    rg.chatOff = rg.kb = false;
++    rg.typed[0] = 0;
++    rg.nMuted = 0;
++    rg.voteDone = 0;
 +    rg.bosses = rg.crystals = 0;
 +    rg.lastCount = -2;
 +    rg.news[0] = rg.say[0] = 0;
 +    rg.newsUntil = rg.sayAt = 0;
-+    if (!rg.on) return;
++    if (!rg.on && tab == TAB_CHAT) tab = TAB_RUN;
++    if (!rg.on) { rg.resume = false; return; }
 +    smzRaceSetSlow(true);
 +    rg.shown = rg.room.since;
 +    rg.need = (needGanon > needTower ? needGanon : needTower) + needTourian;
++    if (rg.resume) { rg.resume = false; rg.loadPending = true; rg.back = rg.skipOld = true; }   // the state loads with the first frame
 +}
 +
-+// The race's answers, every frame: new lines for the corner and the strip, and the end.
++// The race's answers, every frame: new lines for the corner and the strip, the pause, the end.
 +static void raceInGame()
 +{
 +    static char ans[32768];
++    SmzRace *r = &rg.room;
++    if (rg.loadPending) {   // a paused race: its state loads once, then the server hears this player is back
++        rg.loadPending = false;
++        snd3dsDrainMixing();
++        bool ok = impl3dsLoadState(RACE_STATE_FILE);
++        snd3dsResumeMixing();
++        remove(RACE_STATE_FILE);
++        if (ok) smzRaceSend("back", "", true);
++        else { rg.back = false; r->state = RACE_CANCELLED; snprintf(r->end_why, sizeof r->end_why, "The saved game is gone"); }
++    }
 +    bool got = false;
 +    for (int k; (k = smzRaceTake(ans, sizeof ans)) >= 0;) {
 +        got = true;
-+        if (k == SMZ_RACE_ERROR) raceNews(ans);
-+        else smz_race_read(&rg.room, ans, smzDailyNowMs());
++        if (k == SMZ_RACE_ERROR) {
++            if (rg.back && r->state == RACE_NONE) { r->state = RACE_CANCELLED; snprintf(r->end_why, sizeof r->end_why, "The race is gone"); }   // expired while away
++            else raceNews(ans);
++        } else smz_race_read(r, ans, smzDailyNowMs());
 +    }
-+    if (!got) return;
-+    smzRaceSetSince(rg.room.since);
-+    for (int i = 0; i < rg.room.lines; i++) {
-+        const SmzRaceLine *l = &rg.room.line[i];
++    if (rg.skipOld && r->state != RACE_NONE) { rg.shown = r->since; rg.skipOld = false; }   // back after a pause: only what is new
++    smzRaceSetSince(r->since);
++    for (int i = 0; i < r->lines; i++) {
++        const SmzRaceLine *l = &r->line[i];
 +        if (l->seq <= rg.shown) continue;
 +        rg.shown = l->seq;
-+        bool mine = rg.room.you[0] && !strcmp(l->pid, rg.room.you);
-+        if (l->kind == RACE_LINE_CHAT) { if (!mine) { snprintf(rg.say, sizeof rg.say, "%s: %s", l->name, l->text); rg.sayAt = osGetTime(); } }
++        bool mine = r->you[0] && !strcmp(l->pid, r->you);
++        if (l->kind == RACE_LINE_CHAT) { if (!mine && !rg.chatOff && !raceMuted(l->pid)) { char m[sizeof rg.say]; snprintf(m, sizeof m, "%s: %s", l->name, l->text); memcpy(rg.say, m, sizeof m); rg.sayAt = osGetTime(); } }
 +        else if (l->kind == RACE_LINE_EVENT) { if (!mine) { char m[112]; snprintf(m, sizeof m, "%s %s", l->name, l->text); raceNews(m); } }
-+        else if (!mine || l->kind == RACE_LINE_SYSTEM) raceNews(l->text);
++        else if (!mine) raceNews(l->text);
 +    }
-+    if (!rg.ended && (rg.room.state == RACE_FINISHED || rg.room.state == RACE_CANCELLED)) { rg.ended = rg.card = true; }
-+    dirty = true;
++    int64_t off = smzRaceOfflineMs();
++    if (!off) rg.offlineNoted = false;
++    else if (off > 10000 && !rg.offlineNoted) { rg.offlineNoted = true; raceNews("No connection: the race goes on"); got = true; }
++    if (off > 5 * 60000 && r->state == RACE_RUNNING) { r->state = RACE_CANCELLED; snprintf(r->end_why, sizeof r->end_why, "No connection"); got = true; }
++    if (r->state == RACE_PAUSED && !rg.back && !rg.kept) { rg.kept = rg.card = rg.paused = true; rg.pick = false; raceKeepPaused(); got = true; }
++    const SmzRacePlayer *me = smz_race_me(r);
++    if (me && me->time_ms >= 0 && !rg.mineShown && r->state == RACE_RUNNING) { rg.mineShown = rg.card = true; got = true; }   // a multi race goes on: the places so far
++    if (!rg.ended && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED)) { rg.ended = rg.card = true; got = true; }
++    if (rg.back && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED || (r->state == RACE_RUNNING && raceGoIn() <= 0))) {   // going again, or over
++        rg.back = false;
++        remove(RACE_PAUSED_FILE);
++        got = true;
++    }
++    if (got) dirty = true;
++}
++
++// While the game stands still it plays its frame and is put back to the moment it stopped; the sound waits.
++static u8 *holdBuf;
++static size_t holdN;
++static void raceHold(bool hold)
++{
++    u8 *&buf = holdBuf;
++    size_t &n = holdN;
++    if (hold && !buf) {
++        if (!(buf = (u8 *)malloc(RW_BUF_CAP))) return;
++        snd3dsDrainMixing();
++        LightLock_Lock(&snd3DS.snesAccessLock);
++        n = S9xFreezeToMemory(buf, RW_BUF_CAP);
++        LightLock_Unlock(&snd3DS.snesAccessLock);
++    } else if (hold && n) {
++        LightLock_Lock(&snd3DS.snesAccessLock);
++        if (S9xUnfreezeFromMemory(buf, n)) gpu3dsInitializeMode7Vertexes();
++        LightLock_Unlock(&snd3DS.snesAccessLock);
++    } else if (!hold && buf) {
++        free(buf);
++        buf = NULL;
++        n = 0;
++        snd3dsResumeMixing();
++    }
 +}
 +
 +// Once a second with the tracker: bosses and crystals go out as news and progress; the game's end sends the finish.
@@ -5081,22 +5304,23 @@ index 0000000..4f506c4
 +{
 +    if (!rg.on || !trk.started) return;
 +    int nb = trk.boss_mask & 15 & ~rg.bosses, nc = trk.crystal_mask & 0x7F & ~rg.crystals;
++    bool quiet = rg.back || rg.loadPending;   // back after a pause: what the saved game had was told before
 +    if (nb || nc) {
 +        static const char *const BOSS[4] = {"beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley"};
-+        for (int i = 0; i < 4; i++) if (nb >> i & 1) smzRaceEvent(BOSS[i]);
-+        for (int i = 0; i < 7; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); smzRaceEvent(m); }
++        for (int i = 0; i < 4 && !quiet; i++) if (nb >> i & 1) smzRaceEvent(BOSS[i]);
++        for (int i = 0; i < 7 && !quiet; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); smzRaceEvent(m); }
 +        rg.bosses |= nb; rg.crystals |= nc;
 +        int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
 +        smzRaceSetProgress(pc > 99 ? 99 : pc);   // 100 is the finish, from the server
 +    }
-+    if (trk.game == 3 && !rg.finishSent && rg.room.state == RACE_RUNNING) {   // the time is the server's: from the start to this request
++    if (trk.game == 3 && !rg.finishSent && rg.room.state == RACE_RUNNING) {   // the server's time, from the start to this request or to finishAt if it was down
 +        rg.finishSent = true;
 +        size_t cap = SMZ_PROOF_MAX * 24;
-+        char *text = (char *)malloc(cap), *q = (char *)malloc(cap * 2 + 8), *f = (char *)malloc(cap * 2 + 16);
++        char *text = (char *)malloc(cap), *q = (char *)malloc(cap * 2 + 8), *f = (char *)malloc(cap * 2 + 48);
 +        if (text && q && f) {
 +            smz_proof_format(&proof, text, cap);
 +            smz_race_quote(text, q, cap * 2 + 8);
-+            snprintf(f, cap * 2 + 16, "\"proof\":%s", q);
++            snprintf(f, cap * 2 + 48, "\"finishAt\":%lld,\"proof\":%s", (long long)raceNow(), q);
 +            smzRaceSend("finish", f, true);
 +        }
 +        free(text); free(q); free(f);
@@ -5106,13 +5330,35 @@ index 0000000..4f506c4
 +// A on the result card (or its left button): the winner's time goes to the ladder once; otherwise the card closes.
 +static void raceCardA()
 +{
-+    if (raceWon() && !rg.ladder && rg.room.state == RACE_FINISHED) { rg.ladder = true; smzRaceSend("ladder", "", true); uiCueSound(UI_CUE_CONFIRM); }
-+    else rg.card = false;
 +    dirty = true;
++    int st = rg.room.state;
++    if (raceWon() && !rg.ladder && (st == RACE_FINISHED || st == RACE_RUNNING)) { rg.ladder = true; smzRaceSend("ladder", "", true); uiCueSound(UI_CUE_CONFIRM); }
++    else rg.card = false;
 +}
 +
-+static const char *raceCardTitle() { return rg.room.state == RACE_CANCELLED ? "RACE CANCELLED" : raceWon() ? "VICTORY" : "DEFEAT"; }
-+static const char *raceCardALabel() { return raceWon() && rg.room.state == RACE_FINISHED ? "Save to ladder" : "Keep playing"; }
++static const char *ordinal(int n) { return n % 100 / 10 == 1 ? "th" : n % 10 == 1 ? "st" : n % 10 == 2 ? "nd" : n % 10 == 3 ? "rd" : "th"; }
++
++static const char *raceCardTitle()
++{
++    static char t[24];
++    const SmzRacePlayer *me = smz_race_me(&rg.room);
++    if (rg.paused) return "RACE PAUSED";
++    if (rg.room.state == RACE_CANCELLED) return "RACE CANCELLED";
++    if (raceFirst()) return "VICTORY";
++    if (me && me->place) { snprintf(t, sizeof t, "%d%s PLACE", me->place, ordinal(me->place)); return t; }
++    return "DEFEAT";
++}
++static const char *raceCardALabel() { int st = rg.room.state; return rg.paused ? "Back to menu" : raceWon() && (st == RACE_FINISHED || st == RACE_RUNNING) ? "Save to ladder" : "Keep playing"; }
++static int raceCardColor() { return rg.paused || raceFirst() ? 0xF2A33A : rg.room.state == RACE_CANCELLED ? 0x8793A6 : 0xE05A4F; }
++
++// The card's line under its title.
++static void raceCardLine(char *out, size_t cap)
++{
++    const SmzRace *r = &rg.room;
++    if (rg.paused) { char w[24]; raceWhen(r->resume_at, w, sizeof w); snprintf(out, cap, "Goes on %s. Come back on this 3DS.", w); }
++    else if (r->state == RACE_CANCELLED && r->end_why[0]) snprintf(out, cap, "%s", r->end_why);
++    else snprintf(out, cap, "%s%s", smz_race_format_name(r->format), r->state == RACE_RUNNING ? ": the race goes on" : r->pauses ? ", paused" : "");
++}
 +
 +// The strip over the tracker's tabs: the race's clock and what is going on.
 +static void drawRaceStrip()
@@ -5125,9 +5371,10 @@ index 0000000..4f506c4
 +    int x = 6;
 +    text(x, 1, 0xF2A33A, smz_race_format_name(r->format));
 +    x += textW(smz_race_format_name(r->format)) + 14;
-+    if (go > 0) snprintf(line, sizeof line, "Starts in %d", (int)((go + 999) / 1000));
++    if (r->state == RACE_PAUSED) { raceWhen(r->resume_at, a, sizeof a); snprintf(line, sizeof line, "Paused, goes on %s", a); }
++    else if (go > 0) snprintf(line, sizeof line, "%s in %d", r->pauses ? "Goes on" : "Starts", (int)((go + 999) / 1000));
 +    else if (me && me->time_ms >= 0) { fmtTime(me->time_ms, a, sizeof a); if (me->place) snprintf(line, sizeof line, "Done in %s, place %d", a, me->place); else snprintf(line, sizeof line, "Done in %s", a); }
-+    else if (r->state == RACE_RUNNING) { fmtClock(-go, a, sizeof a); snprintf(line, sizeof line, "%s", a); }
++    else if (r->state == RACE_RUNNING) { fmtClock(raceNow() - r->start_at, a, sizeof a); snprintf(line, sizeof line, "%s", a); }
 +    else snprintf(line, sizeof line, "%s", r->state == RACE_CANCELLED ? "Cancelled" : "Race over");
 +    text(x, 1, 0xFFFFFF, line);
 +    x += textW(line) + 14;
@@ -5137,7 +5384,7 @@ index 0000000..4f506c4
 +        snprintf(line, sizeof line, "Race ends in %d:%02d", (int)(left / 60000), (int)(left / 1000 % 60));
 +        textFit(x, 1, 316 - x, 0xE05A4F, line);
 +    }
-+    if (rg.sayAt && osGetTime() - rg.sayAt < 6000) { textFit(6, 15, 308, 0xE8ECF2, rg.say); return; }
++    if (rg.sayAt && osGetTime() - rg.sayAt < 6000 && tab != TAB_CHAT) { textFit(6, 15, 308, 0xE8ECF2, rg.say); return; }
 +    int n = 0;
 +    line[0] = 0;
 +    for (int i = 0; i < r->n; i++) {   // the rivals: their progress, or their time
@@ -5152,17 +5399,186 @@ index 0000000..4f506c4
 +    textFit(6, 15, 308, 0x4FC3F7, line);
 +}
 +
++// RUN's race block: the top three and this player, each with a time or the % done. Returns the y under it.
++static int drawRaceStandings(int x, int y, int cw)
++{
++    const SmzRace *r = &rg.room;
++    int order[RACE_MAX], n = 0;
++    for (int pl = 0; pl <= r->n; pl++)
++        for (int i = 0; i < r->n; i++) if ((pl < r->n && r->p[i].place == pl + 1) || (pl == r->n && !r->p[i].place)) order[n++] = i;
++    for (int i = 1; i < n; i++)   // the ones without a place by their %
++        for (int j = i; j > 0 && !r->p[order[j]].place && !r->p[order[j - 1]].place && r->p[order[j]].progress > r->p[order[j - 1]].progress; j--) { int k = order[j]; order[j] = order[j - 1]; order[j - 1] = k; }
++    text(x, y, theme.dim, "RACE");
++    y += 13;
++    for (int k = 0; k < n; k++) {
++        const SmzRacePlayer *p = &r->p[order[k]];
++        bool mine = r->you[0] && !strcmp(p->pid, r->you);
++        if (k >= 3 && !mine) continue;
++        char v[24], s[40];
++        if (p->time_ms >= 0) fmtClock(p->time_ms, v, sizeof v); else if (p->left) snprintf(v, sizeof v, "left"); else snprintf(v, sizeof v, "%d%%", p->progress);
++        snprintf(s, sizeof s, "%d %s", k + 1, p->name);
++        textFit(x, y, cw - 44, mine ? theme.accent : theme.text, s);
++        text(x + cw, y, mine ? theme.accent : theme.dim, v, HALIGN_RIGHT);
++        y += 13;
++    }
++    return y + 4;
++}
++
++// ---- the CHAT tab: the race's lines, quick phrases, the players to mute, chat off, and a keyboard drawn here
++// (the system keyboard stops the game)
++
++struct ChatHit { short x0, y0, x1, y1, id, arg; };
++enum { CH_PHRASE, CH_KB, CH_OFF, CH_MUTE, CH_KEY, CH_SHIFT, CH_SPACE, CH_DEL, CH_SEND, CH_CLOSE };
++static ChatHit chatHits[80];
++static int nChatHits;
++static const char *const KB_ROWS[4] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"};
++
++static void chatButton(int x0, int y0, int x1, int y1, int bg, int ink, const char *label, int id, int arg)
++{
++    fill(x0, y0, x1, y1, bg);
++    textFit(x0 + 2, y0 + (y1 - y0 - 13) / 2, x1 - x0 - 4, ink, label);
++    if (nChatHits < (int)(sizeof chatHits / sizeof chatHits[0])) chatHits[nChatHits++] = {(short)x0, (short)y0, (short)x1, (short)y1, (short)id, (short)arg};
++}
++
++static void drawChat(int y0, int y1)
++{
++    const SmzRace *r = &rg.room;
++    nChatHits = 0;
++    if (rg.kb) {   // the keyboard: the line, four rows of keys, then shift, space, delete, send and close
++        char line[96];
++        snprintf(line, sizeof line, "%s_", rg.typed);
++        fill(4, y0 + 3, 316, y0 + 19, theme.panel);
++        textFit(8, y0 + 5, 304, theme.text, line);
++        int ky = y0 + 23, kh = (y1 - ky - 4) / 5;
++        for (int row = 0; row < 4; row++)
++            for (int i = 0; i < 10; i++) {
++                char c = KB_ROWS[row][i], s[2] = {(char)(rg.kbUpper && c >= 'a' && c <= 'z' ? c - 32 : c), 0};
++                int x = 4 + i * 31;
++                chatButton(x, ky + row * kh, x + 29, ky + row * kh + kh - 2, theme.tab, theme.text, s, CH_KEY, (unsigned char)s[0]);
++            }
++        int by = ky + 4 * kh;
++        chatButton(4, by, 54, by + kh - 2, rg.kbUpper ? theme.accent : theme.tab, rg.kbUpper ? 0x10161F : theme.text, "Aa", CH_SHIFT, 0);
++        chatButton(56, by, 160, by + kh - 2, theme.tab, theme.text, "space", CH_SPACE, 0);
++        chatButton(162, by, 206, by + kh - 2, theme.tab, theme.text, "Del", CH_DEL, 0);
++        chatButton(208, by, 262, by + kh - 2, theme.accent, 0x10161F, "Send", CH_SEND, 0);
++        chatButton(264, by, 316, by + kh - 2, theme.panel, theme.dim, "Close", CH_CLOSE, 0);
++        return;
++    }
++    int py = y1 - 2 * 20 - 22;   // the phrases at the bottom, two rows of four, and a row of controls above them
++    for (int i = 0; i < N_PHRASES; i++) {
++        int x = 4 + (i % 4) * 78, y = py + 22 + (i / 4) * 20;
++        chatButton(x, y, x + 76, y + 18, rg.chatOff ? theme.panel : theme.tab, rg.chatOff ? theme.dim : theme.text, PHRASES[i], CH_PHRASE, i);
++    }
++    int x = 4;
++    chatButton(x, py, x + 62, py + 18, theme.tab, theme.text, "Keyboard", CH_KB, 0);
++    x += 66;
++    chatButton(x, py, x + 54, py + 18, rg.chatOff ? theme.accent : theme.tab, rg.chatOff ? 0x10161F : theme.text, rg.chatOff ? "Chat off" : "Chat on", CH_OFF, 0);
++    x += 58;
++    for (int i = 0; i < r->n && x < 300; i++) {   // the rivals: a tap mutes or unmutes
++        const SmzRacePlayer *p = &r->p[i];
++        if (!strcmp(p->pid, r->you)) continue;
++        char s[40];
++        snprintf(s, sizeof s, "%s%s", raceMuted(p->pid) ? "x " : "", p->name);
++        int w = textW(s) + 8;
++        if (w > 316 - x) w = 316 - x;
++        chatButton(x, py, x + w, py + 18, theme.panel, raceMuted(p->pid) ? theme.dim : theme.text, s, CH_MUTE, i);
++        x += w + 4;
++    }
++    int y = py - 4;   // the lines, newest at the bottom, up to the tabs
++    for (int i = r->lines - 1; i >= 0 && y - 13 >= y0; i--) {
++        const SmzRaceLine *l = &r->line[i];
++        if (l->kind == RACE_LINE_CHAT && (rg.chatOff || raceMuted(l->pid))) continue;
++        char s[128];
++        if (l->kind == RACE_LINE_CHAT) snprintf(s, sizeof s, "%s: %s", l->name, l->text);
++        else if (l->kind == RACE_LINE_EVENT) snprintf(s, sizeof s, "%s %s", l->name, l->text);
++        else snprintf(s, sizeof s, "%s", l->text);
++        y -= 13;
++        textFit(6, y, 308, l->kind == RACE_LINE_CHAT ? theme.text : theme.dim, s);
++    }
++    if (y == py - 4) text(6, y0 + 6, theme.dim, rg.chatOff ? "Chat is off" : "No messages yet");
++}
++
++static void chatTap(int x, int y)
++{
++    for (int i = 0; i < nChatHits; i++) {
++        const ChatHit &h = chatHits[i];
++        if (x < h.x0 || x >= h.x1 || y < h.y0 || y >= h.y1) continue;
++        size_t n = strlen(rg.typed);
++        switch (h.id) {
++        case CH_PHRASE: raceSay(PHRASES[h.arg]); break;
++        case CH_KB: rg.kb = true; break;
++        case CH_OFF: rg.chatOff = !rg.chatOff; break;
++        case CH_MUTE: if (h.arg < rg.room.n) raceMute(rg.room.p[h.arg].pid); break;
++        case CH_KEY: if (n + 1 < sizeof rg.typed - 4) { rg.typed[n] = (char)h.arg; rg.typed[n + 1] = 0; } break;
++        case CH_SHIFT: rg.kbUpper = !rg.kbUpper; break;
++        case CH_SPACE: if (n && n + 1 < sizeof rg.typed - 4) { rg.typed[n] = ' '; rg.typed[n + 1] = 0; } break;
++        case CH_DEL: if (n) rg.typed[n - 1] = 0; break;
++        case CH_SEND: raceSay(rg.typed); rg.typed[0] = 0; rg.kb = false; break;
++        case CH_CLOSE: rg.kb = false; break;
++        }
++        uiCueSound(h.id == CH_KEY || h.id == CH_DEL || h.id == CH_SPACE ? UI_CUE_MOVE : UI_CUE_SELECT);
++        dirty = true;
++        return;
++    }
++}
++
++// The pause picker or a rival's vote, over the tracker: what it asks and two (or four) buttons by touch.
++#define ASK_BTN_Y 150
++static void drawRaceAsk()
++{
++    fill(0, 0, 320, 240, 0x0B0F15);
++    char line[96], when[24];
++    if (rg.pick) {
++        int h = PAUSE_HOURS[rg.pickI];
++        raceWhen(raceNow() + h * 3600000LL, when, sizeof when);
++        text(0, 40, 0xF2A33A, "Pause until", HALIGN_CENTER, 320);
++        if (h < 24) snprintf(line, sizeof line, "in %d hour%s, %s", h, h > 1 ? "s" : "", when);
++        else snprintf(line, sizeof line, "in %d day%s, %s", h / 24, h > 24 ? "s" : "", when);
++        text(0, 80, 0xE8ECF2, line, HALIGN_CENTER, 320);
++        fill(12, 72, 52, 104, 0x1D2430); text(12, 80, 0xE8ECF2, "<", HALIGN_CENTER, 52);
++        fill(268, 72, 308, 104, 0x1D2430); text(268, 80, 0xE8ECF2, ">", HALIGN_CENTER, 308);
++        fill(12, ASK_BTN_Y, 156, ASK_BTN_Y + 32, 0xF2A33A); text(12, ASK_BTN_Y + 9, 0x10161F, "A  Ask the others", HALIGN_CENTER, 156);
++        fill(164, ASK_BTN_Y, 308, ASK_BTN_Y + 32, 0x1D2430); text(164, ASK_BTN_Y + 9, 0xE8ECF2, "B  Cancel", HALIGN_CENTER, 308);
++        return;
++    }
++    const SmzRace *r = &rg.room;
++    text(0, 40, 0xF2A33A, "Pause the race?", HALIGN_CENTER, 320);
++    if (!raceVoteOpen()) { text(0, 80, 0xE8ECF2, "Waiting for the others to answer", HALIGN_CENTER, 320); return; }
++    const char *who = "A rival";
++    for (int i = 0; i < r->n; i++) if (!strcmp(r->p[i].pid, r->vote_by)) who = r->p[i].name;
++    raceWhen(r->vote_at, when, sizeof when);
++    snprintf(line, sizeof line, "%s asks to pause until %s", who, when);
++    textFit(8, 80, 304, 0xE8ECF2, line);
++    fill(12, ASK_BTN_Y, 156, ASK_BTN_Y + 32, 0xF2A33A); text(12, ASK_BTN_Y + 9, 0x10161F, "A  Yes", HALIGN_CENTER, 156);
++    fill(164, ASK_BTN_Y, 308, ASK_BTN_Y + 32, 0x1D2430); text(164, ASK_BTN_Y + 9, 0xE8ECF2, "B  No", HALIGN_CENTER, 308);
++}
++
++// A tap on that screen.
++static void raceAskTap(int x, int y)
++{
++    if (rg.pick) {
++        if (y >= 72 && y < 104 && (x < 52 || x >= 268)) { rg.pickI = (rg.pickI + (x < 52 ? PAUSE_CHOICES - 1 : 1)) % PAUSE_CHOICES; uiCueSound(UI_CUE_MOVE); }
++        else if (y >= ASK_BTN_Y && y < ASK_BTN_Y + 32) { if (x < 160) raceAskPause(); else { rg.pick = false; uiCueSound(UI_CUE_BACK); } }
++        dirty = true;
++        return;
++    }
++    if (raceVoteOpen() && y >= ASK_BTN_Y && y < ASK_BTN_Y + 32) raceVote(x < 160);
++}
++
++static bool raceAsking() { return rg.on && !rg.card && (rg.pick || (rg.room.state == RACE_RUNNING && rg.room.vote_by[0])); }
++
 +// This screen while the result card is up: the places and times, and the two ways on.
 +static void drawRaceCard()
 +{
 +    const SmzRace *r = &rg.room;
 +    const SmzRacePlayer *me = smz_race_me(r);
-+    bool won = raceWon();
 +    fill(0, 0, 320, 240, 0x0B0F15);
 +    const char *title = raceCardTitle();
 +    int tw = ui3dsGetStringWidth(title, 0, 0xffff, 20);
-+    bigText((320 - tw) / 2, 8, 20, won ? 0xF2A33A : r->state == RACE_CANCELLED ? 0x8793A6 : 0xE05A4F, title);
-+    text(0, 32, 0x8793A6, r->state == RACE_CANCELLED && r->end_why[0] ? r->end_why : smz_race_format_name(r->format), HALIGN_CENTER, 320);
++    bigText((320 - tw) / 2, 8, 20, raceCardColor(), title);
++    char sub[96];
++    raceCardLine(sub, sizeof sub);
++    textFit(4, 32, 312, 0x8793A6, sub);
 +    fill(40, 49, 280, 50, 0x2A3442);
 +    int y = 56;
 +    for (int pl = 0; pl <= r->n; pl++)   // by place, then the ones without one
@@ -5170,7 +5586,7 @@ index 0000000..4f506c4
 +            const SmzRacePlayer *p = &r->p[i];
 +            if ((pl < r->n && p->place != pl + 1) || (pl == r->n && p->place)) continue;
 +            char t[32], pos[8];
-+            if (p->time_ms >= 0) fmtTime(p->time_ms, t, sizeof t); else snprintf(t, sizeof t, "%s", p->left ? "Left" : "-");
++            if (p->time_ms >= 0) fmtTime(p->time_ms, t, sizeof t); else snprintf(t, sizeof t, "%s", p->left ? "Left" : r->state == RACE_RUNNING ? "racing" : "-");
 +            snprintf(pos, sizeof pos, p->place ? "%d" : "", p->place);
 +            int c = p == me ? 0xF2A33A : 0xE8ECF2;
 +            text(24, y, c, pos);
@@ -5178,10 +5594,10 @@ index 0000000..4f506c4
 +            text(296, y, c, t, HALIGN_RIGHT);
 +            y += 16;
 +        }
-+    if (rg.ladder) {
-+        text(0, CARD_BTN_Y - 18, 0x4FC3F7, "Saved to the ladder", HALIGN_CENTER, 320);
++    if (rg.ladder || rg.paused) {
++        if (rg.ladder) text(0, CARD_BTN_Y - 18, 0x4FC3F7, "Saved to the ladder", HALIGN_CENTER, 320);
 +        fill(80, CARD_BTN_Y, 240, CARD_BTN_Y + 32, 0xF2A33A);
-+        text(80, CARD_BTN_Y + 9, 0x10161F, "Close", HALIGN_CENTER, 240);
++        text(80, CARD_BTN_Y + 9, 0x10161F, rg.paused ? "Back to menu" : "Close", HALIGN_CENTER, 240);
 +        return;
 +    }
 +    fill(12, CARD_BTN_Y, 156, CARD_BTN_Y + 32, 0xF2A33A);
@@ -5189,6 +5605,13 @@ index 0000000..4f506c4
 +    fill(164, CARD_BTN_Y, 308, CARD_BTN_Y + 32, 0x1D2430);
 +    fill(164, CARD_BTN_Y, 308, CARD_BTN_Y + 1, 0x4A5568);
 +    text(164, CARD_BTN_Y + 9, 0xE8ECF2, "Close", HALIGN_CENTER, 308);
++}
++
++// Players back after a pause, of those still in.
++static void raceBackCount(int *back, int *in)
++{
++    *back = *in = 0;
++    for (int i = 0; i < rg.room.n; i++) if (!rg.room.p[i].left) { (*in)++; *back += rg.room.p[i].back; }
 +}
 +
 +// What the game screen's layer shows in a race, as a number that changes with it (0: nothing). Plays the countdown's sounds.
@@ -5201,12 +5624,19 @@ index 0000000..4f506c4
 +        if (rg.lastCount != -2 && count >= 0 && count <= 3) { if (count) sfxPlay(SFX_TICK); else uiCueSound(UI_CUE_CONFIRM); }
 +        rg.lastCount = count;
 +    }
-+    bool news = osGetTime() < rg.newsUntil;
-+    if (!rg.card && count < 0 && !news) return 0;
-+    return 1 + (count + 1) + (news ? rg.newsSeq % 1000 + 1 : 0) * 64 + (rg.card ? 1 << 20 : 0) + (rg.ladder ? 1 << 21 : 0);
++    bool news = osGetTime() < rg.newsUntil, waiting = rg.back && rg.room.state == RACE_PAUSED, asking = raceAsking();
++    if (!rg.card && count < 0 && !news && !waiting && !asking) return 0;
++    int back, in;
++    raceBackCount(&back, &in);
++    unsigned h = 1u + (unsigned)(count + 1);
++    h = h * 31 + (news ? rg.newsSeq % 1000 + 1 : 0);
++    h = h * 31 + (rg.card ? 1 : 0) + (rg.ladder ? 2 : 0) + (rg.paused ? 4 : 0) + (raceVoteOpen() ? 8 : 0);
++    h = h * 31 + (waiting ? back * 16 + in + 1 : 0);
++    h = h * 31 + (asking ? (rg.pick ? rg.pickI + 2 : 1) : 0);
++    return (int)(h | 1);
 +}
 +
-+// The game screen's layer in a race: the countdown, the rivals' news in the top right corner, the result card.
++// The game screen's layer in a race: the countdown, the rivals' news in the top right corner, the pause boxes, the card.
 +static void raceRender()
 +{
 +    cvW = settings3DS.GameScreenWidth < CV_W ? settings3DS.GameScreenWidth : CV_W;
@@ -5214,16 +5644,18 @@ index 0000000..4f506c4
 +    float mx = cvW / 2.0f;
 +    if (rg.card) {
 +        const SmzRacePlayer *me = smz_race_me(&rg.room);
-+        bool won = raceWon();
++        int color = raceCardColor();
 +        cvRect(0, 0, cvW, CV_H, 0x000000, 185);
 +        cvRect(mx - 150, 70, mx + 150, 170, 0x10161F, 245);
-+        cvRect(mx - 150, 70, mx + 150, 71, won ? 0xF2A33A : 0x8793A6, 255);
-+        cvText(mx, 80, 32, won ? 0xF2A33A : rg.room.state == RACE_CANCELLED ? 0x8793A6 : 0xE05A4F, 255, raceCardTitle(), 1);
++        cvRect(mx - 150, 70, mx + 150, 71, color, 255);
++        cvText(mx, 80, rg.paused ? 24 : 32, color, 255, raceCardTitle(), 1);
 +        char line[80], t[32];
-+        if (me && me->time_ms >= 0) { fmtTime(me->time_ms, t, sizeof t); if (me->place) snprintf(line, sizeof line, "Place %d  -  %s", me->place, t); else snprintf(line, sizeof line, "%s", t); }
++        if (rg.paused) raceCardLine(line, sizeof line);
++        else if (me && me->time_ms >= 0) { fmtTime(me->time_ms, t, sizeof t); if (me->place) snprintf(line, sizeof line, "Place %d  -  %s", me->place, t); else snprintf(line, sizeof line, "%s", t); }
 +        else snprintf(line, sizeof line, "%s", smz_race_format_name(rg.room.format));
 +        cvText(mx, 120, 13, 0xE8ECF2, 255, line, 1);
-+        if (rg.ladder) { cvText(mx, 138, 13, 0x4FC3F7, 255, "Saved to the ladder", 1); cvButton(mx - 30, 150, "B", "Close", 255); }
++        if (rg.paused) cvButton(mx - 50, 146, "A", "Back to menu", 255);
++        else if (rg.ladder) { cvText(mx, 138, 13, 0x4FC3F7, 255, "Saved to the ladder", 1); cvButton(mx - 30, 150, "B", "Close", 255); }
 +        else {
 +            const char *al = raceCardALabel();
 +            int w1 = 18 + ui3dsGetStringWidth(al), w2 = 18 + ui3dsGetStringWidth("Close"), bx = (int)(mx - (w1 + 24 + w2) / 2.0f);
@@ -5234,14 +5666,43 @@ index 0000000..4f506c4
 +    }
 +    int64_t go = raceGoIn();
 +    int count = go > 0 ? (int)((go + 999) / 1000) : 0;
-+    if (go > 3000) {
-+        char m[48];
-+        snprintf(m, sizeof m, "The race starts in %d", count);
++    char m[64], when[24];
++    if (rg.back && rg.room.state == RACE_PAUSED) {   // back in a paused race: the others come back too
++        int back, in;
++        raceBackCount(&back, &in);
++        snprintf(m, sizeof m, "Waiting for the others: %d of %d back", back, in);
++        raceWhen(rg.room.resume_at, when, sizeof when);
++        int w = ui3dsGetStringWidth(m, 0, 0xffff, 15);
++        cvRect(mx - w / 2 - 14, 92, mx + w / 2 + 14, 148, 0x080B11, 225);
++        cvText(mx, 100, 15, 0xE8ECF2, 255, m, 1);
++        snprintf(m, sizeof m, "It goes on %s at the latest", when);
++        cvText(mx, 124, 13, 0x8793A6, 255, m, 1);
++    } else if (raceAsking()) {
++        cvRect(mx - 150, 92, mx + 150, 148, 0x10161F, 235);
++        cvRect(mx - 150, 92, mx + 150, 93, 0xF2A33A, 255);
++        if (rg.pick) {
++            int h = PAUSE_HOURS[rg.pickI];
++            raceWhen(raceNow() + h * 3600000LL, when, sizeof when);
++            if (h < 24) snprintf(m, sizeof m, "Pause until:  <  in %d hour%s, %s  >", h, h > 1 ? "s" : "", when);
++            else snprintf(m, sizeof m, "Pause until:  <  in %d day%s, %s  >", h / 24, h > 24 ? "s" : "", when);
++            cvText(mx, 100, 13, 0xE8ECF2, 255, m, 1);
++            cvButton(mx - 100, 122, "A", "Ask the others", 255);
++            cvButton(mx + 30, 122, "B", "Cancel", 255);
++        } else if (raceVoteOpen()) {
++            const char *who = "A rival";
++            for (int i = 0; i < rg.room.n; i++) if (!strcmp(rg.room.p[i].pid, rg.room.vote_by)) who = rg.room.p[i].name;
++            raceWhen(rg.room.vote_at, when, sizeof when);
++            snprintf(m, sizeof m, "%s asks to pause until %s", who, when);
++            cvText(mx, 100, 13, 0xE8ECF2, 255, m, 1);
++            cvButton(mx - 60, 122, "A", "Yes", 255);
++            cvButton(mx + 20, 122, "B", "No", 255);
++        } else cvText(mx, 110, 13, 0xE8ECF2, 255, "Pause the race? Waiting for the others", 1);
++    } else if (go > 3000) {
++        snprintf(m, sizeof m, "%s in %d", rg.room.pauses ? "The race goes on" : "The race starts", count);
 +        int w = ui3dsGetStringWidth(m, 0, 0xffff, 17);
 +        cvRect(mx - w / 2 - 14, 100, mx + w / 2 + 14, 136, 0x080B11, 215);
 +        cvText(mx, 109, 17, 0xE8ECF2, 255, m, 1);
 +    } else if (go > -1000 && rg.room.state == RACE_RUNNING) {
-+        char m[8];
 +        if (count) snprintf(m, sizeof m, "%d", count); else snprintf(m, sizeof m, "GO");
 +        cvRect(mx - 44, 92, mx + 44, 148, 0x080B11, 200);
 +        cvText(mx, 104, 32, count ? 0xF2A33A : 0x7FD88F, 255, m, 1);
@@ -5442,6 +5903,14 @@ index 0000000..4f506c4
 +        dirty = false;
 +        return;
 +    }
++    if (raceAsking()) {   // the pause being asked or voted, by touch too
++        setClip(0, 0, 320, 240);
++        drawRaceAsk();
++        impl3dsFlushScreen(settings3DS.SecondScreen, false, false);
++        gfxScreenSwapBuffers(settings3DS.SecondScreen, false);
++        dirty = false;
++        return;
++    }
 +    if (cardState) {   // the game has ended: the run's details instead of the tracker
 +        setClip(0, 0, 320, 240);
 +        drawCardDetails();
@@ -5484,6 +5953,7 @@ index 0000000..4f506c4
 +    case TAB_CHECKS: drawChecks(y0, y1); break;
 +    case TAB_MAP: drawMapTab(y0, y1); break;
 +    case TAB_HELP: drawHelp(y0, y1); break;
++    case TAB_CHAT: drawChat(y0, y1); break;
 +    }
 +    clampScroll(tab);
 +    if (tab == TAB_CHECKS || tab == TAB_HELP) {   // the tabs that scroll: a thin bar on the right while the list is longer than the screen
@@ -5556,6 +6026,7 @@ index 0000000..4f506c4
 +            return;
 +        }
 +    }
++    if (tab == TAB_CHAT) { chatTap(x, y); return; }
 +    if (tab == TAB_MAP && dungeonShowing(dv) && dungeonFloorTap(x, y, y0)) return;
 +    if (tab == TAB_HELP && hintButtonY >= 0) {
 +        int by = hintButtonY - scrollY[TAB_HELP];
@@ -5623,10 +6094,11 @@ index 0000000..4f506c4
 +        touchPosition t;
 +        hidTouchRead(&t);
 +        if (keysDown & KEY_TOUCH) {
++            if (raceAsking()) { touching = false; raceAskTap(t.px, t.py); return true; }
 +            if (rg.on && rg.card) {   // the race's result: its buttons, nothing under it
 +                touching = false;
 +                if (t.py < CARD_BTN_Y || t.py >= CARD_BTN_Y + 32) return true;
-+                if (rg.ladder ? t.px < 80 || t.px >= 240 : t.px < 160) { if (!rg.ladder) raceCardA(); return true; }
++                if (rg.ladder || rg.paused ? t.px < 80 || t.px >= 240 : t.px < 160) { if (!rg.ladder && !rg.paused) raceCardA(); return true; }
 +                rg.card = false;
 +                wantRunList = true;   // Close: the touch opens the menu, which goes on to the run list
 +                return false;
@@ -5926,11 +6398,19 @@ index 0000000..4f506c4
 +        return ~(unsigned)KEY_TOUCH;
 +    }
 +    if (rg.on && rg.card) {   // A and B are the race's result card's
-+        if ((keysDown & KEY_A) && !rg.ladder) raceCardA();
-+        else if (keysDown & KEY_B) { rg.card = false; wantRunList = *openMenu = true; dirty = true; }
++        if ((keysDown & KEY_A) && !rg.ladder && !rg.paused) raceCardA();
++        else if (keysDown & (rg.paused ? KEY_A | KEY_B : KEY_B)) { rg.card = false; wantRunList = *openMenu = true; dirty = true; }
 +        return KEY_A | KEY_B;
 +    }
-+    if (raceWaiting()) return ~(unsigned)KEY_TOUCH;   // the game takes no button before the start
++    if (raceAsking()) {   // the pause: its time picked with left and right, or the vote
++        if (rg.pick) {
++            if (keysDown & (KEY_LEFT | KEY_RIGHT)) { rg.pickI = (rg.pickI + (keysDown & KEY_LEFT ? PAUSE_CHOICES - 1 : 1)) % PAUSE_CHOICES; uiCueSound(UI_CUE_MOVE); dirty = true; }
++            else if (keysDown & KEY_A) raceAskPause();
++            else if (keysDown & KEY_B) { rg.pick = false; uiCueSound(UI_CUE_BACK); dirty = true; }
++        } else if (raceVoteOpen() && (keysDown & (KEY_A | KEY_B))) raceVote(keysDown & KEY_A);
++        return ~(unsigned)KEY_TOUCH;
++    }
++    if (raceWaiting() || raceFrozen()) return ~(unsigned)KEY_TOUCH;   // the game takes no button before the start, nor while it stands still
 +    if (cardState != 1) {
 +        unsigned took = boundKeys();   // a bound button never reaches the game
 +        if (noStatesUntil && (keysDown & ~KEY_TOUCH)) { noStatesUntil = 0; dirty = true; return took | (keysDown & ~KEY_TOUCH); }   // the button that closes it does nothing else
@@ -5979,6 +6459,7 @@ index 0000000..4f506c4
 +    lastFrameMs = now;
 +    rewindFrame();
 +    if (rg.on) raceInGame();
++    raceHold(raceFrozen());
 +    if (tick || curSlot != gPlaySlot) { trackerUpdate(); debugTouches(); dirty = true; }
 +    static unsigned frames;
 +    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending && !rwOpen)   // ~100 ms: an enemy's death is short
@@ -6213,7 +6694,7 @@ index 0000000..4f506c4
 +// ---- the game menu while a run is played: what the Thor's game menu offers, drawn like the run menu (wallpaper, cut-corner
 +// rows, the amber cursor, the button legend) on the top screen. The bottom screen keeps the tracker and passes touches up.
 +
-+enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_RUNS, PM_RESTART, PM_MUTE, PM_ROW0, PM_ROW1, PM_BAR, PM_CONFIRM, PM_BUTTONS, PM_BTN, PM_ACT };
++enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_PAUSE, PM_RUNS, PM_RESTART, PM_MUTE, PM_ROW0, PM_ROW1, PM_BAR, PM_CONFIRM, PM_BUTTONS, PM_BTN, PM_ACT };
 +struct PauseRow { int id, arg; };
 +
 +#define PM_ROWS_SHOWN 7
@@ -6264,6 +6745,7 @@ index 0000000..4f506c4
 +    int n = 0;
 +    rows[n++] = {PM_RESUME, 0};
 +    if (!smz3NoStates()) { rows[n++] = {PM_SAVE, 0}; rows[n++] = {PM_LOAD, 0}; }
++    if (raceCanPause()) rows[n++] = {PM_PAUSE, 0};
 +    rows[n++] = {PM_RUNS, 0};
 +    rows[n++] = {PM_RESTART, 0};
 +    rows[n++] = {PM_MUTE, 0};
@@ -6287,6 +6769,7 @@ index 0000000..4f506c4
 +        snprintf(value, cap, "Slot %d%s", slot, impl3dsSlotHasState(slot) ? "" : "  (empty)");
 +        *dim = !impl3dsSlotHasState(slot);
 +        break;
++    case PM_PAUSE: snprintf(label, cap, "Ask to pause"); break;
 +    case PM_RUNS: snprintf(label, cap, "%s", raceRunning() ? "Leave the race" : "Back to the runs"); break;
 +    case PM_RESTART: snprintf(label, cap, "Restart"); break;
 +    case PM_MUTE: snprintf(label, cap, "Mute audio"); snprintf(value, cap, "%s", snd3dsMuted ? "On" : "Off"); break;
@@ -6312,6 +6795,7 @@ index 0000000..4f506c4
 +    switch (r.id) {
 +    case PM_SAVE: return "Left and Right pick the slot.";
 +    case PM_LOAD: return "Left and Right pick the slot.";
++    case PM_PAUSE: return "The race stops for everyone if they all say yes, and goes on at the time you pick.";
 +    case PM_RUNS: return raceRunning() ? "Your rivals see you leave. A race can't be joined again." : "The run keeps its time and progress.";
 +    case PM_RESTART: return "Starts the game over from its own save.";
 +    case PM_ROW0: return "The item slots or the beams over the tracker's map.";
@@ -6569,6 +7053,9 @@ index 0000000..4f506c4
 +                snprintf(note, sizeof note, "Saving into slot %d failed.", slot);
 +                break;
 +            case PM_RESUME: if (act == 1) { uiCueSound(UI_CUE_CONFIRM); result = SMZ3_PAUSE_RESUME; goto done; } break;
++            case PM_PAUSE:
++                if (act == 1) { uiCueSound(UI_CUE_CONFIRM); rg.pick = true; rg.pickI = 1; dirty = true; result = SMZ3_PAUSE_RESUME; goto done; }   // the time is picked over the game
++                break;
 +            case PM_RUNS:
 +                if (act == 1 && (!raceRunning() || pauseDialog(rows, n, cursor, scroll, slot, "Leave the race", "Your rivals see you leave, and the race can't be joined again. Leave it?", true))) {
 +                    uiCueSound(UI_CUE_CONFIRM);
