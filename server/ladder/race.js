@@ -204,6 +204,7 @@ module.exports = function race(ctx) {
 
   function record(room) {
     db.results.push({ id: room.id, format: room.format, size: room.size, startAt: room.startAt, endedAt: room.endedAt, why: room.endWhy,
+      pausedMs: room.pausedMs || undefined, draft: room.draft ? { goal: (JSON.parse(room.settings).goal || ''), estimateMin: room.draft.estimateMin, spot: room.draft.spot } : undefined,
       players: standings(room).map(({ pid, ...p }) => p) });
     save();
   }

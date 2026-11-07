@@ -235,7 +235,36 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
    Brinstar. Azahar's picture is too distorted to read, for this core and for normal runs alike, so the 3DS check went
    by the tracker.
 10. **Draft goals.** New goal kinds, a generator with its own length estimate, its own finish check. Start spots are a hand-made list, and each one names the items needed to leave it, so a Draft's starting items can't trap the player. Count goals and Super Metroid boss goals can't be proved, so the server trusts the client and only checks they are plausible.
+    Built. `smz3daily --draft <id>` makes a Draft from the daily's generator and logic. It picks:
+    - **A start spot** from a hand-made list. Super Metroid has the Landing Site, the Crateria save room, Green, Pink and
+      Red Brinstar, Kraid's Lair and the Wrecked Ship; Zelda has the fortune teller's and Death Mountain. Each spot gives
+      the items it needs, and the spot counts only when the logic, with the starting items alone, reaches its region from
+      the ship. If the way in is open, so is the way back.
+    - **One to three random starting items** on top, never rupees.
+    - **A goal:** defeat 15 to 35 enemies, collect 50 to 130 rupees, defeat a boss (Kraid, Phantoon, or a light or dark
+      world dungeon boss up to Kholdstare), or get a crystal. For a boss or a crystal, the items of its shortest route
+      become starting items too, and the seed is filled again with them. Every goal is open from the start. The kind of
+      goal is fixed per Draft, so the slow kinds come up as often as the quick ones.
+    - **An estimate,** kept between 5 and 15 minutes: 0.3 minutes per enemy, one per 12 rupees, 6 or 8 for a boss, 9 for
+      a crystal, plus 2.5 when the goal is in the other game.
+
+    On the server, `race.js` runs it as `smz3draft`, a copy built for the app version that plays Drafts, so the daily's
+    `smz3daily` stays as the released apps expect. It keeps six Drafts ready. A Draft finish is trusted: enemy and rupee
+    goals open no check, so there is no proof to verify, and only the time is checked (at least 30 seconds). The race ends
+    30 minutes after the start. A multi race with no finisher goes to the highest %, a 1 vs 1 one is a draw. Drafts never
+    go on a ladder.
+
+    In the apps, the run's counters gained `kills`, any enemy in either game. The goals gained `kills:<n>` and
+    `rupees:<n>`, read from the counters through `SmzTracker.counts`. `smz_race_mark_settings` keeps the room's goal and
+    start in the run, and `smz_race_apply_start` writes the start into the ROM. The goal shows under the 3, 2, 1 and then
+    as a line at the top left with its % and the time left. The progress line is the goal's own %. Played on PC against
+    a bot on the live server: the room list, the goal at the countdown and on the top line, and new games that start
+    at a Brinstar save station instead of the ship.
 11. **Balance.** Real times adjust the lengths.
+    Ready for the data. Each Draft result keeps its goal, spot and estimate, and `node server/ladder/balance.js` on the
+    server prints, per goal kind, the winners' median time and its ratio to the estimate, and the winners' times for
+    Sprint, Half and Full. A ratio far from 1 for a kind means changing its numbers in `draft_estimate` (or the counts in
+    `pick_draft_goal`) and rebuilding `smz3draft`. There are no real races yet to tune from.
 
 ## Risks
 
