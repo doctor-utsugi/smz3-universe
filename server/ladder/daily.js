@@ -6,6 +6,9 @@
 // players = {now, started, done}: attempts heard from in the last 3 minutes and not finished, attempts started, finishes.
 // Devices ask for the hints about once a minute while playing, which is what "now" counts (kept in memory only).
 //   POST /api/daily/finish {token, timeMs, player, country, proof} -> {ok, late, rank, tokens}
+//   GET  /api/daily/chat?token=&since=                   -> {now, log, players}   the window's chat and finishes, newer than since
+//   POST /api/daily/chat   {token, player, country, text} -> {ok}
+// log = [{seq, at, kind: 'chat' | 'finish', pid, name, country, text}]: the last lines of the window, kept in memory only.
 //   GET  /api/daily/table?window=                        -> {window, runs, late, started, finished, medianMs}
 //   GET  /api/tokens?install=                            -> {balance, streak, history}
 const fs = require('fs');
@@ -71,6 +74,17 @@ module.exports = function daily(ctx) {
     });
   }
   const seen = new Map();   // window -> Map(install -> last time it asked)
+  const CHAT_LEN = 80, CHAT_PER_MIN = 12, CHAT_KEEP = 60;
+  const chats = new Map();  // window -> {seq, lines}; sent[install] = times of the last minute's messages
+  const sent = new Map();
+  const pidOf = install => hmac('chat.' + install).slice(0, 10);   // a stable id per player, for muting, that is not the install
+  function say(w, kind, install, name, country, text) {
+    let c = chats.get(w);
+    if (!c) { chats.set(w, c = { seq: 0, lines: [] }); for (const k of chats.keys()) if (k < w && chats.size > 3) chats.delete(k); }
+    c.lines.push({ seq: ++c.seq, at: clock(), kind, pid: pidOf(install), name, country, text });
+    if (c.lines.length > CHAT_KEEP) c.lines.shift();
+  }
+  const hms = ms => { const s = Math.floor(ms / 1000); return Math.floor(s / 3600) + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
   const LIVE_MS = 3 * 60 * 1000;
   function heard(w, install) {
     let m = seen.get(w);
@@ -191,6 +205,30 @@ module.exports = function daily(ctx) {
       });
       return true;
     }
+    if (req.method === 'GET' && url.pathname === '/api/daily/chat') {
+      if (limited('dc', ip, 600)) return send(res, 429, { error: 'slow down' }), true;
+      const t = tokenParts(url.searchParams.get('token')), w = t && windowById(t.window);
+      if (!w) return send(res, 400, { error: 'invalid' }), true;
+      if (now < w.closesAt) heard(w.id, t.install);
+      const since = Number(url.searchParams.get('since')) || 0;
+      send(res, 200, { now, log: ((chats.get(w.id) || {}).lines || []).filter(l => l.seq > since), players: players(w.id) });
+      return true;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/daily/chat') {
+      if (limited('dw', ip, 60)) return send(res, 429, { error: 'slow down' }), true;
+      readJson(req, res, b => {
+        if (!onlyKeys(b, ['token', 'player', 'country', 'text']) || typeof b.text !== 'string' || !b.text.replace(/[\u0000-\u001f\u007f]/g, '').trim()) return send(res, 400, { error: 'invalid' });
+        const t = tokenParts(b.token), w = t && windowById(t.window);
+        if (!w || clock() >= w.closesAt) return send(res, 409, { error: 'window closed' });
+        const mine = (sent.get(t.install) || []).filter(at => clock() - at < 60000);
+        if (mine.length >= CHAT_PER_MIN) return send(res, 429, { error: 'slow down' });
+        mine.push(clock()); sent.set(t.install, mine);
+        if (sent.size > 5000) sent.clear();
+        say(w.id, 'chat', t.install, clean(b.player, 24) || 'Player', /^[A-Z]{2}$/.test(b.country) ? b.country : '', b.text.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, CHAT_LEN));
+        send(res, 200, { ok: true });
+      });
+      return true;
+    }
     if (req.method === 'POST' && url.pathname === '/api/daily/finish') {
       if (limited('df', ip, 20)) return send(res, 429, { error: 'slow down' }), true;
       readJson(req, res, b => {
@@ -217,6 +255,7 @@ module.exports = function daily(ctx) {
           }
           save();
           const rank = finishedOk(entry) ? table(w.id).indexOf(entry) + 1 : 0;
+          if (rank) say(w.id, 'finish', t.install, entry.player, entry.country, 'finished in ' + hms(entry.timeMs) + ', place ' + rank);
           send(res, 200, { ok: true, late: late || undefined, held: verdict.suspect || undefined, rank, tokens, balance: (db.tokens[t.install] || {}).balance || 0 });
         });
       });

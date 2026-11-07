@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "smz3_race.h"
 
 #define SMZ_DAILY_HINTS 24
 #define SMZ_DAILY_HINT_LEN 160
@@ -23,6 +24,7 @@ typedef struct {
     SmzDailyState state;
     int64_t opens_at, closes_at, next_opens_at, started_at, time_ms;
     int tokens, streak;
+    int players_now, players_done;        /* playing it now and finished, -1 until the server says */
 } SmzDailyInfo;
 
 /* An attempt in progress (POST /api/daily/start, then /api/daily/hints). */
@@ -57,5 +59,16 @@ void smz_daily_span(int64_t ms, char *out, size_t cap);
 int smz_daily_mark_settings(char *json, size_t cap, const char *goal_check, const char *server_settings);
 /* A mid-game start: the Super Metroid bosses already dead (bit 0 Kraid, 1 Phantoon, 2 Draygon, 3 Ridley), from a settings JSON. */
 int smz_daily_prepared_bosses(const char *settings);
+
+/* The window's chat (GET /api/daily/chat): its lines kept as a race's, RACE_LINE_CHAT and RACE_LINE_FINISH (name finished,
+ * text "finished in 1:02:03, place 2"), oldest first; since is the newest line read, fresh how many the last answer added. */
+typedef struct { int64_t since; SmzRaceLine line[RACE_LINES]; int lines, fresh; } SmzDailyChat;
+/* Adds the answer's new lines to c and its player counts to r (may be NULL). 0, or -1 when it is not the chat's answer. */
+int smz_daily_parse_chat(const char *json, SmzDailyChat *c, SmzDailyRun *r);
+/* The body of POST /api/daily/chat for the attempt r (out gets at most cap bytes); -1 when it does not fit. */
+int smz_daily_chat_body(const SmzDailyRun *r, const char *player, const char *country, const char *text, char *out, size_t cap);
+/* Quick lines the chat offers to send with one press, emotes among them. */
+#define SMZ_DAILY_PHRASES 8
+extern const char *const SMZ_DAILY_PHRASE[SMZ_DAILY_PHRASES];
 
 #endif

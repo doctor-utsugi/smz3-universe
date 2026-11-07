@@ -33,5 +33,8 @@ int smz_goal_counted(const SmzGoal *g, const SmzCounters *c);
 int smz_goal_progress(const SmzGoal *g, const SmzCounters *c, int done);
 /* The goal for people ("Defeat 25 enemies", "Defeat Kraid"). */
 void smz_goal_text(const SmzGoal *g, char *out, size_t cap);
+/* A goal text that defeats one boss ("Defeat Arrghus"): the boss's name ("Arrghus"), its goal icon ("boss_arrghus", "" when
+ * there is none) and where it waits ("the Swamp Palace in Zelda"). 0 when the text names no boss. Any pointer may be NULL. */
+int smz_goal_boss(const char *text, const char **name, const char **sprite, const char **place);
 
 #endif

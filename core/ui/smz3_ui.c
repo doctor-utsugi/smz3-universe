@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "smz3_ui.h"
+#include "smz3_goal.h"
 
 #define ROW_H 20
 #define LIST_Y 44
@@ -565,11 +566,15 @@ static void daily_input(SmzUi *u, UiButton b)
         if (b == BTN_A || b == BTN_B) u->daily_info = 0;
         return;
     }
+    int *c = &u->daily_cursor, skins = go == 1;   /* before the start, 3 and 4 pick the Link and Samus the run is made with */
     if (b == BTN_B) u->screen = UI_SLOTS_SCREEN;
-    else if (b == BTN_LEFT || b == BTN_UP) { if (u->daily_cursor > (go ? 0 : 1)) u->daily_cursor--; }
-    else if (b == BTN_RIGHT || b == BTN_DOWN) { if (u->daily_cursor < 2) u->daily_cursor++; }
+    else if (b == BTN_UP) { if (skins && *c < 3) *c = *c == 2 ? 4 : 3; }
+    else if (b == BTN_DOWN) { if (*c >= 3) *c = *c == 4 ? 2 : 0; }
+    else if (b == BTN_LEFT) { if (*c == 4) *c = 3; else if (*c < 3 && *c > (go ? 0 : 1)) (*c)--; }
+    else if (b == BTN_RIGHT) { if (*c == 3) *c = 4; else if (*c < 2) (*c)++; }
     else if (b == BTN_A) {
-        if (go && u->daily_cursor == 0) { u->action = ACT_DAILY; u->screen = UI_SLOTS_SCREEN; }
+        if (*c >= 3) { int g = *c - 3; u->sprite_game = g; u->sprite_cursor = u->value[sprite_opt(g)]; u->back = UI_DAILY; u->screen = UI_SPRITES; }
+        else if (go && u->daily_cursor == 0) { u->action = ACT_DAILY; u->screen = UI_SLOTS_SCREEN; }
         else if (u->daily_cursor == 1) u->daily_info = 1;
         else u->screen = UI_SLOTS_SCREEN;
     }
@@ -1635,12 +1640,21 @@ static void daily_row(SmzUi *u, int x, int y, int w)
     smz_daily_span(left, t, sizeof t);
     snprintf(s, sizeof s, left > 0 ? "%s left" : "", t);
     text(u, x + w - 6, y + 3, hurry ? C_WARN : C_TEXT, 2, s);
+    const char *icon;
     wrap(u, tx, y + 16, C_TEXT, (w - 18) / 7, 13, 1, d->goal);
+    if (smz_goal_boss(d->goal, NULL, &icon, NULL) && icon[0] && tx + (int)strlen(d->goal) * 7 + 18 <= x + w) {
+        snprintf(s, sizeof s, "goal/%s", icon);
+        put(u, 2, tx + (int)strlen(d->goal) * 7 + 3, y + 14, 13, 13, C_TEXT, 0, s);
+    }
     daily_status(u, s, sizeof s);
     int sx = narrow ? tx + (left > 0 ? 44 : 70) : tx;
     int room = (x + w - 6 - sx) / 7;   /* cut to the card */
     if (room >= 0 && room < (int)sizeof s) s[room] = 0;
     text(u, sx, y + 28, d->state == DAILY_DONE ? C_GREEN : d->state == DAILY_FAILED || d->state == DAILY_LATE ? C_WARN : C_DIM, 0, s);
+    if (!narrow && left > 0 && d->players_now >= 0 && sx + (int)strlen(s) * 7 + 80 < x + w) {
+        snprintf(s, sizeof s, "%d playing", d->players_now);
+        text(u, x + w - 6, y + 28, C_GREEN, 2, s);
+    }
     window_line(u, x, y, w, left, d->closes_at - d->opens_at, hurry ? C_WARN : C_GREEN);
 }
 
@@ -1726,7 +1740,13 @@ static void daily_screen(SmzUi *u)
     } else {
         rect(u, 8, y, UI_W - 16, 60, C_PANEL);
         text(u, 16, y + 4, C_DIM, 0, "Goal");
-        wrap(u, 16, y + 20, C_ACCENT, 40, 14, 2, d->goal);
+        const char *icon, *place;
+        if (smz_goal_boss(d->goal, NULL, &icon, &place)) {   /* "Defeat Arrghus [icon]", then where it waits */
+            text(u, 16, y + 22, C_ACCENT, 0, d->goal);
+            if (icon[0]) { snprintf(s, sizeof s, "goal/%s", icon); put(u, 2, 16 + (int)strlen(d->goal) * 7 + 4, y + 16, 22, 22, C_TEXT, 0, s); }
+            snprintf(s, sizeof s, "in %s", place);
+            text(u, 16, y + 40, C_TEXT, 0, s);
+        } else wrap(u, 16, y + 20, C_ACCENT, 40, 14, 2, d->goal);
         y += 72;
         int64_t left = d->closes_at - now_ms();
         smz_daily_span(left, t, sizeof t);
@@ -1735,9 +1755,24 @@ static void daily_screen(SmzUi *u)
         daily_status(u, s, sizeof s);
         text(u, 16, y + 16, d->state == DAILY_DONE ? C_GREEN : d->state == DAILY_FAILED || d->state == DAILY_LATE ? C_WARN : C_DIM, 0, s);
         if (d->state == DAILY_OPEN && left > 0 && left < 3600000) text(u, 16, y + 34, C_WARN, 0, "Under 1 hour left");
+        if (d->players_now >= 0 && left > 0) {   /* who is on it right now, beside the time left */
+            snprintf(s, sizeof s, "%d playing now, %d finished", d->players_now, d->players_done);
+            text(u, UI_W - 16, y, C_GREEN, 2, s);
+        }
     }
+    int go = daily_button(u);
+    if (go == 1)   /* the skins the run is made with */
+        for (int k = 0; k < 2; k++) {
+            int w = (UI_W - 22) / 2, x = 8 + k * (w + 6), y = 164;
+            rect(u, x, y, w, 28, u->daily_cursor == 3 + k ? C_SEL : C_PANEL);
+            hit(u, H_DAILY_BTN, 3 + k, x, y, w, 28);
+            text(u, x + 6, y + 4, C_DIM, 0, k ? "Your Samus" : "Your Link");
+            char v[44];
+            ui_value_text(u, sprite_opt(k), v, sizeof v);
+            text(u, x + 6, y + 15, C_TEXT, 0, v);
+        }
     /* Start (when there is something to start), Info, Back */
-    int go = daily_button(u), by = 198, n = go ? 3 : 2, w = (UI_W - 16 - (n - 1) * 6) / n, x = 8;
+    int by = 198, n = go ? 3 : 2, w = (UI_W - 16 - (n - 1) * 6) / n, x = 8;
     static const char *const NAME[3] = {NULL, "Info", "Back"};
     for (int id = go ? 0 : 1; id < 3; id++, x += w + 6) {
         rect(u, x, by, w, 24, u->daily_cursor == id ? C_SEL : C_PANEL);

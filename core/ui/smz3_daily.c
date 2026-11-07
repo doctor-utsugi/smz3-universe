@@ -110,6 +110,7 @@ int smz_daily_parse_info(const char *json, int64_t local_now_ms, SmzDailyInfo *d
 {
     memset(d, 0, sizeof *d);
     d->loaded = -1;
+    d->players_now = d->players_done = -1;
     Span r = root(json);
     if (!is_obj(r) || !member(r, "now").p) return -1;
     int64_t shift = local_now_ms - num(member(r, "now"));
@@ -126,6 +127,8 @@ int smz_daily_parse_info(const char *json, int64_t local_now_ms, SmzDailyInfo *d
         d->state = state_of(member(cur, "state"));
         if (member(cur, "startedAt").p && num(member(cur, "startedAt"))) d->started_at = num(member(cur, "startedAt")) + shift;
         d->time_ms = num(member(cur, "timeMs"));
+        Span pl = member(cur, "players");
+        if (is_obj(pl)) { d->players_now = (int)num(member(pl, "now")); d->players_done = (int)num(member(pl, "done")); }
     }
     if (is_obj(next)) d->next_opens_at = num(member(next, "opensAt")) + shift;
     if (is_obj(tok)) { d->tokens = (int)num(member(tok, "balance")); d->streak = (int)num(member(tok, "streak")); }
@@ -277,4 +280,47 @@ int smz_daily_mark_settings(char *json, size_t cap, const char *goal_check, cons
     char *r = strstr(json, "\"showReachable\":true");
     if (r && strlen(json) + 2 <= cap) { memmove(r + 21, r + 20, strlen(r + 20) + 1); memcpy(r + 16, "false", 5); }
     return 0;
+}
+
+const char *const SMZ_DAILY_PHRASE[SMZ_DAILY_PHRASES] = {"GL HF!", "GG", ":)", ":D", ":(", "<3", "o7", "!!"};
+
+typedef struct { SmzDailyChat *c; } ChatCtx;
+static void add_line(Span el, void *user)
+{
+    SmzDailyChat *c = ((ChatCtx *)user)->c;
+    int64_t seq = num(member(el, "seq"));
+    if (!is_obj(el) || seq <= c->since) return;
+    c->since = seq;
+    if (c->lines == RACE_LINES) { memmove(c->line, c->line + 1, sizeof c->line[0] * (RACE_LINES - 1)); c->lines--; }
+    SmzRaceLine *l = &c->line[c->lines++];
+    memset(l, 0, sizeof *l);
+    char k[12];
+    str(member(el, "kind"), k, sizeof k);
+    l->kind = !strcmp(k, "finish") ? RACE_LINE_FINISH : RACE_LINE_CHAT;
+    l->seq = seq;
+    l->at = num(member(el, "at"));
+    str(member(el, "pid"), l->pid, sizeof l->pid);
+    str(member(el, "name"), l->name, sizeof l->name);
+    str(member(el, "text"), l->text, sizeof l->text);
+    c->fresh++;
+}
+
+int smz_daily_parse_chat(const char *json, SmzDailyChat *c, SmzDailyRun *r)
+{
+    Span j = root(json);
+    if (!is_obj(j) || !member(j, "log").p) return -1;
+    ChatCtx x = {c};
+    c->fresh = 0;
+    each(member(j, "log"), add_line, &x);
+    if (r) players_of(j, r);
+    return 0;
+}
+
+int smz_daily_chat_body(const SmzDailyRun *r, const char *player, const char *country, const char *text, char *out, size_t cap)
+{
+    char p[64], t[200];
+    smz_race_quote(player ? player : "", p, sizeof p);
+    smz_race_quote(text ? text : "", t, sizeof t);
+    int n = snprintf(out, cap, "{\"token\":\"%s\",\"player\":%s,\"country\":\"%s\",\"text\":%s}", r->token, p, country ? country : "", t);
+    return n < 0 || (size_t)n >= cap ? -1 : 0;
 }

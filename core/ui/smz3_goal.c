@@ -107,3 +107,25 @@ void smz_goal_text(const SmzGoal *g, char *out, size_t cap)
     default: snprintf(out, cap, "?"); return;
     }
 }
+
+int smz_goal_boss(const char *text, const char **name, const char **sprite, const char **place)
+{
+    static const struct { const char *name, *sprite, *place; } B[] = {
+        {"Kraid", "boss_kraid", "Brinstar in Super Metroid"}, {"Phantoon", "boss_phantoon", "the Wrecked Ship in Super Metroid"},
+        {"Draygon", "boss_draygon", "Maridia in Super Metroid"}, {"Ridley", "boss_ridley", "Norfair in Super Metroid"},
+        {"Mother Brain", "boss_motherbrain", "Tourian in Super Metroid"}, {"Agahnim", "boss_agahnim", "Castle Tower in Zelda"},
+        {"the Armos Knights", "boss_armos", "the Eastern Palace in Zelda"}, {"the Lanmolas", "", "the Desert Palace in Zelda"},
+        {"Moldorm", "boss_moldorm", "the Tower of Hera in Zelda"}, {"Helmasaur King", "boss_helmasaur", "the Palace of Darkness in Zelda"},
+        {"Arrghus", "boss_arrghus", "the Swamp Palace in Zelda"}, {"Mothula", "boss_mothula", "Skull Woods in Zelda"},
+        {"Blind", "boss_blind", "Thieves' Town in Zelda"}, {"Kholdstare", "boss_kholdstare", "the Ice Palace in Zelda"},
+        {"Vitreous", "boss_vitreous", "Misery Mire in Zelda"}, {"Trinexx", "boss_trinexx", "Turtle Rock in Zelda"}};
+    if (!text || strncmp(text, "Defeat ", 7)) return 0;
+    for (unsigned i = 0; i < sizeof B / sizeof B[0]; i++)
+        if (!strcmp(text + 7, B[i].name)) {
+            if (name) *name = B[i].name;
+            if (sprite) *sprite = B[i].sprite;
+            if (place) *place = B[i].place;
+            return 1;
+        }
+    return 0;
+}
