@@ -259,7 +259,8 @@ last contact. After 5 minutes of failed polls the client tells its player the ra
     start in the run, and `smz_race_apply_start` writes the start into the ROM. The goal shows under the 3, 2, 1 and then
     as a line at the top left with its % and the time left. The progress line is the goal's own %. Played on PC against
     a bot on the live server: the room list, the goal at the countdown and on the top line, and new games that start
-    at a Brinstar save station instead of the ship.
+    at a Brinstar save station instead of the ship. Android and 3DS do the same: the 3DS shows the goal line in the race strip of
+    the bottom screen. Both build, and neither has been played on a device yet.
 11. **Balance.** Real times adjust the lengths.
     Ready for the data. Each Draft result keeps its goal, spot and estimate, and `node server/ladder/balance.js` on the
     server prints, per goal kind, the winners' median time and its ratio to the estimate, and the winners' times for
