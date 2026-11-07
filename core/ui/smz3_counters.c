@@ -90,8 +90,8 @@ void smz_counters_tick(SmzCounters *c, int game, const uint8_t *wram, size_t wl,
             unsigned st = at(wram, wl, 0x0DD0 + i), ty = at(wram, wl, 0x0E20 + i);
             int e = zelda_enemy(ty), dying = same && st == 0x06 && (c->zstate[i] != 0x06 || c->ztype[i] != ty);   /* just started dying */
             if (dying && e >= 0) c->n[e]++;
-            if (dying) c->n[SMC_KILLS]++;
-            c->zstate[i] = (uint8_t)st; c->ztype[i] = (uint8_t)ty;
+            if (dying && c->zhp[i] && c->ztype[i] == ty) c->n[SMC_KILLS]++;   /* it had health: an enemy, not a breaking rock or arrow */
+            c->zstate[i] = (uint8_t)st; c->ztype[i] = (uint8_t)ty; c->zhp[i] = (uint8_t)at(wram, wl, 0x0E50 + i);
         }
     }
     if (game == 2 && smstate == 8) {

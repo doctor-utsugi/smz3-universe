@@ -1661,7 +1661,7 @@ index 0000000..1204d65
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..6aec5c7
+index 0000000..50c1474
 --- /dev/null
 +++ b/source/smz3run.cpp
 @@ -0,0 +1,5452 @@
@@ -2594,7 +2594,7 @@ index 0000000..6aec5c7
 +        ok = smz_run_save(path, &r) == 0;
 +        if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
 +    } else if (ok) { ok = false; snprintf(message, cap, "Cannot read the race's game"); }
-+    ui_idle(u);
++    u->screen = UI_RACE_READY;   // back to the ready room, where the race's start is caught
 +    return ok;
 +}
 +

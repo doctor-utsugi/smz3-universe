@@ -27,7 +27,7 @@ typedef struct {
     /* last reading */
     int game, have, zmode, smstate, room;
     unsigned rupees;
-    uint8_t zstate[16], ztype[16];
+    uint8_t zstate[16], ztype[16], zhp[16];
     uint16_t sid[32], shp[32];
 } SmzCounters;
 
