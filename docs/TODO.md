@@ -8,9 +8,9 @@ Open items, kept as they come up.
 - macOS tarball with the `sprites` folder (CI workflow edited, never run; the Windows zip was rebuilt locally and checked under Wine).
 - The new end of the run (Triforce room / ship) in a real game, and the run-complete popup on Android: needs a run played to the end.
 - Everything on a real Thor and a real 3DS (checked on the Android emulator and Azahar only).
-- Self-update (v0.9.0): the notice, the download and the swap on every platform. The first real run is v0.9.0 updating
-  to the next release; before that, a local server whose /api/version names a newer tag can show it. On Android 6 the
-  installer may refuse the `content://` APK.
+- Self-update (v0.9.0) on the 3DS, the AppImage, Windows and macOS. On the Thor it worked end to end on 2026-11-17
+  against a local server naming v0.9.1. A local server whose /api/version names a newer tag can show it elsewhere. On
+  Android 6 the installer may refuse the `content://` APK.
 
 ## To fix
 - Android, new run start screen: the Link and Samus sprite pictures are blank (seen on the Pixel 8 emulator with the release APK). Make them show and check it on the emulator.
