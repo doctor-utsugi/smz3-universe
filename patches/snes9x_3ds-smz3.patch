@@ -678,10 +678,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..c129a88
+index 0000000..ffd7170
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,959 @@
+@@ -0,0 +1,997 @@
 +#include "smz3online.h"
 +#include "smz3run.h"
 +
@@ -1060,6 +1060,32 @@ index 0000000..c129a88
 +    return r;
 +}
 +
++// ---- newest release
++
++static char gVersion[256];
++static int gVersionState;   // 0 idle, 1 fetching, 2 ready, 3 failed
++
++static void versionThread(void *)
++{
++    static char buf[256];
++    int ok = httpRequest("GET", "/api/version", NULL, buf, sizeof buf) == 200;
++    LightLock_Lock(&gLock);
++    if (ok) memcpy(gVersion, buf, sizeof buf);
++    gVersionState = ok ? 2 : 3;
++    LightLock_Unlock(&gLock);
++}
++
++int smzOnlineTakeVersion(char *out, size_t cap)
++{
++    lockInit();
++    LightLock_Lock(&gLock);
++    int r = 0;
++    if (gVersionState == 2) { snprintf(out, cap, "%s", gVersion); r = 1; gVersionState = 0; }
++    else if (gVersionState == 3) { r = 2; gVersionState = 0; }
++    LightLock_Unlock(&gLock);
++    return r;
++}
++
 +struct GoalReport { int slot; bool online; int64_t created; char text[640]; };
 +
 +static void goalsReportThread(void *arg)
@@ -1271,6 +1297,18 @@ index 0000000..c129a88
 +    if (!busy) gGoalsState = 1;
 +    LightLock_Unlock(&gLock);
 +    if (!busy) spawn(goalsThread, NULL);
++}
++
++void smzOnlineRequestVersion(void)
++{
++    lockInit();
++    netUp();
++    if (!gHttpReady) return;
++    LightLock_Lock(&gLock);
++    bool busy = gVersionState == 1;
++    if (!busy) gVersionState = 1;
++    LightLock_Unlock(&gLock);
++    if (!busy) spawn(versionThread, NULL);
 +}
 +
 +void smzOnlineGoalsReport(int slot, int64_t created, bool online, const char *counters)
@@ -1643,10 +1681,10 @@ index 0000000..c129a88
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..43fd676
+index 0000000..c1e9f0c
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,107 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -1678,6 +1716,9 @@ index 0000000..43fd676
 +// The world goals of the month (/api/goals): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
 +void smzOnlineRequestGoals(void);
 +int smzOnlineTakeGoals(char *out, size_t cap);
++// The newest release (/api/version): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
++void smzOnlineRequestVersion(void);
++int smzOnlineTakeVersion(char *out, size_t cap);
 +// Sends a run's goal counters (smz_counters_text) on a thread; slot as in the run id "s<slot>-<created>".
 +void smzOnlineGoalsReport(int slot, int64_t created, bool online, const char *counters);
 +// The player's profile file text ("name\tCC\tmode"), and saving it back.
@@ -1753,10 +1794,10 @@ index 0000000..43fd676
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..573a0bd
+index 0000000..e03a323
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5555 @@
+@@ -0,0 +1,5559 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2846,6 +2887,8 @@ index 0000000..573a0bd
 +    if (!booted && !smz3IsRun()) ui_home_open(&ui);   // the start menu at boot; a run left goes back to the run list
 +    booted = true;
 +    smzDailyRequestInfo();
++    static bool versionKnown;   // asked once per boot, again with the daily while it fails
++    if (!versionKnown) smzOnlineRequestVersion();
 +    u64 nextInfo = osGetTime() + 60000;
 +    u64 nextWorld = 0;   // the world goals: fetched once they come on screen, then once a minute while they stay
 +    bool worldShown = false;
@@ -2923,7 +2966,9 @@ index 0000000..573a0bd
 +            int ds = smzDailyTakeInfo(&daily);
 +            if (ds == 1) ui_daily_set(&ui, &daily, dailyKept(daily.window));
 +            else if (ds == 2 && ui.daily.loaded == 0) { memset(&daily, 0, sizeof daily); daily.loaded = -1; ui_daily_set(&ui, &daily, 0); }
-+            if (osGetTime() >= nextInfo) { nextInfo = osGetTime() + 60000; smzDailyRequestInfo(); }
++            static char versionJson[256];
++            if (smzOnlineTakeVersion(versionJson, sizeof versionJson) == 1) { versionKnown = true; ui_update_load_json(&ui, versionJson, SMZ3_VERSION, 0); }
++            if (osGetTime() >= nextInfo) { nextInfo = osGetTime() + 60000; smzDailyRequestInfo(); if (!versionKnown) smzOnlineRequestVersion(); }
 +            if (ui_player_dirty(&ui)) { char profile[96]; ui_player_text(&ui, profile, sizeof profile); smzOnlineProfileSave(profile); }
 +            static char raceJson[32768];
 +            for (int k; (k = smzRaceTake(raceJson, sizeof raceJson)) >= 0;) {

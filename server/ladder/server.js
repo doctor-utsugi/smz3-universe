@@ -7,11 +7,13 @@
 //   /api/daily..., /api/tokens: the daily timed challenge, see daily.js
 //   /api/goals...: the world goals of the month, see goals.js
 //   /api/race/...: online races, see race.js
+//   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
 // A finished run is only accepted with a token the server signed when the run began, and its time
 // cannot be longer than the wall clock time since then or shorter than MIN_MS. It must also carry a proof of run, the
 // checks it cleared with their play times; smz3check replays them against the known seed. A proof that cannot have
 // happened is refused, one that leans on far too many checks out of logic is held (hold) until admin.js approves it.
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -132,6 +134,20 @@ const goalRoutes = require('./goals')({ DIR, send, readJson, onlyKeys, limited, 
 
 const raceRoutes = require('./race')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof });
 
+// The newest release, asked of GitHub at most every 15 minutes so the apps never hit its rate limit.
+const RELEASES = 'doctor-utsugi/smz3-universe';
+const release = { tag: '', at: 0 };
+function refreshRelease() {
+  if (Date.now() - release.at < 15 * 60 * 1000) return;
+  release.at = Date.now();
+  https.get({ host: 'api.github.com', path: `/repos/${RELEASES}/releases/latest`, headers: { 'User-Agent': 'smz3-ladder', Accept: 'application/vnd.github+json' } }, r => {
+    let body = '';
+    r.on('data', d => { body += d; });
+    r.on('end', () => { try { const t = JSON.parse(body).tag_name; if (/^v\d+\.\d+(\.\d+)?$/.test(t)) release.tag = t; } catch (e) { /* keep the last one */ } });
+  }).on('error', () => {});
+}
+refreshRelease();
+
 const page = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const periods = kind => [...new Set(db.runs.filter(r => r.kind === kind).map(periodOfRun).concat(periodNow(kind, Date.now())))].sort().reverse();
 const months = () => periods('monthly');
@@ -145,6 +161,10 @@ http.createServer((req, res) => {
   if (url.pathname.startsWith('/api/daily') || url.pathname === '/api/tokens') { if (dailyRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/goals')) { if (goalRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/race/')) { if (raceRoutes(req, res, url, ip)) return; }
+  if (req.method === 'GET' && url.pathname === '/api/version') {
+    refreshRelease();
+    return send(res, 200, { tag: release.tag, base: release.tag ? `https://github.com/${RELEASES}/releases/download/${release.tag}/` : '' });
+  }
   if (req.method === 'GET' && url.pathname === '/api/monthly') {
     const month = monthOf(Date.now());
     return send(res, 200, { month, seed: seedOf(month), months: months() });

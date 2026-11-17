@@ -628,6 +628,23 @@ JNIEXPORT void JNICALL NATIVE(uiLadderJson)(JNIEnv *env, jclass cls, jint tab, j
     if (j) (*env)->ReleaseStringUTFChars(env, json, j);
 }
 
+/* The /api/version answer: a newer release puts the Update row in Options, which comes back as ACT_UPDATE. */
+JNIEXPORT void JNICALL NATIVE(uiUpdateJson)(JNIEnv *env, jclass cls, jstring json)
+{
+    const char *j = (*env)->GetStringUTFChars(env, json, NULL);
+    ui_update_load_json(&g_ui, j, SMZ3_VERSION, 1);
+    (*env)->ReleaseStringUTFChars(env, json, j);
+}
+
+/* The update was handed over or failed: back to Options, with msg as its notice ("" for none). */
+JNIEXPORT void JNICALL NATIVE(uiUpdateEnd)(JNIEnv *env, jclass cls, jstring msg)
+{
+    const char *m = (*env)->GetStringUTFChars(env, msg, NULL);
+    snprintf(g_ui.notice, sizeof g_ui.notice, "%.31s", m);
+    (*env)->ReleaseStringUTFChars(env, msg, m);
+    g_ui.screen = UI_OPTIONS;
+}
+
 JNIEXPORT jint JNICALL NATIVE(uiRunWeekly)(JNIEnv *env, jclass cls) { return ui_run_weekly(&g_ui); }
 
 JNIEXPORT void JNICALL NATIVE(uiSetSlotOnline)(JNIEnv *env, jclass cls, jint i, jint kind) { ui_set_slot_online(&g_ui, i, kind); }

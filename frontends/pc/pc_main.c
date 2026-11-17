@@ -33,6 +33,7 @@
 #include "smz3_goalicons.h"
 #include "smz3_romderived.h"
 #include "pc_online.h"
+#include "pc_update.h"
 #include "pc_race.h"
 #include "pc_store.h"
 #include "smz3_host.h"
@@ -782,6 +783,11 @@ static char g_chat_ans[32768], g_say_text[84];
 static volatile int g_chat_state, g_say_state, g_say_code;
 static void *chat_thread(void *arg) { (void)arg; g_chat_state = online_daily_chat(&g_chat_run, g_chat_since, g_chat_ans, sizeof g_chat_ans) == 200 ? 2 : 0; return NULL; }
 static void *say_thread(void *arg) { (void)arg; g_say_code = online_daily_say(&g_say_run, g_say_text); g_say_state = 2; return NULL; }
+/* the newest release (asked at start and every half hour), and its download: 0 idle, 1 working, 2 done, 3 failed */
+static char g_version_ans[512], g_update_err[64];
+static volatile int g_version_ready, g_update_state, g_restart;
+static void *version_thread(void *arg) { (void)arg; char a[512]; if (online_http("GET", "/api/version", NULL, a, sizeof a) == 200) { memcpy(g_version_ans, a, sizeof a); g_version_ready = 1; } return NULL; }
+static void *update_thread(void *arg) { (void)arg; g_update_state = update_install(g_version_ans, g_update_err, sizeof g_update_err) ? 3 : 2; return NULL; }
 static void *token_thread(void *arg) { online_ensure_token((int)(intptr_t)arg); return NULL; }
 static void detach(void *(*fn)(void *), void *arg) { pthread_t t; if (!pthread_create(&t, NULL, fn, arg)) pthread_detach(t); }
 static void refill_slots(void) { store_fill_slots(&ui); for (int i = 0; i < UI_SLOTS; i++) ui_set_slot_online(&ui, i, online_slot_kind(i + 1)); }
@@ -2803,7 +2809,7 @@ static void window_main(int start_slot)
         if (saved) { saved[n] = 0; ui_saved_load(&ui, saved); free(saved); }
     }
     int running = 1, pending_play = start_slot, pending_state_only = 0, instant = start_slot >= 0;   /* a run named on the command line starts at once */
-    Uint32 next_daily = 0, launch_at = 0;   /* launch_at: when the menu began going to black for the game */
+    Uint32 next_daily = 0, next_version = 0, launch_at = 0;   /* launch_at: when the menu began going to black for the game */
     Uint32 last_tick = SDL_GetTicks();
     while (running && !g_menu_quit) {
         {
@@ -2826,6 +2832,10 @@ static void window_main(int start_slot)
             }
         }
         if (SDL_GetTicks() >= next_daily) { next_daily = SDL_GetTicks() + 60000; detach(daily_thread, NULL); }
+        if (SDL_GetTicks() >= next_version && !g_update_state) { next_version = SDL_GetTicks() + 30 * 60000; detach(version_thread, NULL); }
+        if (g_version_ready) { g_version_ready = 0; ui_update_load_json(&ui, g_version_ans, SMZ3_VERSION, update_can_install()); }
+        if (g_update_state == 2) { g_restart = 1; break; }   /* main starts the new release */
+        if (g_update_state == 3) { g_update_state = 0; ui_idle(&ui); ui.screen = UI_OPTIONS; note(g_update_err); }
         if (g_daily_ready) {
             g_daily_ready = 0;
             ui_daily_set(&ui, &g_daily, daily_kept(g_daily.window));
@@ -2959,6 +2969,13 @@ static void window_main(int start_slot)
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
                 if (slot == UI_OPT_QUIT) quit_menu();
                 else { settings_open(); if (slot == UI_OPT_VIDEO) settings_nav(BTN_DOWN); settings_nav(BTN_A); }
+            }
+            else if (act == ACT_UPDATE && !g_update_state) {
+                char m[44];
+                snprintf(m, sizeof m, "Downloading %s...", ui.update);
+                ui_busy(&ui, m);
+                g_update_state = 1;
+                detach(update_thread, NULL);
             }
             else if (act == ACT_DAILY) {
                 if (daily_begin(err, sizeof err) == 0) { pending_play = DAILY_SLOT - 1; pending_state_only = 0; }
@@ -3158,7 +3175,9 @@ int main(int argc, char **argv)
         if (win2) SDL_RaiseWindow(win);
     }
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
+    update_cleanup();
     window_main(start);
     SDL_Quit();
+    if (g_restart) update_restart(argv);
     return 0;
 }

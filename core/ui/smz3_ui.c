@@ -139,8 +139,8 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 #define LOGO_MS 2000
 #define HOME_ROWS 4
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
-static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {
-    {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Sound", "music, chime, rival notes"},
+static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row */
+    {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Sound", "music, chime, rival notes"},
     {0, "Player", "name, country"}, {UI_OPT_QUIT, "Quit", ""}};
 #define OPTION_KINDS (int)(sizeof OPTION_ROWS / sizeof OPTION_ROWS[0])
 
@@ -153,7 +153,7 @@ static int option_rows(const SmzUi *u, int *kind)
 {
     int n = 0;
     for (int i = 0; i < OPTION_KINDS; i++)
-        if (OPTION_ROWS[i].bit ? u->options_mask & OPTION_ROWS[i].bit : u->player_on) kind[n++] = i;
+        if (OPTION_ROWS[i].bit < 0 ? u->update[0] : OPTION_ROWS[i].bit ? u->options_mask & OPTION_ROWS[i].bit : u->player_on) kind[n++] = i;
     return n;
 }
 
@@ -175,6 +175,11 @@ static void options_input(SmzUi *u, UiButton b)
     if (b == BTN_UP || b == BTN_DOWN) *c = (*c + (b == BTN_UP ? n - 1 : 1)) % n;
     else if (b == BTN_A && *c < n) {
         int bit = OPTION_ROWS[kind[*c]].bit;
+        if (bit < 0) {
+            if (u->update_install) u->action = ACT_UPDATE;
+            else snprintf(u->notice, sizeof u->notice, "Get it from the GitHub releases");
+            return;
+        }
         if (bit) { u->action = ACT_OPTIONS; u->action_slot = bit; return; }
         u->player_opts = 1;
         u->name_for = 1;
@@ -186,6 +191,25 @@ static void options_input(SmzUi *u, UiButton b)
 }
 
 static int sprite_opt(int game);
+/* "v0.9.0" -> 9000 (major, minor, patch); -1 when it is no release tag ("dev"). */
+static long version_rank(const char *v)
+{
+    int a = 0, b = 0, c = 0;
+    if (!v || (*v != 'v' && *v != 'V') || sscanf(v + 1, "%d.%d.%d", &a, &b, &c) < 2) return -1;
+    return a * 1000000L + b * 1000L + c;
+}
+
+int ui_update_load_json(SmzUi *u, const char *json, const char *mine, int can_install)
+{
+    char tag[16];
+    json_str(json, "\"tag\":\"", tag, sizeof tag);
+    long have = version_rank(mine), got = version_rank(tag);
+    if (have < 0 || got <= have) { u->update[0] = 0; return 0; }
+    snprintf(u->update, sizeof u->update, "%s", tag);
+    u->update_install = can_install;
+    return 1;
+}
+
 void ui_race_enable(SmzUi *u, int on) { u->race.on = on; }
 const char *ui_race_format_key(const SmzUi *u) { return u->race.format == RACE_DRAFT ? "draft" : u->race.format == 1 ? "sprint" : u->race.format == 2 ? "half" : "full"; }
 
@@ -2108,20 +2132,23 @@ void ui_draw(SmzUi *u)
             if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, "Offline");
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
+        else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
         legend(u, "A Choose");
         break;
     case UI_OPTIONS: {
         title(u, "Options");
-        int kind[OPTION_KINDS], n = option_rows(u, kind);
+        int kind[OPTION_KINDS], n = option_rows(u, kind), pitch = n > 5 ? 30 : 34;
         for (int r = 0; r < n; r++) {
-            int y = 36 + r * 34;
-            rect(u, 8, y, UI_W - 16, 28, r == u->options_cursor ? C_SEL : C_PANEL);
-            hit(u, H_OPTION, r, 8, y, UI_W - 16, 28);
-            text(u, 18, y + 8, C_TEXT, 0, OPTION_ROWS[kind[r]].name);
+            int y = 36 + r * pitch, bit = OPTION_ROWS[kind[r]].bit;
+            rect(u, 8, y, UI_W - 16, pitch - 6, r == u->options_cursor ? C_SEL : C_PANEL);
+            hit(u, H_OPTION, r, 8, y, UI_W - 16, pitch - 6);
+            text(u, 18, y + (pitch - 18) / 2, bit < 0 ? C_GOLD : C_TEXT, 0, OPTION_ROWS[kind[r]].name);
             const char *d = OPTION_ROWS[kind[r]].desc;
-            if (!OPTION_ROWS[kind[r]].bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
-            text(u, UI_W - 18, y + 8, C_DIM, 2, d);
+            if (!bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
+            if (bit < 0) { snprintf(buf, sizeof buf, u->update_install ? "install %s" : "%s is out", u->update); d = buf; }
+            text(u, UI_W - 18, y + (pitch - 18) / 2, C_DIM, 2, d);
         }
+        if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         legend(u, "A Choose  B Back");
         break;
     }

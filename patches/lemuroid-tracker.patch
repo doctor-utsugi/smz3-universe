@@ -1378,10 +1378,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..751e59b
+index 0000000..03b8423
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,855 @@
+@@ -0,0 +1,898 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1444,6 +1444,7 @@ index 0000000..751e59b
 +import kotlin.math.PI
 +import kotlin.math.sin
 +import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
 +import kotlinx.coroutines.launch
 +import kotlinx.coroutines.withContext
 +import org.json.JSONObject
@@ -1472,7 +1473,7 @@ index 0000000..751e59b
 +}
 +
 +private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY, OPTIONS,
-+    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME }
++    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME, UPDATE }
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_OPT_QUIT = 8
@@ -1591,6 +1592,8 @@ index 0000000..751e59b
 +    // the daily challenge's answer (null text: offline) and the device clock when it came
 +    val pendingDaily = remember { java.util.concurrent.atomic.AtomicReference<Pair<String?, Long>?>(null) }
 +    val dailyAgain = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
++    val pendingVersion = remember { java.util.concurrent.atomic.AtomicReference<String?>(null) }
++    val waitingApk = remember { arrayOf<File?>(null) }   // downloaded while Android asks to allow installs
 +    val savedCustoms = remember { File(context.filesDir, "saved_customs.txt") }
 +    val paint = remember {
 +        // the PC build's font: narrower than monospace, so the rows breathe
@@ -1613,12 +1616,23 @@ index 0000000..751e59b
 +        publishSelection()
 +    }
 +
++    fun installUpdate(apk: File) {
++        val failed = runCatching { AppUpdate.install(context, apk) }.onFailure { android.util.Log.e("NativeMenu", "update install failed", it) }.isFailure
++        Smz3Native.uiUpdateEnd(if (failed) "Cannot open the installer" else "")
++        version++
++    }
++
 +    // coming back from a run: its progress changed while this list was waiting
 +    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 +    DisposableEffect(lifecycleOwner) {
 +        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
 +            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
 +                refreshSlots(); dailyAgain.set(true)
++                Thread { AppUpdate.check()?.let { pendingVersion.set(it) } }.start()
++                waitingApk[0]?.let { apk ->   // back from the setting that allows installs
++                    waitingApk[0] = null
++                    if (AppUpdate.canInstall(context)) installUpdate(apk) else { Smz3Native.uiUpdateEnd("Installs not allowed"); version++ }
++                }
 +                RaceClient.paused(context).let { Smz3Native.uiRaceSetPaused(it?.code ?: "", it?.resumeAt ?: 0L) }   // a race paused in the game just closed
 +            }
 +        }
@@ -1642,6 +1656,7 @@ index 0000000..751e59b
 +        RaceClient.paused(context).let { Smz3Native.uiRaceSetPaused(it?.code ?: "", it?.resumeAt ?: 0L) }
 +        Smz3Native.uiHomeEnable(UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
 +        if (!homeShown) { homeShown = true; Smz3Native.uiHomeOpen() }
++        AppUpdate.latest?.let { Smz3Native.uiUpdateJson(it) }
 +        Thread { pendingMonthly.set(OnlineLadder.monthly(context)); pendingWeekly.set(OnlineLadder.weekly(context)) }.start()
 +        Thread { DailyChallenge.flush(context) }.start()   // a challenge finished offline
 +        refreshSlots()
@@ -1687,6 +1702,7 @@ index 0000000..751e59b
 +            kotlinx.coroutines.delay(300)
 +            pendingLadder.getAndSet(null)?.let { tables -> tables.forEachIndexed { tab, json -> Smz3Native.uiLadderJson(tab, json) }; version++ }
 +            pendingGoals.getAndSet(null)?.let { Smz3Native.uiWorldJson(it[0]); version++ }
++            pendingVersion.getAndSet(null)?.let { Smz3Native.uiUpdateJson(it); version++ }
 +        }
 +    }
 +    // the world goals (the run list's row, the ladder's World tab) refresh once a minute while they are shown
@@ -1830,6 +1846,32 @@ index 0000000..751e59b
 +        }
 +    }
 +
++    /** Options > Update: the new release's APK is downloaded, then handed to the system installer. */
++    fun update() {
++        val tag = AppUpdate.tag()
++        Smz3Native.uiBusy("Downloading $tag ...")
++        version++
++        scope.launch {
++            val percent = java.util.concurrent.atomic.AtomicInteger(0)
++            val job = async(Dispatchers.IO) { runCatching { AppUpdate.download(context) { percent.set(it) } } }
++            while (!job.isCompleted) {
++                kotlinx.coroutines.delay(250)
++                Smz3Native.uiBusy("Downloading $tag ${percent.get()}%")
++                version++
++            }
++            job.await().onFailure { android.util.Log.e("NativeMenu", "update download failed", it); Smz3Native.uiUpdateEnd("Download failed"); version++ }
++                .onSuccess { apk ->
++                    if (AppUpdate.canInstall(context)) installUpdate(apk)
++                    else {
++                        waitingApk[0] = apk
++                        Smz3Native.uiBusy("Allow SMZ3 to install the update")
++                        version++
++                        runCatching { AppUpdate.askInstallPermission(context) }.onFailure { waitingApk[0] = null; Smz3Native.uiUpdateEnd("Installs not allowed"); version++ }
++                    }
++                }
++        }
++    }
++
 +    /** I'm ready in the race's ready room: the game is made with the skins picked (they go into the ROM), then the server hears both. */
 +    fun buildRace() {
 +        scope.launch {
@@ -1908,6 +1950,7 @@ index 0000000..751e59b
 +            Act.RACE_KICK -> Smz3Native.uiRacePid(slot).takeIf { it.isNotEmpty() }?.let { RaceClient.send("kick", JSONObject().put("pid", it), true) }
 +            Act.RACE_LEAVE -> RaceClient.send("leave", null, true)
 +            Act.RACE_READY -> buildRace()
++            Act.UPDATE -> update()
 +            Act.RACE_START -> RunStore.load(context, RaceClient.SLOT)?.let {   // the game's process takes the room over; a race is played once
 +                RaceClient.handOver()
 +                play(it, false)
@@ -6763,10 +6806,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..bdd03e7
+index 0000000..bf34a1e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,149 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -6873,6 +6916,10 @@ index 0000000..bdd03e7
 +    /** A rewind screen sound (open, tick back, tick forward, play, cancel) as mono PCM at [rate]. */
 +    @JvmStatic external fun rewindSound(kind: Int, rate: Int): ShortArray
 +    @JvmStatic external fun version(): String
++    /** The server's /api/version answer: a newer release adds Options > Update, picked as action 18. */
++    @JvmStatic external fun uiUpdateJson(json: String)
++    /** Back to Options once the update is handed to the installer or failed, with a notice ("" for none). */
++    @JvmStatic external fun uiUpdateEnd(msg: String)
 +    @JvmStatic external fun goalIcons(sm: ByteArray, z3: ByteArray, dir: String): Int
 +    /** The "Original" sprite previews drawn from the base ROMs, into dir/link and dir/samus (the folders must exist). */
 +    @JvmStatic external fun originalPreviews(sm: ByteArray, z3: ByteArray, dir: String): Int
@@ -12650,3 +12697,142 @@ index 0000000..b5cf381
 +        return SpannableString("$goal  ").apply { setSpan(ImageSpan(d, ImageSpan.ALIGN_BOTTOM), length - 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
 +    }
 +}
+diff --git a/lemuroid-app/src/main/AndroidManifest.xml b/lemuroid-app/src/main/AndroidManifest.xml
+index ed9b150..50fd278 100644
+--- a/lemuroid-app/src/main/AndroidManifest.xml
++++ b/lemuroid-app/src/main/AndroidManifest.xml
+@@ -25,6 +25,7 @@
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
++    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+ 
+     <application
+         android:name="com.swordfish.lemuroid.app.LemuroidApplication"
+@@ -155,6 +156,17 @@
+             android:authorities="${applicationId}.androidx-startup"
+             tools:node="remove" />
+ 
++        <!-- SMZ3: the downloaded update APK, handed to the system installer -->
++        <provider
++            android:name="androidx.core.content.FileProvider"
++            android:authorities="${applicationId}.update"
++            android:exported="false"
++            android:grantUriPermissions="true">
++            <meta-data
++                android:name="android.support.FILE_PROVIDER_PATHS"
++                android:resource="@xml/update_paths" />
++        </provider>
++
+     </application>
+ 
+ </manifest>
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
+new file mode 100644
+index 0000000..45c0007
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
+@@ -0,0 +1,93 @@
++package com.swordfish.lemuroid.app.mobile.feature.runs
++
++import android.content.Context
++import android.content.Intent
++import android.net.Uri
++import android.os.Build
++import android.provider.Settings
++import androidx.core.content.FileProvider
++import org.json.JSONObject
++import java.io.File
++import java.net.HttpURLConnection
++import java.net.URL
++
++/**
++ * The self-update: /api/version names the newest release, whose APK is downloaded to the cache and handed to the system
++ * installer. Release APKs share the signing key, so it installs over this one and keeps its data.
++ */
++object AppUpdate {
++    private const val BASE = "https://smz3.indieviral.com"
++    private const val APK = "SMZ3-android-arm64.apk"
++
++    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one), as for the daily challenge. */
++    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++
++    /** The last /api/version answer, kept for the menu's next opening. */
++    @Volatile var latest: String? = null
++        private set
++    private var checkedAt = 0L
++
++    /** Asks the server at most every 30 minutes; the answer, or null when it was not asked or failed. Call off the main thread. */
++    fun check(): String? {
++        if (System.currentTimeMillis() - checkedAt < 30 * 60_000L) return null
++        checkedAt = System.currentTimeMillis()
++        return runCatching {
++            val c = URL(base() + "/api/version").openConnection() as HttpURLConnection
++            c.connectTimeout = 8000
++            c.readTimeout = 8000
++            try { if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() } else null } finally { c.disconnect() }
++        }.getOrNull()?.also { latest = it }
++    }
++
++    fun tag(): String = runCatching { JSONObject(latest!!).getString("tag") }.getOrDefault("")
++
++    private fun apkFile(context: Context) = File(File(context.cacheDir, "update").apply { mkdirs() }, "smz3.apk")
++
++    /** Downloads the newest release's APK (redirects followed), reporting 0-100 to [progress]. Call off the main thread. */
++    fun download(context: Context, progress: (Int) -> Unit): File {
++        val url = JSONObject(latest ?: error("No update")).getString("base") + APK
++        val out = apkFile(context)
++        val c = URL(url).openConnection() as HttpURLConnection
++        c.connectTimeout = 15000
++        c.readTimeout = 30000
++        try {
++            if (c.responseCode != 200) error("HTTP ${c.responseCode}")
++            val total = c.contentLengthLong
++            var done = 0L
++            c.inputStream.use { input ->
++                out.outputStream().use { output ->
++                    val buf = ByteArray(64 * 1024)
++                    while (true) {
++                        val n = input.read(buf)
++                        if (n < 0) break
++                        output.write(buf, 0, n)
++                        done += n
++                        if (total > 0) progress((done * 100 / total).toInt())
++                    }
++                }
++            }
++            if (total > 0 && done != total) error("Download cut short")
++        } catch (e: Exception) {
++            out.delete()
++            throw e
++        } finally {
++            c.disconnect()
++        }
++        return out
++    }
++
++    /** False when Android needs the user to allow this app to install others first. */
++    fun canInstall(context: Context): Boolean = Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
++
++    fun askInstallPermission(context: Context) {
++        context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + context.packageName)))
++    }
++
++    fun install(context: Context, apk: File) {
++        val uri = FileProvider.getUriForFile(context, context.packageName + ".update", apk)
++        context.startActivity(
++            Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
++                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
++        )
++    }
++}
+diff --git a/lemuroid-app/src/main/res/xml/update_paths.xml b/lemuroid-app/src/main/res/xml/update_paths.xml
+new file mode 100644
+index 0000000..ecb0eea
+--- /dev/null
++++ b/lemuroid-app/src/main/res/xml/update_paths.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<paths>
++    <cache-path name="update" path="update/" />
++</paths>

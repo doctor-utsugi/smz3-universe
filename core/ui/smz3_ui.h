@@ -32,7 +32,7 @@ typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
 typedef enum { ACT_NONE, ACT_CONTINUE, ACT_DELETE, ACT_GENERATE, ACT_LOAD_SAVE, ACT_LOAD_STATE, ACT_LADDER, ACT_DAILY, ACT_OPTIONS,
-               ACT_RACE_CREATE, ACT_RACE_JOIN, ACT_RACE_FIND, ACT_RACE_CLOSE, ACT_RACE_KICK, ACT_RACE_READY, ACT_RACE_LEAVE, ACT_RACE_START, ACT_RACE_RESUME } UiAction;
+               ACT_RACE_CREATE, ACT_RACE_JOIN, ACT_RACE_FIND, ACT_RACE_CLOSE, ACT_RACE_KICK, ACT_RACE_READY, ACT_RACE_LEAVE, ACT_RACE_START, ACT_RACE_RESUME, ACT_UPDATE } UiAction;
 
 typedef struct {
     const char *key;             /* C# property name for logic options */
@@ -84,6 +84,8 @@ typedef struct {
     int name_for;                /* 0 saved custom, 1 player name */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
     char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
+    char update[16];    /* a newer release ("v0.9.0") than this build, "" none; update_install: the host can install it */
+    int update_install;
     char player[24], country[3]; /* the profile sent with finished runs; country is an ISO 3166 code or empty */
     int country_cursor, country_scroll;
     char monthly_label[16]; int monthly_seed;  /* the month's fixed seed (0 until the host knows it) and its label, e.g. 2026-10 */
@@ -215,6 +217,10 @@ enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8 }
 void ui_home_enable(SmzUi *u, int mask);
 void ui_home_open(SmzUi *u);
 void ui_tick(SmzUi *u, int ms);
+/* The server's /api/version answer ({"tag":"v0.9.0"}) against this build's version (SMZ3_VERSION): when the tag is newer,
+ * the start menu says so and Options gets an Update row. can_install: picking it comes back as ACT_UPDATE and the host
+ * downloads and installs u->update; 0 only says where to get it. A "dev" build never sees one. Returns 1 when newer. */
+int ui_update_load_json(SmzUi *u, const char *json, const char *mine, int can_install);
 /* Online races: once enabled, Championship opens the race screens. The host answers the actions: ACT_RACE_CREATE (race.size,
  * race.format 0 full 1 sprint 2 half, RACE_DRAFT a Draft, race.is_public), ACT_RACE_JOIN (race.code), ACT_RACE_FIND (then ui_race_rooms), ACT_RACE_CLOSE,
  * ACT_RACE_KICK (the player in action_slot), ACT_RACE_READY (the host builds the game with the Link and Samus picked, then

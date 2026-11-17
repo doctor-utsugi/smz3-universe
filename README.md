@@ -147,6 +147,11 @@ The same program also takes commands in a terminal. Use `./SMZ3-x86_64.AppImage`
 is `cozy`, `original` or `custom`, and `--set Key=value` changes one option), `runs` lists them and `play N` opens
 the window on run N. `gen --out FILE` writes a randomized ROM without making a run, and `--help` lists every command.
 
+**Updates.** When a new release is out, the start menu says so and Options gets an Update row. On Android it
+downloads the new APK and opens the installer. The Linux AppImage (also in Ports), the Windows exe and the macOS
+binary replace themselves and restart. On the 3DS it only tells you: copy the new `.3dsx` as in step 1. Your runs and
+settings stay as they are.
+
 ## 3. Play
 
 The tracker's HELP tab lists the controls for your device.
