@@ -87,7 +87,7 @@ index 591688c..0eb3100 100644
  
      TEX_COUNT,
 diff --git a/source/3dsimpl.cpp b/source/3dsimpl.cpp
-index d4fca8e..75779d2 100644
+index d4fca8e..0992ac2 100644
 --- a/source/3dsimpl.cpp
 +++ b/source/3dsimpl.cpp
 @@ -8,6 +8,7 @@
@@ -98,7 +98,29 @@ index d4fca8e..75779d2 100644
  #include <dirent.h>
  
  #include "memmap.h"
-@@ -796,6 +797,7 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
+@@ -136,6 +137,7 @@ typedef struct {
+     int sWidth;
+     int sHeight;	// (stretched-)height before crop
+     int cHeight;	// cropped (stretched-)height
++    int topRowPx;	// screen rows the SNES's first line takes when it is not cropped (masked black), else 0
+     float tx0;
+     float ty0;
+     float tx1;
+@@ -765,6 +767,13 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
+ 		GPU3DS.currentRenderState.textureEnv = TEX_ENV_REPLACE_TEXTURE0;
+ 	}
+ 
++	if (gameScreenViewport.topRowPx > 0) {
++		// a real SNES never shows its first line; here it would show the game's backdrop as a 1px line (over the Super Metroid HUD)
++		gpu3dsAddQuadRect(gameScreenViewport.sx0, gameScreenViewport.sy0, gameScreenViewport.sx1, gameScreenViewport.sy0 + gameScreenViewport.topRowPx, 0, 0, 0, 0xff);
++		GPU3DS.currentRenderState.textureEnv = TEX_ENV_REPLACE_COLOR;
++		gpu3dsDraw(list, NULL, list->count);
++	}
++
+ 	if (gameScreenViewport.cHeight == SNES_HEIGHT_EXTENDED) {
+ 		// mask the bottom pixel row for games with extended height by drawing a 1px black bar
+     	// without this, game background would be visible below the 239px game screen
+@@ -796,6 +805,7 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
  		notif3dsDrawRich();
  		notif3dsDrawIndicators();
  		notif3dsDraw(UI_NOTIF_FPS);   // last: overlays the toast corner rather than moving it
@@ -106,7 +128,19 @@ index d4fca8e..75779d2 100644
  	}
  }
  
-@@ -920,6 +922,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
+@@ -873,6 +883,11 @@ void impl3dsSceneRender(bool firstFrame, bool paused) {
+     gameScreenViewport.sy0 = (SCREEN_HEIGHT - gameScreenViewport.cHeight) / 2;
+     gameScreenViewport.sx1 = gameScreenViewport.sx0 + gameScreenViewport.sWidth;
+     gameScreenViewport.sy1 = gameScreenViewport.sy0 + gameScreenViewport.cHeight;
++    int srcLines = PPU.ScreenHeight - cropTopSource - cropBottomSource;
++    if (cropTopSource == 0 && srcLines > 0) {
++        gameScreenViewport.topRowPx = (gameScreenViewport.cHeight + srcLines / 2) / srcLines;
++        if (gameScreenViewport.topRowPx < 1) gameScreenViewport.topRowPx = 1;
++    }
+ 	
+     // Start half a pixel in from the edges so linear filtering can't leave a thin line
+     gameScreenViewport.tx0 = 0.5f;
+@@ -920,6 +935,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
  
  	notif3dsTick();
  	notif3dsSync();
@@ -114,7 +148,7 @@ index d4fca8e..75779d2 100644
  
  	// Draw the previous frame before resetting its layer list and PPU.
  	gpu3dsFrameBegin(screenshot.dirty ? C3D_FRAME_SYNCDRAW : 0, pendingSnesDraw);
-@@ -983,6 +986,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
+@@ -983,6 +999,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
  //---------------------------------------------------------
  bool impl3dsSaveStateSlot(int slotNumber)
  {
@@ -122,7 +156,7 @@ index d4fca8e..75779d2 100644
      char path[PATH_MAX], ext[16];
      snprintf(ext, sizeof(ext), ".%d.frz", slotNumber);
      file3dsGetRelatedPath(Memory.ROMFilename, path, sizeof(path), ext, "savestates");
-@@ -1000,7 +1004,7 @@ bool impl3dsSaveStateSlot(int slotNumber)
+@@ -1000,7 +1017,7 @@ bool impl3dsSaveStateSlot(int slotNumber)
  
  bool impl3dsSaveStateAuto()
  {
@@ -131,7 +165,7 @@ index d4fca8e..75779d2 100644
          return true;
  
      char path[PATH_MAX];
-@@ -1021,7 +1025,9 @@ bool impl3dsSaveState(const char* filename)
+@@ -1021,7 +1038,9 @@ bool impl3dsSaveState(const char* filename)
          return false;
      }
  
@@ -142,7 +176,7 @@ index d4fca8e..75779d2 100644
  }
  
  //---------------------------------------------------------
-@@ -1032,6 +1038,7 @@ bool impl3dsSaveState(const char* filename)
+@@ -1032,6 +1051,7 @@ bool impl3dsSaveState(const char* filename)
  //---------------------------------------------------------
  bool impl3dsLoadStateSlot(int slotNumber)
  {
@@ -150,7 +184,7 @@ index d4fca8e..75779d2 100644
      char path[PATH_MAX], ext[16];
      snprintf(ext, sizeof(ext), ".%d.frz", slotNumber);
      file3dsGetRelatedPath(Memory.ROMFilename, path, sizeof(path), ext, "savestates");
-@@ -1071,6 +1078,7 @@ bool impl3dsLoadState(const char* filename)
+@@ -1071,6 +1091,7 @@ bool impl3dsLoadState(const char* filename)
  	if (success)
  	{
  		gpu3dsInitializeMode7Vertexes();
