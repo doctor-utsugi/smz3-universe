@@ -94,13 +94,25 @@ one it needs. No ROMs are included here.
 If the ROMs aren't in one of those folders, or they're in a zip, a file picker opens at step 6 instead: select both
 ROMs (or the zip). SMZ3 keeps a copy of what you pick and won't ask again.
 
-**3DS** (needs the Homebrew Launcher)
-1. Copy `SMZ3-3ds.3dsx` from the release to the `3ds` folder of the SD card.
-2. Copy both ROMs to `3ds/SMZ3` on the SD card (create the folder). `roms/snes` also works. If you used an
+**3DS** (needs custom firmware with the Homebrew Launcher, or FBI for the CIA)
+
+There are two ways to install it, both from the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest).
+Pick one; runs and settings are the same files on the SD card either way.
+
+- **CIA, with an icon on the HOME menu:** copy `SMZ3-3ds.cia` to the SD card (the `cias` folder, for example). On the
+  3DS, open FBI, go to SD, select the file and choose "Install CIA". SMZ3 then shows up on the HOME menu, and you
+  can delete the `.cia` from the card.
+- **Homebrew Launcher:** copy `SMZ3-3ds.3dsx` to the `3ds` folder of the SD card. SMZ3 shows up in the Homebrew
+  Launcher, not on the HOME menu.
+
+Then:
+1. Copy both ROMs to `3ds/SMZ3` on the SD card (create the folder). `roms/snes` also works. If you used an
    older version, its `SMZ3` folder at the root of the card moves there by itself.
-3. Open SMZ3 from the Homebrew Launcher and create a run.
-4. No sound? Run the DSP1 homebrew once. It creates `3ds/dspfirm.cdc`, which every homebrew needs for sound.
-5. Optional: for the community sprites, copy `assets/sprites` from this repo to `3ds/SMZ3/sprites` on the SD card.
+2. Open SMZ3 (from the HOME menu or the Homebrew Launcher) and create a run.
+3. No sound? Run the DSP1 homebrew once. It creates `3ds/dspfirm.cdc`, which every homebrew needs for sound.
+
+The community sprites come with the app. A sprite of your own (an `.rdc` file) goes in `3ds/SMZ3/sprites/link` or
+`3ds/SMZ3/sprites/samus` on the SD card, and one there with the same name as a bundled sprite replaces it.
 
 **Linux handhelds with a Ports menu** (ROCKNIX, Knulli; arm64)
 
@@ -149,7 +161,8 @@ the window on run N. `gen --out FILE` writes a randomized ROM without making a r
 
 **Updates.** When a new release is out, the start menu says so and Options gets an Update row. On Android it
 downloads the new APK and opens the installer. The Linux AppImage (also in Ports), the Windows exe and the macOS
-binary replace themselves and restart. On the 3DS it only tells you: copy the new `.3dsx` as in step 1. Your runs and
+binary replace themselves and restart. On the 3DS it only tells you: install the new `.cia` with FBI over the old one, or copy the new `.3dsx` over the old
+one. Your runs and
 settings stay as they are.
 
 ## 3. Play

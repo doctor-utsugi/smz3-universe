@@ -30,7 +30,7 @@ index 31fa536..2caaa30 100644
  PICAFILES          := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
  SHLISTFILES        := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
 diff --git a/resources/AppInfo b/resources/AppInfo
-index 1cbed11..2f8c060 100644
+index 1cbed11..1b65c34 100644
 --- a/resources/AppInfo
 +++ b/resources/AppInfo
 @@ -1,8 +1,8 @@
@@ -43,7 +43,7 @@ index 1cbed11..2f8c060 100644
 +APP_DESCRIPTION = Super Metroid and A Link to the Past randomizer runs.
 +APP_AUTHOR = doctor-utsugi
 +APP_PRODUCT_CODE = CTR-P-SMZ3
-+APP_UNIQUE_ID = 0x5A33
++APP_UNIQUE_ID = 0xFF5A3
  APP_VERSION_MAJOR = 1
 -APP_VERSION_MINOR = 61
 +APP_VERSION_MINOR = 0
@@ -678,10 +678,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..ffd7170
+index 0000000..d4d4929
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,997 @@
+@@ -0,0 +1,1005 @@
 +#include "smz3online.h"
 +#include "smz3run.h"
 +
@@ -758,9 +758,20 @@ index 0000000..ffd7170
 +    return base;
 +}
 +
++// Whether the console has joined a network; off one, httpcBeginRequest waits with no timeout and the menu stays on "Connecting..."
++static bool onNetwork()
++{
++    static bool acReady;
++    if (!acReady) acReady = R_SUCCEEDED(acInit());
++    u32 wifi = 1;   // the service missing is no reason to stay off: the request's own timeouts still apply
++    if (acReady && R_FAILED(ACU_GetWifiStatus(&wifi))) wifi = 1;
++    return wifi != 0;
++}
++
 +static int httpRequest(const char *method, const char *path, const char *body, char *out, size_t cap)
 +{
 +    out[0] = 0;
++    if (!onNetwork()) return -1;
 +    char url[480];
 +    snprintf(url, sizeof url, "%s%s", baseUrl(), path);
 +    static bool noVerify;   // the check failed once and the second try worked: the races poll every second, so it is not tried again
@@ -1278,8 +1289,7 @@ index 0000000..ffd7170
 +void smzOnlineRequestLadders(void)
 +{
 +    lockInit();
-+    netUp();
-+    if (!gHttpReady) return;
++    netUp();   // without httpc the thread fails at once, and the menu shows the card offline
 +    LightLock_Lock(&gLock);
 +    bool busy = gLadderState[0] == 1 || gLadderState[1] == 1 || gLadderState[2] == 1;
 +    for (int t = 0; t < 3 && !busy; t++) gLadderState[t] = 1;
@@ -1290,8 +1300,7 @@ index 0000000..ffd7170
 +void smzOnlineRequestGoals(void)
 +{
 +    lockInit();
-+    netUp();
-+    if (!gHttpReady) return;
++    netUp();   // without httpc the thread fails at once, and the menu shows the card offline
 +    LightLock_Lock(&gLock);
 +    bool busy = gGoalsState == 1;
 +    if (!busy) gGoalsState = 1;
@@ -1342,8 +1351,7 @@ index 0000000..ffd7170
 +void smzDailyRequestInfo(void)
 +{
 +    lockInit();
-+    netUp();
-+    if (!gHttpReady) return;
++    netUp();   // without httpc the thread fails at once, and the menu shows the card offline
 +    LightLock_Lock(&gLock);
 +    bool busy = gDailyState == 1;
 +    if (!busy) gDailyState = 1;
@@ -1794,10 +1802,10 @@ index 0000000..c1e9f0c
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..e03a323
+index 0000000..038777c
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5559 @@
+@@ -0,0 +1,5581 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1851,6 +1859,7 @@ index 0000000..e03a323
 +#define OLD_DIR "sdmc:/SMZ3"   // the data folder of older builds
 +#define RUN_DIR SMZ_DIR "/runs"
 +#define SPRITE_DIR SMZ_DIR "/sprites"
++#define SPRITE_ROMFS "romfs:/smz3/sprites"   // the community sprites shipped in the app
 +#define GOALS_DIR SMZ_DIR "/goals"   // the world goal icons cut from the base ROMs
 +
 +static bool gChallenge = false;   // the run being played is a daily challenge: no fast forward
@@ -2019,16 +2028,36 @@ index 0000000..e03a323
 +    return false;
 +}
 +
-+static int listSprites(const char *dir, char names[][32], int max)
++// A sprite file (rel is "link/x.rdc"): the SD card's copy when there is one, else the app's own.
++static const char *spritePath(char *out, size_t cap, const char *rel)
++{
++    snprintf(out, cap, SPRITE_DIR "/%s", rel);
++    if (access(out, F_OK) != 0) snprintf(out, cap, SPRITE_ROMFS "/%s", rel);
++    return out;
++}
++
++// The sprites of one kind ("link" or "samus"): the app's and the SD card's, each name once.
++static int listSprites(const char *kind, char names[][32], int max)
 +{
 +    int n = 0;
-+    DIR *d = opendir(dir);
-+    if (!d) return 0;
-+    while (struct dirent *e = readdir(d)) {
-+        size_t l = strlen(e->d_name);
-+        if (l > 4 && l < 36 && !strcasecmp(e->d_name + l - 4, ".rdc") && n < max) { memcpy(names[n], e->d_name, l - 4); names[n][l - 4] = 0; n++; }
++    char dir[64];
++    static const char *const roots[] = {SPRITE_ROMFS, SPRITE_DIR};
++    for (const char *root : roots) {
++        snprintf(dir, sizeof dir, "%s/%s", root, kind);
++        DIR *d = opendir(dir);
++        if (!d) continue;
++        while (struct dirent *e = readdir(d)) {
++            size_t l = strlen(e->d_name);
++            if (l <= 4 || l >= 36 || strcasecmp(e->d_name + l - 4, ".rdc") || n >= max) continue;
++            char name[32];
++            memcpy(name, e->d_name, l - 4);
++            name[l - 4] = 0;
++            bool seen = false;
++            for (int i = 0; i < n && !seen; i++) seen = !strcmp(names[i], name);
++            if (!seen) memcpy(names[n++], name, sizeof name);
++        }
++        closedir(d);
 +    }
-+    closedir(d);
 +    return n;
 +}
 +
@@ -2090,7 +2119,7 @@ index 0000000..e03a323
 +        snprintf(path, sizeof path, "romfs:/smz3/goals/%s.pv", k);
 +        if (access(path, F_OK) != 0) snprintf(path, sizeof path, GOALS_DIR "/%s.pv", k);
 +    }
-+    else snprintf(path, sizeof path, SPRITE_DIR "/%s.pv", key);
++    else { char rel[64]; snprintf(rel, sizeof rel, "%s.pv", key); spritePath(path, sizeof path, rel); }
 +    size_t len = 0;
 +    unsigned char *d = readFile(path, &len);
 +    int w, h;
@@ -2537,8 +2566,9 @@ index 0000000..e03a323
 +    job.seedIfRandom = (int32_t)((osGetTime() ^ (u64)svcGetSystemTick() * 2654435761ull) & 0x7FFFFFFF);
 +    char link[32], samus[32], path[128];
 +    smz_host_sprites(u, link, samus);
-+    if (link[0]) { snprintf(path, sizeof path, SPRITE_DIR "/link/%s.rdc", link); job.link = readFile(path, &job.linkLen); }
-+    if (samus[0]) { snprintf(path, sizeof path, SPRITE_DIR "/samus/%s.rdc", samus); job.samus = readFile(path, &job.samusLen); }
++    char rel[48];
++    if (link[0]) { snprintf(rel, sizeof rel, "link/%s.rdc", link); job.link = readFile(spritePath(path, sizeof path, rel), &job.linkLen); }
++    if (samus[0]) { snprintf(rel, sizeof rel, "samus/%s.rdc", samus); job.samus = readFile(spritePath(path, sizeof path, rel), &job.samusLen); }
 +    // a plando file replaces the generated seed and the settings it carries
 +    char plando[32], perr[160] = "";
 +    smz_host_plando_name(u, plando);
@@ -2854,10 +2884,10 @@ index 0000000..e03a323
 +    ui.orbs = 1;    // and the load choice's marker is an orb (drawOrb)
 +    ui.flags = 1;   // countries as flags (romfs:/smz3/flags)
 +    const char *list[UI_MAX_SPRITES];
-+    int n = listSprites(SPRITE_DIR "/link", linkNames, UI_MAX_SPRITES - 1);
++    int n = listSprites("link", linkNames, UI_MAX_SPRITES - 1);
 +    for (int i = 0; i < n; i++) list[i] = linkNames[i];
 +    ui_set_sprites(&ui, 0, list, n);
-+    n = listSprites(SPRITE_DIR "/samus", samusNames, UI_MAX_SPRITES - 1);
++    n = listSprites("samus", samusNames, UI_MAX_SPRITES - 1);
 +    for (int i = 0; i < n; i++) list[i] = samusNames[i];
 +    ui_set_sprites(&ui, 1, list, n);
 +    static char plandoNames[UI_MAX_SPRITES][32];

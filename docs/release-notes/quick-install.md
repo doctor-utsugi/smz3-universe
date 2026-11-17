@@ -4,7 +4,7 @@ You need your own Super Metroid (JU) and A Link to the Past (Japan v1.0) ROMs. F
 **[installation guide](https://github.com/doctor-utsugi/smz3-universe#2-install-it)**.
 
 - **AYN Thor / Android phones:** install `SMZ3-android-arm64.apk`, create a run and pick your two ROMs (or a zip) when asked.
-- **3DS:** copy `SMZ3-3ds.3dsx` to `sdmc:/3ds/` and the ROMs to `sdmc:/3ds/SMZ3/`, then open SMZ3 from the Homebrew Launcher. No sound? Run DSP1 once.
+- **3DS:** install `SMZ3-3ds.cia` with FBI for an icon on the HOME menu, or copy `SMZ3-3ds.3dsx` to `sdmc:/3ds/` to open it from the Homebrew Launcher. The ROMs go in `sdmc:/3ds/SMZ3/`. No sound? Run DSP1 once.
 - **Linux:** `chmod +x SMZ3-x86_64.AppImage`, run it and drop the ROMs on the window.
 - **Linux on ARM (aarch64):** the same with `SMZ3-aarch64.AppImage`. Without FUSE, start it with `APPIMAGE_EXTRACT_AND_RUN=1 ./SMZ3-aarch64.AppImage`.
 - **Linux handhelds (ROCKNIX, Knulli):** unzip `SMZ3-ports-aarch64.zip` into the `ports` folder, put the ROMs in `ports/SMZ3`, update the gamelists and start SMZ3 from Ports.

@@ -24,8 +24,15 @@ cp "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/ips/*.ips romfs/smz
 python3 "$ROOT"/tools/gen_3ds_assets.py "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3 source/smz3_mapdata.c romfs/smz3
 python3 "$ROOT"/tools/gen_pc_logo.py "$ROOT"/assets/logo.png romfs/smz3/logo.pv 22
 python3 "$ROOT"/tools/gen_flags.py --pv romfs/smz3/flags
+# the community sprites ship in the app; the SD card's 3ds/SMZ3/sprites can still add or replace one
+rm -rf romfs/smz3/sprites && cp -r "$ROOT"/assets/sprites romfs/smz3/sprites
 # the app's icon on the HOME menu is the Thor's launcher icon, cut from the logo as tools/gen_app_icon.py does
 python3 -c 'import sys; from PIL import Image; Image.open(sys.argv[1]).convert("RGB").crop((90, 90, 934, 934)).resize((48, 48), Image.LANCZOS).save(sys.argv[2])' \
     "$ROOT"/assets/logo.png resources/icon.png
-docker run --rm -v "$PWD":/src -w /src devkitpro/devkitarm:latest make 3dsx -j"$(nproc)"
-mkdir -p ../../build && cp output/src.3dsx ../../build/snes9x_3ds.3dsx
+# the CIA's HOME menu banner (tools/gen_3ds_banner.py) and its title version, taken from the release tag
+cp "$ROOT"/assets/3ds/banner.bnr resources/banner.bnr
+IFS=. read -r MAJ MIN MIC <<< "$(echo "${VER#v}" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || echo 0.0.0)"
+sed -i -E "s/^(APP_VERSION_MAJOR = ).*/\1$MAJ/; s/^(APP_VERSION_MINOR = ).*/\1$MIN/; s/^(APP_VERSION_MICRO = ).*/\1$MIC/" resources/AppInfo
+docker run --rm -v "$PWD":/src -w /src devkitpro/devkitarm:latest \
+    sh -c "make 3dsx -j$(nproc) && make cia -j$(nproc)"   # one after the other: each target is its own sub-make over the same objects
+mkdir -p ../../build && cp output/src.3dsx ../../build/snes9x_3ds.3dsx && cp output/src.cia ../../build/snes9x_3ds.cia

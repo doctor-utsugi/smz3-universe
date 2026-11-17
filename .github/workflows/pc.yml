@@ -165,11 +165,13 @@ jobs:
           python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
           python3 tools/prepare_assets.py
       - run: ./build-3ds.sh
-      - run: cp build/snes9x_3ds.3dsx SMZ3-3ds.3dsx
+      - run: cp build/snes9x_3ds.3dsx SMZ3-3ds.3dsx && cp build/snes9x_3ds.cia SMZ3-3ds.cia
       - uses: actions/upload-artifact@v4
         with:
           name: smz3-3ds
-          path: SMZ3-3ds.3dsx
+          path: |
+            SMZ3-3ds.3dsx
+            SMZ3-3ds.cia
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, windows, macos, android, n3ds]
