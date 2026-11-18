@@ -1,7 +1,7 @@
-"""Writes the 3DS HOME menu banner (the picture over the selected icon and its short jingle) for the CIA build:
+"""Writes the 3DS HOME menu banner (the picture over the selected icon and its sound, cut from intro.ogg) for the CIA build:
 assets/3ds/banner.png, assets/3ds/banner.wav and assets/3ds/banner.bnr. The .bnr needs bannertool
 (https://github.com/diasurgical/bannertool): run python3 tools/gen_3ds_banner.py [path/to/bannertool]."""
-import math, os, shutil, struct, subprocess, sys, wave
+import os, shutil, subprocess, sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,28 +32,19 @@ def picture():
     return img
 
 
-def jingle(path, rate=44100):
-    """Three soft rising notes, about a second long. 16-bit stereo at 44100 Hz, like FBI's banner: the HOME menu
-    turned the mono 22050 Hz one into a constant screech."""
-    notes, out = (659.25, 783.99, 1046.5), []
-    for i, f in enumerate(notes):
-        n = int(rate * (0.16 if i < 2 else 0.6))
-        for t in range(n):
-            env = min(1.0, t / (rate * 0.005)) * math.exp(-t / (rate * (0.08 if i < 2 else 0.25)))
-            s = math.sin(2 * math.pi * f * t / rate) + 0.3 * math.sin(4 * math.pi * f * t / rate)
-            out.append(int(9000 * env * s))
-    with wave.open(path, "wb") as w:
-        w.setnchannels(2)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(struct.pack("<%dh" % (2 * len(out)), *(v for v in out for _ in (0, 1))))
+def sound(src, path, secs=3.0):
+    """The banner sound from assets/3ds/intro.ogg: the HOME menu plays at most 3 seconds, so it is cut there and
+    faded out. 16-bit stereo at 44100 Hz, like FBI's banner (a mono 22050 Hz one came out as a screech)."""
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-t", str(secs),
+                    "-af", "volume=-1.5dB,afade=t=out:st=%.2f:d=0.6" % (secs - 0.6),
+                    "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", "-map_metadata", "-1", path], check=True)
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
     png, wav, bnr = (os.path.join(OUT, "banner." + e) for e in ("png", "wav", "bnr"))
     picture().save(png)
-    jingle(wav)
+    sound(os.path.join(OUT, "intro.ogg"), wav)
     tool = sys.argv[1] if len(sys.argv) > 1 else shutil.which("bannertool")
     if not tool:
         sys.exit("banner.png and banner.wav written; banner.bnr needs bannertool (pass its path)")
