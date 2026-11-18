@@ -79,7 +79,25 @@ one it needs. No ROMs are included here.
 
 ## 2. Install it
 
-**AYN Thor / Android** (arm64)
+Pick your platform. Every file is in the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest).
+
+| Platform | File | Steps |
+|---|---|---|
+| AYN Thor, Android phones | `SMZ3-android-arm64.apk` | [Thor and Android](#ayn-thor-and-android) |
+| 3DS, on the HOME menu | `SMZ3-3ds.cia` (install with FBI) | [Nintendo 3DS](#nintendo-3ds) |
+| 3DS, from the Homebrew Launcher | `SMZ3-3ds.3dsx` | [Nintendo 3DS](#nintendo-3ds) |
+| ROCKNIX, Knulli | `SMZ3-ports-aarch64.zip` | [Linux handhelds](#linux-handhelds-with-a-ports-menu) |
+| Linux PC | `SMZ3-x86_64.AppImage` | [PC](#pc-linux-windows-macos) |
+| Linux on ARM boards | `SMZ3-aarch64.AppImage` | [PC](#pc-linux-windows-macos) |
+| Windows | `SMZ3-windows-x64.zip` | [PC](#pc-linux-windows-macos) |
+| macOS | `SMZ3-macos-intel.tar.gz` | [PC](#pc-linux-windows-macos) |
+
+How updates work on each is under [Updates](#updates).
+
+### AYN Thor and Android
+
+arm64.
+
 1. Put both ROMs in the `Download` folder of the device. You can copy them over USB from a computer, or download
    them on the device itself. `Download/roms`, `Roms`, `roms` and `ROMs` work too.
 2. On the device, open the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest) in the
@@ -94,7 +112,11 @@ one it needs. No ROMs are included here.
 If the ROMs aren't in one of those folders, or they're in a zip, a file picker opens at step 6 instead: select both
 ROMs (or the zip). SMZ3 keeps a copy of what you pick and won't ask again.
 
-**3DS** (needs custom firmware with the Homebrew Launcher, or FBI for the CIA)
+---
+
+### Nintendo 3DS
+
+Needs custom firmware with the Homebrew Launcher, or FBI for the CIA.
 
 There are two ways to install it, both from the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest).
 Pick one; runs and settings are the same files on the SD card either way.
@@ -114,9 +136,11 @@ Then:
 The community sprites come with the app. A sprite of your own (an `.rdc` file) goes in `3ds/SMZ3/sprites/link` or
 `3ds/SMZ3/sprites/samus` on the SD card, and one there with the same name as a bundled sprite replaces it.
 
-**Linux handhelds with a Ports menu** (ROCKNIX, Knulli; arm64)
+---
 
-Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second screen. Not tried on Knulli yet.
+### Linux handhelds with a Ports menu
+
+ROCKNIX or Knulli, arm64. Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second screen. Not tried on Knulli yet.
 
 1. On a computer, download `SMZ3-ports-aarch64.zip` from the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest)
    and unzip it. You get a file, `SMZ3.sh`, and a folder, `SMZ3`.
@@ -131,14 +155,17 @@ Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second 
 To go back to the handheld's menu, press Select + Start in the game and then A, or tap "Save and leave the run" twice at
 the top of the tracker's CONFIG tab. Then press Start on the run list and choose Quit.
 
-**PC**
-- Linux: download `SMZ3-x86_64.AppImage`, make it executable (`chmod +x SMZ3-x86_64.AppImage`, or tick
+---
+
+### PC (Linux, Windows, macOS)
+
+- **Linux:** download `SMZ3-x86_64.AppImage`, make it executable (`chmod +x SMZ3-x86_64.AppImage`, or tick
   "Allow executing" in its file properties) and run it. Nothing else to install.
-- Linux on ARM (aarch64 boards): the same with `SMZ3-aarch64.AppImage`. On a system without FUSE,
+- **Linux on ARM** (aarch64 boards): the same with `SMZ3-aarch64.AppImage`. On a system without FUSE,
   start it with `APPIMAGE_EXTRACT_AND_RUN=1 ./SMZ3-aarch64.AppImage`. For a handheld with a Ports menu, use the
-  steps under "Linux handhelds" below instead.
-- Windows: unzip `SMZ3-windows-x64.zip` and run `smz3.exe`. If SmartScreen warns, press "More info", then "Run anyway".
-- macOS (Intel, also runs on Apple silicon): `tar xzf SMZ3-macos-intel.tar.gz`, then
+  [Linux handhelds](#linux-handhelds-with-a-ports-menu) steps instead.
+- **Windows:** unzip `SMZ3-windows-x64.zip` and run `smz3.exe`. If SmartScreen warns, press "More info", then "Run anyway".
+- **macOS** (Intel, also runs on Apple silicon): `tar xzf SMZ3-macos-intel.tar.gz`, then
   `xattr -d com.apple.quarantine smz3` and `./smz3`. Nothing else to install.
 
 Then drop both ROMs on the window and press PLAY!. To make a run, pick "New run" in the list, choose Cozy run,
@@ -159,11 +186,14 @@ The same program also takes commands in a terminal. Use `./SMZ3-x86_64.AppImage`
 is `cozy`, `original` or `custom`, and `--set Key=value` changes one option), `runs` lists them and `play N` opens
 the window on run N. `gen --out FILE` writes a randomized ROM without making a run, and `--help` lists every command.
 
-**Updates.** When a new release is out, the start menu says so and Options gets an Update row. On Android it
+---
+
+### Updates
+
+When a new release is out, the start menu says so and Options gets an Update row. On Android it
 downloads the new APK and opens the installer. The Linux AppImage (also in Ports), the Windows exe and the macOS
-binary replace themselves and restart. On the 3DS it only tells you: install the new `.cia` with FBI over the old one, or copy the new `.3dsx` over the old
-one. Your runs and
-settings stay as they are.
+binary replace themselves and restart. On the 3DS it only tells you: install the new `.cia` with FBI over the old one, or copy
+the new `.3dsx` over the old one. Your runs and settings stay as they are.
 
 ## 3. Play
 
