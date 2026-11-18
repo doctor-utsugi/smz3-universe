@@ -285,7 +285,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..c94ffcb 100644
+index 3692a54..b472798 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -14,6 +14,7 @@
@@ -395,7 +395,7 @@ index 3692a54..c94ffcb 100644
      AddMenuPicker(items, "  Scale Filter"_s, "Applies when the game screen is stretched/zoomed in.\n\"Sharp\" may distort details,\n\"Balanced\" has minor performance impact."_s,
          makeOptionsForScreenFilter(), static_cast<int>(settings3DS.ScreenFilter), DIALOG_TYPE_INFO, true,
          []( int val ) {
-@@ -1557,6 +1595,19 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
+@@ -1557,6 +1595,20 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
  
      config3dsReadWriteEnum(stream, writeMode, "ShowFPS=%d\n", &settings3DS.ShowFPS, 0, 1);
  
@@ -409,13 +409,14 @@ index 3692a54..c94ffcb 100644
 +        settings3dsApplyScreenStretch();
 +        settings3DS.isDirty = true;
 +    }
-+    config3dsReadWriteInt32(stream, writeMode, "SmzColours=%d\n", &settings3DS.SmzColours, 0, 2);
++    config3dsReadWriteInt32(stream, writeMode, "SmzColourLevel=%d\n", &settings3DS.SmzColours, 0, 2);
++    config3dsReadWriteInt32(stream, writeMode, "SmzScreen=%d\n", &settings3DS.SmzScreen, 0, 4);
 +    S9xSetColourBoost(settings3DS.SmzColours, false);
 +
      return true;
  }
  
-@@ -1608,6 +1659,10 @@ bool emulatorLoadRom()
+@@ -1608,6 +1660,10 @@ bool emulatorLoadRom()
  
      char romFileNameFullPath[PATH_MAX];
      snprintf(romFileNameFullPath, sizeof(romFileNameFullPath), "%s%s", file3dsGetCurrentDir(), romFileName);
@@ -426,7 +427,7 @@ index 3692a54..c94ffcb 100644
  
      // Block the audio mixing thread from touching APU/memory state while
      // Memory.LoadROM tears down and rebuilds SNES9x globals AND while
-@@ -2103,7 +2158,7 @@ void onDirectoryEntrySelected(
+@@ -2103,7 +2159,7 @@ void onDirectoryEntrySelected(
              menu3dsRunBadgeCache(dialogTab, currentMenuTab, menuTabs, romFileName);
  
              // Restore after RA identification; pause the mixer while state changes.
@@ -435,7 +436,7 @@ index 3692a54..c94ffcb 100644
                  snd3dsDrainMixing();
                  impl3dsLoadStateAuto();
                  snd3dsResumeMixing();
-@@ -2133,116 +2188,74 @@ void onDirectoryEntrySelected(
+@@ -2133,116 +2189,74 @@ void onDirectoryEntrySelected(
      }
  }
  
@@ -609,7 +610,7 @@ index 3692a54..c94ffcb 100644
  }
  
  //--------------------------------------------------------
-@@ -2508,6 +2521,7 @@ void emulatorLoop()
+@@ -2508,6 +2522,7 @@ void emulatorLoop()
          t3dsStartTimer(TIMER_RUN_ONE_FRAME);
          impl3dsRunOneFrame(firstFrame, skipDrawing);
          t3dsStopTimer(TIMER_RUN_ONE_FRAME);
@@ -617,7 +618,7 @@ index 3692a54..c94ffcb 100644
  
  
          long actualTicksThisFrame = (long)(svcGetSystemTick() - startFrameTick);
-@@ -2553,6 +2567,7 @@ int main()
+@@ -2553,6 +2568,7 @@ int main()
      APT_CheckNew3DS(&settings3DS.isNew3DS);
      osSetSpeedupEnable(true);
      utils3dsInitialize();
@@ -625,7 +626,7 @@ index 3692a54..c94ffcb 100644
  
      // ---- load/update settings first ----
      menu3dsSetHotkeysData(hotkeysData);
-@@ -2560,6 +2575,17 @@ int main()
+@@ -2560,6 +2576,17 @@ int main()
      settings3dsResetGameDefaults();
      // load global config, overwrites defaults if file exists
      cfgFileAvailable[0] = settingsReadWriteFullListGlobal(false);
@@ -643,7 +644,7 @@ index 3692a54..c94ffcb 100644
      settings3dsUpdate(false);
  
      if (!emulatorInitialize()) {
-@@ -2589,6 +2615,7 @@ int main()
+@@ -2589,6 +2616,7 @@ int main()
      menu3dsShowSplashMessage("Saving & Exiting");
      
      settingsSave(settings3DS.isRomLoaded);
@@ -675,10 +676,10 @@ index c3a443f..f4b60ca 100644
                  gpu3dsFrameEnd();
              }
 diff --git a/source/3dssettings.cpp b/source/3dssettings.cpp
-index 4593f02..9ee7572 100644
+index 4593f02..5dc990d 100644
 --- a/source/3dssettings.cpp
 +++ b/source/3dssettings.cpp
-@@ -27,8 +27,9 @@ void settings3dsResetGlobalDefaults() {
+@@ -27,8 +27,10 @@ void settings3dsResetGlobalDefaults() {
      settings3DS.Intensity3D = Setting::Intensity3D::Standard;
      settings3DS.LogFileEnabled = false;
  
@@ -686,19 +687,21 @@ index 4593f02..9ee7572 100644
 -    settings3DS.ScreenFilter = Setting::ScreenFilter::Smooth;
 +    settings3DS.ScreenStretch = Setting::ScreenStretch::None;   // pixel perfect, 256x224
 +    settings3DS.ScreenFilter = Setting::ScreenFilter::Sharp;
-+    settings3DS.SmzColours = 2;
++    settings3DS.SmzColours = 1;
++    settings3DS.SmzScreen = 0;
      settings3dsApplyScreenStretch();
      
      settings3DS.TicksPerFrame = TICKS_PER_FRAME_SNES_NTSC;
 diff --git a/source/3dssettings.h b/source/3dssettings.h
-index 463301f..54b5412 100644
+index 463301f..9e29245 100644
 --- a/source/3dssettings.h
 +++ b/source/3dssettings.h
-@@ -173,6 +173,7 @@ typedef struct {
+@@ -173,6 +173,8 @@ typedef struct {
      bool                ShowFPS;
  
      Setting::ScreenStretch ScreenStretch;
 +    int                 SmzColours;            // SMZ3: 0 original, 1 vivid, 2 intense (S9xSetColourBoost)
++    int                 SmzScreen;             // SMZ3: 0 pixel perfect, 1 4:3, 2 full height 8:7, 3 full height 4:3, 4 fullscreen
      Setting::ScreenFilter ScreenFilter;         // User preference for SNES_MAIN in stretched modes.
                                                  // No Stretch enforces sharp (nearest) at render time.
      bool                CropEnabled;            // master toggle for the per-game crop/overscan settings
@@ -748,7 +751,7 @@ index 9688a80..c195f76 100644
          default:                        return "invalid";
      }
 diff --git a/source/Snes9x/gfx.cpp b/source/Snes9x/gfx.cpp
-index d8bd9ec..a654c5e 100644
+index d8bd9ec..89ada0a 100644
 --- a/source/Snes9x/gfx.cpp
 +++ b/source/Snes9x/gfx.cpp
 @@ -12,6 +12,7 @@
@@ -767,7 +770,7 @@ index d8bd9ec..a654c5e 100644
 +// midtone contrast, on its way to the screen. The level is the Colours option: original, vivid, intense.
 +static const float colourSaturation[3] = { 1.0f, 1.3f, 1.6f };
 +static const float colourGamma[3] = { 1.0f, 1.1f, 1.2f };
-+static int colourLevel = 2, colourBuilt = -1;
++static int colourLevel = 1, colourBuilt = -1;
 +
 +// refresh: the palette already loaded is converted again at once (the tile caches follow its hashes); at boot there is
 +// nothing loaded yet. Left to the game, an entry would only change when it writes a different colour to it.
@@ -2088,10 +2091,10 @@ index 0000000..c1e9f0c
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..9f44379
+index 0000000..a285296
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5651 @@
+@@ -0,0 +1,5746 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3182,6 +3185,8 @@ index 0000000..9f44379
 +static void deriveFromRoms(SmzUi *u);
 +static void trackerRelease();
 +static void rewindFree();
++static void applyScreen();
++static bool pvOpen;   // the picture screen is open (drawPicture)
 +
 +static void uiCueSound(UiCue c);
 +static void goalsLeave(bool report);
@@ -3381,16 +3386,9 @@ index 0000000..9f44379
 +                    deriveFromRoms(&ui);
 +                    gNextStates = states;
 +                    gNextLoadState = hasState && act != ACT_LOAD_SAVE;
-+                    // The run's screen shape picks the scaling: wide fills the 400x240 screen; original (4:3) and pixel (8:7) are
-+                    // one screen pixel per SNES pixel. 4:3 would be 298 wide, which nearest sampling can only reach by showing
-+                    // some columns twice, and the 3DS's 224 lines leave no room to scale the height.
-+                    settings3DS.ScreenStretch = strstr(r.settings, "\"screenShape\":\"wide\"") ? Setting::ScreenStretch::Full
-+                        : Setting::ScreenStretch::None;
-+                    settings3dsApplyScreenStretch();
-+                    // 3DS has no shaders: CRT and LCD take the blend of sharp and smooth.
-+                    settings3DS.ScreenFilter = strstr(r.settings, "\"screenFilter\":\"smooth\"") ? Setting::ScreenFilter::Smooth
-+                        : strstr(r.settings, "\"screenFilter\":\"crt\"") || strstr(r.settings, "\"screenFilter\":\"lcd\"") ? Setting::ScreenFilter::Balanced
-+                        : Setting::ScreenFilter::Sharp;
++                    // On the 3DS the picture is the pause menu's Screen option, the same for every run (the run's own screen
++                    // shape and filter are the Thor's and the PC's).
++                    applyScreen();
 +                    mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777); addShortcutHooks(r.rom_path); snprintf(romPathOut, cap, "%s", r.rom_path); gPlaySlot = slot; chosen = true; break; }
 +            }
 +        }
@@ -4345,7 +4343,7 @@ index 0000000..9f44379
 +static void rewindFrame()
 +{
 +    if (!gRewindRun || cardState) { if (rw || rwBuf) rewindFree(); return; }
-+    if (!rwOpen && ++rwFrames % rwEvery == 0) rewindPush();
++    if (!rwOpen && !pvOpen && ++rwFrames % rwEvery == 0) rewindPush();
 +    int cmd = rwCmd;
 +    rwCmd = 0;
 +    if (cmd == 3 && !rwOpen && rw && smz_rewind_count(rw) > 1) {
@@ -4451,6 +4449,87 @@ index 0000000..9f44379
 +        else { rewindMark((x0 + x1) / 2, (y0 + y1) / 2, i == 0 ? -1 : 1, INK); text(x0 + 6, y0 + 13, DIM, i == 0 ? "L" : "R"); }
 +    }
 +    text(12, 224, DIM, "Hold L or R, or the arrows, to move", HALIGN_CENTER, 308);
++}
++
++// ---- the picture: the Screen and Colours options of the pause menu (global settings), tried on the game itself. The frame
++// the menu was opened on plays again and again, silent and with no buttons, as rewind does; the bottom screen has the choices.
++static const char *const SCREEN_NAMES[5] = {"Pixel perfect", "4:3", "Full height 8:7", "Full height 4:3", "Fullscreen"};
++static const char *const COLOUR_NAMES[3] = {"Original", "Vivid", "Intense"};
++static u8 *pvBuf;
++static size_t pvSize;
++static int pvRow, pvScreen0, pvColours0, pvCmd;   // pvCmd: 1 keep, 2 back to what it was
++
++// Pixel perfect is one screen pixel per SNES pixel; a stretch blends its uneven columns rather than doubling some of them.
++static void applyScreen()
++{
++    static const Setting::ScreenStretch STRETCH[5] = {Setting::ScreenStretch::None, Setting::ScreenStretch::Aspect_4_3,
++        Setting::ScreenStretch::Fit_8_7, Setting::ScreenStretch::Fit_4_3, Setting::ScreenStretch::Full};
++    if (settings3DS.SmzScreen < 0 || settings3DS.SmzScreen > 4) settings3DS.SmzScreen = 0;
++    settings3DS.ScreenStretch = STRETCH[settings3DS.SmzScreen];
++    settings3DS.ScreenFilter = settings3DS.SmzScreen ? Setting::ScreenFilter::Balanced : Setting::ScreenFilter::Sharp;
++    settings3dsApplyScreenStretch();
++}
++
++static void previewStep(int row, int step)
++{
++    if (row == 0) { settings3DS.SmzScreen = (settings3DS.SmzScreen + step + 5) % 5; applyScreen(); }
++    else { settings3DS.SmzColours = (settings3DS.SmzColours + step + 3) % 3; S9xSetColourBoost(settings3DS.SmzColours, true); }
++    settings3DS.isDirty = true;
++}
++
++static bool previewOpen(int row)
++{
++    if (!pvBuf && !(pvBuf = (u8 *)malloc(RW_BUF_CAP))) return false;
++    LightLock_Lock(&snd3DS.snesAccessLock);
++    pvSize = S9xFreezeToMemory(pvBuf, RW_BUF_CAP);
++    LightLock_Unlock(&snd3DS.snesAccessLock);
++    if (!pvSize) return false;
++    pvRow = row; pvCmd = 0;
++    pvScreen0 = settings3DS.SmzScreen; pvColours0 = settings3DS.SmzColours;
++    pvOpen = true;
++    snd3dsDrainMixing();
++    dirty = true;
++    return true;
++}
++
++// After each frame while open: the frame it was opened on again, and the close asked for by A or B.
++static void previewFrame()
++{
++    if (!pvOpen) return;
++    LightLock_Lock(&snd3DS.snesAccessLock);
++    if (S9xUnfreezeFromMemory(pvBuf, pvSize)) gpu3dsInitializeMode7Vertexes();
++    LightLock_Unlock(&snd3DS.snesAccessLock);
++    if (!pvCmd) return;
++    if (pvCmd == 2) {
++        if (settings3DS.SmzScreen != pvScreen0) { settings3DS.SmzScreen = pvScreen0; applyScreen(); }
++        if (settings3DS.SmzColours != pvColours0) { settings3DS.SmzColours = pvColours0; S9xSetColourBoost(pvColours0, true); }
++    }
++    pvOpen = false;
++    pvCmd = 0;
++    snd3dsResumeMixing();
++    dirty = true;
++}
++
++static void drawPicture()
++{
++    const int AMBER = 0xF2A33A, INK = 0xE8ECF2, DIM = 0x8793A6, BORDER = 0x2C4A5E, BACK = 0x0C1A24;
++    setClip(0, 0, 320, 240);
++    fill(0, 0, 320, 240, theme.bg);
++    fill(0, 0, 320, 3, AMBER);
++    bigText(12, 14, 20, INK, "Picture");
++    text(12, 44, DIM, "The game above shows each choice as it is.", HALIGN_CENTER, 308);
++    for (int r = 0; r < 2; r++) {
++        int y0 = 70 + r * 54, y1 = y0 + 44;
++        bool on = r == pvRow;
++        fill(12, y0, 308, y1, on ? AMBER : BORDER);
++        fill(13, y0 + 1, 307, y1 - 1, on ? 0x3A2408 : BACK);
++        text(24, y0 + 6, DIM, r == 0 ? "SCREEN" : "COLOURS");
++        char v[40];
++        snprintf(v, sizeof v, "<  %s  >", r == 0 ? SCREEN_NAMES[settings3DS.SmzScreen] : COLOUR_NAMES[settings3DS.SmzColours % 3]);
++        text(24, y0 + 22, on ? AMBER : INK, v, HALIGN_CENTER, 284);
++    }
++    text(12, 196, INK, "A  Keep        B  Undo", HALIGN_CENTER, 308);
++    text(12, 224, DIM, "Up and Down pick, Left and Right change", HALIGN_CENTER, 308);
 +}
 +
 +bool smz3FastForward(unsigned held)
@@ -6529,6 +6608,13 @@ index 0000000..9f44379
 +        dirty = false;
 +        return;
 +    }
++    if (pvOpen) {
++        drawPicture();
++        impl3dsFlushScreen(settings3DS.SecondScreen, false, false);
++        gfxScreenSwapBuffers(settings3DS.SecondScreen, false);
++        dirty = false;
++        return;
++    }
 +    if (rwOpen) {
 +        drawRewind();
 +        impl3dsFlushScreen(settings3DS.SecondScreen, false, false);
@@ -6685,6 +6771,7 @@ index 0000000..9f44379
 +bool smz3TrackerTouch(unsigned keysDown, unsigned keysHeld)
 +{
 +    if (!smz3IsRun() || curSlot < 0) return false;
++    if (pvOpen) return true;   // the picture screen takes buttons only
 +    if (rwOpen) {   // the rewind screen: hold the arrows, tap play or back
 +        if (keysHeld & KEY_TOUCH) {
 +            touchPosition t;
@@ -6886,6 +6973,7 @@ index 0000000..9f44379
 +    u64 nowMs = osGetTime();
 +    int dt = (int)(nowMs - lastMs);
 +    lastMs = nowMs;
++    if (pvOpen) return;   // the picture's frame over and over: not play time
 +    if (dt < 0 || dt > 3000) dt = 1000;   // a pause in between is not play time
 +    else if (turboWallMs > 0) dt += (int)lround(turboEmuMs) - (int)turboWallMs;   // fast forward runs unpaced: its frames count at the SNES rate
 +    if (dt < 0) dt = 0;
@@ -7042,6 +7130,12 @@ index 0000000..9f44379
 +{
 +    *openMenu = false;
 +    if (!smz3IsRun()) return 0;
++    if (pvOpen) {   // every button is the picture screen's; A and B go back to the pause menu
++        if (keysDown & (KEY_UP | KEY_DOWN)) { pvRow ^= 1; uiCueSound(UI_CUE_MOVE); dirty = true; }
++        else if (keysDown & (KEY_LEFT | KEY_RIGHT)) { previewStep(pvRow, keysDown & KEY_LEFT ? -1 : 1); uiCueSound(UI_CUE_SELECT); dirty = true; }
++        else if ((keysDown & (KEY_A | KEY_B)) && !pvCmd) { pvCmd = keysDown & KEY_A ? 1 : 2; uiCueSound(keysDown & KEY_A ? UI_CUE_CONFIRM : UI_CUE_BACK); *openMenu = true; }
++        return ~(unsigned)KEY_TOUCH;
++    }
 +    if (rwOpen) {   // every button is the rewind screen's
 +        if (keysDown & KEY_A) rwCmd = 1;
 +        else if (keysDown & KEY_B) rwCmd = 2;
@@ -7108,11 +7202,12 @@ index 0000000..9f44379
 +    if (settings3DS.TurboMode && now - lastFrameMs < 3000) { turboWallMs += now - lastFrameMs; turboEmuMs += 1000 / 60.0988; }
 +    lastFrameMs = now;
 +    rewindFrame();
++    previewFrame();
 +    if (rg.on) raceInGame();
 +    raceHold(raceFrozen());
 +    if (tick || curSlot != gPlaySlot) { trackerUpdate(); debugTouches(); dirty = true; }
 +    static unsigned frames;
-+    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending && !rwOpen)   // ~100 ms: an enemy's death is short
++    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending && !rwOpen && !pvOpen)   // ~100 ms: an enemy's death is short
 +        smz_counters_tick(&goalc, trk.started ? (int)trk.game : 0, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, (int)(trk.zelda_cleared + trk.metroid_cleared));
 +    runPendingState();
 +    if (barNoteUntil && now >= barNoteUntil) { barNoteUntil = 0; dirty = true; }
@@ -7344,7 +7439,7 @@ index 0000000..9f44379
 +// ---- the game menu while a run is played: what the Thor's game menu offers, drawn like the run menu (wallpaper, cut-corner
 +// rows, the amber cursor, the button legend) on the top screen. The bottom screen keeps the tracker and passes touches up.
 +
-+enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_PAUSE, PM_RUNS, PM_RESTART, PM_MUTE, PM_COLOURS, PM_ROW0, PM_ROW1, PM_BAR, PM_CONFIRM, PM_BUTTONS, PM_BTN, PM_ACT };
++enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_PAUSE, PM_RUNS, PM_RESTART, PM_MUTE, PM_SCREEN, PM_COLOURS, PM_ROW0, PM_ROW1, PM_BAR, PM_CONFIRM, PM_BUTTONS, PM_BTN, PM_ACT };
 +struct PauseRow { int id, arg; };
 +
 +#define PM_ROWS_SHOWN 7
@@ -7399,6 +7494,7 @@ index 0000000..9f44379
 +    rows[n++] = {PM_RUNS, 0};
 +    rows[n++] = {PM_RESTART, 0};
 +    rows[n++] = {PM_MUTE, 0};
++    rows[n++] = {PM_SCREEN, 0};
 +    rows[n++] = {PM_COLOURS, 0};
 +    rows[n++] = {PM_ROW0, 0};
 +    rows[n++] = {PM_ROW1, 0};
@@ -7424,7 +7520,8 @@ index 0000000..9f44379
 +    case PM_RUNS: snprintf(label, cap, "%s", raceRunning() ? "Leave the race" : "Back to the runs"); break;
 +    case PM_RESTART: snprintf(label, cap, "Restart"); break;
 +    case PM_MUTE: snprintf(label, cap, "Mute audio"); snprintf(value, cap, "%s", snd3dsMuted ? "On" : "Off"); break;
-+    case PM_COLOURS: { static const char *const names[3] = { "Original", "Vivid", "Intense" }; snprintf(label, cap, "Colours"); snprintf(value, cap, "%s", names[settings3DS.SmzColours % 3]); break; }
++    case PM_SCREEN: snprintf(label, cap, "Screen"); snprintf(value, cap, "%s", SCREEN_NAMES[settings3DS.SmzScreen % 5]); break;
++    case PM_COLOURS: snprintf(label, cap, "Colours"); snprintf(value, cap, "%s", COLOUR_NAMES[settings3DS.SmzColours % 3]); break;
 +    case PM_ROW0: snprintf(label, cap, "Shortcut row"); snprintf(value, cap, "%s", smz3ShortcutRowShown(0) ? "Shown" : "Hidden"); break;
 +    case PM_ROW1: snprintf(label, cap, "Weapon row"); snprintf(value, cap, "%s", smz3ShortcutRowShown(1) ? "Shown" : "Hidden"); break;
 +    case PM_BAR: snprintf(label, cap, "Save bar"); snprintf(value, cap, "%s", inBar ? "Shown" : "Hidden"); break;
@@ -7450,7 +7547,8 @@ index 0000000..9f44379
 +    case PM_PAUSE: return "The race stops for everyone if they all say yes, and goes on at the time you pick.";
 +    case PM_RUNS: return raceRunning() ? "Your rivals see you leave. A race can't be joined again." : "The run keeps its time and progress.";
 +    case PM_RESTART: return "Starts the game over from its own save.";
-+    case PM_COLOURS: return "The 3DS's screen shows the SNES palette pale. Left and Right change it.";
++    case PM_SCREEN: return "How the game fills the screen. A shows it on the game.";
++    case PM_COLOURS: return "The 3DS's screen shows the SNES palette pale. A shows it on the game.";
 +    case PM_ROW0: return "The item slots or the beams over the tracker's map.";
 +    case PM_ROW1: return "Missiles, Super Missiles and Power Bombs under the beams.";
 +    case PM_BAR: return "SAVE, LOAD and fast forward under the shortcuts. The 3D slider up is fast forward too.";
@@ -7490,7 +7588,7 @@ index 0000000..9f44379
 +        pauseRowText(rows[i], slot, label, value, sizeof label, &dim);
 +        pmText(16, y + 2, 240, dim && rows[i].id != PM_BTN ? PALETTE[C_DIM] : PALETTE[C_TEXT], HALIGN_LEFT, label);
 +        if (value[0]) {
-+            bool pick = rows[i].id == PM_SAVE || rows[i].id == PM_LOAD || rows[i].id == PM_COLOURS;
++            bool pick = rows[i].id == PM_SAVE || rows[i].id == PM_LOAD || rows[i].id == PM_SCREEN || rows[i].id == PM_COLOURS;
 +            if (pick && i == cursor) {   // the arrows of a value that Left and Right change
 +                char v[56];
 +                snprintf(v, sizeof v, "<  %s  >", value);
@@ -7676,7 +7774,7 @@ index 0000000..9f44379
 +            int x = t.px * UI_W / SCREEN_BOTTOM_WIDTH, y = t.py;
 +            int r = pmRowTouched(scroll, n);
 +            if (r >= 0) {
-+                bool pick = rows[r].id == PM_SAVE || rows[r].id == PM_LOAD || rows[r].id == PM_COLOURS;
++                bool pick = rows[r].id == PM_SAVE || rows[r].id == PM_LOAD || rows[r].id == PM_SCREEN || rows[r].id == PM_COLOURS;
 +                if (pick && r == cursor && x >= UI_W - 216) act = x < UI_W - 108 ? -1 : 2;   // the value's arrows
 +                else { cursor = r; act = 1; }
 +            } else if (y < PM_LIST_Y && scroll > 0) { cursor = scroll - 1; uiCueSound(UI_CUE_MOVE); }
@@ -7725,10 +7823,10 @@ index 0000000..9f44379
 +                }
 +                break;
 +            case PM_MUTE: snd3dsMuted = !snd3dsMuted; snd3dsApplyOutputVolume(); uiCueSound(UI_CUE_SELECT); break;
-+            case PM_COLOURS:
-+                settings3DS.SmzColours = (settings3DS.SmzColours + step + 3) % 3;
-+                S9xSetColourBoost(settings3DS.SmzColours, true);
-+                settings3DS.isDirty = true;
++            case PM_SCREEN:
++            case PM_COLOURS:   // the choice is tried on the game: the menu gives way to the picture screen
++                if (act != 1) previewStep(row.id == PM_COLOURS, step);
++                if (previewOpen(row.id == PM_COLOURS)) { uiCueSound(UI_CUE_CONFIRM); result = SMZ3_PAUSE_RESUME; goto done; }
 +                uiCueSound(UI_CUE_SELECT);
 +                break;
 +            case PM_ROW0: case PM_ROW1: smz3SetShortcutRowShown(row.id == PM_ROW1, !smz3ShortcutRowShown(row.id == PM_ROW1)); uiCueSound(UI_CUE_SELECT); break;
