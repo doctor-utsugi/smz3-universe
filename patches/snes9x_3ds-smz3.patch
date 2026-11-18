@@ -673,6 +673,100 @@ index 9688a80..c195f76 100644
          case UI_SCANLINE:               return "scanline";
          default:                        return "invalid";
      }
+diff --git a/source/Snes9x/gfx.cpp b/source/Snes9x/gfx.cpp
+index d8bd9ec..9d8c377 100644
+--- a/source/Snes9x/gfx.cpp
++++ b/source/Snes9x/gfx.cpp
+@@ -12,6 +12,7 @@
+ #include "gfxhw.h"
+ 
+ #include <3ds.h>
++#include <math.h>
+ 
+ #define M7 19
+ #define M8 19
+@@ -573,6 +574,31 @@ void S9xGraphicsDeinit (void)
+     }
+ }
+ 
++// SMZ3: the 3DS's top screen shows the SNES palette pale, so each 15-bit colour is made more saturated (x1.25) with a
++// little more midtone contrast (gamma 1.1) on its way to the screen. Built once: 32768 entries.
++uint16 S9xVividColour (uint16 bgr)
++{
++    static uint16 *lut;
++    if (!lut)
++    {
++        lut = (uint16 *) malloc (0x8000 * sizeof (uint16));
++        for (uint32 c = 0; c < 0x8000; c++)
++        {
++            float rgb[3] = { (c & 0x1f) / 31.0f, ((c >> 5) & 0x1f) / 31.0f, ((c >> 10) & 0x1f) / 31.0f };
++            float grey = 0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2];
++            uint32 out[3];
++            for (int i = 0; i < 3; i++)
++            {
++                float v = grey + (rgb[i] - grey) * 1.25f;
++                v = v < 0 ? 0 : v > 1 ? 1 : powf (v, 1.1f);
++                out[i] = (uint32) (v * 31.0f + 0.5f);
++            }
++            lut[c] = BUILD_PIXEL (out[0], out[1], out[2]);
++        }
++    }
++    return lut[bgr & 0x7fff];
++}
++
+ void S9xBuildDirectColourMaps ()
+ {
+     for (uint32 p = 0; p < 8; p++)
+@@ -580,9 +606,9 @@ void S9xBuildDirectColourMaps ()
+ 	for (uint32 c = 0; c < 256; c++)
+ 	{
+ // XXX: Brightness
+-	    DirectColourMaps [p][c] = BUILD_PIXEL (((c & 7) << 2) | ((p & 1) << 1),
+-						   ((c & 0x38) >> 1) | (p & 2),
+-						   ((c & 0xc0) >> 3) | (p & 4));
++	    DirectColourMaps [p][c] = S9xVividColour ((((c & 7) << 2) | ((p & 1) << 1)) |
++						   ((((c & 0x38) >> 1) | (p & 2)) << 5) |
++						   ((((c & 0xc0) >> 3) | (p & 4)) << 10));
+ 	}
+     }
+     IPPU.DirectColourMapsNeedRebuild = FALSE;
+@@ -605,9 +631,7 @@ void S9xUpdatePalettes()
+ 			IPPU.Green [cgaddr] = IPPU.XB [(cgdata >> 5) & 0x1f];
+ 			IPPU.Red [cgaddr] = IPPU.XB [cgdata & 0x1f];
+ 
+-			uint16 finalColor =  (uint16) BUILD_PIXEL (IPPU.Red [cgaddr],
+-									IPPU.Green [cgaddr],
+-									IPPU.Blue [cgaddr]);
++			uint16 finalColor = S9xVividColour (cgdata);
+ 
+ 			if (finalColor != IPPU.ScreenColors [cgaddr])
+ 			{
+diff --git a/source/Snes9x/gfx.h b/source/Snes9x/gfx.h
+index 907b68a..623a427 100644
+--- a/source/Snes9x/gfx.h
++++ b/source/Snes9x/gfx.h
+@@ -262,6 +262,7 @@ void S9xUpdateScreenSoftware ();
+ void S9xUpdateScreenHardware ();
+ void RenderLine (uint8 line);
+ void S9xBuildDirectColourMaps ();
++uint16 S9xVividColour (uint16 bgr);
+ void S9xUpdatePalettes();
+ 
+ // External port interface which must be implemented or initialised for each
+diff --git a/source/Snes9x/ppu.cpp b/source/Snes9x/ppu.cpp
+index 2295d84..feba7d4 100644
+--- a/source/Snes9x/ppu.cpp
++++ b/source/Snes9x/ppu.cpp
+@@ -136,8 +136,7 @@ void S9xFixColourBrightness ()
+ 			IPPU.Red [i] = IPPU.XB [PPU.CGDATA [i] & 0x1f];
+ 			IPPU.Green [i] = IPPU.XB [(PPU.CGDATA [i] >> 5) & 0x1f];
+ 			IPPU.Blue [i] = IPPU.XB [(PPU.CGDATA [i] >> 10) & 0x1f];
+-			IPPU.ScreenColors [i] = BUILD_PIXEL (IPPU.Red [i], IPPU.Green [i],
+-												 IPPU.Blue [i]);
++			IPPU.ScreenColors [i] = S9xVividColour (PPU.CGDATA [i]);
+ 		}
+ 
+ 		//for (int i = 0; i < 16; i ++)
 diff --git a/source/Snes9x/snapshot.cpp b/source/Snes9x/snapshot.cpp
 index 76fb448..4769b2e 100644
 --- a/source/Snes9x/snapshot.cpp
