@@ -271,7 +271,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..1da696c 100644
+index 3692a54..ec2a733 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -32,6 +32,7 @@
@@ -339,7 +339,25 @@ index 3692a54..1da696c 100644
                      char errorMessage[64];
                      snprintf(errorMessage, sizeof(errorMessage), "Unable to load slot #%d!", slot);
  
-@@ -1608,6 +1625,10 @@ bool emulatorLoadRom()
+@@ -1557,6 +1574,17 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
+ 
+     config3dsReadWriteEnum(stream, writeMode, "ShowFPS=%d\n", &settings3DS.ShowFPS, 0, 1);
+ 
++    // SMZ3 shows the picture pixel perfect (256x224, sharp); a config from before keeps the emulator's 4:3 stretch and its
++    // smoothing, so it is moved over once. The menu still changes both.
++    int smzPixels = writeMode ? 1 : 0;
++    config3dsReadWriteInt32(stream, writeMode, "SmzPixelPerfect=%d\n", &smzPixels, 0, 1);
++    if (!writeMode && !smzPixels) {
++        settings3DS.ScreenStretch = Setting::ScreenStretch::None;
++        settings3DS.ScreenFilter = Setting::ScreenFilter::Sharp;
++        settings3dsApplyScreenStretch();
++        settings3DS.isDirty = true;
++    }
++
+     return true;
+ }
+ 
+@@ -1608,6 +1636,10 @@ bool emulatorLoadRom()
  
      char romFileNameFullPath[PATH_MAX];
      snprintf(romFileNameFullPath, sizeof(romFileNameFullPath), "%s%s", file3dsGetCurrentDir(), romFileName);
@@ -350,7 +368,7 @@ index 3692a54..1da696c 100644
  
      // Block the audio mixing thread from touching APU/memory state while
      // Memory.LoadROM tears down and rebuilds SNES9x globals AND while
-@@ -2103,7 +2124,7 @@ void onDirectoryEntrySelected(
+@@ -2103,7 +2135,7 @@ void onDirectoryEntrySelected(
              menu3dsRunBadgeCache(dialogTab, currentMenuTab, menuTabs, romFileName);
  
              // Restore after RA identification; pause the mixer while state changes.
@@ -359,7 +377,7 @@ index 3692a54..1da696c 100644
                  snd3dsDrainMixing();
                  impl3dsLoadStateAuto();
                  snd3dsResumeMixing();
-@@ -2133,116 +2154,74 @@ void onDirectoryEntrySelected(
+@@ -2133,116 +2165,74 @@ void onDirectoryEntrySelected(
      }
  }
  
@@ -533,7 +551,7 @@ index 3692a54..1da696c 100644
  }
  
  //--------------------------------------------------------
-@@ -2508,6 +2487,7 @@ void emulatorLoop()
+@@ -2508,6 +2498,7 @@ void emulatorLoop()
          t3dsStartTimer(TIMER_RUN_ONE_FRAME);
          impl3dsRunOneFrame(firstFrame, skipDrawing);
          t3dsStopTimer(TIMER_RUN_ONE_FRAME);
@@ -541,7 +559,7 @@ index 3692a54..1da696c 100644
  
  
          long actualTicksThisFrame = (long)(svcGetSystemTick() - startFrameTick);
-@@ -2553,6 +2533,7 @@ int main()
+@@ -2553,6 +2544,7 @@ int main()
      APT_CheckNew3DS(&settings3DS.isNew3DS);
      osSetSpeedupEnable(true);
      utils3dsInitialize();
@@ -549,7 +567,7 @@ index 3692a54..1da696c 100644
  
      // ---- load/update settings first ----
      menu3dsSetHotkeysData(hotkeysData);
-@@ -2560,6 +2541,14 @@ int main()
+@@ -2560,6 +2552,14 @@ int main()
      settings3dsResetGameDefaults();
      // load global config, overwrites defaults if file exists
      cfgFileAvailable[0] = settingsReadWriteFullListGlobal(false);
@@ -564,7 +582,7 @@ index 3692a54..1da696c 100644
      settings3dsUpdate(false);
  
      if (!emulatorInitialize()) {
-@@ -2589,6 +2578,7 @@ int main()
+@@ -2589,6 +2589,7 @@ int main()
      menu3dsShowSplashMessage("Saving & Exiting");
      
      settingsSave(settings3DS.isRomLoaded);
@@ -595,6 +613,21 @@ index c3a443f..f4b60ca 100644
                      }
                  gpu3dsFrameEnd();
              }
+diff --git a/source/3dssettings.cpp b/source/3dssettings.cpp
+index 4593f02..133417d 100644
+--- a/source/3dssettings.cpp
++++ b/source/3dssettings.cpp
+@@ -27,8 +27,8 @@ void settings3dsResetGlobalDefaults() {
+     settings3DS.Intensity3D = Setting::Intensity3D::Standard;
+     settings3DS.LogFileEnabled = false;
+ 
+-    settings3DS.ScreenStretch = Setting::ScreenStretch::Aspect_4_3;
+-    settings3DS.ScreenFilter = Setting::ScreenFilter::Smooth;
++    settings3DS.ScreenStretch = Setting::ScreenStretch::None;   // pixel perfect, 256x224
++    settings3DS.ScreenFilter = Setting::ScreenFilter::Sharp;
+     settings3dsApplyScreenStretch();
+     
+     settings3DS.TicksPerFrame = TICKS_PER_FRAME_SNES_NTSC;
 diff --git a/source/3dssound.cpp b/source/3dssound.cpp
 index cb9d772..942429b 100644
 --- a/source/3dssound.cpp
@@ -1838,10 +1871,10 @@ index 0000000..c1e9f0c
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..038777c
+index 0000000..cd7fc21
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5581 @@
+@@ -0,0 +1,5639 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -1991,9 +2024,60 @@ index 0000000..038777c
 +// buffer (the file's own, no second copy), ALttP is copied into z3Out (1 MB). Only the exact revisions the patches were
 +// written for are taken: with another A Link to the Past revision the patched Zelda code is misaligned and the game crashes
 +// when Samus enters a portal.
++// ---- the run's files while it is played, written by a thread: on the SD card a write holds the emulation for tens of ms,
++// a stutter every few seconds. One batch at a time; whatever reads or writes the run's file waits for it (bgWait).
++struct BgText { char path[96]; char *data; size_t len; };
++static SmzRun bgRun;
++static char bgRunPath[96];
++static BgText bgTexts[2];
++static int bgTextCount;
++static Thread bgThread;
++static volatile bool bgBusy;
++
++static void bgMain(void *)
++{
++    if (bgRunPath[0]) smz_run_save(bgRunPath, &bgRun);
++    for (int i = 0; i < bgTextCount; i++) {
++        if (FILE *f = fopen(bgTexts[i].path, "wb")) { fwrite(bgTexts[i].data, 1, bgTexts[i].len, f); fclose(f); }
++        free(bgTexts[i].data);
++    }
++    bgRunPath[0] = 0; bgTextCount = 0;
++    bgBusy = false;
++}
++
++static void bgWait()
++{
++    if (!bgThread) return;
++    threadJoin(bgThread, U64_MAX);
++    threadFree(bgThread);
++    bgThread = NULL;
++}
++
++static void bgText(const char *path, const char *data, size_t len)
++{
++    char *copy = (char *)malloc(len);
++    if (!copy || bgTextCount == 2) { free(copy); return; }
++    memcpy(copy, data, len);
++    BgText &t = bgTexts[bgTextCount++];
++    snprintf(t.path, sizeof t.path, "%s", path);
++    t.data = copy; t.len = len;
++}
++
++static void bgStart()
++{
++    s32 prio = 0x30;
++    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
++    bgBusy = true;
++    bgThread = threadCreate(bgMain, NULL, 16 * 1024, prio + 1, -2, false);
++    if (!bgThread) bgMain(NULL);
++}
++
++static int runSave(const char *path, const SmzRun *r) { bgWait(); return smz_run_save(path, r); }
++
 +// smz_run_load, with the ROM path of a run made before the data folder moved pointed at SMZ_DIR.
 +static int runLoad(const char *path, SmzRun *r)
 +{
++    bgWait();
 +    int e = smz_run_load(path, r);
 +    size_t old = sizeof OLD_DIR - 1;
 +    if (!e && !strncmp(r->rom_path, OLD_DIR "/", old + 1)) {
@@ -2669,7 +2753,7 @@ index 0000000..038777c
 +                    fclose(h);
 +                }
 +                snprintf(path, sizeof path, RUN_DIR "/slot%d.run", slot);
-+                ok = smz_run_save(path, &r) == 0;
++                ok = runSave(path, &r) == 0;
 +                if (ok) smzOnlineMarkRun(slot, dailyCheck ? 0 : ui_online_now(u), ui_run_weekly(u) ? 3 : ui_run_monthly(u) ? 2 : 1);
 +            }
 +            if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
@@ -2790,7 +2874,7 @@ index 0000000..038777c
 +        remove(old);
 +        snprintf(old, sizeof old, RUN_DIR "/slot%d.discovery", SMZ_RACE_SLOT);
 +        remove(old);
-+        ok = smz_run_save(path, &r) == 0;
++        ok = runSave(path, &r) == 0;
 +        if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
 +    } else if (ok) { ok = false; snprintf(message, cap, "Cannot read the race's game"); }
 +    u->screen = UI_RACE_READY;   // back to the ready room, where the race's start is caught
@@ -6598,9 +6682,14 @@ index 0000000..038777c
 +    int online = curSlot >= 0 && !finishedBefore ? smzOnlineSlotKind(curSlot) : 0;   // a finished run played again sends nothing
 +    if ((online || ((daily || rg.on) && !finishedBefore)) && trk.started && smz_proof_note(&proof, trk.cleared, SMZ_TRK_MAX_LOCS, trk.base_ms + trk.pending_ms)) proofDirty = 1;
 +    // debug aid: SMZ_DIR/debug_token.txt asks for the run's token even before the game has started
-+    if (online) if (FILE *df = fopen(SMZ_DIR "/debug_token.txt", "r")) { fclose(df); remove(SMZ_DIR "/debug_token.txt"); smzOnlineEnsureToken(curSlot); }
++    static int debugTokenSlot = -1;   // looked for once per run: a file check every second is an SD access every second
++    if (online && debugTokenSlot != curSlot) {
++        debugTokenSlot = curSlot;
++        if (FILE *df = fopen(SMZ_DIR "/debug_token.txt", "r")) { fclose(df); remove(SMZ_DIR "/debug_token.txt"); smzOnlineEnsureToken(curSlot); }
++    }
 +    if (online && trk.started && trk.running && nowMs >= nextToken) { nextToken = nowMs + 60000; smzOnlineEnsureToken(curSlot); }
-+    if (curSlot >= 0 && (++calls % 10 == 0 || trk.game == 3)) {   // the run's file keeps the play time and the progress
++    if (curSlot >= 0 && (++calls % 10 == 0 || trk.game == 3) && (!bgBusy || trk.game == 3)) {   // the run's file keeps the play time and the progress
++        bool bg = trk.game != 3;   // in play the writes go to the thread; the finish is written at once, the online finish reads it
 +        char rp[96];
 +        SmzRun r1;
 +        snprintf(rp, sizeof rp, RUN_DIR "/slot%d.run", curSlot);
@@ -6610,7 +6699,7 @@ index 0000000..038777c
 +        if (have && finishedBefore) {   // it keeps its result; its rewards only add up
 +            r1.boss_mask |= trk.boss_mask; r1.crystal_mask |= trk.crystal_mask;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
-+            smz_run_save(rp, &r1);
++            if (bg) { bgWait(); bgRun = r1; snprintf(bgRunPath, sizeof bgRunPath, "%s", rp); } else runSave(rp, &r1);
 +        } else if (have) {
 +            r1.play_ms = trk.base_ms + trk.pending_ms;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
@@ -6618,12 +6707,13 @@ index 0000000..038777c
 +            r1.zelda_cleared = (int)trk.zelda_cleared; r1.metroid_cleared = (int)trk.metroid_cleared;
 +            r1.boss_mask = trk.boss_mask; r1.crystal_mask = trk.crystal_mask;
 +            if (trk.save_ms > 0) { r1.save_ms = trk.save_ms; r1.save_zelda = trk.save_zelda; r1.save_metroid = trk.save_metroid; }
-+            if (smz_run_save(rp, &r1) == 0) smz_tracker_commit(&trk);
++            if (bg) { bgWait(); bgRun = r1; snprintf(bgRunPath, sizeof bgRunPath, "%s", rp); smz_tracker_commit(&trk); }
++            else if (runSave(rp, &r1) == 0) smz_tracker_commit(&trk);
 +            if ((online || daily || rg.on) && proofDirty) {
 +                static char ptxt[SMZ_PROOF_MAX * 24];
 +                size_t pl = smz_proof_format(&proof, ptxt, sizeof ptxt);
-+                FILE *pf = fopen(smzOnlineProofPath(curSlot), "wb");
-+                if (pf) { fwrite(ptxt, 1, pl, pf); fclose(pf); proofDirty = 0; }
++                if (bg) { bgText(smzOnlineProofPath(curSlot), ptxt, pl); proofDirty = 0; }
++                else if (FILE *pf = fopen(smzOnlineProofPath(curSlot), "wb")) { fwrite(ptxt, 1, pl, pf); fclose(pf); proofDirty = 0; }
 +            }
 +            if (daily && trk.game == 3 && !queued && !dailyDoneMs) {   // the goal: the real time since the game's start goes to the server
 +                queued = 1;
@@ -6638,9 +6728,10 @@ index 0000000..038777c
 +        if (disc.dirty) {
 +            static char dtext[8192];
 +            int n = smz_disc_save(&disc, dtext, sizeof dtext);
-+            FILE *df = n > 0 ? fopen(discPath, "wb") : NULL;
-+            if (df) { fwrite(dtext, 1, n, df); fclose(df); disc.dirty = 0; }
++            if (n > 0 && bg) { bgText(discPath, dtext, n); disc.dirty = 0; }
++            else if (FILE *df = n > 0 ? fopen(discPath, "wb") : NULL) { fwrite(dtext, 1, n, df); fclose(df); disc.dirty = 0; }
 +        }
++        if (bg && (bgRunPath[0] || bgTextCount)) bgStart();
 +    }
 +    if (daily) {
 +        int64_t now = smzDailyNowMs();
@@ -6722,7 +6813,7 @@ index 0000000..038777c
 +        r.boss_mask = trk.boss_mask; r.crystal_mask = trk.crystal_mask;
 +        if (trk.save_ms > 0) { r.save_ms = trk.save_ms; r.save_zelda = trk.save_zelda; r.save_metroid = trk.save_metroid; }
 +    }
-+    if (smz_run_save(rp, &r) == 0) smz_tracker_commit(&trk);
++    if (runSave(rp, &r) == 0) smz_tracker_commit(&trk);
 +    if (report) smzOnlineGoalsReport(curSlot + 1, r.created, smzOnlineSlotKind(curSlot) > 0, r.goals);
 +}
 +
