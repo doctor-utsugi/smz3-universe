@@ -1140,10 +1140,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..a3f98cd
+index 0000000..a12adf4
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1007 @@
+@@ -0,0 +1,1010 @@
 +#include "smz3online.h"
 +#include "smz3run.h"
 +
@@ -1377,7 +1377,7 @@ index 0000000..a3f98cd
 +static LightLock gLock;
 +static bool gLockReady;
 +static struct { bool ready; char label[16]; int seed, days; } gMonthly, gWeekly;
-+static bool gStarted;
++static volatile int gStarted;   // 0 not yet or the seeds failed (asked again), 1 asking, 2 both seeds came
 +
 +static void lockInit() { if (!gLockReady) { LightLock_Init(&gLock); gLockReady = true; } }
 +
@@ -1388,10 +1388,12 @@ index 0000000..a3f98cd
 +    return left <= 0 ? 0 : (int)((left + 86399999) / 86400000);
 +}
 +
-+static void fetchSeeds()
++// True when both seeds came
++static bool fetchSeeds()
 +{
 +    static char reply[1024];
 +    char label[16], seedText[16];
++    bool got = true;
 +    if (httpRequest("GET", "/api/monthly", NULL, reply, sizeof reply) == 200 && jsonStr(reply, "month", label, sizeof label) && jsonStr(reply, "seed", seedText, sizeof seedText)) {
 +        time_t now = time(NULL);
 +        struct tm tmv;
@@ -1404,7 +1406,7 @@ index 0000000..a3f98cd
 +        gMonthly.days = daysUntil(end);
 +        gMonthly.ready = true;
 +        LightLock_Unlock(&gLock);
-+    }
++    } else got = false;
 +    long long ends = 0;
 +    if (httpRequest("GET", "/api/weekly", NULL, reply, sizeof reply) == 200 && jsonStr(reply, "week", label, sizeof label) && jsonStr(reply, "seed", seedText, sizeof seedText) && jsonNum(reply, "endsAt", &ends)) {
 +        LightLock_Lock(&gLock);
@@ -1413,7 +1415,8 @@ index 0000000..a3f98cd
 +        gWeekly.days = daysUntil(ends);
 +        gWeekly.ready = true;
 +        LightLock_Unlock(&gLock);
-+    }
++    } else got = false;
++    return got;
 +}
 +
 +bool smzOnlineTakeMonthly(char label[16], int *seed, int *days)
@@ -1725,7 +1728,7 @@ index 0000000..a3f98cd
 +    return -1;
 +}
 +
-+static void startupThread(void *) { fetchSeeds(); flushFinishes(); flushDaily(); }
++static void startupThread(void *) { bool seeds = fetchSeeds(); flushFinishes(); flushDaily(); gStarted = seeds ? 2 : 0; }
 +static void flushThread(void *) { flushFinishes(); flushDaily(); }
 +static void tokenThread(void *arg)
 +{
@@ -1746,7 +1749,7 @@ index 0000000..a3f98cd
 +    lockInit();
 +    netUp();
 +    if (!gHttpReady || gStarted) return;
-+    gStarted = true;
++    gStarted = 1;
 +    spawn(startupThread, NULL);
 +}
 +
@@ -2153,7 +2156,7 @@ index 0000000..a3f98cd
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..c1e9f0c
+index 0000000..6d0df7b
 --- /dev/null
 +++ b/source/smz3online.h
 @@ -0,0 +1,107 @@
@@ -2176,7 +2179,7 @@ index 0000000..c1e9f0c
 +int smzOnlineRunMode(int slot);
 +void smzOnlineMarkRun(int slot, int online, int kind);
 +
-+// Starts the seeds fetch and sends the finished runs that are waiting. Safe to call again.
++// Starts the seeds fetch and sends the finished runs that are waiting. Safe to call again: it asks again until both seeds came.
 +void smzOnlineStartup(void);
 +// Takes a fetched seed once: returns true and fills the label, seed and days left.
 +bool smzOnlineTakeMonthly(char label[16], int *seed, int *days);
@@ -2266,10 +2269,10 @@ index 0000000..c1e9f0c
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..a285296
+index 0000000..e3dfda0
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5746 @@
+@@ -0,0 +1,5756 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3438,6 +3441,9 @@ index 0000000..a285296
 +    static bool versionKnown;   // asked once per boot, again with the daily while it fails
 +    if (!versionKnown) smzOnlineRequestVersion();
 +    u64 nextInfo = osGetTime() + 60000;
++    // whatever failed (often the wifi was still joining when the menu opened) is asked again every 10 s, so Offline clears by itself
++    u64 nextRetry = osGetTime() + 10000;
++    bool ladderFailed = false;
 +    u64 nextWorld = 0;   // the world goals: fetched once they come on screen, then once a minute while they stay
 +    bool worldShown = false;
 +    refreshSlots(&ui);
@@ -3503,6 +3509,7 @@ index 0000000..a285296
 +            for (int t = 0; t < 3; t++) {
 +                int st = smzOnlineTakeLadder(t, ladderJson, sizeof ladderJson);
 +                if (st) ui_ladder_load_json(&ui, t, st == 1 ? ladderJson : NULL);
++                if (st == 2) ladderFailed = true;
 +            }
 +            static char goalsJson[8192];
 +            int gs = smzOnlineTakeGoals(goalsJson, sizeof goalsJson);
@@ -3517,6 +3524,12 @@ index 0000000..a285296
 +            static char versionJson[256];
 +            if (smzOnlineTakeVersion(versionJson, sizeof versionJson) == 1) { versionKnown = true; ui_update_load_json(&ui, versionJson, SMZ3_VERSION, 0); }
 +            if (osGetTime() >= nextInfo) { nextInfo = osGetTime() + 60000; smzDailyRequestInfo(); if (!versionKnown) smzOnlineRequestVersion(); }
++            if (osGetTime() >= nextRetry) {
++                nextRetry = osGetTime() + 10000;
++                if (!monthly.have || !weekly.have) smzOnlineStartup();
++                if (ladderFailed) { ladderFailed = false; smzOnlineRequestLadders(); }
++                if (ui.daily.loaded < 0) smzDailyRequestInfo();
++            }
 +            if (ui_player_dirty(&ui)) { char profile[96]; ui_player_text(&ui, profile, sizeof profile); smzOnlineProfileSave(profile); }
 +            static char raceJson[32768];
 +            for (int k; (k = smzRaceTake(raceJson, sizeof raceJson)) >= 0;) {
