@@ -87,7 +87,7 @@ index 591688c..0eb3100 100644
  
      TEX_COUNT,
 diff --git a/source/3dsimpl.cpp b/source/3dsimpl.cpp
-index d4fca8e..e6379e2 100644
+index d4fca8e..34f0969 100644
 --- a/source/3dsimpl.cpp
 +++ b/source/3dsimpl.cpp
 @@ -8,6 +8,7 @@
@@ -106,7 +106,65 @@ index d4fca8e..e6379e2 100644
      float tx0;
      float ty0;
      float tx1;
-@@ -765,6 +767,13 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
+@@ -438,10 +440,55 @@ void impl3dsFinalize()
+ // from the 2nd core before copying it to the actual
+ // output buffer.
+ //---------------------------------------------------------
++// The mixer runs this far behind the newest scanline, so a frame's DSP writes are queued
++// before their samples come up.
++#define DSP_MIX_LATENCY_LINES 400
++
++// Line clock of the next sample to mix, 16.16 fixed point; wraps, so only differences count
++static uint32 dspMixClock;
++static bool dspMixClockSet;
++
++//---------------------------------------------------------
++// Mix one block, applying each queued DSP write at the sample it was made on. Applying the
++// whole queue at the start of the block merged a key on with the key off that followed it
++// within the same 8 ms, and the note never played.
++//---------------------------------------------------------
+ void impl3dsGenerateSoundSamples()
+ {
+-	S9xSetAPUDSPReplay ();
+-	S9xMixSamplesIntoTempBuffer(SND3DS_SAMPLES_PER_LOOP * 2);
++	const int samples = SND3DS_SAMPLES_PER_LOOP;
++	const int32 step = Settings.PAL ? 31954 : 32247;	// scanlines per 32 kHz sample, 16.16
++
++	int32 drift = (int32)(dspMixClock - ((S9xDSPLineClock - DSP_MIX_LATENCY_LINES) << 16));
++	if (!dspMixClockSet || drift > (1024 << 16) || drift < -(1024 << 16))
++	{
++		dspMixClock -= drift;
++		dspMixClockSet = true;
++	}
++	else
++		dspMixClock -= drift >> 5;
++
++	int32 target = IAPU.DSPWriteIndex;
++	bool flush = ((target - IAPU.DSPReplayIndex) & (DSPWRITEBUFFERSIZE - 1)) > DSPWRITEBUFFERSIZE / 2;
++
++	S9xGenerateSilenceIntoTempBuffer(samples * 2);
++	int pos = 0;
++	while (IAPU.DSPReplayIndex != target)
++	{
++		int32 i = IAPU.DSPReplayIndex;
++		int32 at = flush ? 0 : (int32)((IAPU.DSPWriteBuffer[i].line << 16) - dspMixClock) / step;
++		if (at >= samples && at < samples * 16)
++			break;
++		if (at > pos && at < samples)
++		{
++			S9xMixSamplesRangeIntoTempBuffer(pos * 2, at * 2);
++			pos = at;
++		}
++		S9xSetAPUDSP(IAPU.DSPWriteBuffer[i].byte, IAPU.DSPWriteBuffer[i].reg);
++		IAPU.DSPReplayIndex = (i + 1) & (DSPWRITEBUFFERSIZE - 1);
++	}
++	S9xMixSamplesRangeIntoTempBuffer(pos * 2, samples * 2);
++
++	dspMixClock += step * samples;
+ }
+ 
+ 
+@@ -765,6 +812,13 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
  		GPU3DS.currentRenderState.textureEnv = TEX_ENV_REPLACE_TEXTURE0;
  	}
  
@@ -120,7 +178,7 @@ index d4fca8e..e6379e2 100644
  	if (gameScreenViewport.cHeight == SNES_HEIGHT_EXTENDED) {
  		// mask the bottom pixel row for games with extended height by drawing a 1px black bar
      	// without this, game background would be visible below the 239px game screen
-@@ -796,6 +805,7 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
+@@ -796,6 +850,7 @@ static void impl3dsSceneRenderEye(bool firstFrame, bool paused, float pauseProgr
  		notif3dsDrawRich();
  		notif3dsDrawIndicators();
  		notif3dsDraw(UI_NOTIF_FPS);   // last: overlays the toast corner rather than moving it
@@ -128,7 +186,7 @@ index d4fca8e..e6379e2 100644
  	}
  }
  
-@@ -873,12 +883,25 @@ void impl3dsSceneRender(bool firstFrame, bool paused) {
+@@ -873,12 +928,25 @@ void impl3dsSceneRender(bool firstFrame, bool paused) {
      gameScreenViewport.sy0 = (SCREEN_HEIGHT - gameScreenViewport.cHeight) / 2;
      gameScreenViewport.sx1 = gameScreenViewport.sx0 + gameScreenViewport.sWidth;
      gameScreenViewport.sy1 = gameScreenViewport.sy0 + gameScreenViewport.cHeight;
@@ -154,7 +212,7 @@ index d4fca8e..e6379e2 100644
  
  	bool isFullScreen = gameScreenViewport.sWidth >= settings3DS.GameScreenWidth && gameScreenViewport.cHeight >= SCREEN_HEIGHT;
  	bool drawBackground = !isFullScreen;
-@@ -920,6 +943,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
+@@ -920,6 +988,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
  
  	notif3dsTick();
  	notif3dsSync();
@@ -162,7 +220,7 @@ index d4fca8e..e6379e2 100644
  
  	// Draw the previous frame before resetting its layer list and PPU.
  	gpu3dsFrameBegin(screenshot.dirty ? C3D_FRAME_SYNCDRAW : 0, pendingSnesDraw);
-@@ -983,6 +1007,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
+@@ -983,6 +1052,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
  //---------------------------------------------------------
  bool impl3dsSaveStateSlot(int slotNumber)
  {
@@ -170,7 +228,7 @@ index d4fca8e..e6379e2 100644
      char path[PATH_MAX], ext[16];
      snprintf(ext, sizeof(ext), ".%d.frz", slotNumber);
      file3dsGetRelatedPath(Memory.ROMFilename, path, sizeof(path), ext, "savestates");
-@@ -1000,7 +1025,7 @@ bool impl3dsSaveStateSlot(int slotNumber)
+@@ -1000,7 +1070,7 @@ bool impl3dsSaveStateSlot(int slotNumber)
  
  bool impl3dsSaveStateAuto()
  {
@@ -179,7 +237,7 @@ index d4fca8e..e6379e2 100644
          return true;
  
      char path[PATH_MAX];
-@@ -1021,7 +1046,9 @@ bool impl3dsSaveState(const char* filename)
+@@ -1021,7 +1091,9 @@ bool impl3dsSaveState(const char* filename)
          return false;
      }
  
@@ -190,7 +248,7 @@ index d4fca8e..e6379e2 100644
  }
  
  //---------------------------------------------------------
-@@ -1032,6 +1059,7 @@ bool impl3dsSaveState(const char* filename)
+@@ -1032,6 +1104,7 @@ bool impl3dsSaveState(const char* filename)
  //---------------------------------------------------------
  bool impl3dsLoadStateSlot(int slotNumber)
  {
@@ -198,7 +256,7 @@ index d4fca8e..e6379e2 100644
      char path[PATH_MAX], ext[16];
      snprintf(ext, sizeof(ext), ".%d.frz", slotNumber);
      file3dsGetRelatedPath(Memory.ROMFilename, path, sizeof(path), ext, "savestates");
-@@ -1071,6 +1099,7 @@ bool impl3dsLoadState(const char* filename)
+@@ -1071,6 +1144,7 @@ bool impl3dsLoadState(const char* filename)
  	if (success)
  	{
  		gpu3dsInitializeMode7Vertexes();
@@ -750,6 +808,69 @@ index 9688a80..c195f76 100644
          case UI_SCANLINE:               return "scanline";
          default:                        return "invalid";
      }
+diff --git a/source/Snes9x/apu.cpp b/source/Snes9x/apu.cpp
+index 1a8e858..6a1fd89 100644
+--- a/source/Snes9x/apu.cpp
++++ b/source/Snes9x/apu.cpp
+@@ -21,6 +21,7 @@ extern int32 env_counter_table[32];
+ int spc_is_dumping=0;
+ int spc_is_dumping_temp;
+ uint8 spc_dump_dsp[0x100];
++volatile uint32 S9xDSPLineClock = 0;
+ 
+ // Keep at file scope so S9xResetAPU can clear it on ROM reset
+ static uint8 DSPKeyOn;
+@@ -165,6 +166,7 @@ void S9xSetAPUDSPLater (uint8 byte)
+ 
+ 	IAPU.DSPWriteBuffer[IAPU.DSPWriteIndex].reg = reg;	
+ 	IAPU.DSPWriteBuffer[IAPU.DSPWriteIndex].byte = byte;	
++	IAPU.DSPWriteBuffer[IAPU.DSPWriteIndex].line = S9xDSPLineClock;
+ 
+ 	IAPU.DSPWriteIndex = (IAPU.DSPWriteIndex + 1) & (DSPWRITEBUFFERSIZE - 1);
+ 
+diff --git a/source/Snes9x/apu.h b/source/Snes9x/apu.h
+index 4abc0a9..4620120 100644
+--- a/source/Snes9x/apu.h
++++ b/source/Snes9x/apu.h
+@@ -7,7 +7,7 @@
+ #include "spc700.h"
+ 
+ 
+-#define DSPWRITEBUFFERSIZE 1024
++#define DSPWRITEBUFFERSIZE 4096
+ 
+ struct SIAPU
+ {
+@@ -39,6 +39,7 @@ struct SIAPU
+     struct {
+         uint8   reg;
+         uint8   byte;
++        uint32  line;
+     } DSPWriteBuffer[DSPWRITEBUFFERSIZE];
+     uint8  DSPCopy[0x80];
+ };
+@@ -117,6 +118,9 @@ void S9xSetAPUControl (uint8 byte);
+ void S9xSetAPUDSP (uint8 byte, uint8 reg);
+ void S9xSetAPUDSPLater (uint8 byte);
+ void S9xSetAPUDSPReplay ();
++
++// Scanlines emulated since boot; never saved, so it only moves forward
++extern volatile uint32 S9xDSPLineClock;
+ uint8 S9xGetAPUDSP ();
+ void S9xSetAPUTimer (uint16 Address, uint8 byte);
+ void S9xUpdateAPUTimer (void);
+diff --git a/source/Snes9x/cpuexec.cpp b/source/Snes9x/cpuexec.cpp
+index 69b00ac..94da757 100644
+--- a/source/Snes9x/cpuexec.cpp
++++ b/source/Snes9x/cpuexec.cpp
+@@ -467,6 +467,7 @@ void S9xDoHBlankProcessing ()
+ 
+ 			CPU.NextEvent = -1;
+ 			ICPU.Scanline++;
++			S9xDSPLineClock++;
+ 
+ 			if (++CPU.V_Counter >= (Settings.PAL ? SNES_MAX_PAL_VCOUNTER : SNES_MAX_NTSC_VCOUNTER))
+ 			{
 diff --git a/source/Snes9x/gfx.cpp b/source/Snes9x/gfx.cpp
 index d8bd9ec..89ada0a 100644
 --- a/source/Snes9x/gfx.cpp
@@ -943,6 +1064,60 @@ index d14ab3c..c8df7fb 100644
 +size_t S9xFreezeToMemory (uint8 *buf, size_t cap);
 +bool8 S9xUnfreezeFromMemory (const uint8 *buf, size_t len);
  END_EXTERN_C
+ 
+ #endif
+diff --git a/source/Snes9x/soundux.cpp b/source/Snes9x/soundux.cpp
+index 41097b5..fcfd38f 100644
+--- a/source/Snes9x/soundux.cpp
++++ b/source/Snes9x/soundux.cpp
+@@ -1239,6 +1239,9 @@ int32 wave[SOUND_BUFFER_SIZE];
+ int32 noise_index = 0;
+ int32 noise_count = 0;
+ 
++// Slice of the 512-entry stereo block MixStereo fills; the whole block unless a range is mixed
++static uint32 mixFrom = 0, mixTo = 512;
++
+ inline void __attribute__((always_inline)) MixComputeEnvelopeAndSample(
+ 	int J, Channel *ch, int32 freq,
+ 	bool echo, bool env, bool mod1, bool mod2)
+@@ -1251,7 +1254,7 @@ inline void __attribute__((always_inline)) MixComputeEnvelopeAndSample(
+ 		ch->sample_pointer = 0;
+ 	}
+ 
+-	for (uint32 I = 0; I < (uint32) 512; I += 2)
++	for (uint32 I = mixFrom; I < mixTo; I += 2)
+ 	{
+ 		if (env)
+ 		{
+@@ -3083,6 +3086,18 @@ void S9xMixSamplesIntoTempBuffer(int sample_count)
+ 	}
+ }
+ 
++// Mixes entries [from, to) of an already cleared temp buffer, so DSP writes can land between slices
++void S9xMixSamplesRangeIntoTempBuffer(int from, int to)
++{
++	if (so.mute_sound || to <= from)
++		return;
++	mixFrom = from;
++	mixTo = to;
++	MixStereo (to - from);
++	mixFrom = 0;
++	mixTo = 512;
++}
++
+ void S9xGenerateSilenceIntoTempBuffer(int sample_count)
+ {
+     if (!so.mute_sound)
+diff --git a/source/Snes9x/soundux.h b/source/Snes9x/soundux.h
+index ba6e8c4..409f827 100644
+--- a/source/Snes9x/soundux.h
++++ b/source/Snes9x/soundux.h
+@@ -192,6 +192,7 @@ EXTERN_C void S9xMixSamplesO (uint8 *buffer, int sample_count, int byte_offset);
+ 
+ void S9xMixSamplesIntoTempBuffer(int sample_count);
+ void S9xGenerateSilenceIntoTempBuffer(int sample_count);
++void S9xMixSamplesRangeIntoTempBuffer(int from, int to);
+ void S9xApplyMasterVolumeOnTempBufferIntoLeftRightBuffers(signed short *leftBuffer, signed short *rightBuffer, int sample_count);
  
  #endif
 diff --git a/source/bufferedfilewriter.h b/source/bufferedfilewriter.h
