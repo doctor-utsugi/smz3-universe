@@ -1919,6 +1919,8 @@ static void play(int slot, int game_save_only)
     Uint64 freq = SDL_GetPerformanceFrequency(), next = SDL_GetPerformanceCounter(), last_tick = next, last_save = next;
     int64_t last_tick_ms = 0;
     (void)last_tick_ms;
+    Uint32 mouse_at = SDL_GetTicks();   /* the pointer hides while the game moves and the mouse has been still a moment */
+    int pointer_off = 0;
     while (running) {
         {
             size_t lwl;
@@ -1929,6 +1931,7 @@ static void play(int slot, int game_save_only)
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             int pcode = pad_event_code(&e);
+            if (e.type == SDL_MOUSEMOTION || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEWHEEL) mouse_at = SDL_GetTicks();
             if (e.type == SDL_KEYDOWN) help_note_keyboard();
             else if (pcode >= 0 || e.type == SDL_CONTROLLERBUTTONDOWN) help_note_pad(pad);
             if (e.type == SDL_QUIT) { running = 0; g_quit = 1; }
@@ -2164,6 +2167,8 @@ static void play(int slot, int game_save_only)
         fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || (win2 ? hk_held(pad, HK_FAST) : pad_held(pad, pad_code(PA_FAST))));
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
         int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || waiting || rg.card;
+        int hide = !hold && !show && SDL_GetTicks() - mouse_at > 1500;
+        if (hide != pointer_off) { SDL_ShowCursor(hide ? SDL_DISABLE : SDL_ENABLE); pointer_off = hide; }
         if (!hold) {
             emu_set_pad(input);
             /* fast forward keeps the music at its pitch: one frame of sound out of every four, each one blended into the
@@ -2488,6 +2493,7 @@ static void play(int slot, int game_save_only)
         }
     }
 
+    SDL_ShowCursor(SDL_ENABLE);
     if (win2) dual_close();
     if (rg.on) {   /* out before the finish: the rivals see it at once */
         const SmzRacePlayer *me = smz_race_me(&ui.race.room);
