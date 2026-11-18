@@ -853,6 +853,35 @@ index 2295d84..feba7d4 100644
  		}
  
  		//for (int i = 0; i < 16; i ++)
+diff --git a/source/Snes9x/ppu.h b/source/Snes9x/ppu.h
+index 661daba..7e8cfa8 100644
+--- a/source/Snes9x/ppu.h
++++ b/source/Snes9x/ppu.h
+@@ -809,10 +809,7 @@ STATIC inline void REGISTER_2122(uint8 Byte)
+     {
+         if (cgaddr == 0)
+         {
+-            S9xUpdateVerticalSectionValue(&IPPU.BackdropColorSections,
+-                BUILD_PIXEL(IPPU.XB[*cgdata & 0x1F],
+-                          IPPU.XB[(*cgdata >> 5) & 0x1F],
+-                          IPPU.XB[(*cgdata >> 10) & 0x1F]));
++            S9xUpdateVerticalSectionValue(&IPPU.BackdropColorSections, S9xVividColour(*cgdata));
+         }
+         PPU.CGFLIP ^= 1;
+         return;
+@@ -823,11 +820,7 @@ STATIC inline void REGISTER_2122(uint8 Byte)
+     IPPU.Red[cgaddr] = IPPU.XB[color & 0x1F];
+     IPPU.Green[cgaddr] = IPPU.XB[(color >> 5) & 0x1F];
+     IPPU.Blue[cgaddr] = IPPU.XB[(color >> 10) & 0x1F];
+-    IPPU.ScreenColors[cgaddr] = BUILD_PIXEL(
+-        IPPU.Red[cgaddr],
+-        IPPU.Green[cgaddr],
+-        IPPU.Blue[cgaddr]
+-    );
++    IPPU.ScreenColors[cgaddr] = S9xVividColour(color);   // SMZ3: the Colours option (gfx.cpp)
+     const uint16 newScreenColor = IPPU.ScreenColors[cgaddr];
+ 
+     if (newScreenColor != oldScreenColor)
 diff --git a/source/Snes9x/snapshot.cpp b/source/Snes9x/snapshot.cpp
 index 76fb448..4769b2e 100644
 --- a/source/Snes9x/snapshot.cpp
