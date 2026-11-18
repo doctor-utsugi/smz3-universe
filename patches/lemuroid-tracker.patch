@@ -8277,10 +8277,10 @@ index 0000000..3d557e1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Rewind.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Rewind.kt
 new file mode 100644
-index 0000000..087bc6f
+index 0000000..a20e3d8
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Rewind.kt
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,139 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8325,6 +8325,7 @@ index 0000000..087bc6f
 +    fun attach(context: Context, retroView: GLRetroView) {
 +        view = retroView
 +        isOpen = false
++        if (Smz3RaceState.on && !Smz3RaceState.started) retroView.setHeld(true)   // a race's game waits on its first frame for the countdown
 +        retroView.rewindEnabled = allowed(context)
 +    }
 +
@@ -12101,10 +12102,10 @@ index 0000000..2307c70
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..cece1f9
+index 0000000..2ec35d8
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,544 @@
+@@ -0,0 +1,550 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -12137,6 +12138,9 @@ index 0000000..cece1f9
 +    class Line(val seq: Long, val kind: String, val pid: String, val name: String, val text: String)
 +
 +    var on = false
++    /** The race's countdown ended in this game process: a remade activity (a turn of the screen) need not hold the core
++     * until its first poll. */
++    var started = false
 +    var daily = false
 +    /** Sends a daily chat line (set by the daily overlay); a race's lines go out with its polls. */
 +    var dailySay: ((String) -> Unit)? = null
@@ -12489,7 +12493,10 @@ index 0000000..cece1f9
 +        // a paused game must not move, nor may any game while a pause vote is open; before the start it waits for 0, like everyone
 +        val voting = state == "running" && voteBy.isNotEmpty() && card?.isShowing != true
 +        val waiting = state == "running" && goAt > 0 && goIn > 0
-+        setHeld(on && (back || kept || voting || waiting))
++        if (state == "running" && goAt > 0 && goIn <= 0) Smz3RaceState.started = true
++        // until the first poll says where the countdown is, the core stands still too (Smz3Rewind.attach held it at once)
++        val unknown = !primed && !Smz3RaceState.started
++        setHeld(on && (unknown || back || kept || voting || waiting))
 +        if (voteOpen() && card?.isShowing != true && boxKind != "vote") showVote()
 +        else if (voting && !voteOpen() && boxKind != "wait" && boxKind != "pick") showWait()
 +        else if (!voting && (boxKind == "vote" || boxKind == "wait")) { box?.dismiss(); boxKind = "" }
