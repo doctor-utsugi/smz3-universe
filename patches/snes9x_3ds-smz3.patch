@@ -87,7 +87,7 @@ index 591688c..0eb3100 100644
  
      TEX_COUNT,
 diff --git a/source/3dsimpl.cpp b/source/3dsimpl.cpp
-index d4fca8e..0992ac2 100644
+index d4fca8e..e6379e2 100644
 --- a/source/3dsimpl.cpp
 +++ b/source/3dsimpl.cpp
 @@ -8,6 +8,7 @@
@@ -128,7 +128,7 @@ index d4fca8e..0992ac2 100644
  	}
  }
  
-@@ -873,6 +883,11 @@ void impl3dsSceneRender(bool firstFrame, bool paused) {
+@@ -873,12 +883,25 @@ void impl3dsSceneRender(bool firstFrame, bool paused) {
      gameScreenViewport.sy0 = (SCREEN_HEIGHT - gameScreenViewport.cHeight) / 2;
      gameScreenViewport.sx1 = gameScreenViewport.sx0 + gameScreenViewport.sWidth;
      gameScreenViewport.sy1 = gameScreenViewport.sy0 + gameScreenViewport.cHeight;
@@ -140,7 +140,21 @@ index d4fca8e..0992ac2 100644
  	
      // Start half a pixel in from the edges so linear filtering can't leave a thin line
      gameScreenViewport.tx0 = 0.5f;
-@@ -920,6 +935,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
+     gameScreenViewport.tx1 = static_cast<float>(GPU3DSExt.renderWidth) - 0.5f;
+     gameScreenViewport.ty0 = static_cast<float>(cropTopSource) + (cropTopSource == 0 ? 0.5f : 0.0f);
+     gameScreenViewport.ty1 = static_cast<float>(PPU.ScreenHeight - cropBottomSource) - (cropBottomSource == 0 ? 0.5f : 0.0f);
++    // SMZ3: one screen pixel per SNES pixel takes the texture edge to edge. The half-pixel inset maps 255 texels onto 256
++    // pixels (223 onto 224), so one column and one row showed twice and another not at all.
++    if (gameScreenViewport.sWidth == GPU3DSExt.renderWidth && gameScreenViewport.cHeight == srcLines) {
++        gameScreenViewport.tx0 = 0.0f;
++        gameScreenViewport.tx1 = static_cast<float>(GPU3DSExt.renderWidth);
++        gameScreenViewport.ty0 = static_cast<float>(cropTopSource);
++        gameScreenViewport.ty1 = static_cast<float>(PPU.ScreenHeight - cropBottomSource);
++    }
+ 
+ 	bool isFullScreen = gameScreenViewport.sWidth >= settings3DS.GameScreenWidth && gameScreenViewport.cHeight >= SCREEN_HEIGHT;
+ 	bool drawBackground = !isFullScreen;
+@@ -920,6 +943,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
  
  	notif3dsTick();
  	notif3dsSync();
@@ -148,7 +162,7 @@ index d4fca8e..0992ac2 100644
  
  	// Draw the previous frame before resetting its layer list and PPU.
  	gpu3dsFrameBegin(screenshot.dirty ? C3D_FRAME_SYNCDRAW : 0, pendingSnesDraw);
-@@ -983,6 +999,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
+@@ -983,6 +1007,7 @@ void impl3dsRunOneFrame(bool firstFrame, bool skipDrawingFrame)
  //---------------------------------------------------------
  bool impl3dsSaveStateSlot(int slotNumber)
  {
@@ -156,7 +170,7 @@ index d4fca8e..0992ac2 100644
      char path[PATH_MAX], ext[16];
      snprintf(ext, sizeof(ext), ".%d.frz", slotNumber);
      file3dsGetRelatedPath(Memory.ROMFilename, path, sizeof(path), ext, "savestates");
-@@ -1000,7 +1017,7 @@ bool impl3dsSaveStateSlot(int slotNumber)
+@@ -1000,7 +1025,7 @@ bool impl3dsSaveStateSlot(int slotNumber)
  
  bool impl3dsSaveStateAuto()
  {
@@ -165,7 +179,7 @@ index d4fca8e..0992ac2 100644
          return true;
  
      char path[PATH_MAX];
-@@ -1021,7 +1038,9 @@ bool impl3dsSaveState(const char* filename)
+@@ -1021,7 +1046,9 @@ bool impl3dsSaveState(const char* filename)
          return false;
      }
  
@@ -176,7 +190,7 @@ index d4fca8e..0992ac2 100644
  }
  
  //---------------------------------------------------------
-@@ -1032,6 +1051,7 @@ bool impl3dsSaveState(const char* filename)
+@@ -1032,6 +1059,7 @@ bool impl3dsSaveState(const char* filename)
  //---------------------------------------------------------
  bool impl3dsLoadStateSlot(int slotNumber)
  {
@@ -184,7 +198,7 @@ index d4fca8e..0992ac2 100644
      char path[PATH_MAX], ext[16];
      snprintf(ext, sizeof(ext), ".%d.frz", slotNumber);
      file3dsGetRelatedPath(Memory.ROMFilename, path, sizeof(path), ext, "savestates");
-@@ -1071,6 +1091,7 @@ bool impl3dsLoadState(const char* filename)
+@@ -1071,6 +1099,7 @@ bool impl3dsLoadState(const char* filename)
  	if (success)
  	{
  		gpu3dsInitializeMode7Vertexes();
