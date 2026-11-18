@@ -33,10 +33,9 @@ def picture():
 
 
 def sound(src, path, secs=3.0):
-    """The banner sound from assets/3ds/intro.ogg: the HOME menu plays at most 3 seconds, so it is cut there and
-    faded out. 16-bit stereo at 44100 Hz, like FBI's banner (a mono 22050 Hz one came out as a screech)."""
+    """The banner sound from assets/3ds/intro.ogg, already cut to end by itself within the HOME menu's 3 seconds.
+    16-bit stereo at 44100 Hz, like FBI's banner (a mono 22050 Hz one came out as a screech)."""
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-t", str(secs),
-                    "-af", "volume=-1.5dB,afade=t=out:st=%.2f:d=0.6" % (secs - 0.6),
                     "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", "-map_metadata", "-1", path], check=True)
 
 
