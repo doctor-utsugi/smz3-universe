@@ -30,7 +30,7 @@ index 31fa536..2caaa30 100644
  PICAFILES          := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
  SHLISTFILES        := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
 diff --git a/resources/AppInfo b/resources/AppInfo
-index 1cbed11..1b65c34 100644
+index 1cbed11..cdfd311 100644
 --- a/resources/AppInfo
 +++ b/resources/AppInfo
 @@ -1,8 +1,8 @@
@@ -39,8 +39,8 @@ index 1cbed11..1b65c34 100644
 -APP_AUTHOR = bubble2k16, matbo87
 -APP_PRODUCT_CODE = CTR-P-SNSX
 -APP_UNIQUE_ID = 0x3849
-+APP_TITLE = SMZ3
-+APP_DESCRIPTION = Super Metroid and A Link to the Past randomizer runs.
++APP_TITLE = SMZ3 Universe
++APP_DESCRIPTION = SMZ3 Universe
 +APP_AUTHOR = doctor-utsugi
 +APP_PRODUCT_CODE = CTR-P-SMZ3
 +APP_UNIQUE_ID = 0xFF5A3
@@ -712,10 +712,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..d4d4929
+index 0000000..a3f98cd
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1005 @@
+@@ -0,0 +1,1007 @@
 +#include "smz3online.h"
 +#include "smz3run.h"
 +
@@ -733,7 +733,9 @@ index 0000000..d4d4929
 +}
 +
 +#define ONLINE_DIR SMZ_DIR "/online"
-+#define BASE_URL "https://smz3.indieviral.com"
++// plain HTTP: the console's SSL module never got through to the server (no request reached it), and the ladder holds
++// no secrets, a name, a country and times
++#define BASE_URL "http://smz3.indieviral.com"
 +
 +static char *pathOf(const char *fmt, int slot)
 +{
