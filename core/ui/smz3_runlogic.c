@@ -70,6 +70,14 @@ int smz_logic_build(SmzLogic *l, const char *json)
     return l->valid ? 0 : -1;
 }
 
+int smz_logic_item_at(const SmzLogic *l, int j)
+{
+    if (!l->valid || j < 0 || (unsigned)j >= smz3_location_count) return -1;
+    for (int q = 0; q < SMZ_LOC_NAME_COUNT; q++)
+        if (!strcmp(SMZ_LOC_NAMES[q].name, smz3_locations[j].id)) return SMZ_LOC_NAMES[q].id >= 0 && SMZ_LOC_NAMES[q].id < 512 ? l->seed.world.item_at[SMZ_LOC_NAMES[q].id] : -1;
+    return -1;
+}
+
 int smz_logic_reachable(const SmzLogic *l, const int *items, int n, uint8_t *in_logic, int cap)
 {
     if (!l->valid) return 0;

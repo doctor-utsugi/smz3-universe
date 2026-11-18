@@ -16,6 +16,8 @@ typedef struct {
 int smz_logic_build(SmzLogic *l, const char *settings_json);
 /* The settings JSON fields the logic depends on, as the generator takes them. */
 int smz_logic_settings(const char *settings_json, SmzSettings *s);
+/* The item type the seed placed at smz3_locations[j], -1 when unknown. */
+int smz_logic_item_at(const SmzLogic *l, int j);
 /* in_logic[i] (i over smz3_locations) is set for the checks reachable with these ItemType ids. Returns how many are. */
 int smz_logic_reachable(const SmzLogic *l, const int *items, int n, uint8_t *in_logic, int cap);
 

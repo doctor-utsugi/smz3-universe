@@ -45,6 +45,7 @@
 #include "smz3_romsetup.h"
 #include "pc_idle.h"
 #include "smz3_runlogic.h"
+#include "smz3_text.h"
 #include "smz3_tracker.h"
 #include "smz3_ui_gen.h"
 
@@ -116,6 +117,7 @@ static void generate(GenJob *j)
 }
 
 typedef struct { SmzLogic *logic; const char *json; int rc; } LogicJob;
+static int16_t g_found[512];   /* the item type at each check of the run being played (smz3_locations order), -1 unknown */
 static void *logic_thread(void *arg) { LogicJob *j = arg; j->rc = smz_logic_build(j->logic, j->json); return NULL; }
 
 static void rom_file(const SmzRun *r, char *out, size_t cap)
@@ -1145,7 +1147,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         x += tw;
     }
     float y = y0 + 56 * u, line = 26 * u, bottom = win_h - y0 - 10 * u;
-    char s[96];
+    char s[192];
     if (tab == TAB_RUN) {
         fmt_time(t->elapsed_ms ? t->elapsed_ms : r->play_ms, s, sizeof s);
         gfx_text(x0, y, 30 * u, C(0xE8, 0xEC, 0xF2), 0, r->name); y += 44 * u;
@@ -1218,6 +1220,10 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             const smz3_location *l = &smz3_locations[first + i];
             int done = t->cleared[first + i];
             snprintf(s, sizeof s, "%s %s  -  %s", done ? "[x]" : "[ ]", l->game == SMZ3_GAME_ZELDA ? "Z" : "M", l->name);
+            if (done && g_found[first + i] >= 0) {   /* the spot's name is the vanilla one: say what it gave in this seed */
+                const char *got = smz_item_display_name(g_found[first + i]);
+                if (got) snprintf(s + strlen(s), sizeof s - strlen(s), "   ->  %s", got);
+            }
             gfx_text(x0, y + i * line, 19 * u, done ? C(0x4C, 0xC3, 0x8A) : in_logic && !in_logic[first + i] ? C(0x5A, 0x66, 0x78) : C(0xE8, 0xEC, 0xF2), 0, s);
         }
         snprintf(s, sizeof s, "%d-%d of %u", first + 1, first + rows, smz3_location_count);
@@ -1831,10 +1837,11 @@ static void play(int slot, int game_save_only)
     int reach = strstr(run.settings, "\"showReachable\"") ? json_flag(run.settings, "showReachable", 0) : !strcmp(run.name, "Cozy run");
     if (strstr(run.settings, "\"challenge\":true")) reach = 0;   /* a daily challenge: collected or not, nothing more */
     dungeon_set_fixed_keys(strstr(run.settings, "\"showFixedKeys\"") ? json_flag(run.settings, "showFixedKeys", 0) : !strcmp(run.name, "Cozy run"));
-    if (reach && strstr(run.settings, "\"helpMode\":\"all\"")) {
+    {   /* the seed, rebuilt: what each collected check gave, and what is in logic when the run allows it */
         LogicJob lj = {&logic, run.settings, -1};
         run_big(logic_thread, &lj);
-        have_logic = lj.rc == 0;
+        have_logic = lj.rc == 0 && reach && strstr(run.settings, "\"helpMode\":\"all\"");
+        for (int j = 0; j < 512; j++) g_found[j] = lj.rc == 0 ? (int16_t)smz_logic_item_at(&logic, j) : -1;
     }
     uint32_t logic_key = 0;
     Uint32 next_token = 0;

@@ -9,6 +9,9 @@
 #define SMZ_TEXT_TABLE_SIZE 0x7355
 
 /* Compiles dialog markup (UTF-8) into game bytes. Returns the byte count, or -1 on an unknown command. */
+/* The plain name of an item type ("Morphing Ball", "Bombos"), NULL for a type with none. */
+const char *smz_item_display_name(int type);
+
 int smz_dialog_compiled(const char *text, uint8_t *out, int cap);
 /* The simple 3 row format used by the fixed text slots. */
 int smz_dialog_simple(const char *text, uint8_t *out, int cap);

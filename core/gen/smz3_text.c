@@ -378,6 +378,12 @@ static int loc_region(int loc)
     return 0;
 }
 
+const char *smz_item_display_name(int type)
+{
+    if (type < 0 || type > 255 || SMZ_ITEM_TEXT[type].name.n == 0) return NULL;
+    return SMZ_ITEM_TEXT[type].name.v[0];
+}
+
 static const char *item_text_name(int type)
 {
     const char *p = pick(SMZ_ITEM_TEXT[type].articled);
