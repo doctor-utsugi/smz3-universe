@@ -1268,6 +1268,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     }
     if (!chat) bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};
     if (tab != ct) bar[nb++] = (HelpItem){"X", "V", "Video"};
+    if (tab != ct) bar[nb++] = (HelpItem){"START", "O", "Options"};
     bar[nb++] = (HelpItem){"R3", "Tab", "Close"};
     help_bar(0, win_h - 44 * u, (float)win_w, 44 * u, bar, nb);
 }
@@ -1766,6 +1767,10 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
     }
 }
 
+static UiButton map_key(SDL_Keycode k, int *ok);
+static void menu_button(UiButton b);
+static int g_menu_quit;   /* Quit picked in the options */
+
 static void play(int slot, int game_save_only)
 {
     SmzRun run;
@@ -1932,6 +1937,30 @@ static void play(int slot, int game_save_only)
         while (SDL_PollEvent(&e)) {
             int pcode = pad_event_code(&e);
             if (e.type == SDL_MOUSEMOTION || e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEWHEEL) mouse_at = SDL_GetTicks();
+            if (settings_active() && e.type != SDL_QUIT) {   /* the options over the game take every key and button until they close */
+                if (e.type == SDL_KEYDOWN) help_note_keyboard(); else if (pcode >= 0) help_note_pad(pad);
+                if (settings_raw(&e, pcode)) continue;
+                int ok = 0;
+                UiButton b = BTN_A;
+                if (e.type == SDL_KEYDOWN) b = map_key(e.key.keysym.sym, &ok);
+                else if (pcode >= 0) {
+                    ok = 1;
+                    switch (pcode) {
+                    case SDL_CONTROLLER_BUTTON_A: b = BTN_A; break;
+                    case SDL_CONTROLLER_BUTTON_B: case SDL_CONTROLLER_BUTTON_START: b = BTN_B; break;
+                    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: b = BTN_L; break;
+                    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: b = BTN_R; break;
+                    case SDL_CONTROLLER_BUTTON_BACK: b = BTN_SELECT; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_UP: b = BTN_UP; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: b = BTN_DOWN; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: b = BTN_LEFT; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: b = BTN_RIGHT; break;
+                    default: ok = 0;
+                    }
+                }
+                if (ok) menu_button(b);
+                continue;
+            }
             if (e.type == SDL_KEYDOWN) help_note_keyboard();
             else if (pcode >= 0 || e.type == SDL_CONTROLLERBUTTONDOWN) help_note_pad(pad);
             if (e.type == SDL_QUIT) { running = 0; g_quit = 1; }
@@ -1966,6 +1995,7 @@ static void play(int slot, int game_save_only)
                 if (show && tab == chat_tab && race_chat_key(k)) continue;
                 if (!show && !leaving && sc_key_press(k)) continue;   /* an item shortcut; it acts only in normal play */
                 if (k == SDLK_v && !leaving) { vpanel = 1; show = 0; continue; }
+                if (k == SDLK_o && show && !leaving) { settings_open(); continue; }
                 if (leaving) {
                     if (k == SDLK_p && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
                     else if (k == SDLK_RETURN) exit_at = SDL_GetTicks();
@@ -2040,6 +2070,7 @@ static void play(int slot, int game_save_only)
                 if (!show && !leaving && sc_pad_press(b)) continue;
                 if (show && tab == chat_tab && race_chat_pad(b)) continue;
                 if (show && b == SDL_CONTROLLER_BUTTON_X) { vpanel = 1; show = 0; continue; }
+                if (show && b == SDL_CONTROLLER_BUTTON_START && !leaving) { settings_open(); continue; }
                 if (leaving) {
                     if (b == SDL_CONTROLLER_BUTTON_Y && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
                     else if (b == SDL_CONTROLLER_BUTTON_A) exit_at = SDL_GetTicks();
@@ -2162,11 +2193,13 @@ static void play(int slot, int game_save_only)
         }
         int waiting = rg.on && go_in > 0;   /* the game stays on its first frame until the countdown hits 0, the same moment for everyone */
         int frozen = rg.on && (rg.back || rg.kept || rg.pick || (ui.race.room.state == RACE_RUNNING && ui.race.room.vote_by[0] && !rg.card));   /* a paused game must not move; a pause vote stops everyone until it is settled */
-        int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || frozen || rg.card ? 0 : pad_bits(keys);
+        if (g_menu_quit) { g_menu_quit = 0; for (int i = 0; i < 4 && settings_active(); i++) settings_nav(BTN_B); show = 0; leaving = 1; }   /* Quit from the options asks to leave the run first */
+        int opts = settings_active();   /* the options opened from the tracker */
+        int input = show || opts || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || frozen || rg.card ? 0 : pad_bits(keys);
         SDL_Keycode ffk = pad_key(PA_FAST);
         fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || (win2 ? hk_held(pad, HK_FAST) : pad_held(pad, pad_code(PA_FAST))));
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
-        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || waiting || rg.card;
+        int hold = (show && pause_on_overlay) || opts || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || waiting || rg.card;
         int hide = !hold && !show && SDL_GetTicks() - mouse_at > 1500;
         if (hide != pointer_off) { SDL_ShowCursor(hide ? SDL_DISABLE : SDL_ENABLE); pointer_off = hide; }
         if (!hold) {
@@ -2375,6 +2408,12 @@ static void play(int slot, int game_save_only)
                 gfx_text(gx + gw / 2, wh - 57 * u, px, msg == hint_note ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2), 1, msg);
             }
         }
+        if (!show && !ren2 && !rw_open && !rg.card) {   /* one window: the button that opens the tracker, bottom left of the game */
+            float u = wh / 720.0f, h = 22 * u, px = 17 * u, x = gx + 10 * u, y = wh - 20 * u;
+            gfx_rect(x - 4 * u, y - h / 2 - 4 * u, h * 3.2f + gfx_text_width(px, "Tracker") + 8 * u, h + 8 * u, (SDL_Color){0x08, 0x0B, 0x11, 150});
+            x += help_icon(x, y, h, "R3", "Tab") + 7 * u;
+            gfx_text(x, y - px / 2, px, C(0x87, 0x93, 0xA6), 0, "Tracker");
+        }
         if (show && !ren2) {
             size_t owl;
             const uint8_t *ow = emu_wram(&owl);
@@ -2470,6 +2509,12 @@ static void play(int slot, int game_save_only)
             gfx_text(ww / 2.0f, wh / 2.0f, 22 * u, C(0x87, 0x93, 0xA6), 1, "You can keep playing it. A finish now goes on the late list, without prize.");
             static const HelpItem FAIL[] = {{"A", "Enter", "Keep playing"}, {"B", "Esc", "Leave the run"}};
             help_prompt(ww / 2.0f, wh / 2.0f + 50 * u, 40 * u, FAIL, 2);
+        }
+        if (settings_active()) {   /* the options from the tracker, the menu's own screens over the stopped game */
+            ui_set_width(320);
+            float k = (float)ww / 320 < (float)wh / UI_H ? (float)ww / 320 : (float)wh / UI_H;
+            gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0x08, 0x0A, 0x10, 235});
+            settings_draw(k, (ww - 320 * k) / 2, (wh - UI_H * k) / 2);
         }
         if (exit_at && SDL_GetTicks() >= exit_at) {   /* an old TV switching off: the picture closes to a bright line, which fades */
             float t = (SDL_GetTicks() - exit_at) / 450.0f, p = t < 1 ? t * t * (3 - 2 * t) : 1, half = wh / 2.0f;
@@ -2579,7 +2624,6 @@ static uint8_t *load_preview(const char *key, size_t *len)
     return store_read(store_path("sprites/%s.pv", name), len);
 }
 
-static int g_menu_quit;
 static void toggle_fullscreen(void) { if (win2) return; SDL_SetWindowFullscreen(win, SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP); settings_video_save_state(); }
 static void quit_menu(void) { g_menu_quit = 1; }
 static int is_fullscreen(void) { return (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }

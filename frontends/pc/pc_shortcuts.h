@@ -11,6 +11,8 @@ void sc_cfg_save(void);
 SDL_Keycode sc_key(int id);
 int sc_pad(int id);
 void sc_clear(int id);
+/* Takes the key away from shortcut id, keeping its button. */
+void sc_drop_key(int id);
 /* Binds a key or a controller code to id; returns what already uses it instead, or NULL when bound. */
 const char *sc_bind_key(int id, SDL_Keycode k);
 const char *sc_bind_pad(int id, int code);

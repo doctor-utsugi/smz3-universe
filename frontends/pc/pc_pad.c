@@ -23,14 +23,13 @@ static SDL_Keycode key_of[PA_COUNT];
 
 int pad_keyed(int action) { return (action >= 0 && action < PA_TRACKER) || action == PA_FAST || action == PA_REWIND; }
 
-/* The keys the game screen keeps for itself (pc_main.c: the event loop). */
+/* The keys the game screen keeps for itself while playing (pc_main.c: the event loop). The tracker's own keys (E, P, F, D, H,
+ * the zoom) only act while it is open, when the game takes no input, so a button may share them. */
 static const struct { SDL_Keycode k; const char *use; } FIXED_KEYS[] = {
-    {SDLK_UP, "the SNES D-pad"}, {SDLK_DOWN, "the SNES D-pad"}, {SDLK_LEFT, "the SNES D-pad"}, {SDLK_RIGHT, "the SNES D-pad"},
+    {SDLK_UP, "the D-pad"}, {SDLK_DOWN, "the D-pad"}, {SDLK_LEFT, "the D-pad"}, {SDLK_RIGHT, "the D-pad"},
     {SDLK_TAB, "the tracker"}, {SDLK_ESCAPE, "leaving the run"}, {SDLK_F5, "save state"}, {SDLK_F7, "load state"},
-    {SDLK_F6, "the state slot"}, {SDLK_F8, "the state slot"}, {SDLK_F9, "the aspect ratio"}, {SDLK_F11, "full screen"}, {SDLK_F1, "the settings"},
-    {SDLK_v, "the video panel"}, {SDLK_e, "the tracker's tabs"}, {SDLK_p, "the tracker's pause"}, {SDLK_f, "the map's follow"},
-    {SDLK_d, "the dungeon maps"}, {SDLK_h, "the dungeon maps"}, {SDLK_EQUALS, "the map's zoom"}, {SDLK_MINUS, "the map's zoom"},
-    {SDLK_KP_PLUS, "the map's zoom"}, {SDLK_KP_MINUS, "the map's zoom"}, {SDLK_PAGEUP, "the map's zoom"}, {SDLK_PAGEDOWN, "the map's zoom"},
+    {SDLK_F6, "the state slot"}, {SDLK_F8, "the state slot"}, {SDLK_F9, "the aspect ratio"}, {SDLK_F11, "full screen"},
+    {SDLK_v, "the video panel"},
 };
 
 static void keys_save(void)

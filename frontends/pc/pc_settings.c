@@ -304,11 +304,14 @@ int settings_raw(const SDL_Event *e, int code)
             pad_set_key(rebind_action, key);
             snprintf(sc_msg, sizeof sc_msg, "%s is on %s, %s took its old key", name, SDL_GetKeyName(key), pad_action_name(other));
         }
-        else if (use) snprintf(sc_msg, sizeof sc_msg, "%s is used by %s", SDL_GetKeyName(key), use);
-        else {
-            for (int i = 0; i < SC_COUNT && !use; i++) if (sc_key(i) == key) use = smz_shortcuts[i].name;
-            if (use) snprintf(sc_msg, sizeof sc_msg, "%s is used by %s", SDL_GetKeyName(key), use);
-            else { pad_set_key(rebind_action, key); snprintf(sc_msg, sizeof sc_msg, "%s is on %s", name, SDL_GetKeyName(key)); }
+        else if (use) snprintf(sc_msg, sizeof sc_msg, "%s is kept for %s: pick another key", SDL_GetKeyName(key), use);
+        else {   /* an item shortcut's key goes to the button; the shortcut keeps its controller button */
+            int taken = -1;
+            for (int i = 0; i < SC_COUNT && taken < 0; i++) if (sc_key(i) == key) taken = i;
+            if (taken >= 0) sc_drop_key(taken);
+            pad_set_key(rebind_action, key);
+            if (taken >= 0) snprintf(sc_msg, sizeof sc_msg, "%s is on %s (the %s shortcut lost it)", name, SDL_GetKeyName(key), smz_shortcuts[taken].name);
+            else snprintf(sc_msg, sizeof sc_msg, "%s is on %s", name, SDL_GetKeyName(key));
         }
         screen = S_PAD;
         return 1;
@@ -389,7 +392,11 @@ void settings_draw(float k, float ox, float oy)
             int r = scroll + i;
             char val[64];
             if (pad_keyed(r)) snprintf(val, sizeof val, "%s  /  %s", pad_key(r) != SDLK_UNKNOWN ? SDL_GetKeyName(pad_key(r)) : "-", pad_code_name(pad_code(r)));
-            if (r < PA_COUNT) row(k, ox, oy, i, pad_action_name(r), pad_keyed(r) ? val : pad_code_name(pad_code(r)), r == cursor);
+            /* what each SNES button does in the two games, so "jump" is easy to find */
+            static const char *const USE[8] = {"run, sword", "jump, action", "item cancel, item", "shoot, map", "aim down", "aim up", "pause, items", "switch weapon"};
+            char label[64];
+            if (r < 8) snprintf(label, sizeof label, "%s  %s", pad_action_name(r), USE[r]); else snprintf(label, sizeof label, "%s", r < PA_COUNT ? pad_action_name(r) : "");
+            if (r < PA_COUNT) row(k, ox, oy, i, label, pad_keyed(r) ? val : pad_code_name(pad_code(r)), r == cursor);
             else row(k, ox, oy, i, r == PA_COUNT ? "Reset to defaults" : "Back", NULL, r == cursor);
         }
         if (sc_msg[0]) text(k, ox, oy, 12, 32 + SHOWN * ROW_H - 1, 5, 0, sc_msg);
