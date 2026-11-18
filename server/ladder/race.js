@@ -29,6 +29,8 @@ const DRAFT_MS = 30 * 60 * 1000;    // a Draft ends here even if nobody reached 
 const DRAFT_MIN_MS = 30 * 1000;     // a Draft finish this soon can't be real
 const DRAFT_POOL = 6;               // Drafts made and checked ahead, so closing a room doesn't wait for the generator
 const ROOM_MS = 3600 * 1000;        // a room that never gets going
+const IDLE_LIST_MS = 60 * 1000;     // an open room whose creator stopped asking is no longer listed
+const IDLE_ROOM_MS = 3 * 60 * 1000; // ... and once nobody in a room that has not started has asked for this long, it is gone
 const LIVE_S = 6 * 3600;            // a running race's key, renewed on every change and poll
 const DONE_S = 3600;                // a finished race stays readable for its results
 const RETURN_MS = 5 * 60 * 1000;    // a dropped player can come back for this long
@@ -134,6 +136,9 @@ module.exports = function race(ctx) {
   // Ends the race when its rules say so; returns true when something changed.
   function settle(room) {
     if (room.state === 'paused') return settlePaused(room);
+    if ((room.state === 'open' || room.state === 'closed') && room.players.every(p => clock() - p.lastSeen > IDLE_ROOM_MS)) {
+      room.state = 'cancelled'; room.endedAt = clock(); room.endWhy = 'nobody in the room'; return true;
+    }
     if (room.state !== 'running') return false;
     const now = clock(), left = inRace(room), done = room.players.filter(p => p.timeMs != null);
     let changed = false;
@@ -286,6 +291,8 @@ module.exports = function race(ctx) {
         for (const id of ids || []) {
           const room = await load(id);
           if (!room || room.state !== 'open') { await r.cmd('ZREM', K('open'), id); continue; }
+          const creator = room.players.find(q => q.pid === room.creator);
+          if (!creator || clock() - creator.lastSeen > IDLE_LIST_MS) continue;   // its creator is gone: nobody could start it
           rooms.push({ code: room.code, format: room.format, size: room.size, players: room.players.length, creator: named(room, room.creator) });
         }
         send(res, 200, { rooms });
