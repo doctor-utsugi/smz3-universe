@@ -157,13 +157,18 @@ static int option_rows(const SmzUi *u, int *kind)
     return n;
 }
 
+static int paused_row(const SmzUi *u);
+
 static void home_input(SmzUi *u, UiButton b)
 {
     if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
-    else if (u->race.on) { u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->screen = UI_RACE_SIZE; u->race.cursor = 0; }
+    else if (u->race.on) {   /* one kind of race, up to 8: the first screen is there only to pick a paused race back up */
+        u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->race.size = 8; u->race.cursor = 0;
+        u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY;
+    }
     else snprintf(u->notice, sizeof u->notice, "Online races need a connection");
 }
 
@@ -264,7 +269,7 @@ void ui_race_update(SmzUi *u, const char *json, int64_t local_now)
 static int race_rows(const SmzUi *u)
 {
     switch (u->screen) {
-    case UI_RACE_SIZE: return 2 + paused_row(u);
+    case UI_RACE_SIZE: return 1 + paused_row(u);
     case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC: return 2;
     case UI_RACE_WAY: return 3;
     case UI_RACE_LIST: return u->race.room_count;
@@ -282,7 +287,7 @@ static void race_input(SmzUi *u, UiButton b)
     if (b == BTN_B) {
         switch (u->screen) {
         case UI_RACE_SIZE: u->screen = UI_HOME; break;
-        case UI_RACE_WAY: u->screen = UI_RACE_SIZE; *c = (u->race.size == 2 ? 0 : 1) + paused_row(u); break;
+        case UI_RACE_WAY: if (paused_row(u)) { u->screen = UI_RACE_SIZE; *c = paused_row(u); } else u->screen = UI_HOME; break;
         case UI_RACE_FORMAT: u->screen = UI_RACE_WAY; *c = 0; break;
         case UI_RACE_LENGTH: u->screen = UI_RACE_FORMAT; *c = 1; break;
         case UI_RACE_PUBLIC:
@@ -300,7 +305,7 @@ static void race_input(SmzUi *u, UiButton b)
     case UI_RACE_SIZE: {
         int k = *c - paused_row(u);   /* -1: the paused race */
         if (k < 0) { u->action = ACT_RACE_RESUME; break; }
-        u->race.size = k ? 8 : 2; u->screen = UI_RACE_WAY; *c = 0;
+        u->race.size = 8; u->screen = UI_RACE_WAY; *c = 0;
         break;
     }
     case UI_RACE_WAY:
@@ -1831,13 +1836,13 @@ static void race_draw(SmzUi *u)
             snprintf(note, sizeof note, "goes on %s", when);
             race_row(u, 0, 52, buf, note, C_GOLD);
         }
-        race_row(u, p, 52 + 34 * p, "1 vs 1 race", "2 players", C_TEXT);
-        race_row(u, p + 1, 86 + 34 * p, "Multi race", "up to 8 players", C_TEXT);
+        race_row(u, p, 52 + 34 * p, "New race", "2 to 8 players", C_TEXT);
     }
         legend(u, "A Choose  B Back");
         break;
     case UI_RACE_WAY:
-        title(u, u->race.size == 2 ? "1 vs 1 race" : "Multi race");
+        title(u, u->race.format == RACE_DRAFT ? "Online draft" : "Championship");
+        text(u, 10, 144, C_DIM, 0, "2 to 8 players: start once the ones you want are in");
         race_row(u, 0, 36, "Create a room", "", C_TEXT);
         race_row(u, 1, 70, "Join with a code", "", C_TEXT);
         race_row(u, 2, 104, "Find a race", "public rooms", C_TEXT);

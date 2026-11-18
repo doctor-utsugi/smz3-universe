@@ -1140,11 +1140,12 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..a12adf4
+index 0000000..7dbca8d
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1010 @@
+@@ -0,0 +1,1015 @@
 +#include "smz3online.h"
++#include "3dslog.h"
 +#include "smz3run.h"
 +
 +#include <3ds.h>
@@ -1235,13 +1236,14 @@ index 0000000..a12adf4
 +static int httpRequest(const char *method, const char *path, const char *body, char *out, size_t cap)
 +{
 +    out[0] = 0;
-+    if (!onNetwork()) return -1;
++    if (!onNetwork()) { log3dsWrite("http %s: no wifi", path); return -1; }
 +    char url[480];
 +    snprintf(url, sizeof url, "%s%s", baseUrl(), path);
 +    static bool noVerify;   // the check failed once and the second try worked: the races poll every second, so it is not tried again
 +    for (int attempt = noVerify ? 1 : 0; attempt < 2; attempt++) {
 +        httpcContext ctx;
-+        if (R_FAILED(httpcOpenContext(&ctx, body ? HTTPC_METHOD_POST : HTTPC_METHOD_GET, url, 1))) return -1;
++        Result rc = httpcOpenContext(&ctx, body ? HTTPC_METHOD_POST : HTTPC_METHOD_GET, url, 1);
++        if (R_FAILED(rc)) { log3dsWrite("http %s: open failed %08lx", path, (unsigned long)rc); return -1; }
 +        // the console's certificate store may not know the server's authority; the second attempt skips the check (the ladder holds
 +        // no secrets: a name, a country and times)
 +        if (attempt) httpcSetSSLOpt(&ctx, SSLCOPT_DisableVerify);
@@ -1250,9 +1252,9 @@ index 0000000..a12adf4
 +            httpcAddRequestHeaderField(&ctx, "Content-Type", "application/json");
 +            httpcAddPostDataRaw(&ctx, (const u32 *)body, (u32)strlen(body));
 +        }
-+        if (R_FAILED(httpcBeginRequest(&ctx))) { httpcCloseContext(&ctx); continue; }
++        if (R_FAILED(rc = httpcBeginRequest(&ctx))) { log3dsWrite("http %s: begin failed %08lx", path, (unsigned long)rc); httpcCloseContext(&ctx); continue; }
 +        u32 status = 0;
-+        if (R_FAILED(httpcGetResponseStatusCodeTimeout(&ctx, &status, 8ULL * 1000 * 1000 * 1000))) { httpcCancelConnection(&ctx); httpcCloseContext(&ctx); continue; }
++        if (R_FAILED(rc = httpcGetResponseStatusCodeTimeout(&ctx, &status, 8ULL * 1000 * 1000 * 1000))) { log3dsWrite("http %s: no answer %08lx", path, (unsigned long)rc); httpcCancelConnection(&ctx); httpcCloseContext(&ctx); continue; }
 +        size_t got = 0;
 +        Result r;
 +        do {
@@ -2006,7 +2008,10 @@ index 0000000..a12adf4
 +    if (!strcmp(what, "nop")) return 0;
 +    if (!strcmp(what, "forget")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; gRaceProgress = 0; gRaceNe = gRaceNc = 0; gRaceSlow = false; gRaceOfflineSince = 0; raceUnlock(); return 0; }
 +    int code;
-+    if (find) code = httpRequest("GET", "/api/race/open", NULL, buf, RACE_ANS_CAP);
++    if (find) {   // a list asked for by hand: one more try before saying there is no connection
++        code = httpRequest("GET", "/api/race/open", NULL, buf, RACE_ANS_CAP);
++        if (code < 0) { svcSleepThread(1000 * 1000 * 1000LL); code = httpRequest("GET", "/api/race/open", NULL, buf, RACE_ANS_CAP); }
++    }
 +    else {
 +        char path[48], tok[100];
 +        snprintf(path, sizeof path, "/api/race/%s", what);
@@ -2107,7 +2112,7 @@ index 0000000..a12adf4
 +    if (start) gRaceRunning = true;
 +    raceUnlock();
 +    if (!gHttpReady) { raceAnswer(SMZ_RACE_ERROR, "No network"); return; }
-+    if (start && !threadCreate(raceThread, NULL, 32 * 1024, 0x30, -2, true)) { raceLock(); gRaceRunning = false; raceUnlock(); }
++    if (start && !threadCreate(raceThread, NULL, 64 * 1024, 0x30, -2, true)) { raceLock(); gRaceRunning = false; raceUnlock(); }
 +}
 +
 +void smzRaceSend(const char *what, const char *fields, bool withToken) { raceEnqueue(what, fields, withToken, false); }

@@ -128,6 +128,9 @@ module.exports = function race(ctx) {
       lastSeen: clock(), progress: 0, chat: [] };
   }
 
+  // A 1 vs 1: two players when the room closed (rooms made before the merge kept their size)
+  const duel = room => room.duel != null ? room.duel : room.size === 2;
+
   // Ends the race when its rules say so; returns true when something changed.
   function settle(room) {
     if (room.state === 'paused') return settlePaused(room);
@@ -139,13 +142,13 @@ module.exports = function race(ctx) {
     const end = (why) => { room.state = 'finished'; room.endedAt = now; room.endWhy = why; record(room); return true; };
     if (room.format === 'draft' && now >= room.startAt + DRAFT_MS) {
       // time is up: the finishers keep their places; with none, a multi race goes to the highest %, and 1 vs 1 is a draw
-      if (!done.length && room.size > 2) {
+      if (!done.length && !duel(room)) {
         const top = Math.max(0, ...still.map(p => p.progress || 0));
         if (top > 0) for (const p of still) if ((p.progress || 0) === top) p.topPlace = 1;
       }
       return end(done.length ? 'time' : 'draw');
     }
-    if (room.size === 2 && done.length) return end('finish');
+    if (duel(room) && done.length) return end('finish');
     if (!inRace(room).length) { room.state = 'cancelled'; room.endedAt = now; room.endWhy = 'everyone left'; record(room); return true; }
     if (inRace(room).length === 1 && !done.length && room.players.length > 1) { inRace(room)[0].forfeitWin = true; return end('last one left'); }
     if (done.length && (!still.length || (room.endAt && now >= room.endAt))) return end(still.length ? 'countdown' : 'finish');
@@ -302,7 +305,7 @@ module.exports = function race(ctx) {
         if (!onlyKeys(b, ['install', 'player', 'country', 'version', 'format', 'size', 'public']) || !validInstall(b.install) || !FORMATS[b.format]) return fail(res, 400, 'invalid');
         if (!okVersion(b.version)) return fail(res, 409, 'version', { need: VERSION });
         if (limited('rc', ip, 30)) return fail(res, 429, 'slow down');
-        const size = b.size === 2 ? 2 : 8;
+        const size = 8;   // one kind of race: 1 vs 1 or multi is settled by who is in when it starts (duel)
         newCode().then(code => {
           const id = crypto.randomBytes(8).toString('hex'), me = newPlayer(b);
           const room = { id, code, public: !!b.public, mode: b.format === 'draft' ? 'draft' : 'championship', format: b.format, size, version: String(b.version || ''), creator: me.pid,
@@ -353,6 +356,7 @@ module.exports = function race(ctx) {
             room.settings = JSON.stringify(Object.assign({ seed: room.seed, challenge: true }, FORMATS[room.format].rules));
           }
           room.state = 'closed';
+          room.duel = room.players.length === 2;   // two at the start: the 1 vs 1 rules (first finish wins)
           note(room, 'system', me.pid, 'Room closed: pick your skins');
           return { room: view(room) };
         case 'kick': {
@@ -417,7 +421,7 @@ module.exports = function race(ctx) {
           room.vote = null;   // no pause after the first finish
           if (verdict.suspect) me.held = verdict.reason;   // counts for the race; its ladder entry waits for a review
           note(room, 'finish', me.pid, me.name + ' finished');
-          if (room.size > 2 && !room.endAt) room.endAt = now + FORMATS[room.format].countdownMin * 60000;
+          if (!duel(room) && !room.endAt) room.endAt = now + FORMATS[room.format].countdownMin * 60000;
           if (room.format === 'draft' && room.endAt) room.endAt = Math.min(room.endAt, room.startAt + DRAFT_MS);
           settle(room);
           return { room: view(room), timeMs };

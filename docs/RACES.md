@@ -14,7 +14,7 @@ published as an artifact, and no interface gets built until they are approved.
 | Versions | All of them, and nothing ships as a race mode until PC, Android and 3DS can play each other. |
 | Start menu | On every start: the logo for a fixed 2 seconds that can't be skipped, then Start/Load game, Online draft, Championship, Options. A `play N` launch goes straight in. Offline, the online entries show greyed out with a message. |
 | Start/Load game | Goes to today's run list, which stays as it is. |
-| Players | 1 vs 1, or a multi race of up to 8. |
+| Players | One kind of room for 2 to 8 players. The creator starts it once the players they want are in; two at the start get the 1 vs 1 rules, three or more the multi race ones. |
 | Draft | Same seed and same place for everyone, one random goal that takes 5 to 15 minutes. |
 | Draft goals | Kill N enemies, get N rupees, kill a boss in either game, get a crystal. |
 | Championship | A normal run from the start. After the player count: Full game, or a Partial game of a chosen length. |
