@@ -32,6 +32,8 @@ python3 -c 'import sys; from PIL import Image; Image.open(sys.argv[1]).convert("
 # the CIA's HOME menu banner (tools/gen_3ds_banner.py) and its title version, taken from the release tag
 cp "$ROOT"/assets/3ds/banner.bnr resources/banner.bnr
 IFS=. read -r MAJ MIN MIC <<< "$(echo "${VER#v}" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || echo 0.0.0)"
+# a local build is ahead of the last tag: the HOME menu keeps a title's name and icon until its version changes
+[[ "${GITHUB_REF_NAME:-}" == v* ]] || MIC=$((MIC < 15 ? MIC + 1 : 15))
 sed -i -E "s/^(APP_VERSION_MAJOR = ).*/\1$MAJ/; s/^(APP_VERSION_MINOR = ).*/\1$MIN/; s/^(APP_VERSION_MICRO = ).*/\1$MIC/" resources/AppInfo
 docker run --rm -v "$PWD":/src -w /src devkitpro/devkitarm:latest \
     sh -c "make 3dsx -j$(nproc) && make cia -j$(nproc)"   # one after the other: each target is its own sub-make over the same objects
