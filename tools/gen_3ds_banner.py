@@ -32,8 +32,9 @@ def picture():
     return img
 
 
-def jingle(path, rate=22050):
-    """Three soft rising notes, about a second long."""
+def jingle(path, rate=44100):
+    """Three soft rising notes, about a second long. 16-bit stereo at 44100 Hz, like FBI's banner: the HOME menu
+    turned the mono 22050 Hz one into a constant screech."""
     notes, out = (659.25, 783.99, 1046.5), []
     for i, f in enumerate(notes):
         n = int(rate * (0.16 if i < 2 else 0.6))
@@ -42,10 +43,10 @@ def jingle(path, rate=22050):
             s = math.sin(2 * math.pi * f * t / rate) + 0.3 * math.sin(4 * math.pi * f * t / rate)
             out.append(int(9000 * env * s))
     with wave.open(path, "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(2)
         w.setsampwidth(2)
         w.setframerate(rate)
-        w.writeframes(struct.pack("<%dh" % len(out), *out))
+        w.writeframes(struct.pack("<%dh" % (2 * len(out)), *(v for v in out for _ in (0, 1))))
 
 
 def main():
