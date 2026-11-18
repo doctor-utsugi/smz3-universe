@@ -20,6 +20,8 @@ const char *pad_code_name(int code);
 int pad_keyed(int action);
 SDL_Keycode pad_key(int action);
 void pad_set_key(int action, SDL_Keycode k);
+/* The name of an action's key ("-" for none), kept per action so several can be shown at once. */
+const char *pad_key_label(int action);
 /* What the game screen uses a key for (an SNES button or one of the fixed keys), NULL when it is free. */
 const char *pad_key_use(SDL_Keycode k);
 /* The action whose key k is, or -1. */

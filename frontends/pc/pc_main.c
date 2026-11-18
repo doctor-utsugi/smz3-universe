@@ -1230,10 +1230,12 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             map_legend(ren, x0 + w, area.y + area.h + 4 * u, 18 * u, 0, in_logic != NULL);
         }
     } else {
-        static const HelpItem LEFT[] = {
-            {"", "", "#Tracker"}, {"R3", "Tab", "Open and close"}, {"LR2", "Q E", "Change tab"}, {NULL, "P", "Pause the game while open"},
-            {"", "", "#Playing"}, {"RT", "Space", "Fast forward"}, {"LT", "R", "Rewind (when the run allows it)"}, {"L3", "Esc", "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"X", "V", "Video options"},
-            {NULL, "F5", "Save state"}, {NULL, "F7", "Load state"}, {NULL, "F6 F8", "State slot"},
+        char slots[52];   /* the keys as bound in the options */
+        snprintf(slots, sizeof slots, "%s %s", pad_key_label(PA_QPREV), pad_key_label(PA_QNEXT));
+        const HelpItem LEFT[] = {
+            {"", "", "#Tracker"}, {"R3", pad_key_label(PA_TRACKER), "Open and close"}, {"LR2", "Q E", "Change tab"}, {NULL, "P", "Pause the game while open"},
+            {"", "", "#Playing"}, {"RT", pad_key_label(PA_FAST), "Fast forward"}, {"LT", pad_key_label(PA_REWIND), "Rewind (when the run allows it)"}, {"L3", pad_key_label(PA_LEAVE), "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"START", "O", "Options (in the tracker)"},
+            {NULL, pad_key_label(PA_QSAVE), "Save state"}, {NULL, pad_key_label(PA_QLOAD), "Load state"}, {NULL, slots, "State slot"},
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
         };
         static const HelpItem RIGHT[] = {
@@ -1267,9 +1269,8 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         bar[nb++] = (HelpItem){"A", "F", mv->follow ? "Following" : "Follow"}; bar[nb++] = (HelpItem){"Y", "D", "Dungeons"};
     }
     if (!chat) bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};
-    if (tab != ct) bar[nb++] = (HelpItem){"X", "V", "Video"};
     if (tab != ct) bar[nb++] = (HelpItem){"START", "O", "Options"};
-    bar[nb++] = (HelpItem){"R3", "Tab", "Close"};
+    bar[nb++] = (HelpItem){"R3", pad_key_label(PA_TRACKER), "Close"};
     help_bar(0, win_h - 44 * u, (float)win_w, 44 * u, bar, nb);
 }
 
@@ -1994,7 +1995,6 @@ static void play(int slot, int game_save_only)
                 }
                 if (show && tab == chat_tab && race_chat_key(k)) continue;
                 if (!show && !leaving && sc_key_press(k)) continue;   /* an item shortcut; it acts only in normal play */
-                if (k == SDLK_v && !leaving) { vpanel = 1; show = 0; continue; }
                 if (k == SDLK_o && show && !leaving) { settings_open(); continue; }
                 if (leaving) {
                     if (k == SDLK_p && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
@@ -2002,11 +2002,12 @@ static void play(int slot, int game_save_only)
                     leaving = 0;
                     continue;
                 }
-                if (k == SDLK_TAB && !ren2) show = !show;
-                else if (states && !show && k == SDLK_F5) quick_state(slot, qslot, 1);
-                else if (states && !show && k == SDLK_F7) { if (quick_state(slot, qslot, 0)) trk.state_loaded = 3; }
-                else if (states && !show && (k == SDLK_F6 || k == SDLK_F8)) { qslot = (qslot + (k == SDLK_F8 ? 1 : QSLOTS - 1)) % QSLOTS; char m[32]; snprintf(m, sizeof m, "State slot %d", qslot + 1); note(m); }
-                else if (k == SDLK_ESCAPE) { if (show) show = 0; else if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }   /* a finished run has nothing to save */
+                if (k == pad_key(PA_TRACKER) && !ren2) show = !show;
+                else if (states && !show && k == pad_key(PA_QSAVE)) quick_state(slot, qslot, 1);
+                else if (states && !show && k == pad_key(PA_QLOAD)) { if (quick_state(slot, qslot, 0)) trk.state_loaded = 3; }
+                else if (states && !show && (k == pad_key(PA_QPREV) || k == pad_key(PA_QNEXT))) { qslot = (qslot + (k == pad_key(PA_QNEXT) ? 1 : QSLOTS - 1)) % QSLOTS; char m[32]; snprintf(m, sizeof m, "State slot %d", qslot + 1); note(m); }
+                else if (show && k == SDLK_ESCAPE) show = 0;   /* Esc always closes the tracker */
+                else if (k == pad_key(PA_LEAVE)) { if (show) show = 0; else if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }   /* a finished run has nothing to save */
                 else if (k == SDLK_F11) SDL_SetWindowFullscreen(win, SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                 else if (show && tab == TAB_MAP && k == SDLK_d) dungeon_toggle(&dv, lp);
                 else if (show && tab == TAB_MAP && dungeon_showing(&dv, lp) && (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_UP || k == SDLK_DOWN || k == SDLK_h)) {
@@ -2069,7 +2070,6 @@ static void play(int slot, int game_save_only)
                 }
                 if (!show && !leaving && sc_pad_press(b)) continue;
                 if (show && tab == chat_tab && race_chat_pad(b)) continue;
-                if (show && b == SDL_CONTROLLER_BUTTON_X) { vpanel = 1; show = 0; continue; }
                 if (show && b == SDL_CONTROLLER_BUTTON_START && !leaving) { settings_open(); continue; }
                 if (leaving) {
                     if (b == SDL_CONTROLLER_BUTTON_Y && rg.on && race_can_pause(go_in)) { rg.pick = 1; rg.pick_i = 1; }
@@ -2408,10 +2408,12 @@ static void play(int slot, int game_save_only)
                 gfx_text(gx + gw / 2, wh - 57 * u, px, msg == hint_note ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2), 1, msg);
             }
         }
-        if (!show && !ren2 && !rw_open && !rg.card) {   /* one window: the button that opens the tracker, bottom left of the game */
-            float u = wh / 720.0f, h = 22 * u, px = 17 * u, x = gx + 10 * u, y = wh - 20 * u;
-            gfx_rect(x - 4 * u, y - h / 2 - 4 * u, h * 3.2f + gfx_text_width(px, "Tracker") + 8 * u, h + 8 * u, (SDL_Color){0x08, 0x0B, 0x11, 150});
-            x += help_icon(x, y, h, "R3", "Tab") + 7 * u;
+        if (!show && !ren2 && !rw_open && !rg.card) {   /* one window: the button that opens the tracker, in the free space right of the game */
+            float u = wh / 720.0f, h = 22 * u, px = 17 * u, y = wh - 20 * u;
+            float need = h * 3.2f + gfx_text_width(px, "Tracker") + 20 * u, side = ww - (gx + gw);
+            float x = side >= need ? gx + gw + (side - need) / 2 + 10 * u : gx + 10 * u;
+            if (side < need) gfx_rect(x - 4 * u, y - h / 2 - 4 * u, need - 12 * u, h + 8 * u, (SDL_Color){0x08, 0x0B, 0x11, 150});   /* over the game: a backing */
+            x += help_icon(x, y, h, "R3", pad_key_label(PA_TRACKER)) + 7 * u;
             gfx_text(x, y - px / 2, px, C(0x87, 0x93, 0xA6), 0, "Tracker");
         }
         if (show && !ren2) {

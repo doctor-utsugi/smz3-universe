@@ -264,7 +264,8 @@ void dungeon_draw(SDL_Renderer *r, DungeonView *v, SDL_Rect area, const SmzTrack
 
     float title_h = 34 * u, side = 76 * u, foot = 44 * u;
     float areaL = area.x + side, areaT = area.y + title_h, areaR = area.x + area.w - 10 * u, areaB = area.y + area.h - foot;
-    float scale = fminf((areaR - areaL) / (cols * SMZ_DM_ROOM), (areaB - areaT) / (rows * SMZ_DM_ROOM));
+    /* sized as if at least 4 x 4 rooms, so a small dungeon (Hera is 2 x 2) is not blown up to the whole panel */
+    float scale = fminf((areaR - areaL) / (fmaxf((float)cols, 4) * SMZ_DM_ROOM), (areaB - areaT) / (fmaxf((float)rows, 4) * SMZ_DM_ROOM));
     float picW = cols * SMZ_DM_ROOM * scale, picH = rows * SMZ_DM_ROOM * scale;
     float left = areaL + ((areaR - areaL) - picW) / 2, top = areaT + ((areaB - areaT) - picH) / 2;
 
@@ -336,7 +337,8 @@ int dungeon_panel(SDL_Renderer *r, DungeonView *v, SDL_Rect area, float u, int m
     int cols = x1 - x0 + 1, rows = y1 - y0 + 1;
     float colW = !mini ? 50 * u : fl > 1 ? 38 * u : 0, barH = mini ? 0 : 40 * u;
     float areaL = L + colW + 6 * u, areaT = T + (mini ? 30 : 44) * u, areaR = L + W - 6 * u, areaB = T + H - (mini ? 6 * u : barH + 12 * u);
-    float scale = fminf((areaR - areaL) / (cols * SMZ_DM_ROOM), (areaB - areaT) / (rows * SMZ_DM_ROOM));
+    float fc = mini ? (float)cols : fmaxf((float)cols, 4), fr = mini ? (float)rows : fmaxf((float)rows, 4);   /* the full view: no bigger than a 4 x 4 dungeon */
+    float scale = fminf((areaR - areaL) / (fc * SMZ_DM_ROOM), (areaB - areaT) / (fr * SMZ_DM_ROOM));
     if (mini) scale *= zoom;
     float picW = cols * SMZ_DM_ROOM * scale, picH = rows * SMZ_DM_ROOM * scale;
     float left = areaL + ((areaR - areaL) - picW) / 2, top = areaT + ((areaB - areaT) - picH) / 2;

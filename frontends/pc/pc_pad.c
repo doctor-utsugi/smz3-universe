@@ -18,23 +18,22 @@ static const int DEFAULTS[PA_COUNT] = {
 static const char *const NAMES[PA_COUNT] = {"SNES B", "SNES A", "SNES Y", "SNES X", "SNES L", "SNES R", "Start", "Select", "Tracker", "Leave run", "Fast forward", "Save state", "Load state", "State slot -", "State slot +", "Rewind"};
 static const int SNES_BIT[8] = {PAD_B, PAD_A, PAD_Y, PAD_X, PAD_L, PAD_R, PAD_START, PAD_SELECT};
 static const SDL_Keycode KEY_DEFAULTS[PA_COUNT] = {SDLK_z, SDLK_x, SDLK_a, SDLK_s, SDLK_q, SDLK_w, SDLK_RETURN, SDLK_BACKSPACE,
-    [PA_FAST] = SDLK_SPACE, [PA_REWIND] = SDLK_r};
+    [PA_TRACKER] = SDLK_TAB, [PA_LEAVE] = SDLK_ESCAPE, [PA_FAST] = SDLK_SPACE, [PA_QSAVE] = SDLK_F5, [PA_QLOAD] = SDLK_F7,
+    [PA_QPREV] = SDLK_F6, [PA_QNEXT] = SDLK_F8, [PA_REWIND] = SDLK_r};
 static SDL_Keycode key_of[PA_COUNT];
 
-int pad_keyed(int action) { return (action >= 0 && action < PA_TRACKER) || action == PA_FAST || action == PA_REWIND; }
+int pad_keyed(int action) { return action >= 0 && action < PA_COUNT; }
 
 /* The keys the game screen keeps for itself while playing (pc_main.c: the event loop). The tracker's own keys (E, P, F, D, H,
  * the zoom) only act while it is open, when the game takes no input, so a button may share them. */
 static const struct { SDL_Keycode k; const char *use; } FIXED_KEYS[] = {
     {SDLK_UP, "the D-pad"}, {SDLK_DOWN, "the D-pad"}, {SDLK_LEFT, "the D-pad"}, {SDLK_RIGHT, "the D-pad"},
-    {SDLK_TAB, "the tracker"}, {SDLK_ESCAPE, "leaving the run"}, {SDLK_F5, "save state"}, {SDLK_F7, "load state"},
-    {SDLK_F6, "the state slot"}, {SDLK_F8, "the state slot"}, {SDLK_F9, "the aspect ratio"}, {SDLK_F11, "full screen"},
-    {SDLK_v, "the video panel"},
+    {SDLK_F9, "the aspect ratio"}, {SDLK_F11, "full screen"},
 };
 
 static void keys_save(void)
 {
-    char text[256];
+    char text[512];
     int len = 0;
     for (int a = 0; a < PA_COUNT; a++) if (pad_keyed(a)) len += snprintf(text + len, sizeof text - (size_t)len, "%d=%d\n", a, (int)key_of[a]);
     store_write(store_path("keys.cfg"), text, (size_t)len);
@@ -57,6 +56,14 @@ static void keys_load(void)
 
 SDL_Keycode pad_key(int action) { return pad_keyed(action) ? key_of[action] : SDLK_UNKNOWN; }
 void pad_set_key(int action, SDL_Keycode k) { if (pad_keyed(action)) { key_of[action] = k; keys_save(); } }
+
+const char *pad_key_label(int action)
+{
+    static char names[PA_COUNT][24];
+    if (action < 0 || action >= PA_COUNT) return "-";
+    snprintf(names[action], sizeof names[action], "%s", key_of[action] != SDLK_UNKNOWN ? SDL_GetKeyName(key_of[action]) : "-");
+    return names[action];
+}
 
 int pad_key_action(SDL_Keycode k)
 {
