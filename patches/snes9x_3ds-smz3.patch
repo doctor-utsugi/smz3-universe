@@ -2051,10 +2051,10 @@ index 0000000..c1e9f0c
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..cd7fc21
+index 0000000..ed3511e
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5639 @@
+@@ -0,0 +1,5650 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2092,6 +2092,7 @@ index 0000000..cd7fc21
 +}
 +#include "snes9x.h"
 +#include "memmap.h"
++#include "gfx.h"
 +#include "3dsgpu.h"
 +#include "3dsimpl.h"
 +#include "3dsimpl_gpu.h"
@@ -7305,7 +7306,7 @@ index 0000000..cd7fc21
 +// ---- the game menu while a run is played: what the Thor's game menu offers, drawn like the run menu (wallpaper, cut-corner
 +// rows, the amber cursor, the button legend) on the top screen. The bottom screen keeps the tracker and passes touches up.
 +
-+enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_PAUSE, PM_RUNS, PM_RESTART, PM_MUTE, PM_ROW0, PM_ROW1, PM_BAR, PM_CONFIRM, PM_BUTTONS, PM_BTN, PM_ACT };
++enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_PAUSE, PM_RUNS, PM_RESTART, PM_MUTE, PM_COLOURS, PM_ROW0, PM_ROW1, PM_BAR, PM_CONFIRM, PM_BUTTONS, PM_BTN, PM_ACT };
 +struct PauseRow { int id, arg; };
 +
 +#define PM_ROWS_SHOWN 7
@@ -7360,6 +7361,7 @@ index 0000000..cd7fc21
 +    rows[n++] = {PM_RUNS, 0};
 +    rows[n++] = {PM_RESTART, 0};
 +    rows[n++] = {PM_MUTE, 0};
++    rows[n++] = {PM_COLOURS, 0};
 +    rows[n++] = {PM_ROW0, 0};
 +    rows[n++] = {PM_ROW1, 0};
 +    rows[n++] = {PM_BAR, 0};
@@ -7384,6 +7386,7 @@ index 0000000..cd7fc21
 +    case PM_RUNS: snprintf(label, cap, "%s", raceRunning() ? "Leave the race" : "Back to the runs"); break;
 +    case PM_RESTART: snprintf(label, cap, "Restart"); break;
 +    case PM_MUTE: snprintf(label, cap, "Mute audio"); snprintf(value, cap, "%s", snd3dsMuted ? "On" : "Off"); break;
++    case PM_COLOURS: { static const char *const names[3] = { "Original", "Vivid", "Intense" }; snprintf(label, cap, "Colours"); snprintf(value, cap, "%s", names[settings3DS.SmzColours % 3]); break; }
 +    case PM_ROW0: snprintf(label, cap, "Shortcut row"); snprintf(value, cap, "%s", smz3ShortcutRowShown(0) ? "Shown" : "Hidden"); break;
 +    case PM_ROW1: snprintf(label, cap, "Weapon row"); snprintf(value, cap, "%s", smz3ShortcutRowShown(1) ? "Shown" : "Hidden"); break;
 +    case PM_BAR: snprintf(label, cap, "Save bar"); snprintf(value, cap, "%s", inBar ? "Shown" : "Hidden"); break;
@@ -7409,6 +7412,7 @@ index 0000000..cd7fc21
 +    case PM_PAUSE: return "The race stops for everyone if they all say yes, and goes on at the time you pick.";
 +    case PM_RUNS: return raceRunning() ? "Your rivals see you leave. A race can't be joined again." : "The run keeps its time and progress.";
 +    case PM_RESTART: return "Starts the game over from its own save.";
++    case PM_COLOURS: return "The 3DS's screen shows the SNES palette pale. Left and Right change it.";
 +    case PM_ROW0: return "The item slots or the beams over the tracker's map.";
 +    case PM_ROW1: return "Missiles, Super Missiles and Power Bombs under the beams.";
 +    case PM_BAR: return "SAVE, LOAD and fast forward under the shortcuts. The 3D slider up is fast forward too.";
@@ -7448,7 +7452,7 @@ index 0000000..cd7fc21
 +        pauseRowText(rows[i], slot, label, value, sizeof label, &dim);
 +        pmText(16, y + 2, 240, dim && rows[i].id != PM_BTN ? PALETTE[C_DIM] : PALETTE[C_TEXT], HALIGN_LEFT, label);
 +        if (value[0]) {
-+            bool pick = rows[i].id == PM_SAVE || rows[i].id == PM_LOAD;
++            bool pick = rows[i].id == PM_SAVE || rows[i].id == PM_LOAD || rows[i].id == PM_COLOURS;
 +            if (pick && i == cursor) {   // the arrows of a value that Left and Right change
 +                char v[56];
 +                snprintf(v, sizeof v, "<  %s  >", value);
@@ -7634,7 +7638,7 @@ index 0000000..cd7fc21
 +            int x = t.px * UI_W / SCREEN_BOTTOM_WIDTH, y = t.py;
 +            int r = pmRowTouched(scroll, n);
 +            if (r >= 0) {
-+                bool pick = rows[r].id == PM_SAVE || rows[r].id == PM_LOAD;
++                bool pick = rows[r].id == PM_SAVE || rows[r].id == PM_LOAD || rows[r].id == PM_COLOURS;
 +                if (pick && r == cursor && x >= UI_W - 216) act = x < UI_W - 108 ? -1 : 2;   // the value's arrows
 +                else { cursor = r; act = 1; }
 +            } else if (y < PM_LIST_Y && scroll > 0) { cursor = scroll - 1; uiCueSound(UI_CUE_MOVE); }
@@ -7668,7 +7672,8 @@ index 0000000..cd7fc21
 +                if (act == 1) { uiCueSound(UI_CUE_CONFIRM); rg.pick = true; rg.pickI = 1; dirty = true; result = SMZ3_PAUSE_RESUME; goto done; }   // the time is picked over the game
 +                break;
 +            case PM_RUNS:
-+                if (act == 1 && (!raceRunning() || pauseDialog(rows, n, cursor, scroll, slot, "Leave the race", "Your rivals see you leave, and the race can't be joined again. Leave it?", true))) {
++                if (act == 1 && (raceRunning() ? pauseDialog(rows, n, cursor, scroll, slot, "Leave the race", "Your rivals see you leave, and the race can't be joined again. Leave it?", true)
++                                               : pauseDialog(rows, n, cursor, scroll, slot, "Back to the runs", "The run keeps its time and progress. Go back to the runs?", true))) {
 +                    uiCueSound(UI_CUE_CONFIRM);
 +                    result = SMZ3_PAUSE_RUNS;
 +                    goto done;
@@ -7682,6 +7687,12 @@ index 0000000..cd7fc21
 +                }
 +                break;
 +            case PM_MUTE: snd3dsMuted = !snd3dsMuted; snd3dsApplyOutputVolume(); uiCueSound(UI_CUE_SELECT); break;
++            case PM_COLOURS:
++                settings3DS.SmzColours = (settings3DS.SmzColours + step + 3) % 3;
++                S9xSetColourBoost(settings3DS.SmzColours);
++                settings3DS.isDirty = true;
++                uiCueSound(UI_CUE_SELECT);
++                break;
 +            case PM_ROW0: case PM_ROW1: smz3SetShortcutRowShown(row.id == PM_ROW1, !smz3ShortcutRowShown(row.id == PM_ROW1)); uiCueSound(UI_CUE_SELECT); break;
 +            case PM_BAR: inBar = !inBar; inSave(); dirty = true; uiCueSound(UI_CUE_SELECT); break;
 +            case PM_CONFIRM: inConfirm = !inConfirm; inSave(); uiCueSound(UI_CUE_SELECT); break;
