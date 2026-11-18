@@ -285,10 +285,18 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..ec2a733 100644
+index 3692a54..46a09f8 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
-@@ -32,6 +32,7 @@
+@@ -14,6 +14,7 @@
+ #include "snes9x.h"
+ #include "cheats.h"
+ #include "memmap.h"
++#include "gfx.h"
+ 
+ #include "3dsutils.h"
+ #include "3dssettings.h"
+@@ -32,6 +33,7 @@
  #include "3dslcd.h"
  #include "3dsui_img.h"
  #include "3dsmenu.h"
@@ -296,7 +304,7 @@ index 3692a54..ec2a733 100644
  #include "3dsra_ui.h"
  
  inline std::string operator "" _s(const char* s, size_t length) {
-@@ -39,6 +40,7 @@ inline std::string operator "" _s(const char* s, size_t length) {
+@@ -39,6 +41,7 @@ inline std::string operator "" _s(const char* s, size_t length) {
  }
  
  char romFileName[NAME_MAX + 1];
@@ -304,7 +312,7 @@ index 3692a54..ec2a733 100644
  bool slotLoaded = false;
  
  const char* hotkeysData[HOTKEYS_COUNT][3];
-@@ -401,6 +403,21 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -401,6 +404,21 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
              menu3dsHideDialog(dialogTab, isDialog, currentMenuTab, menuTabs);
          }, MenuItemType::Action, "  ROM Info"_s, ""_s);
  
@@ -326,7 +334,7 @@ index 3692a54..ec2a733 100644
          if (ra3dsIsAvailable())
              ra3dsAppendMenuEntry(items);
  
-@@ -492,7 +509,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -492,7 +510,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
                              return;
                          }
                      }
@@ -335,7 +343,7 @@ index 3692a54..ec2a733 100644
                      char statusMessage[64];
                      snprintf(statusMessage, sizeof(statusMessage), "Saving into slot #%d", slot);
  
-@@ -522,7 +539,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -522,7 +540,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
              );
          }
          AddMenuHeader2(items, ""_s);
@@ -344,7 +352,7 @@ index 3692a54..ec2a733 100644
          for (int slot = 1; slot <= SAVESLOTS_MAX; ++slot) {
              bool hasState = impl3dsSlotHasState(slot);
              snprintf(slotInfo, sizeof(slotInfo), "  Load Slot #%d", slot);
-@@ -532,7 +549,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -532,7 +550,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
                  if (!result) {
                      SMenuTab dialogTab;
                      bool isDialog = false;
@@ -353,7 +361,41 @@ index 3692a54..ec2a733 100644
                      char errorMessage[64];
                      snprintf(errorMessage, sizeof(errorMessage), "Unable to load slot #%d!", slot);
  
-@@ -1557,6 +1574,17 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
+@@ -834,6 +852,17 @@ const std::vector<SMenuItem>& makeOptionsForInFramePaletteChanges() {
+     return items;
+ }
+ 
++const std::vector<SMenuItem>& makeOptionsForColours() {
++    static std::vector<SMenuItem> items;
++    if (items.empty()) {
++        items.reserve(3);
++        AddMenuDialogOption(items, 0, "Original"_s, "The SNES palette as it is"_s);
++        AddMenuDialogOption(items, 1, "Vivid"_s, "A little more colour"_s);
++        AddMenuDialogOption(items, 2, "Intense"_s, "Much more colour"_s);
++    }
++    return items;
++}
++
+ const std::vector<SMenuItem>& makeOptionsForScreenFilter() {
+     static std::vector<SMenuItem> items;
+     if (items.empty()) {
+@@ -858,6 +887,15 @@ void makeOptionMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menuTa
+                     } 
+                 });
+     
++    AddMenuPicker(items, "  Colours"_s, "The 3DS's top screen shows the SNES palette pale;\nthis gives it more colour."_s,
++        makeOptionsForColours(), settings3DS.SmzColours, DIALOG_TYPE_INFO, true,
++        []( int val ) {
++            if (CheckAndUpdate(settings3DS.SmzColours, val)) {
++                S9xSetColourBoost(val);
++                menu3dsSetScreenDirty();
++            }
++        });
++
+     AddMenuPicker(items, "  Scale Filter"_s, "Applies when the game screen is stretched/zoomed in.\n\"Sharp\" may distort details,\n\"Balanced\" has minor performance impact."_s,
+         makeOptionsForScreenFilter(), static_cast<int>(settings3DS.ScreenFilter), DIALOG_TYPE_INFO, true,
+         []( int val ) {
+@@ -1557,6 +1595,19 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
  
      config3dsReadWriteEnum(stream, writeMode, "ShowFPS=%d\n", &settings3DS.ShowFPS, 0, 1);
  
@@ -367,11 +409,13 @@ index 3692a54..ec2a733 100644
 +        settings3dsApplyScreenStretch();
 +        settings3DS.isDirty = true;
 +    }
++    config3dsReadWriteInt32(stream, writeMode, "SmzColours=%d\n", &settings3DS.SmzColours, 0, 2);
++    S9xSetColourBoost(settings3DS.SmzColours);
 +
      return true;
  }
  
-@@ -1608,6 +1636,10 @@ bool emulatorLoadRom()
+@@ -1608,6 +1659,10 @@ bool emulatorLoadRom()
  
      char romFileNameFullPath[PATH_MAX];
      snprintf(romFileNameFullPath, sizeof(romFileNameFullPath), "%s%s", file3dsGetCurrentDir(), romFileName);
@@ -382,7 +426,7 @@ index 3692a54..ec2a733 100644
  
      // Block the audio mixing thread from touching APU/memory state while
      // Memory.LoadROM tears down and rebuilds SNES9x globals AND while
-@@ -2103,7 +2135,7 @@ void onDirectoryEntrySelected(
+@@ -2103,7 +2158,7 @@ void onDirectoryEntrySelected(
              menu3dsRunBadgeCache(dialogTab, currentMenuTab, menuTabs, romFileName);
  
              // Restore after RA identification; pause the mixer while state changes.
@@ -391,20 +435,20 @@ index 3692a54..ec2a733 100644
                  snd3dsDrainMixing();
                  impl3dsLoadStateAuto();
                  snd3dsResumeMixing();
-@@ -2133,116 +2165,74 @@ void onDirectoryEntrySelected(
+@@ -2133,116 +2188,74 @@ void onDirectoryEntrySelected(
      }
  }
  
 -void showMenu() {
 -    static std::vector<SMenuItem> emptyCheats;
 -    int currentMenuTab = menu3dsGetLastSelectedTabIndex();
--
--    // Rebuild achievement buckets on menu entry.
--    if (ra3dsCheckAndClearMenuDirty() || ra3dsGetLoadedGameId() != 0)
--        menu3dsMarkTabDirty(TAB_EMULATOR);
 +// ---- SMZ3: the app is the run menu. It opens at boot and after a run is left; the game's pause menu holds what the
 +// Thor's game menu does. The emulator's own menus and file browser are never shown.
  
+-    // Rebuild achievement buckets on menu entry.
+-    if (ra3dsCheckAndClearMenuDirty() || ra3dsGetLoadedGameId() != 0)
+-        menu3dsMarkTabDirty(TAB_EMULATOR);
+-
 -    // 1. first boot
 -    // 2. new game loaded
 -    if (menuTabs.empty() || Memory.ROMCRC32 != lastLoadedRomCRC || menu3dsHasDirtyTabs())
@@ -565,7 +609,7 @@ index 3692a54..ec2a733 100644
  }
  
  //--------------------------------------------------------
-@@ -2508,6 +2498,7 @@ void emulatorLoop()
+@@ -2508,6 +2521,7 @@ void emulatorLoop()
          t3dsStartTimer(TIMER_RUN_ONE_FRAME);
          impl3dsRunOneFrame(firstFrame, skipDrawing);
          t3dsStopTimer(TIMER_RUN_ONE_FRAME);
@@ -573,7 +617,7 @@ index 3692a54..ec2a733 100644
  
  
          long actualTicksThisFrame = (long)(svcGetSystemTick() - startFrameTick);
-@@ -2553,6 +2544,7 @@ int main()
+@@ -2553,6 +2567,7 @@ int main()
      APT_CheckNew3DS(&settings3DS.isNew3DS);
      osSetSpeedupEnable(true);
      utils3dsInitialize();
@@ -581,7 +625,7 @@ index 3692a54..ec2a733 100644
  
      // ---- load/update settings first ----
      menu3dsSetHotkeysData(hotkeysData);
-@@ -2560,6 +2552,14 @@ int main()
+@@ -2560,6 +2575,14 @@ int main()
      settings3dsResetGameDefaults();
      // load global config, overwrites defaults if file exists
      cfgFileAvailable[0] = settingsReadWriteFullListGlobal(false);
@@ -596,7 +640,7 @@ index 3692a54..ec2a733 100644
      settings3dsUpdate(false);
  
      if (!emulatorInitialize()) {
-@@ -2589,6 +2589,7 @@ int main()
+@@ -2589,6 +2612,7 @@ int main()
      menu3dsShowSplashMessage("Saving & Exiting");
      
      settingsSave(settings3DS.isRomLoaded);
@@ -628,10 +672,10 @@ index c3a443f..f4b60ca 100644
                  gpu3dsFrameEnd();
              }
 diff --git a/source/3dssettings.cpp b/source/3dssettings.cpp
-index 4593f02..133417d 100644
+index 4593f02..9ee7572 100644
 --- a/source/3dssettings.cpp
 +++ b/source/3dssettings.cpp
-@@ -27,8 +27,8 @@ void settings3dsResetGlobalDefaults() {
+@@ -27,8 +27,9 @@ void settings3dsResetGlobalDefaults() {
      settings3DS.Intensity3D = Setting::Intensity3D::Standard;
      settings3DS.LogFileEnabled = false;
  
@@ -639,9 +683,22 @@ index 4593f02..133417d 100644
 -    settings3DS.ScreenFilter = Setting::ScreenFilter::Smooth;
 +    settings3DS.ScreenStretch = Setting::ScreenStretch::None;   // pixel perfect, 256x224
 +    settings3DS.ScreenFilter = Setting::ScreenFilter::Sharp;
++    settings3DS.SmzColours = 2;
      settings3dsApplyScreenStretch();
      
      settings3DS.TicksPerFrame = TICKS_PER_FRAME_SNES_NTSC;
+diff --git a/source/3dssettings.h b/source/3dssettings.h
+index 463301f..54b5412 100644
+--- a/source/3dssettings.h
++++ b/source/3dssettings.h
+@@ -173,6 +173,7 @@ typedef struct {
+     bool                ShowFPS;
+ 
+     Setting::ScreenStretch ScreenStretch;
++    int                 SmzColours;            // SMZ3: 0 original, 1 vivid, 2 intense (S9xSetColourBoost)
+     Setting::ScreenFilter ScreenFilter;         // User preference for SNES_MAIN in stretched modes.
+                                                 // No Stretch enforces sharp (nearest) at render time.
+     bool                CropEnabled;            // master toggle for the per-game crop/overscan settings
 diff --git a/source/3dssound.cpp b/source/3dssound.cpp
 index cb9d772..942429b 100644
 --- a/source/3dssound.cpp
@@ -688,7 +745,7 @@ index 9688a80..c195f76 100644
          default:                        return "invalid";
      }
 diff --git a/source/Snes9x/gfx.cpp b/source/Snes9x/gfx.cpp
-index d8bd9ec..9d8c377 100644
+index d8bd9ec..f023208 100644
 --- a/source/Snes9x/gfx.cpp
 +++ b/source/Snes9x/gfx.cpp
 @@ -12,6 +12,7 @@
@@ -699,18 +756,32 @@ index d8bd9ec..9d8c377 100644
  
  #define M7 19
  #define M8 19
-@@ -573,6 +574,31 @@ void S9xGraphicsDeinit (void)
+@@ -573,6 +574,45 @@ void S9xGraphicsDeinit (void)
      }
  }
  
-+// SMZ3: the 3DS's top screen shows the SNES palette pale, so each 15-bit colour is made more saturated (x1.25) with a
-+// little more midtone contrast (gamma 1.1) on its way to the screen. Built once: 32768 entries.
++// SMZ3: the 3DS's top screen shows the SNES palette pale, so each 15-bit colour is made more saturated, with more
++// midtone contrast, on its way to the screen. The level is the Colours option: original, vivid, intense.
++static const float colourSaturation[3] = { 1.0f, 1.3f, 1.6f };
++static const float colourGamma[3] = { 1.0f, 1.1f, 1.2f };
++static int colourLevel = 2, colourBuilt = -1;
++
++void S9xSetColourBoost (int level)
++{
++    if (level < 0 || level > 2 || level == colourLevel) return;
++    colourLevel = level;
++    IPPU.ColorsChanged = TRUE;
++    IPPU.DirectColourMapsNeedRebuild = TRUE;
++}
++
 +uint16 S9xVividColour (uint16 bgr)
 +{
 +    static uint16 *lut;
-+    if (!lut)
++    if (!lut) lut = (uint16 *) malloc (0x8000 * sizeof (uint16));
++    if (colourBuilt != colourLevel)
 +    {
-+        lut = (uint16 *) malloc (0x8000 * sizeof (uint16));
++        colourBuilt = colourLevel;
++        float sat = colourSaturation[colourLevel], gamma = colourGamma[colourLevel];
 +        for (uint32 c = 0; c < 0x8000; c++)
 +        {
 +            float rgb[3] = { (c & 0x1f) / 31.0f, ((c >> 5) & 0x1f) / 31.0f, ((c >> 10) & 0x1f) / 31.0f };
@@ -718,8 +789,8 @@ index d8bd9ec..9d8c377 100644
 +            uint32 out[3];
 +            for (int i = 0; i < 3; i++)
 +            {
-+                float v = grey + (rgb[i] - grey) * 1.25f;
-+                v = v < 0 ? 0 : v > 1 ? 1 : powf (v, 1.1f);
++                float v = grey + (rgb[i] - grey) * sat;
++                v = v < 0 ? 0 : v > 1 ? 1 : powf (v, gamma);
 +                out[i] = (uint32) (v * 31.0f + 0.5f);
 +            }
 +            lut[c] = BUILD_PIXEL (out[0], out[1], out[2]);
@@ -731,7 +802,7 @@ index d8bd9ec..9d8c377 100644
  void S9xBuildDirectColourMaps ()
  {
      for (uint32 p = 0; p < 8; p++)
-@@ -580,9 +606,9 @@ void S9xBuildDirectColourMaps ()
+@@ -580,9 +620,9 @@ void S9xBuildDirectColourMaps ()
  	for (uint32 c = 0; c < 256; c++)
  	{
  // XXX: Brightness
@@ -744,7 +815,7 @@ index d8bd9ec..9d8c377 100644
  	}
      }
      IPPU.DirectColourMapsNeedRebuild = FALSE;
-@@ -605,9 +631,7 @@ void S9xUpdatePalettes()
+@@ -605,9 +645,7 @@ void S9xUpdatePalettes()
  			IPPU.Green [cgaddr] = IPPU.XB [(cgdata >> 5) & 0x1f];
  			IPPU.Red [cgaddr] = IPPU.XB [cgdata & 0x1f];
  
@@ -756,14 +827,15 @@ index d8bd9ec..9d8c377 100644
  			if (finalColor != IPPU.ScreenColors [cgaddr])
  			{
 diff --git a/source/Snes9x/gfx.h b/source/Snes9x/gfx.h
-index 907b68a..623a427 100644
+index 907b68a..78d4bf2 100644
 --- a/source/Snes9x/gfx.h
 +++ b/source/Snes9x/gfx.h
-@@ -262,6 +262,7 @@ void S9xUpdateScreenSoftware ();
+@@ -262,6 +262,8 @@ void S9xUpdateScreenSoftware ();
  void S9xUpdateScreenHardware ();
  void RenderLine (uint8 line);
  void S9xBuildDirectColourMaps ();
 +uint16 S9xVividColour (uint16 bgr);
++void S9xSetColourBoost (int level);
  void S9xUpdatePalettes();
  
  // External port interface which must be implemented or initialised for each
