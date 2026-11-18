@@ -61,6 +61,7 @@ static int request(const char *what, const char *fields, int with_token, int fin
 {
     if (!strcmp(what, "forget")) { pthread_mutex_lock(&mu); token[0] = 0; since = 0; progress = 0; ne = nc = 0; slow = 0; offline_since = 0; pthread_mutex_unlock(&mu); return 0; }
     int code;
+    int64_t sent = online_now_ms();
     if (find) code = online_http("GET", "/api/race/open", NULL, buf, ANS_CAP);
     else {
         char path[48], *body = malloc(ANS_CAP);
@@ -74,6 +75,7 @@ static int request(const char *what, const char *fields, int with_token, int fin
         free(body);
     }
     if (!strcmp(what, "leave")) { pthread_mutex_lock(&mu); token[0] = 0; since = 0; pthread_mutex_unlock(&mu); return 0; }   /* gone either way */
+    if (code >= 500 && !strstr(buf, "\"error\"")) code = -1;   /* the proxy's own page while the server restarts: a short outage, not a no */
     pthread_mutex_lock(&mu);
     if (code < 0) { if (!offline_since) offline_since = mono_ms(); }
     else offline_since = 0;
@@ -95,7 +97,13 @@ static int request(const char *what, const char *fields, int with_token, int fin
         pthread_mutex_unlock(&mu);
         return 0;   /* the room itself comes with the next poll, at once */
     }
-    answer(RACE_ANS_ROOM, buf);
+    if (buf[0] == '{' && buf[1] != '}') {   /* stamped with this device's clock around the trip, for the server's "now" */
+        int64_t got = online_now_ms();
+        char *st = malloc(ANS_CAP + 64);
+        snprintf(st, ANS_CAP + 64, "{\"sent\":%lld,\"got\":%lld,%s", (long long)sent, (long long)got, buf + 1);
+        answer(RACE_ANS_ROOM, st);
+        free(st);
+    } else answer(RACE_ANS_ROOM, buf);
     return 0;
 }
 

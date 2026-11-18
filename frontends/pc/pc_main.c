@@ -987,6 +987,8 @@ static float daily_panel(const SmzDailyRun *r, int finished, float x, float w, f
     return y;
 }
 
+static char g_side_goal[64], g_side_left[32];   /* a Draft race's goal and time left, shown in the left panel when there is one */
+
 static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, float h, const MiniMap *mm, int64_t clock_ms, const SmzDailyRun *dr, int finished)
 {
     float u = fminf(h / 720.0f, w / 230.0f), pad = 18 * u, y = 40 * u;
@@ -1013,6 +1015,11 @@ static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, f
     y += 50 * u;
     gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, r->name);
     if (dr) y = daily_panel(dr, finished, x + pad, w - 2 * pad, y + 34 * u, u) - 30 * u;
+    if (g_side_goal[0]) {
+        gfx_text(x + pad, y + 40 * u, 20 * u, C(0xE8, 0xEC, 0xF2), 0, g_side_goal);
+        gfx_text(x + pad, y + 66 * u, 26 * u, C(0xF2, 0xA3, 0x3A), 0, g_side_left);
+        y += 70 * u;
+    }
     minimap_at_bottom(t, mm, x, w, h, y + 30 * u);
 }
 
@@ -1651,6 +1658,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
 {
     const SmzRace *r = &ui.race.room;
     float u = wh / 720.0f;
+    if (!(rg.draft && r->state == RACE_RUNNING && go_in <= -6000 && !rg.card)) g_side_goal[0] = 0;
     if (rg.back && r->state == RACE_PAUSED) {   /* back in a paused race: the others come back too */
         int in = 0, back = 0;
         for (int i = 0; i < r->n; i++) if (!r->p[i].left) { in++; back += r->p[i].back; }
@@ -1682,17 +1690,25 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
         gfx_rect(gx + (gw - tw) / 2 - 20 * u, wh / 2.0f + 100 * u, tw + 40 * u, 52 * u, (SDL_Color){0x08, 0x0B, 0x11, 225});
         gfx_text(gx + gw / 2, wh / 2.0f + 110 * u, 30 * u, C(0xE8, 0xEC, 0xF2), 1, m);
     }
-    if (rg.draft && r->state == RACE_RUNNING && go_in <= -6000 && !rg.card) {   /* the goal and the 30 minute limit, small at the top left */
-        char m[96], g[64];
+    if (rg.draft && r->state == RACE_RUNNING && go_in <= -6000 && !rg.card) {   /* the goal and the 30 minute limit: in the left margin, else small over the game */
+        char m[96], g[64], t[32];
         int64_t left = r->start_at + 30 * 60000LL - race_now();
         if (left < 0) left = 0;
         smz_goal_text(&rg.goal, g, sizeof g);
         int pc = smz_goal_progress(&rg.goal, &g_goalc, 0);
-        if (rg.goal.kind == GOAL_KILLS || rg.goal.kind == GOAL_RUPEES) snprintf(m, sizeof m, "%s  %d%%  %d:%02d", g, pc, (int)(left / 60000), (int)(left / 1000 % 60));
-        else snprintf(m, sizeof m, "%s  %d:%02d", g, (int)(left / 60000), (int)(left / 1000 % 60));
-        float tw = gfx_text_width(18 * u, m);
-        gfx_rect(gx + 14 * u, 14 * u, tw + 24 * u, 32 * u, (SDL_Color){0x08, 0x0B, 0x11, 190});
-        gfx_text(gx + 26 * u, 20 * u, 18 * u, C(0xE8, 0xEC, 0xF2), 0, m);
+        if (rg.goal.kind == GOAL_KILLS || rg.goal.kind == GOAL_RUPEES) snprintf(t, sizeof t, "%d%%  %d:%02d", pc, (int)(left / 60000), (int)(left / 1000 % 60));
+        else snprintf(t, sizeof t, "%d:%02d", (int)(left / 60000), (int)(left / 1000 % 60));
+        float pu = fminf(wh / 720.0f, gx / 230.0f);
+        if (gx >= 90 && gfx_text_width(20 * pu, g) <= gx - 36 * pu) {   /* drawn by panel_left, next frame */
+            snprintf(g_side_goal, sizeof g_side_goal, "%s", g);
+            snprintf(g_side_left, sizeof g_side_left, "%s", t);
+        } else {
+            g_side_goal[0] = 0;
+            snprintf(m, sizeof m, "%s  %s", g, t);
+            float tw = gfx_text_width(18 * u, m);
+            gfx_rect(gx + 14 * u, 14 * u, tw + 24 * u, 32 * u, (SDL_Color){0x08, 0x0B, 0x11, 190});
+            gfx_text(gx + 26 * u, 20 * u, 18 * u, C(0xE8, 0xEC, 0xF2), 0, m);
+        }
     }
     if (r->state == RACE_RUNNING && r->end_at) {   /* a multi race after the first finish */
         int64_t left = r->end_at - race_now();
@@ -1885,7 +1901,7 @@ static void play(int slot, int game_save_only)
     if (win2) dual_open(slot + 1, &run);
     int done_popup = 0, finished_before = run.game == 3;   /* the run-complete card, shown once when the run ends in this session */
     int64_t final_ms = 0;
-    memset(&rg, 0, sizeof rg);
+    memset(&rg, 0, sizeof rg); g_side_goal[0] = 0;
     rg.on = slot + 1 == RACE_SLOT && race_joined();
     if (rg.on) {
         race_set_slow(1);
@@ -2553,7 +2569,7 @@ static void play(int slot, int game_save_only)
         const SmzRacePlayer *me = smz_race_me(&ui.race.room);
         int st = ui.race.room.state;
         if ((st == RACE_RUNNING && (!me || me->time_ms < 0) && !rg.kept) || (st == RACE_PAUSED && rg.back)) { race_send("leave", "", 1); race_forget_paused(); }   /* back from a pause and gone again: abandoned */
-        rg.on = 0;
+        rg.on = 0; g_side_goal[0] = 0;
     }
     if (rw_open) { smz_rewind_step(rw, smz_rewind_count(rw)); emu_state_load(smz_rewind_state(rw), rw_size); }   /* closed mid-rewind: the present is kept */
     smz_rewind_free(rw);

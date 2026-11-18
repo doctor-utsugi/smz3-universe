@@ -11895,10 +11895,10 @@ index c3c69c7..13cb599 100644
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
 new file mode 100644
-index 0000000..2307c70
+index 0000000..f52f761
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,206 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -12050,12 +12050,15 @@ index 0000000..2307c70
 +            "forget" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear(); slow = false; offlineSince = 0; saveToken() }; return true }
 +            "handover" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear() }; return true }
 +        }
-+        val (code, text) = if (r.what == "open") http("GET", "/api/race/open", null) else {
++        val sent = System.currentTimeMillis()
++        val (code0, text) = if (r.what == "open") http("GET", "/api/race/open", null) else {
 +            val body = JSONObject(r.fields?.toString() ?: "{}")
 +            if (r.withToken) body.put("token", synchronized(lock) { token })
 +            http("POST", "/api/race/${r.what}", body.toString())
 +        }
 +        if (r.what == "leave") { synchronized(lock) { token = ""; since = 0; saveToken() }; return true }   // gone either way
++        // The proxy's own page while the server restarts: a short outage, not a no.
++        val code = if (code0 >= 500 && !text.contains("\"error\"")) -1 else code0
 +        synchronized(lock) { if (code < 0) { if (offlineSince == 0L) offlineSince = SystemClock.elapsedRealtime() } else offlineSince = 0 }
 +        if (code < 0) { if (!keeps(r.what) && r.what != "poll") answer(ERROR, "No connection"); return false }
 +        if (code != 200) {
@@ -12068,7 +12071,9 @@ index 0000000..2307c70
 +            val t = runCatching { JSONObject(text).optString("token") }.getOrDefault("")
 +            if (t.isNotEmpty()) { synchronized(lock) { token = t; saveToken() }; return true }   // the room itself comes with the next poll, at once
 +        }
-+        answer(ROOM, text)
++        // stamped with this device's clock around the trip, for the server's "now"
++        val stamped = if (text.startsWith("{") && !text.startsWith("{}")) "{\"sent\":$sent,\"got\":${System.currentTimeMillis()}," + text.substring(1) else text
++        answer(ROOM, stamped)
 +        return true
 +    }
 +
@@ -12102,10 +12107,10 @@ index 0000000..2307c70
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..2ec35d8
+index 0000000..38d48b2
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,550 @@
+@@ -0,0 +1,557 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -12235,6 +12240,7 @@ index 0000000..2ec35d8
 +    private var voteDone = 0L
 +    private var offset = 0L
 +    private var synced = false
++    private var bestRtt = 0L
 +    private var since = 0L
 +    private var players = JSONArray()
 +    private var need = 11
@@ -12393,8 +12399,14 @@ index 0000000..2ec35d8
 +        val vote = room.optJSONObject("vote")
 +        voteBy = vote?.optString("by") ?: ""; voteAt = vote?.optLong("resumeAt") ?: 0L; voteYes = vote?.optJSONArray("yes") ?: JSONArray()
 +        players = room.optJSONArray("players") ?: players
-+        // each answer comes late by its trip, which only makes the estimate smaller: the largest is the closest, unless the clock jumped back
-+        if (o.has("now")) {
++        // stamped answers: the server read its clock about halfway through the trip, and the quickest trip is the surest,
++        // unless the clock itself jumped
++        if (o.has("now") && o.has("sent") && o.has("got")) {
++            val sent = o.optLong("sent"); val rtt = o.optLong("got") - sent
++            val est = o.optLong("now") - (sent + rtt / 2)
++            if (!synced || rtt <= bestRtt || est > offset + 2000 || est < offset - 2000) { offset = est; bestRtt = rtt }
++            synced = true
++        } else if (o.has("now")) {   // unstamped: each answer comes late by its trip, so the largest estimate is the closest
 +            val est = o.optLong("now") - System.currentTimeMillis()
 +            if (!synced || est > offset || est < offset - 2000) offset = est
 +            synced = true

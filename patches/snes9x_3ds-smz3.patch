@@ -1140,10 +1140,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..7dbca8d
+index 0000000..4b27d15
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1015 @@
+@@ -0,0 +1,1022 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -2008,6 +2008,7 @@ index 0000000..7dbca8d
 +    if (!strcmp(what, "nop")) return 0;
 +    if (!strcmp(what, "forget")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; gRaceProgress = 0; gRaceNe = gRaceNc = 0; gRaceSlow = false; gRaceOfflineSince = 0; raceUnlock(); return 0; }
 +    int code;
++    int64_t sent = smzDailyNowMs();
 +    if (find) {   // a list asked for by hand: one more try before saying there is no connection
 +        code = httpRequest("GET", "/api/race/open", NULL, buf, RACE_ANS_CAP);
 +        if (code < 0) { svcSleepThread(1000 * 1000 * 1000LL); code = httpRequest("GET", "/api/race/open", NULL, buf, RACE_ANS_CAP); }
@@ -2025,6 +2026,7 @@ index 0000000..7dbca8d
 +        free(body);
 +    }
 +    if (!strcmp(what, "leave")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; raceUnlock(); return 0; }   // gone either way
++    if (code >= 500 && !strstr(buf, "\"error\"")) code = -1;   // the proxy's own page while the server restarts: a short outage, not a no
 +    raceLock();
 +    if (code < 0) { if (!gRaceOfflineSince) gRaceOfflineSince = osGetTime(); }
 +    else gRaceOfflineSince = 0;
@@ -2046,7 +2048,12 @@ index 0000000..7dbca8d
 +        raceUnlock();
 +        return 0;   // the room itself comes with the next poll, at once
 +    }
-+    raceAnswer(SMZ_RACE_ROOM, buf);
++    char *st = buf[0] == '{' && buf[1] != '}' ? (char *)malloc(RACE_ANS_CAP + 64) : NULL;
++    if (st) {   // stamped with this device's clock around the trip, for the server's "now"
++        snprintf(st, RACE_ANS_CAP + 64, "{\"sent\":%lld,\"got\":%lld,%s", (long long)sent, (long long)smzDailyNowMs(), buf + 1);
++        raceAnswer(SMZ_RACE_ROOM, st);
++        free(st);
++    } else raceAnswer(SMZ_RACE_ROOM, buf);
 +    return 0;
 +}
 +

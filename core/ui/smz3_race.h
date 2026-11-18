@@ -38,6 +38,7 @@ typedef struct {
     int vote_n;
     int64_t offset;              /* server time minus this device's time, from the quickest poll so far */
     int synced;                  /* offset holds at least one poll */
+    int64_t rtt, rtt_at;         /* the round trip of the poll the offset came from, and when it came back */
     char seed[16], settings[512];   /* once the room is closed */
     int64_t since;               /* the last log line read */
     SmzRaceLine line[RACE_LINES];   /* the newest lines, oldest first */
@@ -45,7 +46,8 @@ typedef struct {
 } SmzRace;
 
 /* Reads an answer holding "room" (and for /poll also "now", "you" and "log"); local_now is this device's clock in ms.
- * 0 when it held a room. */
+ * An answer the client stamped with "sent" and "got" (this device's clock around the request) sets the offset from its
+ * middle. 0 when it held a room. */
 int smz_race_read(SmzRace *r, const char *json, int64_t local_now);
 /* The rows of /api/race/open; returns how many. */
 int smz_race_rooms(const char *json, SmzRaceRoom *rows, int max);
