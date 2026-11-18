@@ -285,7 +285,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..46a09f8 100644
+index 3692a54..c94ffcb 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -14,6 +14,7 @@
@@ -387,7 +387,7 @@ index 3692a54..46a09f8 100644
 +        makeOptionsForColours(), settings3DS.SmzColours, DIALOG_TYPE_INFO, true,
 +        []( int val ) {
 +            if (CheckAndUpdate(settings3DS.SmzColours, val)) {
-+                S9xSetColourBoost(val);
++                S9xSetColourBoost(val, true);
 +                menu3dsSetScreenDirty();
 +            }
 +        });
@@ -410,7 +410,7 @@ index 3692a54..46a09f8 100644
 +        settings3DS.isDirty = true;
 +    }
 +    config3dsReadWriteInt32(stream, writeMode, "SmzColours=%d\n", &settings3DS.SmzColours, 0, 2);
-+    S9xSetColourBoost(settings3DS.SmzColours);
++    S9xSetColourBoost(settings3DS.SmzColours, false);
 +
      return true;
  }
@@ -625,12 +625,15 @@ index 3692a54..46a09f8 100644
  
      // ---- load/update settings first ----
      menu3dsSetHotkeysData(hotkeysData);
-@@ -2560,6 +2575,14 @@ int main()
+@@ -2560,6 +2575,17 @@ int main()
      settings3dsResetGameDefaults();
      // load global config, overwrites defaults if file exists
      cfgFileAvailable[0] = settingsReadWriteFullListGlobal(false);
 +    // SMZ3: no pictures around the game or behind the tracker; the game screen stays black around the picture, as on the Thor.
 +    settings3DS.GameOverlay = settings3DS.GameScreenBg = settings3DS.SecondScreenBg = Setting::AssetMode::None;
++    // The global config is stock Snes9x's own file: scanlines turned on there would darken every other row of the game,
++    // and SMZ3 has no menu to turn them off.
++    settings3DS.ScanlineIntensity = 0;
 +    // Fast forward is the 3D slider, the tracker's save bar or a button bound in the game menu (smz3FastForward), never a
 +    // Snes9x hotkey; the slider no longer drives the stereoscopic 3D.
 +    settings3DS.UseGlobalEmuControlKeys = true;
@@ -640,7 +643,7 @@ index 3692a54..46a09f8 100644
      settings3dsUpdate(false);
  
      if (!emulatorInitialize()) {
-@@ -2589,6 +2612,7 @@ int main()
+@@ -2589,6 +2615,7 @@ int main()
      menu3dsShowSplashMessage("Saving & Exiting");
      
      settingsSave(settings3DS.isRomLoaded);
@@ -745,7 +748,7 @@ index 9688a80..c195f76 100644
          default:                        return "invalid";
      }
 diff --git a/source/Snes9x/gfx.cpp b/source/Snes9x/gfx.cpp
-index d8bd9ec..f023208 100644
+index d8bd9ec..a654c5e 100644
 --- a/source/Snes9x/gfx.cpp
 +++ b/source/Snes9x/gfx.cpp
 @@ -12,6 +12,7 @@
@@ -756,7 +759,7 @@ index d8bd9ec..f023208 100644
  
  #define M7 19
  #define M8 19
-@@ -573,6 +574,45 @@ void S9xGraphicsDeinit (void)
+@@ -573,6 +574,50 @@ void S9xGraphicsDeinit (void)
      }
  }
  
@@ -766,12 +769,17 @@ index d8bd9ec..f023208 100644
 +static const float colourGamma[3] = { 1.0f, 1.1f, 1.2f };
 +static int colourLevel = 2, colourBuilt = -1;
 +
-+void S9xSetColourBoost (int level)
++// refresh: the palette already loaded is converted again at once (the tile caches follow its hashes); at boot there is
++// nothing loaded yet. Left to the game, an entry would only change when it writes a different colour to it.
++void S9xSetColourBoost (int level, bool refresh)
 +{
 +    if (level < 0 || level > 2 || level == colourLevel) return;
 +    colourLevel = level;
-+    IPPU.ColorsChanged = TRUE;
 +    IPPU.DirectColourMapsNeedRebuild = TRUE;
++    if (!refresh) return;
++    IPPU.ColorsChanged = TRUE;
++    IPPU.Mode7PaletteDirtyFlag = 0xffffffff;
++    S9xUpdatePalettes ();
 +}
 +
 +uint16 S9xVividColour (uint16 bgr)
@@ -802,7 +810,7 @@ index d8bd9ec..f023208 100644
  void S9xBuildDirectColourMaps ()
  {
      for (uint32 p = 0; p < 8; p++)
-@@ -580,9 +620,9 @@ void S9xBuildDirectColourMaps ()
+@@ -580,9 +625,9 @@ void S9xBuildDirectColourMaps ()
  	for (uint32 c = 0; c < 256; c++)
  	{
  // XXX: Brightness
@@ -815,7 +823,7 @@ index d8bd9ec..f023208 100644
  	}
      }
      IPPU.DirectColourMapsNeedRebuild = FALSE;
-@@ -605,9 +645,7 @@ void S9xUpdatePalettes()
+@@ -605,9 +650,7 @@ void S9xUpdatePalettes()
  			IPPU.Green [cgaddr] = IPPU.XB [(cgdata >> 5) & 0x1f];
  			IPPU.Red [cgaddr] = IPPU.XB [cgdata & 0x1f];
  
@@ -827,7 +835,7 @@ index d8bd9ec..f023208 100644
  			if (finalColor != IPPU.ScreenColors [cgaddr])
  			{
 diff --git a/source/Snes9x/gfx.h b/source/Snes9x/gfx.h
-index 907b68a..78d4bf2 100644
+index 907b68a..1c553c2 100644
 --- a/source/Snes9x/gfx.h
 +++ b/source/Snes9x/gfx.h
 @@ -262,6 +262,8 @@ void S9xUpdateScreenSoftware ();
@@ -835,7 +843,7 @@ index 907b68a..78d4bf2 100644
  void RenderLine (uint8 line);
  void S9xBuildDirectColourMaps ();
 +uint16 S9xVividColour (uint16 bgr);
-+void S9xSetColourBoost (int level);
++void S9xSetColourBoost (int level, bool refresh);
  void S9xUpdatePalettes();
  
  // External port interface which must be implemented or initialised for each
@@ -2080,10 +2088,10 @@ index 0000000..c1e9f0c
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..ed3511e
+index 0000000..9f44379
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5650 @@
+@@ -0,0 +1,5651 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3373,10 +3381,11 @@ index 0000000..ed3511e
 +                    deriveFromRoms(&ui);
 +                    gNextStates = states;
 +                    gNextLoadState = hasState && act != ACT_LOAD_SAVE;
-+                    // The run's screen shape picks the scaling: wide fills the 400x240 screen, pixel is 8:7, original is 4:3.
++                    // The run's screen shape picks the scaling: wide fills the 400x240 screen; original (4:3) and pixel (8:7) are
++                    // one screen pixel per SNES pixel. 4:3 would be 298 wide, which nearest sampling can only reach by showing
++                    // some columns twice, and the 3DS's 224 lines leave no room to scale the height.
 +                    settings3DS.ScreenStretch = strstr(r.settings, "\"screenShape\":\"wide\"") ? Setting::ScreenStretch::Full
-+                        : strstr(r.settings, "\"screenShape\":\"pixel\"") ? Setting::ScreenStretch::CrtAspect
-+                        : Setting::ScreenStretch::Aspect_4_3;
++                        : Setting::ScreenStretch::None;
 +                    settings3dsApplyScreenStretch();
 +                    // 3DS has no shaders: CRT and LCD take the blend of sharp and smooth.
 +                    settings3DS.ScreenFilter = strstr(r.settings, "\"screenFilter\":\"smooth\"") ? Setting::ScreenFilter::Smooth
@@ -7718,7 +7727,7 @@ index 0000000..ed3511e
 +            case PM_MUTE: snd3dsMuted = !snd3dsMuted; snd3dsApplyOutputVolume(); uiCueSound(UI_CUE_SELECT); break;
 +            case PM_COLOURS:
 +                settings3DS.SmzColours = (settings3DS.SmzColours + step + 3) % 3;
-+                S9xSetColourBoost(settings3DS.SmzColours);
++                S9xSetColourBoost(settings3DS.SmzColours, true);
 +                settings3DS.isDirty = true;
 +                uiCueSound(UI_CUE_SELECT);
 +                break;
