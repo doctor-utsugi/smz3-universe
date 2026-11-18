@@ -2269,7 +2269,7 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..e3dfda0
+index 0000000..6740c3f
 --- /dev/null
 +++ b/source/smz3run.cpp
 @@ -0,0 +1,5756 @@
@@ -5937,7 +5937,7 @@ index 0000000..e3dfda0
 +
 +static int64_t raceNow() { return smzDailyNowMs() + rg.room.offset; }   // the server's clock
 +static int64_t raceGoIn() { return rg.room.go_at ? rg.room.go_at - raceNow() : 0; }
-+static bool raceWaiting() { return rg.on && raceGoIn() > 0; }   // no input until the start; the game's intro plays meanwhile
++static bool raceWaiting() { return rg.on && raceGoIn() > 0; }   // the game stands on its first frame until the countdown hits 0, the same moment for everyone
 +static bool raceFirst() { const SmzRacePlayer *me = smz_race_me(&rg.room); return me && me->place == 1; }
 +// First with a time: it can go to the ladder (a win because the others left has none).
 +static bool raceWon() { const SmzRacePlayer *me = smz_race_me(&rg.room); return raceFirst() && me->time_ms >= 0; }
@@ -7392,7 +7392,7 @@ index 0000000..e3dfda0
 +    rewindFrame();
 +    previewFrame();
 +    if (rg.on) raceInGame();
-+    raceHold(raceFrozen());
++    raceHold(raceFrozen() || raceWaiting());
 +    if (tick || curSlot != gPlaySlot) { trackerUpdate(); debugTouches(); dirty = true; }
 +    static unsigned frames;
 +    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending && !rwOpen && !pvOpen)   // ~100 ms: an enemy's death is short

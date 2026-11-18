@@ -2157,13 +2157,13 @@ static void play(int slot, int game_save_only)
             if (rg.back && ui.race.room.state == RACE_RUNNING && go_in <= 0) rg.back = 0;   /* everyone is back and the countdown is over */
             if (ui.race.room.state == RACE_PAUSED && !rg.back && !rg.kept) { rg.kept = 1; race_keep_paused(); rg.card = CARD_PAUSED; rg.pick = 0; show = leaving = 0; }
         }
-        int waiting = rg.on && go_in > 0;   /* no input until the start; the game's intro plays meanwhile */
+        int waiting = rg.on && go_in > 0;   /* the game stays on its first frame until the countdown hits 0, the same moment for everyone */
         int frozen = rg.on && (rg.back || rg.kept || rg.pick || (ui.race.room.state == RACE_RUNNING && ui.race.room.vote_by[0] && !rg.card));   /* a paused game must not move; a pause vote stops everyone until it is settled */
         int input = show || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || frozen || rg.card ? 0 : pad_bits(keys);
         SDL_Keycode ffk = pad_key(PA_FAST);
         fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || (win2 ? hk_held(pad, HK_FAST) : pad_held(pad, pad_code(PA_FAST))));
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
-        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || rg.card;
+        int hold = (show && pause_on_overlay) || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || waiting || rg.card;
         if (!hold) {
             emu_set_pad(input);
             /* fast forward keeps the music at its pitch: one frame of sound out of every four, each one blended into the
@@ -2397,8 +2397,8 @@ static void play(int slot, int game_save_only)
             ren = top;
             gfx_use(top);
         }
-        if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !ren2 && !(show && tab == TAB_COUNT));   /* no chat box over the CHAT tab */
-        if (daily && !rw_open) chat_notes(gx, gw, wh, hud_bottom ? hud_bottom + 8 * (wh / 720.0f) : 16 * (wh / 720.0f), !ren2 && !(show && tab == chat_tab));
+        if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !(show && tab == TAB_COUNT));   /* no chat box over the CHAT tab; with two windows the game still shows it */
+        if (daily && !rw_open) chat_notes(gx, gw, wh, hud_bottom ? hud_bottom + 8 * (wh / 720.0f) : 16 * (wh / 720.0f), !(show && tab == chat_tab));
         if (leaving) {
             int abandon = rg.on && (ui.race.room.state == RACE_RUNNING || rg.back), pause = abandon && race_can_pause(go_in);
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});

@@ -1890,7 +1890,7 @@ static void race_draw(SmzUi *u)
             text(u, 14, y + 4, mine ? C_ACCENT : C_TEXT, 0, r->p[i].name);
             text(u, UI_W - 14, y + 4, C_DIM, 2, !strcmp(r->p[i].pid, r->creator) ? "creator" : creator && !mine ? "A remove" : "");
         }
-        if (creator) race_row(u, r->n, 66 + r->n * 18, "Close the room", r->n < 2 ? "needs 2 players" : "skins and the ready room", r->n < 2 ? C_DIM : C_TEXT);
+        if (creator) race_row(u, r->n, 66 + r->n * 18, r->n < 2 ? "Close the room" : "Start race", r->n < 2 ? "needs 2 players" : "skins and the ready room", r->n < 2 ? C_DIM : C_TEXT);
         else text(u, UI_W / 2, 200, C_DIM, 1, "Give this code to the other players");
         legend(u, creator ? "A Choose  B Leave" : "B Leave");
         break;

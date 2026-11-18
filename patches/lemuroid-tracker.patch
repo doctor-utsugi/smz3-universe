@@ -12101,10 +12101,10 @@ index 0000000..2307c70
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..11e7361
+index 0000000..cece1f9
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,537 @@
+@@ -0,0 +1,544 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -12230,6 +12230,7 @@ index 0000000..11e7361
 +    private var voteYes = JSONArray()
 +    private var voteDone = 0L
 +    private var offset = 0L
++    private var synced = false
 +    private var since = 0L
 +    private var players = JSONArray()
 +    private var need = 11
@@ -12388,7 +12389,12 @@ index 0000000..11e7361
 +        val vote = room.optJSONObject("vote")
 +        voteBy = vote?.optString("by") ?: ""; voteAt = vote?.optLong("resumeAt") ?: 0L; voteYes = vote?.optJSONArray("yes") ?: JSONArray()
 +        players = room.optJSONArray("players") ?: players
-+        if (o.has("now")) offset = o.optLong("now") - System.currentTimeMillis()
++        // each answer comes late by its trip, which only makes the estimate smaller: the largest is the closest, unless the clock jumped back
++        if (o.has("now")) {
++            val est = o.optLong("now") - System.currentTimeMillis()
++            if (!synced || est > offset || est < offset - 2000) offset = est
++            synced = true
++        }
 +        if (o.has("you")) you = o.optString("you")
 +        Smz3RaceState.you = you
 +        Smz3RaceState.players = players
@@ -12480,9 +12486,10 @@ index 0000000..11e7361
 +            }
 +            if (state == "cancelled" || state == "finished") hold?.dismiss()
 +        }
-+        // a paused game must not move, nor may any game while a pause vote is open
++        // a paused game must not move, nor may any game while a pause vote is open; before the start it waits for 0, like everyone
 +        val voting = state == "running" && voteBy.isNotEmpty() && card?.isShowing != true
-+        setHeld(on && (back || kept || voting))
++        val waiting = state == "running" && goAt > 0 && goIn > 0
++        setHeld(on && (back || kept || voting || waiting))
 +        if (voteOpen() && card?.isShowing != true && boxKind != "vote") showVote()
 +        else if (voting && !voteOpen() && boxKind != "wait" && boxKind != "pick") showWait()
 +        else if (!voting && (boxKind == "vote" || boxKind == "wait")) { box?.dismiss(); boxKind = "" }

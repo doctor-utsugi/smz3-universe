@@ -138,7 +138,13 @@ int smz_race_read(SmzRace *r, const char *json, int64_t local_now)
     if (!o) return -1;
     room(r, o);
     int64_t now = num(get(json, "now"), 0);
-    if (now) r->offset = now - local_now;
+    /* each answer comes late by its trip, which only makes the estimate smaller: the largest is the closest, unless the
+     * clock itself jumped back */
+    if (now) {
+        int64_t est = now - local_now;
+        if (!r->synced || est > r->offset || est < r->offset - 2000) r->offset = est;
+        r->synced = 1;
+    }
     if (get(json, "you")) str(get(json, "you"), r->you, sizeof r->you);
     r->fresh = 0;
     for (const char *e = first(get(json, "log")); e; e = next(e)) {

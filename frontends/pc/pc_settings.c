@@ -298,6 +298,12 @@ int settings_raw(const SDL_Event *e, int code)
         const char *use = pad_key_use(key);
         if (key == SDLK_DELETE) { pad_set_key(rebind_action, SDLK_UNKNOWN); snprintf(sc_msg, sizeof sc_msg, "%s has no key now", name); }
         else if (key == pad_key(rebind_action)) sc_msg[0] = 0;
+        else if (pad_key_action(key) >= 0) {   /* another button's key: the two swap, so taking S for jump just works */
+            int other = pad_key_action(key);
+            pad_set_key(other, pad_key(rebind_action));
+            pad_set_key(rebind_action, key);
+            snprintf(sc_msg, sizeof sc_msg, "%s is on %s, %s took its old key", name, SDL_GetKeyName(key), pad_action_name(other));
+        }
         else if (use) snprintf(sc_msg, sizeof sc_msg, "%s is used by %s", SDL_GetKeyName(key), use);
         else {
             for (int i = 0; i < SC_COUNT && !use; i++) if (sc_key(i) == key) use = smz_shortcuts[i].name;

@@ -59,6 +59,12 @@ static void keys_load(void)
 SDL_Keycode pad_key(int action) { return pad_keyed(action) ? key_of[action] : SDLK_UNKNOWN; }
 void pad_set_key(int action, SDL_Keycode k) { if (pad_keyed(action)) { key_of[action] = k; keys_save(); } }
 
+int pad_key_action(SDL_Keycode k)
+{
+    for (int a = 0; a < PA_COUNT; a++) if (pad_keyed(a) && key_of[a] == k) return a;
+    return -1;
+}
+
 const char *pad_key_use(SDL_Keycode k)
 {
     for (size_t i = 0; i < sizeof FIXED_KEYS / sizeof FIXED_KEYS[0]; i++) if (FIXED_KEYS[i].k == k) return FIXED_KEYS[i].use;

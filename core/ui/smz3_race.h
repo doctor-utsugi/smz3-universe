@@ -36,7 +36,8 @@ typedef struct {
     int64_t vote_at;
     char vote_yes[RACE_MAX][12];
     int vote_n;
-    int64_t offset;              /* server time minus this device's time, from the last poll */
+    int64_t offset;              /* server time minus this device's time, from the quickest poll so far */
+    int synced;                  /* offset holds at least one poll */
     char seed[16], settings[512];   /* once the room is closed */
     int64_t since;               /* the last log line read */
     SmzRaceLine line[RACE_LINES];   /* the newest lines, oldest first */
