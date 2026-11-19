@@ -2281,10 +2281,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..ba99fd7
+index 0000000..240d027
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5915 @@
+@@ -0,0 +1,5923 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3710,6 +3710,16 @@ index 0000000..ba99fd7
 +    }
 +}
 +
++static void dotAlpha(float cx, float cy, float r, int rgb, int a)
++{
++    for (int dy = (int)floorf(-r); dy <= (int)ceilf(r); dy++) {
++        float yy = dy + 0.5f;
++        if (yy * yy > r * r) continue;
++        float half = sqrtf(r * r - yy * yy);
++        fillAlpha((int)lroundf(cx - half), (int)cy + dy, (int)lroundf(cx + half), (int)cy + dy + 1, rgb, a);
++    }
++}
++
 +static int textW(const char *s) { return ui3dsGetStringWidth(s); }
 +
 +// align HALIGN_CENTER centres in x..x1, HALIGN_RIGHT ends at x
@@ -4251,7 +4261,14 @@ index 0000000..ba99fd7
 +        }
 +        if (done) { dot(px, py, rad * 0.65f + 1, 0x000000); dot(px, py, rad * 0.65f, 0xFFFFFF); }
 +        else if (!reach) { dot(px, py, rad * 0.7f + 1, 0xF0F4F8); dot(px, py, rad * 0.7f, 0x5A6678); }
-+        else { dot(px, py, rad + 1, 0xFFFFFF); dot(px, py, rad, 0x000000); dot(px, py, rad - 0.8f, 0xFFB300); }
++        else {
++            if (logicShown) {   // what can be reached now sends out a ring, so the eye finds it
++                float p = (float)(osGetTime() % 1200) / 1200.0f;
++                dotAlpha(px, py, rad + 1 + 7 * p, 0xFFB300, (int)(220 * (1 - p)));
++                dotAlpha(px, py, rad + 1 + 3.5f * p, 0xFFFFFF, (int)(110 * (1 - p)));
++            }
++            dot(px, py, rad + 1.5f, 0xFFFFFF); dot(px, py, rad + 0.5f, 0x000000); dot(px, py, rad - 0.3f, 0xFFB300);
++        }
 +    }
 +    SmzBossMark boss[16];
 +    int nb = Memory.RAM ? smz_disc_boss_marks(&disc, Memory.RAM, 0x20000, boss, 16) : 0;
@@ -6870,16 +6887,6 @@ index 0000000..ba99fd7
 +    }
 +}
 +
-+static void dotAlpha(float cx, float cy, float r, int rgb, int a)
-+{
-+    for (int dy = (int)floorf(-r); dy <= (int)ceilf(r); dy++) {
-+        float yy = dy + 0.5f;
-+        if (yy * yy > r * r) continue;
-+        float half = sqrtf(r * r - yy * yy);
-+        fillAlpha((int)lroundf(cx - half), (int)cy + dy, (int)lroundf(cx + half), (int)cy + dy + 1, rgb, a);
-+    }
-+}
-+
 +// The portal between the games (the Thor's Smz3PortalView), over the new game's tracker already drawn: the old game's colour
 +// covers it but for a hole that opens from the centre, the tracker fades in, and a violet ring spins on the hole's edge.
 +static void drawPortal()
@@ -7587,6 +7594,7 @@ index 0000000..ba99fd7
 +    if (barNoteUntil && now >= barNoteUntil) { barNoteUntil = 0; dirty = true; }
 +    if (chatNoteUntil && now >= chatNoteUntil) { chatNoteUntil = 0; dirty = true; }
 +    if (noStatesUntil && now >= noStatesUntil) { noStatesUntil = 0; dirty = true; }
++    if (logicShown && (tab == TAB_MAP || tab == TAB_RUN) && sinceDraw >= 8) dirty = true;   // the reachable rings move at ~7 fps
 +    if (cardState) { cardSounds(); if (cardT() < T_BUTTONS + 0.4f && sinceDraw >= 2) dirty = true; }   // the details move at 30 fps
 +    bool portal = portalPlaying(), visor = visorPlaying(), portalEnd = (portalAt && !portal) || (visorAt && !visor);
 +    int every = visor ? 3 : 4;   // a blend of the whole screen costs ~5 ms on an Old 3DS: the visor at 20 fps, the portal at 15
