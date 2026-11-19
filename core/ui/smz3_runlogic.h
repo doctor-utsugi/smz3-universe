@@ -3,6 +3,7 @@
 #ifndef SMZ3_RUNLOGIC_H
 #define SMZ3_RUNLOGIC_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "smz3_generate.h"
 
@@ -16,6 +17,8 @@ typedef struct {
 int smz_logic_build(SmzLogic *l, const char *settings_json);
 /* The settings JSON fields the logic depends on, as the generator takes them. */
 int smz_logic_settings(const char *settings_json, SmzSettings *s);
+/* sizeof(SmzLogic), for callers that keep it opaque (C++ cannot include the generator's headers). */
+size_t smz_logic_size(void);
 /* The item type the seed placed at smz3_locations[j], -1 when unknown. */
 int smz_logic_item_at(const SmzLogic *l, int j);
 /* in_logic[i] (i over smz3_locations) is set for the checks reachable with these ItemType ids. Returns how many are. */

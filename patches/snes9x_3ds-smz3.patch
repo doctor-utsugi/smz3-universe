@@ -2281,10 +2281,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..6740c3f
+index 0000000..3a2fd58
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5756 @@
+@@ -0,0 +1,5846 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3928,6 +3928,82 @@ index 0000000..6740c3f
 +// ---- state of the run being played
 +
 +static SmzTracker trk;
++
++// Which checks are in logic, when the run asks for it: its seed is rebuilt on a low priority thread, then asked again
++// each time the items change. inLogic holds the last answer once logicShown.
++// smz3_runlogic.h, kept opaque: its generator headers are C only
++struct SmzLogic;
++extern "C" {
++size_t smz_logic_size(void);
++int smz_logic_build(SmzLogic *l, const char *settings_json);
++int smz_logic_reachable(const SmzLogic *l, const int *items, int n, uint8_t *in_logic, int cap);
++}
++static SmzLogic *gLogic;
++static bool logicBuilt;
++static u8 inLogic[SMZ_TRK_MAX_LOCS], logicNext[SMZ_TRK_MAX_LOCS];
++static int logicItems[SMZ_TRK_MAX_ITEMS], logicN, logicKeys;
++static char *logicJson;
++static Thread logicThr;
++static volatile bool logicDone, logicFailed;
++static bool logicOn, logicShown;
++static u32 logicKey;
++
++static void logicMain(void *)
++{
++    if (!logicBuilt && smz_logic_build(gLogic, logicJson) != 0) logicFailed = true;
++    else { logicBuilt = true; smz_logic_reachable(gLogic, logicItems, logicN, logicNext, SMZ_TRK_MAX_LOCS); }
++    logicDone = true;
++}
++
++static void logicStop()
++{
++    if (logicThr) { threadJoin(logicThr, U64_MAX); threadFree(logicThr); logicThr = NULL; }
++    logicOn = logicShown = logicDone = logicFailed = false;
++}
++
++static void logicBegin(const SmzRun &r)
++{
++    logicStop();
++    const char *st = r.settings;
++    bool reach = strstr(st, "\"showReachable\"") ? strstr(st, "\"showReachable\":true") != NULL : !strcmp(r.name, "Cozy run");
++    logicOn = reach && !strstr(st, "\"challenge\":true") && strstr(st, "\"helpMode\":\"all\"");
++    if (!logicOn) return;
++    free(logicJson);
++    logicJson = strdup(st);
++    if (!logicJson) { logicOn = false; return; }
++    logicKeys = strstr(st, "\"keysanity\":\"Both\"") ? 3 : strstr(st, "\"keysanity\":\"SuperMetroid\"") ? 2 : strstr(st, "\"keysanity\":\"Zelda\"") ? 1 : 0;
++    if (!gLogic) gLogic = (SmzLogic *)malloc(smz_logic_size());
++    if (!gLogic) { logicOn = false; return; }
++    logicBuilt = false;
++    logicKey = 0;
++}
++
++static bool dirty = true;   // the screens need drawing again
++
++// Once a frame: takes a finished answer, and asks again when the items changed and nothing is being worked out.
++static void logicTick()
++{
++    if (!logicOn) return;
++    if (logicThr && logicDone) {
++        threadJoin(logicThr, U64_MAX); threadFree(logicThr); logicThr = NULL;
++        if (logicFailed) { logicOn = false; logicShown = false; dirty = true; return; }
++        memcpy(inLogic, logicNext, sizeof inLogic);
++        logicShown = true;
++        dirty = true;
++    }
++    if (logicThr || !trk.started || !Memory.RAM || !Memory.SRAM) return;
++    int items[SMZ_TRK_MAX_ITEMS];
++    int n = smz_tracker_logic_items(&trk, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, logicKeys, items, SMZ_TRK_MAX_ITEMS);
++    u32 h = 2166136261u;
++    for (int q = 0; q < n; q++) h = (h ^ (u32)items[q]) * 16777619u;
++    if (h == logicKey) return;
++    logicKey = h;
++    memcpy(logicItems, items, sizeof items);
++    logicN = n;
++    logicDone = false;
++    logicThr = threadCreate(logicMain, NULL, 512 * 1024, 0x3F, -2, false);
++    if (!logicThr) logicKey = 0;   // tried again next frame
++}
 +static SmzCounters goalc;        // the world goal counters of the run being played
 +static char goalsLoaded[640];    // a save state's counters, taken in once the tracker has the run
 +static bool goalsPending;
@@ -3977,7 +4053,6 @@ index 0000000..6740c3f
 +static int scrollY[TAB_COUNT];
 +static int contentH[TAB_COUNT];
 +static TrkMapView bigMap = {811, 479, 0.19f, false}, miniMap = {811, 479, 0.45f, true};
-+static bool dirty = true;
 +static int shownGame;     // the game whose colours the tracker shows (1 Zelda, 2 Metroid; 0 none yet)
 +static u64 portalAt;      // when the portal between the games started, 0 when none plays
 +static int portalFrom;    // the background colour of the game left
@@ -4164,7 +4239,13 @@ index 0000000..6740c3f
 +            done = true;
 +            for (unsigned j = 0; j < smz3_location_count && j < SMZ_TRK_MAX_LOCS; j++) if (stackHead[j] == head && !trk.cleared[j]) done = false;
 +        } else done = trk.cleared[i];
++        bool reach = true;   // with logic shown: amber only for what can be reached now
++        if (!done && logicShown) {
++            if (stackSize[head] > 1) { reach = false; for (unsigned j = 0; j < smz3_location_count && j < SMZ_TRK_MAX_LOCS; j++) if (stackHead[j] == head && !trk.cleared[j] && inLogic[j]) reach = true; }
++            else reach = inLogic[i];
++        }
 +        if (done) { dot(px, py, rad * 0.65f + 1, 0x000000); dot(px, py, rad * 0.65f, 0xFFFFFF); }
++        else if (!reach) { dot(px, py, rad * 0.7f + 1, 0xF0F4F8); dot(px, py, rad * 0.7f, 0x5A6678); }
 +        else { dot(px, py, rad + 1, 0xFFFFFF); dot(px, py, rad, 0x000000); dot(px, py, rad - 0.8f, 0xFFB300); }
 +    }
 +    SmzBossMark boss[16];
@@ -5463,7 +5544,7 @@ index 0000000..6740c3f
 +            bool c = trk.cleared[i];
 +            if (c) fill(20, y + 4, 26, y + 10, theme.done);
 +            else { fill(20, y + 4, 26, y + 10, theme.dim); fill(21, y + 5, 25, y + 9, theme.bg); }
-+            textFit(32, y, 280, c ? theme.done : theme.text, smz3_locations[i].name);
++            textFit(32, y, 280, c ? theme.done : logicShown && !inLogic[i] ? theme.dim : theme.text, smz3_locations[i].name);
 +        }
 +        y += 4;
 +    }
@@ -5495,6 +5576,13 @@ index 0000000..6740c3f
 +    bool inDungeon = dungeonShowing(dv);
 +    if (inDungeon) drawDungeon(dv, 0, y0, 320, y1 - y0, false);
 +    else drawMap(bigMap, 0, y0, 320, y1 - y0, false);
++    if (!inDungeon && logicShown) {   // what the two dot colours mean
++        fillAlpha(4, y0 + 4, 176, y0 + 20, 0x000000, 180);
++        fill(9, y0 + 9, 15, y0 + 15, 0xFFB300);
++        text(19, y0 + 5, 0xFFFFFF, "reachable");
++        fill(91, y0 + 9, 97, y0 + 15, 0x5A6678);
++        text(101, y0 + 5, 0xFFFFFF, "needs items");
++    }
 +    const char *const *names;
 +    const int *w;
 +    int n = mapButtons(&names, &w);
@@ -7132,6 +7220,7 @@ index 0000000..6740c3f
 +        finalRun = r0;
 +        discoveredOnly = strstr(r0.settings, "\"mapMode\":\"discovered\"") != NULL;
 +        fixedKeys = strstr(r0.settings, "\"showFixedKeys\"") ? strstr(r0.settings, "\"showFixedKeys\":true") != NULL : !strcmp(r0.name, "Cozy run");
++        logicBegin(r0);
 +        dv = {false, false, 2, 0};
 +        smz_disc_init(&disc, &SMZ3_MAP_DATA);
 +        size_t dn = 0;
@@ -7182,6 +7271,7 @@ index 0000000..6740c3f
 +    if (deadBosses) smz_prepared_apply(deadBosses, Memory.RAM, 0x20000, Memory.SRAM, 0x20000);   // a mid-game daily start
 +    smz_tracker_tick(&trk, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, dt, 1);
 +    if (trk.started) smz_disc_update(&disc, Memory.RAM, 0x20000, (int)trk.game);
++    logicTick();
 +    dungeonReadLive();
 +    raceTick();
 +    if (trk.game == 3 && !cardState) { cardBegin(); if (rg.on) cardState = 2; }   // a race has its own card; this screen shows the details

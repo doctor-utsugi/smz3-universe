@@ -59,10 +59,30 @@ int smz_logic_settings(const char *json, SmzSettings *s)
     return 0;
 }
 
+/* SMZ_LOC_NAMES id -> index in smz3_locations (-1: none), filled once by smz_logic_build. */
+static short loc_of_id[512];
+static int loc_ready;
+
+static void map_ids(void)
+{
+    if (loc_ready) return;
+    static uint8_t named[512];   /* the first name with an id is the one it stands for */
+    for (int i = 0; i < 512; i++) loc_of_id[i] = -1;
+    for (int q = 0; q < SMZ_LOC_NAME_COUNT; q++) {
+        int id = SMZ_LOC_NAMES[q].id;
+        if (id < 0 || id >= 512 || named[id]) continue;
+        named[id] = 1;
+        for (unsigned j = 0; j < smz3_location_count; j++)
+            if (!strcmp(SMZ_LOC_NAMES[q].name, smz3_locations[j].id)) { loc_of_id[id] = (short)j; break; }
+    }
+    loc_ready = 1;
+}
+
 int smz_logic_build(SmzLogic *l, const char *json)
 {
     SmzSettings s, eff;
     l->valid = 0;
+    map_ids();
     const char *plando = find_key(json, "plandoYaml");
     if (plando && *plando == '"' && plando[1] != '"') return -1;
     smz_logic_settings(json, &s);
@@ -70,11 +90,12 @@ int smz_logic_build(SmzLogic *l, const char *json)
     return l->valid ? 0 : -1;
 }
 
+size_t smz_logic_size(void) { return sizeof(SmzLogic); }
+
 int smz_logic_item_at(const SmzLogic *l, int j)
 {
     if (!l->valid || j < 0 || (unsigned)j >= smz3_location_count) return -1;
-    for (int q = 0; q < SMZ_LOC_NAME_COUNT; q++)
-        if (!strcmp(SMZ_LOC_NAMES[q].name, smz3_locations[j].id)) return SMZ_LOC_NAMES[q].id >= 0 && SMZ_LOC_NAMES[q].id < 512 ? l->seed.world.item_at[SMZ_LOC_NAMES[q].id] : -1;
+    for (int id = 0; id < 512; id++) if (loc_of_id[id] == j) return l->seed.world.item_at[id];
     return -1;
 }
 
@@ -86,12 +107,9 @@ int smz_logic_reachable(const SmzLogic *l, const int *items, int n, uint8_t *in_
     int ids[512];
     int k = smz_reachable(&l->seed, all, na, ids, 512), count = 0;
     memset(in_logic, 0, (size_t)cap);
-    for (int i = 0; i < k; i++)
-        for (unsigned j = 0; j < smz3_location_count && (int)j < cap; j++)
-            for (int q = 0; q < SMZ_LOC_NAME_COUNT; q++)
-                if (SMZ_LOC_NAMES[q].id == ids[i]) {
-                    if (!strcmp(SMZ_LOC_NAMES[q].name, smz3_locations[j].id) && !in_logic[j]) { in_logic[j] = 1; count++; }
-                    break;
-                }
+    for (int i = 0; i < k; i++) {
+        int j = ids[i] >= 0 && ids[i] < 512 ? loc_of_id[ids[i]] : -1;
+        if (j >= 0 && j < cap && !in_logic[j]) { in_logic[j] = 1; count++; }
+    }
     return count;
 }
