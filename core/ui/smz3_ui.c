@@ -998,9 +998,10 @@ static void online_input(SmzUi *u, UiButton b)
         if (*c == 0) {
             u->online_mode = 1;
             if (!u->player[0]) { u->name_for = 1; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; return; }
-            u->screen = UI_START;
+            if (u->online_gen) { u->action = ACT_GENERATE; u->action_slot = u->active_slot; }   /* asked on Start: it starts */
+            else u->screen = UI_START;
         } else {
-            u->online_mode = *c == 2 ? 2 : u->online_mode == 1 ? 0 : u->online_mode;
+            u->online_mode = *c == 2 ? 2 : 0;   /* not now: asked again next run */
             if (u->online_gen) { u->action = ACT_GENERATE; u->action_slot = u->active_slot; }
             else u->screen = UI_START;
         }
@@ -2210,7 +2211,7 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_NAME: {
-        title(u, u->name_for ? "Player name" : "Save custom as");
+        title(u, u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
         char field[40];
         snprintf(field, sizeof field, "%s_", u->name);
         rect(u, 10, 32, UI_W - 20, 24, C_PANEL);
@@ -2222,7 +2223,7 @@ void ui_draw(SmzUi *u)
             hit(u, H_KEY, k, x, y, 28, 28);
             text(u, x + 14, y + 8, C_TEXT, 1, ch);
         }
-        static const char *const CTRL[KEY_CTRL] = {"Space", "Delete", "Save", "Cancel"};
+        const char *const CTRL[KEY_CTRL] = {"Space", "Delete", u->name_for == 2 ? "Join" : "Save", "Cancel"};
         for (int k = 0; k < KEY_CTRL; k++) {
             int x = 10 + k * 75;
             rect(u, x, 186, 73, 26, KEY_COUNT + k == u->key_cursor ? C_SEL : C_PANEL);
@@ -2371,7 +2372,7 @@ void ui_draw(SmzUi *u)
         text(u, 12, 48, C_TEXT, 0, "online ladder?");
         text(u, 12, 64, C_DIM, 0, "No save states while it counts.");
         static const char *const ROW[3] = {"Yes", "Not now", "No, don't ask again"};
-        static const char *const SUB[3] = {"Pick a name and flag", "Offline now, ask next run", "Change it in the Player row"};
+        static const char *const SUB[3] = {"Pick a name and flag", "Offline now, ask next run", "Change it in Online ladder"};
         for (int r = 0; r < 3; r++) {
             int y = 86 + r * 46;
             rect(u, 8, y, UI_W - 16, 42, r == u->online_cursor ? C_SEL : C_PANEL);
@@ -2438,7 +2439,7 @@ void ui_draw(SmzUi *u)
     }
     case UI_DAILY: daily_screen(u); break;
     case UI_BUSY:
-        title(u, "Generating");
+        title(u, u->action == ACT_RACE_CREATE || u->action == ACT_RACE_JOIN || !strncmp(u->status, "Making the room", 15) || !strncmp(u->status, "Joining", 7) ? "Race" : "Generating");
         text(u, UI_W / 2, UI_H / 2 - 6, C_TEXT, 1, u->status);
         break;
     }

@@ -2281,10 +2281,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..3a2fd58
+index 0000000..001442e
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5846 @@
+@@ -0,0 +1,5787 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -4462,7 +4462,7 @@ index 0000000..3a2fd58
 +
 +#define IN_FILE SMZ_DIR "/3ds_input.txt"
 +#define BTN_COUNT 6
-+#define QUICK_SLOT 1
++#define QUICK_SLOT (settings3DS.CurrentSaveSlot > 0 ? settings3DS.CurrentSaveSlot : 1)   // the slot last used from the menu
 +#define BAR_FF_W 44
 +#define BAR_RW_W 36
 +#define BAR_BTN_W ((SC_ROW_W - BAR_FF_W - BAR_RW_W - 9) / 2)
@@ -4909,6 +4909,7 @@ index 0000000..3a2fd58
 +    fill(40, 88, 280, 150, 0x2C4A5E);
 +    fill(41, 89, 279, 149, 0x0C1A24);
 +    const char *why = curSlot >= 0 && smzOnlineSlotKind(curSlot) > 0 ? "Ladder runs don't allow them"
++                    : rg.on ? "Races don't allow them"
 +                    : gChallenge || curSlot == SMZ_DAILY_SLOT ? "The daily doesn't allow them" : "This run was made without them";
 +    text(40, 100, 0xE8ECF2, "No save states", HALIGN_CENTER, 280);
 +    text(40, 122, theme.dim, why, HALIGN_CENTER, 280);
@@ -7737,44 +7738,6 @@ index 0000000..3a2fd58
 +#define PM_ROW_H 22
 +static const char *pmHeading = "SMZ3  -  Game menu";
 +
-+// Any single 3DS button by name, for the binding errors.
-+static const char *keyName(u32 key)
-+{
-+    static const struct { u32 key; const char *name; } ALL[] = {
-+        {KEY_A, "A"}, {KEY_B, "B"}, {KEY_X, "X"}, {KEY_Y, "Y"}, {KEY_L, "L"}, {KEY_R, "R"}, {KEY_ZL, "ZL"}, {KEY_ZR, "ZR"},
-+        {KEY_START, "Start"}, {KEY_SELECT, "Select"}, {KEY_DUP, "Up"}, {KEY_DDOWN, "Down"}, {KEY_DLEFT, "Left"}, {KEY_DRIGHT, "Right"},
-+        {KEY_CPAD_UP, "Circle Pad Up"}, {KEY_CPAD_DOWN, "Circle Pad Down"}, {KEY_CPAD_LEFT, "Circle Pad Left"}, {KEY_CPAD_RIGHT, "Circle Pad Right"},
-+        {KEY_CSTICK_UP, "C Up"}, {KEY_CSTICK_DOWN, "C Down"}, {KEY_CSTICK_LEFT, "C Left"}, {KEY_CSTICK_RIGHT, "C Right"},
-+    };
-+    for (const auto &k : ALL) if (k.key == key) return k.name;
-+    return "That button";
-+}
-+
-+// What a button does in a run, for the error when it cannot be bound.
-+static void keyUse(u32 key, char *out, size_t cap)
-+{
-+    const char *k = keyName(key);
-+    if (key & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT)) { snprintf(out, cap, "%s is the SNES D-pad", k); return; }
-+    if ((key & (KEY_CPAD_UP | KEY_CPAD_DOWN | KEY_CPAD_LEFT | KEY_CPAD_RIGHT)) && settings3DS.BindCirclePad) { snprintf(out, cap, "%s moves like the D-pad", k); return; }
-+    static const u32 PADS[10] = {KEY_A, KEY_B, KEY_X, KEY_Y, KEY_L, KEY_R, KEY_ZL, KEY_ZR, KEY_SELECT, KEY_START};
-+    static const struct { u32 mask; const char *name; } SNES[] = {
-+        {SNES_A_MASK, "A"}, {SNES_B_MASK, "B"}, {SNES_X_MASK, "X"}, {SNES_Y_MASK, "Y"}, {SNES_TL_MASK, "L"}, {SNES_TR_MASK, "R"},
-+        {SNES_SELECT_MASK, "Select"}, {SNES_START_MASK, "Start"},
-+    };
-+    for (int i = 0; i < 10; i++) {
-+        if (key != PADS[i]) continue;
-+        u32 m = 0;
-+        for (int j = 0; j < 4; j++) m |= (u32)settings3DS.ButtonMapping[i][j];
-+        if (!m) break;
-+        const char *snes = "a game";
-+        for (const auto &b : SNES) if (m & b.mask) { snes = b.name; break; }
-+        snprintf(out, cap, "%s is the SNES %s button", k, snes);
-+        return;
-+    }
-+    if (settings3DS.GlobalButtonHotkeys[HOTKEY_OPEN_MENU].MappingBitmasks[0] & key) { snprintf(out, cap, "%s opens the game menu", k); return; }
-+    snprintf(out, cap, "%s cannot be bound", k);
-+}
-+
 +static int pauseRows(PauseRow *rows)
 +{
 +    int n = 0;
@@ -7843,7 +7806,7 @@ index 0000000..3a2fd58
 +    case PM_ROW1: return "Missiles, Super Missiles and Power Bombs under the beams.";
 +    case PM_BAR: return "SAVE, LOAD and fast forward under the shortcuts. The 3D slider up is fast forward too.";
 +    case PM_CONFIRM: return "SAVE and LOAD from the bar or a button ask first.";
-+    case PM_BUTTONS: return "What ZL, ZR and the C-stick do in a run. They no longer reach the game.";
++    case PM_BUTTONS: return "What ZL, ZR and the C-stick do in a run. A bound one no longer reaches the game.";
 +    case PM_BTN: return "A bound button no longer reaches the game.";
 +    default: return "";
 +    }
@@ -7943,16 +7906,20 @@ index 0000000..3a2fd58
 +    if (cursor >= *scroll + PM_ROWS_SHOWN) *scroll = cursor - PM_ROWS_SHOWN + 1;
 +}
 +
-+// A on a button row: the action from a list, then the button for it, which only ZL, ZR or the C-stick can be. An action
-+// lives on one button at most: binding it again moves it.
-+static void bindAction(int slot)
++// A on a button row: the action for that button, from a list that opens on what it does now. An action lives on one
++// button at most: picking it here moves it from the other one.
++static void bindAction(int slot, int k)
 +{
 +    PauseRow acts[5 + SC_KEYS];
-+    int n = 0, cursor = 0, scroll = 0, pick = -1;
++    int n = 0, cursor = 0, scroll = 0;
 +    for (int a = BIND_FAST; a <= BIND_REWIND; a++) acts[n++] = {PM_ACT, a};
 +    for (int i = 0; i < SC_KEYS; i++) acts[n++] = {PM_ACT, BIND_SHORTCUT + i};
-+    pmHeading = "SMZ3  -  Pick an action";
++    for (int i = 0; i < n; i++) if (acts[i].arg == inBtn[k]) cursor = i;
++    char head[48];
++    snprintf(head, sizeof head, "SMZ3  -  %s does", BTN_NAMES[k]);
++    pmHeading = head;
 +    input3dsWaitForRelease();
++    int pick = -1;
 +    while (aptMainLoop()) {
 +        pmFollow(cursor, &scroll);
 +        hidScanInput();
@@ -7968,35 +7935,9 @@ index 0000000..3a2fd58
 +        drawPause(acts, n, cursor, scroll, slot, NULL, NULL, NULL, "A Choose B Back");
 +    }
 +    if (pick >= 0) {
-+        char title[48], err[96] = "";
-+        actionName(pick, title, sizeof title);
-+        input3dsWaitForRelease();
-+        while (aptMainLoop()) {
-+            hidScanInput();
-+            u32 down = hidKeysDown() & ~KEY_TOUCH, key = down & -down;   // one button: the lowest pressed
-+            if (down & KEY_B) { uiCueSound(UI_CUE_BACK); break; }
-+            if (key) {
-+                int k = -1;
-+                for (int i = 0; i < BTN_COUNT; i++) if (BTN_KEYS[i] == key) k = i;
-+                if (k < 0) {
-+                    char use[64];
-+                    keyUse(key, use, sizeof use);
-+                    snprintf(err, sizeof err, "%s. Pick ZL, ZR or C.", use);
-+                    uiCueSound(UI_CUE_BACK);
-+                } else {
-+                    if (inBtn[k] && inBtn[k] != pick) {
-+                        char was[48], q[128];
-+                        snprintf(q, sizeof q, "%s is %s. Replace it with %s?", BTN_NAMES[k], actionName(inBtn[k], was, sizeof was), title);
-+                        if (!pauseDialog(acts, n, cursor, scroll, slot, "Button in use", q, true, "A Replace B Keep")) break;
-+                    } else uiCueSound(UI_CUE_CONFIRM);
-+                    for (int i = 0; i < BTN_COUNT; i++) if (inBtn[i] == pick) inBtn[i] = BIND_NONE;
-+                    inBtn[k] = pick;
-+                    inSave();
-+                    break;
-+                }
-+            }
-+            drawPause(acts, n, cursor, scroll, slot, err, title, "Press ZL, ZR or the C stick. Only these can be bound. B cancels.", "B Cancel");
-+        }
++        for (int i = 0; i < BTN_COUNT; i++) if (inBtn[i] == pick) inBtn[i] = BIND_NONE;
++        inBtn[k] = pick;
++        inSave();
 +    }
 +    input3dsWaitForRelease();
 +}
@@ -8016,10 +7957,10 @@ index 0000000..3a2fd58
 +        if (down & KEY_DUP) { cursor = (cursor + BTN_COUNT - 1) % BTN_COUNT; uiCueSound(UI_CUE_MOVE); }
 +        else if (down & KEY_DDOWN) { cursor = (cursor + 1) % BTN_COUNT; uiCueSound(UI_CUE_MOVE); }
 +        else if (down & KEY_X) { if (inBtn[cursor]) { inBtn[cursor] = BIND_NONE; inSave(); uiCueSound(UI_CUE_SELECT); } }
-+        else if (down & KEY_A) bindAction(slot);
++        else if (down & KEY_A) bindAction(slot, cursor);
 +        else if (down & KEY_TOUCH) {
 +            int r = pmRowTouched(0, BTN_COUNT);
-+            if (r >= 0) { cursor = r; bindAction(slot); }
++            if (r >= 0) { cursor = r; bindAction(slot, cursor); }
 +        }
 +        drawPause(rows, BTN_COUNT, cursor, 0, slot, NULL, NULL, NULL, "A Change X Clear B Back");
 +    }
