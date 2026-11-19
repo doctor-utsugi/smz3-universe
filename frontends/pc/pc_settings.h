@@ -30,6 +30,10 @@ const char *settings_aspect_name(void);
 /* Reads video.cfg and applies the saved window state; call once after the hooks are set. */
 void settings_video_load(void);
 void settings_video_save_state(void);
+/* Applies the picked window size (called when leaving full screen, where a size change waits). */
+void settings_apply_size(void);
+/* Two windows (dual screen): the Full screen and Window size rows are left out. */
+void settings_set_two_windows(int on);
 /* The video rows (full screen, window size, aspect, filter, minimap side and size) for the panel over the game: the label, and the value in val. */
 int settings_video_rows(void);
 const char *settings_video_row(int row, char *val, size_t cap);

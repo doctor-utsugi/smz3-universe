@@ -23,6 +23,7 @@ typedef struct {
     int n_start, est_min;
     SmzDailyState state;
     int64_t opens_at, closes_at, next_opens_at, started_at, time_ms;
+    int64_t began_at;                     /* the kept attempt's SmzDailyRun.began_at, set by the host (0 unknown) */
     int tokens, streak;
     int players_now, players_done;        /* playing it now and finished, -1 until the server says */
 } SmzDailyInfo;

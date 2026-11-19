@@ -19,7 +19,9 @@ enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_VIDEO, S_SC, S_SCBIND };
 #else
 #define VIDEO_ROWS 10   /* no Screens row: two windows only exist on Linux */
 #endif
-#define VIDEO_COUNT (VIDEO_ROWS + 1)
+static int vskip;   /* two windows: no Full screen and Window size rows (both fill their displays) */
+#define VROWS (VIDEO_ROWS - vskip)
+#define VIDEO_COUNT (VROWS + 1)
 static const char *const ASPECTS[] = {"Run default", "4:3", "8:7 (square pixels)", "Stretch", "Pixel perfect"};
 static const char *const FILTERS[] = {"Sharp", "Smooth", "Scanlines", "LCD grid"};
 static const char *const SIZES[] = {"720p", "1080p", "1440p", "Desktop"};
@@ -66,6 +68,8 @@ static void apply_size(void)
     static const int W[] = {1280, 1920, 2560}, H[] = {720, 1080, 1440};
     if (hk.window_size) { if (vid_size < 3) hk.window_size(W[vid_size], H[vid_size]); else hk.window_size(0, 0); }
 }
+void settings_apply_size(void) { apply_size(); }
+void settings_set_two_windows(int on) { vskip = on ? 2 : 0; }
 
 void settings_cycle_aspect(void) { vid_aspect = (vid_aspect + 1) % 5; video_save(); char m[64]; snprintf(m, sizeof m, "Aspect: %s", ASPECTS[vid_aspect]); hk.note(m); }
 void settings_cycle_filter(void) { vid_filter = (vid_filter + 1) % 4; video_save(); char m[64]; snprintf(m, sizeof m, "Filter: %s", FILTERS[vid_filter]); hk.note(m); }
@@ -115,12 +119,13 @@ const char *settings_video_row(int row, char *val, size_t cap)
                                               "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints", "Challenge: next hint in", "Screens"};
     const char *v[] = {hk.is_fullscreen() ? "On" : "Off", SIZES[vid_size], ASPECTS[vid_aspect], FILTERS[vid_filter], MM_SIDES[mm_side], MM_SIZES[mm_size],
                                  ch_hide & 1 ? "Hidden" : "Shown", ch_hide & 2 ? "Hidden" : "Shown", ch_hide & 4 ? "Hidden" : "Shown", ch_hide & 8 ? "Hidden" : "Shown", SCREENS[screens]};
-    if (row < 0 || row >= VIDEO_ROWS) row = 0;
+    if (row < 0 || row >= VROWS) row = 0;
+    row += vskip;
     snprintf(val, cap, "%s", v[row]);
     return L[row];
 }
-int settings_video_rows(void) { return VIDEO_ROWS; }
-void settings_video_change(int row, int dir) { if (row >= 0 && row < VIDEO_ROWS) video_change(row, dir); }
+int settings_video_rows(void) { return VROWS; }
+void settings_video_change(int row, int dir) { if (row >= 0 && row < VROWS) video_change(row + vskip, dir); }
 int settings_minimap_side(void) { return mm_side; }
 int settings_screens(void) { return screens; }
 int settings_ff_speed(void) { return ff_speed; }
@@ -265,7 +270,7 @@ void settings_nav(UiButton b)
     if (screen == S_REBIND || screen == S_SCBIND) return;
     if (b == BTN_DOWN && cursor < rows - 1) cursor++;
     else if (b == BTN_UP && cursor > 0) cursor--;
-    else if ((b == BTN_LEFT || b == BTN_RIGHT) && screen == S_VIDEO && cursor < VIDEO_ROWS) video_change(cursor, b == BTN_RIGHT ? 1 : -1);
+    else if ((b == BTN_LEFT || b == BTN_RIGHT) && screen == S_VIDEO && cursor < VROWS) video_change(cursor + vskip, b == BTN_RIGHT ? 1 : -1);
     else if ((b == BTN_R || b == BTN_L) && screen == S_SC) cursor = b == BTN_R ? (cursor + SHOWN < rows ? cursor + SHOWN : rows - 1) : (cursor > SHOWN ? cursor - SHOWN : 0);
     else if (b == BTN_R && screen == S_FILES) cursor = cursor + SHOWN < rows ? cursor + SHOWN : rows - 1;
     else if (b == BTN_L && screen == S_FILES) cursor = cursor > SHOWN ? cursor - SHOWN : 0;
@@ -277,8 +282,8 @@ void settings_nav(UiButton b)
             else if (cursor == 2) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 0; }
             else hk.quit();
         } else if (screen == S_VIDEO) {
-            if (cursor == VIDEO_ROWS) go_back();
-            else video_change(cursor, 1);
+            if (cursor == VROWS) go_back();
+            else video_change(cursor + vskip, 1);
         } else if (screen == S_PAD) {
             if (cursor < PA_COUNT) { rebind_action = cursor; rebind_until = SDL_GetTicks() + 6000; screen = S_REBIND; }
             else if (cursor == PA_COUNT) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 1; }
@@ -399,7 +404,7 @@ void settings_draw(float k, float ox, float oy)
         for (int i = 0; i < SHOWN && scroll + i < VIDEO_COUNT; i++) {
             int r = scroll + i;
             char val[48], v[64];
-            if (r == VIDEO_ROWS) { row(k, ox, oy, i, "Back", NULL, cursor == r); continue; }
+            if (r == VROWS) { row(k, ox, oy, i, "Back", NULL, cursor == r); continue; }
             const char *lab = settings_video_row(r, val, sizeof val);
             snprintf(v, sizeof v, "< %s >", val);
             row(k, ox, oy, i, lab, v, r == cursor);

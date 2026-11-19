@@ -79,6 +79,7 @@ typedef struct {
     int mode_cursor, run_mode;   /* run_mode: 0 Chill run, 1 Original, 2 Custom, 3 Saved custom */
     UiSaved saved[UI_MAX_SAVED];
     int saved_count, saved_cursor, saved_scroll, saved_col, saved_confirm, saved_dirty;
+    int keep_custom;             /* saving failed (list full): Custom opens with the options as they were */
     char name[24];               /* the name being typed for a new saved custom or for the player */
     int name_len, key_cursor;
     int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes */
@@ -112,7 +113,7 @@ typedef struct {
     char start_label[24], notice[32];
     int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
-    struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started;
+    struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started, find_ms;   /* find_ms: since the list was last asked for */
              char code[8];                    /* the code typed to join, or the room picked in the list */
              char paused_code[8];             /* a paused race kept on this device ("" none), and when it goes on */
              int64_t paused_resume;
@@ -133,7 +134,8 @@ typedef struct {
 
 /* Option indices the host reads from u->value (see ui_settings for the rest). */
 enum { UI_NO_FILTER = 1 };   /* SmzUi.no_opts */
-enum { UIO_LINK = 6, UIO_SAMUS = 7, UIO_PLANDO = 18, UIO_JINGLE = 19, UIO_MAP = 8, UIO_MODE = 17, UIO_DARK = 9, UIO_FILTER = 10, UIO_SHAPE = 11, UIO_HELP = 12, UIO_HELPS = 13, UIO_NERF = 22, UIO_SAVES = 23, UIO_MORPH = 24, UIO_MUSIC = 25 };
+enum { UIO_LINK = 6, UIO_SAMUS = 7, UIO_PLANDO = 18, UIO_JINGLE = 19, UIO_MAP = 8, UIO_MODE = 17, UIO_DARK = 9, UIO_FILTER = 10, UIO_SHAPE = 11, UIO_HELP = 12, UIO_HELPS = 13, UIO_NERF = 22, UIO_SAVES = 23, UIO_MORPH = 24, UIO_MUSIC = 25,
+       UIO_GANON = 3, UIO_TOURIAN = 5, UIO_PYRAMID = 14, UIO_SPAZ_POOL = 20, UIO_SPAZ_REQ = 21 };
 
 extern const UiOptDef UI_OPTS[];
 extern const int UI_OPT_COUNT;
@@ -188,12 +190,17 @@ int ui_online_now(const SmzUi *u);
 int ui_is_default(const SmzUi *u);
 /* 1 for an option that never makes a run non-default (seed, sprites, screen, map view, jingle, tracker aids ...). */
 int ui_opt_cosmetic(int opt);
+/* 1 for an option the other choices make moot (hidden on Create, not a change): the help count outside Limited helps, the
+ * spazers outside Spazer Hunt, the goals All Dungeons and Spazer Hunt fix, the pyramid All Dungeons keeps closed. */
+int ui_opt_hidden(const SmzUi *u, int opt);
 int ui_run_ladder(const SmzUi *u);
 /* The daily challenge: once enabled, the run list has a Daily row on top and a token counter by the Ladder button. The host
  * hands in each /api/daily answer (ui_daily_set) and says whether it keeps an attempt of the open window (Continue instead
  * of Start); Start or Continue comes back as ACT_DAILY. */
 void ui_daily_enable(SmzUi *u, int on);
 void ui_daily_set(SmzUi *u, const SmzDailyInfo *d, int has_run);
+/* When the kept attempt's game began (SmzDailyRun.began_at, 0 not yet): the Daily screen's clock counts as the games do. */
+void ui_daily_began(SmzUi *u, int64_t began_at);
 /* Sets the options from a run's settings JSON (seed, rules, logic, start items), to build the run the server made. */
 void ui_apply_run_settings(SmzUi *u, const char *settings_json);
 /* The month's fixed seed; once set, the run mode list offers "Monthly seed" (Original rules with that seed). */

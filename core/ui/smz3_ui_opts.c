@@ -189,12 +189,22 @@ int ui_opt_cosmetic(int i)
     return i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_REACH || i == O_FKEYS;
 }
 
+int ui_opt_hidden(const SmzUi *u, int i)
+{
+    int mode = u->value[O_MODE];
+    if (i == O_HELPS) return u->value[O_HELP] != 1;
+    if (i == O_SPAZ_POOL || i == O_SPAZ_REQ) return mode != 2;
+    if (i == O_GANON || i == O_TOURIAN) return mode == 1 || mode == 2;   /* smz_settings_normalize */
+    if (i == O_PYRAMID) return mode == 1;
+    return 0;
+}
+
 int ui_is_default(const SmzUi *u)
 {
     int want[UI_MAX_OPTS];
     ui_expected_values(u, want);
     for (int i = 0; i < UI_OPT_COUNT; i++) {
-        if (ui_opt_cosmetic(i)) continue;
+        if (ui_opt_cosmetic(i) || ui_opt_hidden(u, i)) continue;
         if (UI_OPTS[i].kind == OPT_SPRITE) { if (u->value[i] != 0) return 0; continue; }
         if (u->value[i] != want[i]) return 0;
     }
@@ -230,7 +240,7 @@ int ui_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t c
     /* options that differ from the defaults, as "Label: value" lines for the run's info on the bottom screen */
     n += snprintf(out + n, n < (int)cap ? cap - n : 0, "\"diff\":[");
     for (int i = 0, first = 1; i < UI_OPT_COUNT && n < (int)cap; i++) {
-        if (i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_HELPS) continue;
+        if (i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_HELPS || ui_opt_hidden(u, i)) continue;
         if (UI_OPTS[i].kind == OPT_SPRITE ? u->value[i] == 0 : u->value[i] == UI_OPTS[i].def) continue;
         char v[44], line[96];
         ui_value_text(u, i, v, sizeof v);

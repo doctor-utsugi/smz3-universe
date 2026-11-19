@@ -2281,10 +2281,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..c2b76e8
+index 0000000..e689d9f
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5854 @@
+@@ -0,0 +1,5912 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2359,7 +2359,7 @@ index 0000000..c2b76e8
 +    bool chatOff, kb, kbUpper;
 +    bool draft;   // a Draft: its goal, shown at the 3, 2, 1, is the finish
 +    int bosses, crystals, need, lastCount, newsSeq, pickI, nMuted;
-+    int64_t shown, voteDone;
++    int64_t shown, voteDone, voteNo;   // the vote last answered, the one last answered no
 +    char news[96], say[112], typed[84], muted[RACE_MAX][12];
 +    u64 newsUntil, sayAt;
 +    SmzRace room;
@@ -3532,7 +3532,11 @@ index 0000000..c2b76e8
 +            worldShown = world;
 +            static SmzDailyInfo daily;
 +            int ds = smzDailyTakeInfo(&daily);
-+            if (ds == 1) ui_daily_set(&ui, &daily, dailyKept(daily.window));
++            if (ds == 1) {
++                ui_daily_set(&ui, &daily, dailyKept(daily.window));
++                SmzDailyRun dk;
++                if (smzDailyLoad(&dk) && !strcmp(dk.window, daily.window)) ui_daily_began(&ui, dk.began_at);   // the menu's clock as the game counts it
++            }
 +            else if (ds == 2 && ui.daily.loaded == 0) { memset(&daily, 0, sizeof daily); daily.loaded = -1; ui_daily_set(&ui, &daily, 0); }
 +            static char versionJson[256];
 +            if (smzOnlineTakeVersion(versionJson, sizeof versionJson) == 1) { versionKnown = true; ui_update_load_json(&ui, versionJson, SMZ3_VERSION, 0); }
@@ -4279,7 +4283,7 @@ index 0000000..c2b76e8
 +    return d;
 +}
 +
-+static int runMiniTop, runMiniBottom;   // where the RUN tab's map is, for a tap
++static int runMiniTop, runMiniBottom, runMapTop;   // where the RUN tab's rows and map are; runMapTop: the map's own top, for a tap
 +
 +// ---- item shortcuts (core/ui/smz3_shortcuts.h): the rows over the RUN tab's map. In ALttP five slots, the same for every
 +// run, equip their item on Y; in Super Metroid each beam owned turns on or off, and under them each HUD weapon owned is
@@ -5503,6 +5507,7 @@ index 0000000..c2b76e8
 +    inLoad();
 +    barY = inBar ? mapTop : -1;
 +    if (barY >= 0) { drawSaveBar(barY); mapTop += SC_ROW_H + 4; }
++    runMapTop = mapTop;
 +    static const DungeonView here = {false, false, 0, 0};
 +    if (haveLive) drawDungeon(here, 162, mapTop, 154, runMiniBottom - mapTop, true);   // inside a dungeon: its floor, as on the Thor
 +    else drawMap(miniMap, 162, mapTop, 154, runMiniBottom - mapTop, true);
@@ -6043,8 +6048,8 @@ index 0000000..c2b76e8
 +    if (t >= T_BUTTONS) {
 +        int a = (int)(255 * clamp01((t - T_BUTTONS) / 0.3f));
 +        float by = cy + ch - 26 + (1 - easeOut((t - T_BUTTONS) / 0.3f)) * 4;
-+        int w1 = 18 + ui3dsGetStringWidth("Main menu"), w2 = 18 + ui3dsGetStringWidth("Watch the credits"), bx = (int)(mx - (w1 + 24 + w2) / 2.0f);
-+        cvButton(bx, by, "A", "Main menu", a);
++        int w1 = 18 + ui3dsGetStringWidth("Back to the runs"), w2 = 18 + ui3dsGetStringWidth("Watch the credits"), bx = (int)(mx - (w1 + 24 + w2) / 2.0f);
++        cvButton(bx, by, "A", "Back to the runs", a);
 +        cvButton(bx + w1 + 24, by, "B", "Watch the credits", a);
 +    }
 +    if (t < 0.35f) cvRect(0, 0, cvW, CV_H, 0xFFFAEB, (int)(150 * (1 - t / 0.35f)));
@@ -6093,14 +6098,18 @@ index 0000000..c2b76e8
 +// The game stands still: a paused race loaded again, the pause asked or kept, or a vote every game waits on.
 +static bool raceFrozen() { return rg.on && (rg.back || rg.kept || rg.pick || (rg.room.state == RACE_RUNNING && rg.room.vote_by[0] && !rg.card)); }
 +
-+static void raceVote(bool yes) { rg.voteDone = rg.room.vote_at; smzRaceSend("vote", yes ? "\"yes\":true" : "\"yes\":false", true); uiCueSound(yes ? UI_CUE_CONFIRM : UI_CUE_BACK); dirty = true; }
++static void raceVote(bool yes) { rg.voteDone = rg.room.vote_at; if (!yes) rg.voteNo = rg.room.vote_at; smzRaceSend("vote", yes ? "\"yes\":true" : "\"yes\":false", true); uiCueSound(yes ? UI_CUE_CONFIRM : UI_CUE_BACK); dirty = true; }
 +
-+// This 3DS's own pause request, still waiting on the others: a no from its asker withdraws it (the server drops the vote).
++// This 3DS's own pause request, or a yes it gave to a rival's, still waiting on the others: a no withdraws it or changes
++// the answer (the server drops the vote either way).
++static bool raceMine() { return !strcmp(rg.room.vote_by, rg.room.you); }
 +static bool raceCanWithdraw()
 +{
 +    const SmzRace *r = &rg.room;
-+    return rg.on && !rg.pick && r->state == RACE_RUNNING && r->vote_by[0] && !strcmp(r->vote_by, r->you) && r->vote_at != rg.voteDone;
++    return rg.on && !rg.pick && r->state == RACE_RUNNING && r->vote_by[0] && r->vote_at != rg.voteNo
++        && (raceMine() || smz_race_voted(r) || r->vote_at == rg.voteDone);
 +}
++static const char *raceWithdrawLabel() { return raceMine() ? "Withdraw" : "Change to no"; }
 +
 +static void raceAskPause()
 +{
@@ -6158,7 +6167,7 @@ index 0000000..c2b76e8
 +    rg.chatOff = rg.kb = false;
 +    rg.typed[0] = 0;
 +    rg.nMuted = 0;
-+    rg.voteDone = 0;
++    rg.voteDone = rg.voteNo = 0;
 +    rg.bosses = rg.crystals = 0;
 +    rg.lastCount = -2;
 +    rg.news[0] = rg.say[0] = 0;
@@ -6549,8 +6558,13 @@ index 0000000..c2b76e8
 +    const SmzRace *r = &rg.room;
 +    text(0, 40, 0xF2A33A, "Pause the race?", HALIGN_CENTER, 320);
 +    if (!raceVoteOpen()) {
-+        text(0, 80, 0xE8ECF2, "Waiting for the others to answer", HALIGN_CENTER, 320);
-+        if (raceCanWithdraw()) { fill(80, ASK_BTN_Y, 240, ASK_BTN_Y + 32, 0x1D2430); text(80, ASK_BTN_Y + 9, 0xE8ECF2, "B  Withdraw", HALIGN_CENTER, 240); }
++        text(0, 80, 0xE8ECF2, raceCanWithdraw() && !raceMine() ? "You said yes. Waiting for the others" : "Waiting for the others to answer", HALIGN_CENTER, 320);
++        if (raceCanWithdraw()) {
++            char b[32];
++            snprintf(b, sizeof b, "B  %s", raceWithdrawLabel());
++            fill(80, ASK_BTN_Y, 240, ASK_BTN_Y + 32, 0x1D2430); text(80, ASK_BTN_Y + 9, 0xE8ECF2, b, HALIGN_CENTER, 240);
++        }
++        text(0, ASK_BTN_Y + 44, 0x8793A6, "START  Game menu", HALIGN_CENTER, 320);
 +        return;
 +    }
 +    const char *who = "A rival";
@@ -6726,8 +6740,8 @@ index 0000000..c2b76e8
 +            cvButton(mx - 60, 122, "A", "Yes", 255);
 +            cvButton(mx + 20, 122, "B", "No", 255);
 +        } else {
-+            cvText(mx, 110, 13, 0xE8ECF2, 255, "Pause the race? Waiting for the others", 1);
-+            if (raceCanWithdraw()) cvButton(mx - (18 + ui3dsGetStringWidth("Withdraw")) / 2.0f, 128, "B", "Withdraw", 255);
++            cvText(mx, 110, 13, 0xE8ECF2, 255, raceCanWithdraw() && !raceMine() ? "You said yes to the pause. Waiting for the others" : "Pause the race? Waiting for the others", 1);
++            if (raceCanWithdraw()) cvButton(mx - (18 + ui3dsGetStringWidth(raceWithdrawLabel())) / 2.0f, 128, "B", raceWithdrawLabel(), 255);
 +        }
 +    } else if (go > 3000) {
 +        snprintf(m, sizeof m, "%s in %d", rg.room.pauses ? "The race goes on" : "The race starts", count);
@@ -6844,12 +6858,12 @@ index 0000000..c2b76e8
 +        float bp = easeOut((t - T_BUTTONS) / 0.3f);
 +        int y = CARD_BTN_Y + (int)((1 - bp) * 6);
 +        fill(80, y, 240, y + 32, fadeTo(0xF2A33A, bp));
-+        text(80, y + 9, fadeTo(0x10161F, bp, fadeTo(0xF2A33A, bp)), "Back to menu", HALIGN_CENTER, 240);
++        text(80, y + 9, fadeTo(0x10161F, bp, fadeTo(0xF2A33A, bp)), "Back to the runs", HALIGN_CENTER, 240);
 +    } else if (t >= T_BUTTONS) {
 +        float bp = easeOut((t - T_BUTTONS) / 0.3f);
 +        int y = CARD_BTN_Y + (int)((1 - bp) * 6);
 +        fill(12, y, 156, y + 32, fadeTo(0xF2A33A, bp));
-+        text(12, y + 9, fadeTo(0x10161F, bp, fadeTo(0xF2A33A, bp)), "Main menu", HALIGN_CENTER, 156);
++        text(12, y + 9, fadeTo(0x10161F, bp, fadeTo(0xF2A33A, bp)), "Back to the runs", HALIGN_CENTER, 156);
 +        fill(164, y, 308, y + 32, fadeTo(0x1D2430, bp));
 +        fill(164, y, 308, y + 1, fadeTo(0x4A5568, bp));
 +        text(164, y + 9, fadeTo(0xE8ECF2, bp), "Watch the credits", HALIGN_CENTER, 308);
@@ -7036,7 +7050,8 @@ index 0000000..c2b76e8
 +    if (tab == TAB_RUN && scPick >= 0) { pickerTap(x, y, y0, y1); return; }
 +    if (tab == TAB_RUN && shortcutTap(x, y, false)) return;
 +    if (tab == TAB_RUN && barTap(x, y)) return;
-+    if (tab == TAB_RUN && x >= 162 && y >= runMiniTop && y < runMiniBottom) { tab = TAB_MAP; bigMap = miniMap; bigMap.zoom = 0.45f; dv.picked = false; dv.world = false; return; }
++    // the mini map itself (a row or its gaps open nothing)
++    if (tab == TAB_RUN && x >= 162 && y >= runMapTop && y < runMiniBottom) { tab = TAB_MAP; bigMap = miniMap; bigMap.zoom = 0.45f; dv.picked = false; dv.world = false; return; }
 +    if (tab == TAB_CHECKS) {
 +        int r = -1;
 +        drawChecks(y0, y1, &r, y);
@@ -7150,7 +7165,7 @@ index 0000000..c2b76e8
 +            if (cardState) {   // the details: a tap before their buttons only jumps to them
 +                touching = false;
 +                if (cardSkip() || t.py < CARD_BTN_Y || t.py >= CARD_BTN_Y + 32) return true;
-+                if (cardState == 2) {   // Back to menu: the touch opens the menu, which goes on to the run list
++                if (cardState == 2) {   // Back to the runs: the touch opens the menu, which goes on to the run list
 +                    if (t.px < 80 || t.px >= 240) return true;
 +                    wantRunList = true;
 +                    return false;
@@ -7501,7 +7516,13 @@ index 0000000..c2b76e8
 +            else if (keysDown & KEY_A) raceAskPause();
 +            else if (keysDown & KEY_B) { rg.pick = false; uiCueSound(UI_CUE_BACK); dirty = true; }
 +        } else if (raceVoteOpen() && (keysDown & (KEY_A | KEY_B))) raceVote(keysDown & KEY_A);
-+        else if (raceCanWithdraw() && (keysDown & KEY_B)) raceVote(false);
++        else {   // waiting on the others: B takes the request or the yes back, Start or a bound button opens the game menu
++            if (raceCanWithdraw() && (keysDown & KEY_B)) raceVote(false);
++            unsigned took = boundKeys();
++            for (int i = 0; i < BTN_COUNT; i++) if ((took & keysDown & BTN_KEYS[i]) && inBtn[i] == BIND_MENU) *openMenu = true;
++            if ((keysDown & KEY_START) || (settings3DS.UseGlobalEmuControlKeys ? settings3DS.GlobalButtonHotkeys[HOTKEY_OPEN_MENU].IsHeld(keysDown)
++                                                                               : settings3DS.ButtonHotkeys[HOTKEY_OPEN_MENU].IsHeld(keysDown))) *openMenu = true;
++        }
 +        return ~(unsigned)KEY_TOUCH;
 +    }
 +    if (raceWaiting() || raceFrozen()) return ~(unsigned)KEY_TOUCH;   // the game takes no button before the start, nor while it stands still
@@ -7554,7 +7575,7 @@ index 0000000..c2b76e8
 +    rewindFrame();
 +    previewFrame();
 +    if (rg.on) raceInGame();
-+    raceHold(raceFrozen() || raceWaiting());
++    raceHold(raceFrozen() || raceWaiting() || askState >= 0 || (rg.on && rg.card && !rg.paused));   // also while a state question or the race's card takes A and B
 +    if (tick || curSlot != gPlaySlot) { trackerUpdate(); debugTouches(); dirty = true; }
 +    static unsigned frames;
 +    if (++frames % 6 == 0 && curSlot >= 0 && curSlot == gPlaySlot && !goalsPending && !rwOpen && !pvOpen)   // ~100 ms: an enemy's death is short
@@ -7929,26 +7950,58 @@ index 0000000..c2b76e8
 +    gpu3dsWaitForVBlank(settings3DS.SecondScreen);
 +}
 +
-+// A dialog over the list until A (true) or B (false); a tap on its upper half is A, elsewhere B.
++// The dialog's buttons on the bottom screen, under the menu (the tracker comes back with the next swap).
++#define PD_BTN_Y 150
++static void drawDialogButtons(const char *title, bool ask)
++{
++    gfxScreen_t menuScreen = settings3DS.SecondScreen;
++    int menuWidth = settings3DS.SecondScreenWidth;
++    settings3DS.SecondScreen = GFX_BOTTOM;
++    settings3DS.SecondScreenWidth = SCREEN_BOTTOM_WIDTH;
++    if (gfxGetScreenFormat(GFX_BOTTOM) != GSP_RGB565_OES) gfxSetScreenFormat(GFX_BOTTOM, GSP_RGB565_OES);
++    trkFb = (u16 *)gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
++    setClip(0, 0, 320, 240);
++    fill(0, 0, 320, 240, 0x0B0F15);
++    text(0, 60, 0xF2A33A, title, HALIGN_CENTER, 320);
++    if (ask) {
++        fill(12, PD_BTN_Y, 156, PD_BTN_Y + 32, 0xF2A33A); text(12, PD_BTN_Y + 9, 0x10161F, "A  Yes", HALIGN_CENTER, 156);
++        fill(164, PD_BTN_Y, 308, PD_BTN_Y + 32, 0x1D2430); text(164, PD_BTN_Y + 9, 0xE8ECF2, "B  No", HALIGN_CENTER, 308);
++    } else { fill(80, PD_BTN_Y, 240, PD_BTN_Y + 32, 0xF2A33A); text(80, PD_BTN_Y + 9, 0x10161F, "A  OK", HALIGN_CENTER, 240); }
++    impl3dsFlushScreen(GFX_BOTTOM, false, false);
++    gfxScreenSwapBuffers(GFX_BOTTOM, false);
++    settings3DS.SecondScreen = menuScreen;
++    settings3DS.SecondScreenWidth = menuWidth;
++    ui3dsSetViewport(0, 0, menuWidth, SCREEN_HEIGHT);
++}
++
++// A dialog over the list until A (true) or B (false), or a tap on its Yes or No (OK) button on the bottom screen.
 +static bool pauseDialog(const PauseRow *rows, int n, int cursor, int scroll, int slot, const char *title, const char *body, bool ask, const char *legend = NULL)
 +{
 +    uiCueSound(UI_CUE_OPEN);
 +    if (!legend) legend = ask ? "A Yes B No" : "A OK";
-+    while (aptMainLoop()) {
++    drawDialogButtons(title, ask);
++    int answer = -1;
++    while (aptMainLoop() && answer < 0) {
 +        hidScanInput();
 +        u32 down = hidKeysDown();
-+        if (down & KEY_A) { uiCueSound(UI_CUE_CONFIRM); return true; }
-+        if (down & KEY_B) { uiCueSound(UI_CUE_BACK); return !ask; }
-+        if (down & KEY_TOUCH) {
++        if (down & KEY_A) answer = 1;
++        else if (down & KEY_B) answer = !ask;
++        else if (down & KEY_TOUCH) {
 +            touchPosition t;
 +            hidTouchRead(&t);
-+            bool yes = !ask || t.py < 120;
-+            uiCueSound(yes ? UI_CUE_CONFIRM : UI_CUE_BACK);
-+            return yes;
++            if (t.py >= PD_BTN_Y && t.py < PD_BTN_Y + 32) {
++                if (ask && t.px >= 12 && t.px < 156) answer = 1;
++                else if (ask && t.px >= 164 && t.px < 308) answer = 0;
++                else if (!ask && t.px >= 80 && t.px < 240) answer = 1;
++            }
 +        }
-+        drawPause(rows, n, cursor, scroll, slot, NULL, title, body, legend);
++        if (answer < 0) drawPause(rows, n, cursor, scroll, slot, NULL, title, body, legend);
 +    }
-+    return false;
++    gfxScreenSwapBuffers(GFX_BOTTOM, false);   // the tracker as it was under the menu
++    dirty = true;
++    if (answer < 0) return false;
++    uiCueSound(answer ? UI_CUE_CONFIRM : UI_CUE_BACK);
++    return answer;
 +}
 +
 +// The list row under a touch (the bottom screen stands for the top one, stretched to its width), or -1.
@@ -7990,9 +8043,14 @@ index 0000000..c2b76e8
 +        if (down & KEY_DUP) { cursor = (cursor + n - 1) % n; uiCueSound(UI_CUE_MOVE); }
 +        else if (down & KEY_DDOWN) { cursor = (cursor + 1) % n; uiCueSound(UI_CUE_MOVE); }
 +        else if (down & KEY_A) { pick = acts[cursor].arg; uiCueSound(UI_CUE_CONFIRM); break; }
-+        else if (down & KEY_TOUCH) {
++        else if (down & KEY_TOUCH) {   // as in the game menu: a row, above or below the list to scroll, the pause icon to go back
++            touchPosition t;
++            hidTouchRead(&t);
++            if (t.px >= 320 - PAUSE_W && t.py >= topOfTabs() && t.py < topOfTabs() + TAB_H) { uiCueSound(UI_CUE_BACK); break; }
 +            int r = pmRowTouched(scroll, n);
 +            if (r >= 0) { cursor = r; pick = acts[r].arg; uiCueSound(UI_CUE_CONFIRM); break; }
++            if (t.py < PM_LIST_Y && scroll > 0) { cursor = scroll - 1; uiCueSound(UI_CUE_MOVE); }
++            else if (t.py >= PM_LIST_Y + PM_ROWS_SHOWN * PM_ROW_H && t.py < UI_H - 16 && scroll + PM_ROWS_SHOWN < n) { cursor = scroll + PM_ROWS_SHOWN; uiCueSound(UI_CUE_MOVE); }
 +        }
 +        drawPause(acts, n, cursor, scroll, slot, NULL, NULL, NULL, "A Choose B Back");
 +    }

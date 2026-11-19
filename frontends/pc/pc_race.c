@@ -219,9 +219,11 @@ void race_event(const char *text)
     pthread_mutex_unlock(&mu);
 }
 
-void race_chat(const char *text)
+int race_chat(const char *text)
 {
     pthread_mutex_lock(&mu);
-    if (nc < 3) snprintf(chats[nc++], sizeof chats[0], "%s", text);
+    int ok = nc < 3;
+    if (ok) snprintf(chats[nc++], sizeof chats[0], "%s", text);
     pthread_mutex_unlock(&mu);
+    return ok;
 }

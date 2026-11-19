@@ -26,7 +26,7 @@ void race_resume(const char *token);
 void race_set_since(int64_t since);
 void race_set_progress(int progress);
 void race_event(const char *text);
-void race_chat(const char *text);
+int race_chat(const char *text);   /* 0: three lines already wait to go */
 /* Polls every two seconds instead of every second (in the race). */
 void race_set_slow(int slow);
 

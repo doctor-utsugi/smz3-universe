@@ -37,6 +37,7 @@ const RETURN_MS = 5 * 60 * 1000;    // a dropped player can come back for this l
 const OUTAGE_MS = 5 * 60 * 1000;    // a server back after longer cancels the races it was running
 const PAUSE_KEEP_MS = 7 * 24 * 3600 * 1000;   // a paused race is cancelled this long after its first pause
 const BACK_WAIT_MS = 10 * 60 * 1000;          // from the resume time, the players back wait this long for the rest
+const VOTE_MS = 90 * 1000;          // a pause request nobody else answers runs out: the games are held meanwhile
 const LEAD_MS = 20 * 1000;          // the last confirm to the start: every device loads its game and holds the first frame
 const MIN_MS = 3 * 60 * 1000;
 const LOG_KEEP = 200;
@@ -142,6 +143,7 @@ module.exports = function race(ctx) {
     if (room.state !== 'running') return false;
     const now = clock(), left = inRace(room), done = room.players.filter(p => p.timeMs != null);
     let changed = false;
+    if (room.vote && now - (room.vote.at || now) > VOTE_MS) { room.vote = null; note(room, 'system', null, 'Nobody answered: the race goes on'); changed = true; }
     for (const p of left) if (p.timeMs == null && now - p.lastSeen > RETURN_MS) { p.left = true; note(room, 'system', p.pid, p.name + ' left the race'); changed = true; }
     const still = inRace(room).filter(p => p.timeMs == null);
     const end = (why) => { room.state = 'finished'; room.endedAt = now; room.endWhy = why; record(room); return true; };
@@ -437,7 +439,7 @@ module.exports = function race(ctx) {
           if (room.state !== 'running' || room.format !== 'full' || me.left || now < room.goAt || room.players.some(q => q.timeMs != null)) return fail(res, 409, 'not now');
           const at = Number(b.resumeAt), first = room.firstPauseAt || now;
           if (!Number.isFinite(at) || at < now + 60000 || at > first + PAUSE_KEEP_MS) return fail(res, 400, 'invalid time');
-          room.vote = { by: me.pid, resumeAt: at, yes: [me.pid] };
+          room.vote = { by: me.pid, resumeAt: at, yes: [me.pid], at: now };
           note(room, 'system', me.pid, me.name + ' asks to pause');
           maybePause(room);
           return { room: view(room) };

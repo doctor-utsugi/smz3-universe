@@ -311,10 +311,10 @@ index 0000000..147df74
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..dda2ab1
+index 0000000..b019b46
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
-@@ -0,0 +1,479 @@
+@@ -0,0 +1,481 @@
 +package com.swordfish.lemuroid.app.mobile.feature.game
 +
 +import android.content.Context
@@ -443,11 +443,13 @@ index 0000000..dda2ab1
 +        onDispose {
 +            Smz3ScreenMode.singleActive = false
 +            Smz3ScreenMode.trackerOpen.value = false
++            Smz3ScreenMode.syncHold()
 +            com.swordfish.touchinput.radial.layouts.shared.TrackerButton.shown = false
 +            Smz3Tracker.embedded = null
 +        }
 +    }
 +    LaunchedEffect(isLandscape) { Smz3ScreenMode.landscape = isLandscape }
++    LaunchedEffect(trackerOpen, isLandscape) { Smz3ScreenMode.landscape = isLandscape; Smz3ScreenMode.syncHold() }
 +
 +    val defaultScale = touchSettings?.scale ?: TouchControllerSettingsManager.DEFAULT_SCALE
 +    var left by remember(isLandscape, defaultScale) { mutableStateOf(Smz3PadLayout.load(context, isLandscape, true, defaultScale)) }
@@ -1380,10 +1382,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..afdb03e
+index 0000000..4275937
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,932 @@
+@@ -0,0 +1,933 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1705,6 +1707,7 @@ index 0000000..afdb03e
 +            pendingDaily.getAndSet(null)?.let { (json, at) ->
 +                val window = json?.let { runCatching { JSONObject(it).optJSONObject("current")?.optString("id") }.getOrNull() }.orEmpty()
 +                Smz3Native.uiDailySet(json, at, DailyChallenge.kept(context, window))
++                DailyChallenge.attempt(context)?.takeIf { it.window == window }?.let { Smz3Native.uiDailyBegan(it.beganAt) }   // the menu's clock as the game counts it
 +            }
 +            kotlinx.coroutines.delay(1000)
 +            version++   // the row's clocks
@@ -3317,7 +3320,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..662c32e 100644
+index 6d06420..c7fd23d 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3328,13 +3331,14 @@ index 6d06420..662c32e 100644
  import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
  import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
  import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
-@@ -87,13 +88,20 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -87,13 +88,21 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      private lateinit var baseGameScreenViewModel: BaseGameScreenViewModel
  
      private val startGameTime = System.currentTimeMillis()
 +    private var dailyOverlay: com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3DailyOverlay? = null
 +    private var raceOverlay: com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceOverlay? = null
      private var finishTriggered = false
++    private var touchControlsShown = false
  
      override fun onCreate(savedInstanceState: Bundle?) {
          super.onCreate(savedInstanceState)
@@ -3349,7 +3353,7 @@ index 6d06420..662c32e 100644
          systemCoreConfig = intent.getSerializableExtra(EXTRA_SYSTEM_CORE_CONFIG) as SystemCoreConfig
          system = GameSystem.findById(game.systemId)
  
-@@ -126,6 +134,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -126,6 +135,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
          }
@@ -3358,15 +3362,62 @@ index 6d06420..662c32e 100644
  
          lifecycleScope.launch {
              baseGameScreenViewModel.loadGame(
-@@ -141,6 +151,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -141,7 +152,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
              this,
              object : OnBackPressedCallback(true) {
                  override fun handleOnBackPressed() {
+-                    baseGameScreenViewModel.requestFinish()
 +                    if (raceOverlay?.handleBack() == true) return
-                     baseGameScreenViewModel.requestFinish()
++                    val tracker = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.trackerOpen
++                    if (tracker.value) { tracker.value = false; return }
++                    confirmLeave()
                  }
              },
-@@ -204,12 +215,14 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+         )
+@@ -152,10 +166,42 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+     @Composable
+     abstract fun GameScreen(viewModel: BaseGameScreenViewModel)
+ 
++    private var leaveDialog: android.app.AlertDialog? = null
++
++    /** Back outside a race asks first: one press too many must not end the run. A leaves (or presses the button the
++     * d-pad moved to), B stays. */
++    private fun confirmLeave() {
++        if (isFinishing || leaveDialog?.isShowing == true) return
++        leaveDialog = android.app.AlertDialog.Builder(this)
++            .setTitle("Leave the run?")
++            .setPositiveButton("Leave") { _, _ -> baseGameScreenViewModel.requestFinish() }
++            .setNegativeButton("Keep playing", null)
++            .create().apply {
++                var moved = false
++                setOnKeyListener { d, code, e ->
++                    if (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN) moved = true
++                    if (code != KeyEvent.KEYCODE_BUTTON_A && code != KeyEvent.KEYCODE_BUTTON_B) return@setOnKeyListener false
++                    if (e.action == KeyEvent.ACTION_UP) {
++                        val stay = code == KeyEvent.KEYCODE_BUTTON_B || (moved && getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.isFocused == true)
++                        d.dismiss()
++                        if (!stay) baseGameScreenViewModel.requestFinish()
++                    }
++                    true
++                }
++                show()
++            }
++    }
++
+     private fun initialiseFlows() {
+         launchOnState(Lifecycle.State.CREATED) {
+             initializeViewModelsEffectsFlow()
+         }
++        launchOnState(Lifecycle.State.CREATED) {
++            baseGameScreenViewModel.isTouchControllerVisible().collect { visible ->
++                touchControlsShown = visible || com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.forceTouch(this@BaseGameActivity)
++                if (!touchControlsShown) baseGameScreenViewModel.showEditControls(false)   // a controller came in: the editor goes
++            }
++        }
+     }
+ 
+     private fun setUpExceptionsHandler() {
+@@ -204,19 +250,22 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                      baseGameScreenViewModel.retroGameView.retroGameView?.getAvailableDisks() ?: 0,
                  )
                  this.putExtra(GameMenuContract.EXTRA_GAME, game)
@@ -3383,7 +3434,16 @@ index 6d06420..662c32e 100644
                  this.putExtra(
                      GameMenuContract.EXTRA_FAST_FORWARD,
                      (baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1) > 1,
-@@ -244,7 +257,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+                 )
+                 this.putExtra(GameMenuContract.EXTRA_CURRENT_TILT_CONFIG, currentTiltConfiguration)
+-                // TODO PADS... Make sure to avoid passing this if a physical pad is connected.
+                 this.putExtra(GameMenuContract.EXTRA_TILT_ALL_CONFIGS, tiltConfigurations.toTypedArray())
++                // no touch pad on screen (a controller is connected): nothing to edit
++                this.putExtra(GameMenuContract.EXTRA_TOUCH_CONTROLS_SHOWN, touchControlsShown)
+             }
+         startActivityForResult(intent, DIALOG_REQUEST)
+         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+@@ -244,7 +293,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                              it.currentTiltConfiguration,
                              it.tiltConfigurations,
                          )
@@ -3392,7 +3452,7 @@ index 6d06420..662c32e 100644
                      is GameViewModelSideEffects.UiEffect.SuccessfulFinish -> performSuccessfulActivityFinish()
                      is GameViewModelSideEffects.UiEffect.FailureFinish -> performErrorFinish(it.message)
                      is GameViewModelSideEffects.UiEffect.SaveQuickSave -> performSaveQuickSave()
-@@ -262,6 +275,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -262,6 +311,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          baseGameScreenViewModel.loadQuickSave()
      }
  
@@ -3468,7 +3528,7 @@ index 6d06420..662c32e 100644
      private fun performToggleFastForward() {
          baseGameScreenViewModel.toggleFastForward()
      }
-@@ -343,7 +425,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -343,7 +461,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          finishTriggered = true
      }
  
@@ -3482,7 +3542,7 @@ index 6d06420..662c32e 100644
          if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
              baseGameScreenViewModel.requestBackgroundSave()
          }
-@@ -351,6 +439,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -351,6 +475,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onDestroy() {
@@ -3502,7 +3562,16 @@ index 6d06420..662c32e 100644
          if (!isChangingConfigurations) {
              GameService.requestTermination()
          }
-@@ -397,14 +498,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -381,7 +518,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+                 }
+             }
+             if (data?.getBooleanExtra(GameMenuContract.RESULT_QUIT, false) == true) {
+-                baseGameScreenViewModel.requestFinish()
++                if (raceOverlay?.handleBack() != true) baseGameScreenViewModel.requestFinish()   // a race asks first
+             }
+             if (data?.hasExtra(GameMenuContract.RESULT_CHANGE_DISK) == true) {
+                 val index = data.getIntExtra(GameMenuContract.RESULT_CHANGE_DISK, 0)
+@@ -397,16 +534,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
              if (data?.hasExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD) == true) {
@@ -3516,10 +3585,13 @@ index 6d06420..662c32e 100644
 -                }
 +                baseGameScreenViewModel.setFastForward(data.getBooleanExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD, false))
              }
-             if (data?.getBooleanExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, false) == true) {
+-            if (data?.getBooleanExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, false) == true) {
++            if (data?.getBooleanExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, false) == true && touchControlsShown) {
                  baseGameScreenViewModel.showEditControls(true)
+             }
+             if (data?.hasExtra(GameMenuContract.RESULT_CHANGE_TILT_CONFIG) == true) {
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
-index 8f91e6c..8883b96 100644
+index 8f91e6c..a5b0083 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 @@ -16,6 +16,10 @@ import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
@@ -3533,7 +3605,7 @@ index 8f91e6c..8883b96 100644
  import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelSideEffects
  import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelTilt
  import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelTouchControls
-@@ -238,14 +242,14 @@ class BaseGameScreenViewModel(
+@@ -238,22 +242,24 @@ class BaseGameScreenViewModel(
      }
  
      suspend fun saveSlot(index: Int) {
@@ -3544,13 +3616,17 @@ index 8f91e6c..8883b96 100644
          }
      }
  
-     suspend fun loadSlot(index: Int) {
+-    suspend fun loadSlot(index: Int) {
 -        if (loadingState.value) return
-+        if (loadingState.value || !Smz3Hotkeys.saveStatesAllowed(appContext)) return
++    suspend fun loadSlot(index: Int): GameViewModelSaves.SlotLoad {
++        if (loadingState.value || !Smz3Hotkeys.saveStatesAllowed(appContext)) return GameViewModelSaves.SlotLoad.FAILED
++        var result = GameViewModelSaves.SlotLoad.FAILED
          withLoading {
-             saves.loadSlot(index)
+-            saves.loadSlot(index)
++            result = saves.loadSlot(index)
          }
-@@ -253,7 +257,7 @@ class BaseGameScreenViewModel(
++        return result
+     }
  
      fun saveQuickSave() {
          Timber.d("Saving quick save")
@@ -3559,7 +3635,7 @@ index 8f91e6c..8883b96 100644
          withLoading {
              saves.saveQuickSave()
          }
-@@ -261,16 +265,45 @@ class BaseGameScreenViewModel(
+@@ -261,16 +267,51 @@ class BaseGameScreenViewModel(
  
      fun loadQuickSave() {
          Timber.d("Loading quick save")
@@ -3594,7 +3670,13 @@ index 8f91e6c..8883b96 100644
 +        }
 +
 +        override fun hotkeyLoadState(slot: Int) {
-+            viewModelScope.launch { loadSlot(slot - 1) }
++            viewModelScope.launch {
++                when (loadSlot(slot - 1)) {
++                    GameViewModelSaves.SlotLoad.LOADED -> sideEffects.showToast("State loaded from slot $slot")
++                    GameViewModelSaves.SlotLoad.EMPTY -> sideEffects.showToast("Slot $slot is empty")
++                    GameViewModelSaves.SlotLoad.FAILED -> {}   // the load said why
++                }
++            }
 +        }
 +
 +        override fun hotkeyFastForward(speed: Int) {
@@ -3609,7 +3691,7 @@ index 8f91e6c..8883b96 100644
          }
      }
  
-@@ -309,21 +342,40 @@ class BaseGameScreenViewModel(
+@@ -309,21 +350,40 @@ class BaseGameScreenViewModel(
  
      override fun onCreate(owner: LifecycleOwner) {
          super.onCreate(owner)
@@ -3699,10 +3781,10 @@ index 02e981f..501e617 100644
  
          return currentState.gameData to result
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt
-index 1eea23b..8f5ac58 100644
+index 1eea23b..789c3f7 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt
-@@ -42,6 +42,7 @@ class GameViewModelSaves(
+@@ -42,24 +42,28 @@ class GameViewModelSaves(
      suspend fun saveSlot(index: Int) {
          getCurrentSaveState()?.let {
              statesManager.setSlotSave(game, it, systemCoreConfig.coreID, index)
@@ -3710,15 +3792,45 @@ index 1eea23b..8f5ac58 100644
              runCatching {
                  takeScreenshotPreview(index)
              }
-@@ -55,6 +56,7 @@ class GameViewModelSaves(
-                     withContext(Dispatchers.IO) {
-                         loadSaveState(it)
-                     }
-+                if (loaded) Smz3Tracker.loadGoalsAt(appContext, index)
+         }
+     }
  
-                 if (!loaded) {
-                     sideEffects.showToast(appContext.getString(R.string.game_toast_load_state_failed))
-@@ -119,7 +121,7 @@ class GameViewModelSaves(
+-    suspend fun loadSlot(index: Int) {
++    enum class SlotLoad { LOADED, EMPTY, FAILED }
++
++    /** A failure says why here; a load or an empty slot is the caller's to tell. */
++    suspend fun loadSlot(index: Int): SlotLoad {
+         try {
+-            statesManager.getSlotSave(game, systemCoreConfig.coreID, index)?.let {
+-                val loaded =
+-                    withContext(Dispatchers.IO) {
+-                        loadSaveState(it)
+-                    }
+-
+-                if (!loaded) {
+-                    sideEffects.showToast(appContext.getString(R.string.game_toast_load_state_failed))
++            val state = statesManager.getSlotSave(game, systemCoreConfig.coreID, index) ?: return SlotLoad.EMPTY
++            val loaded =
++                withContext(Dispatchers.IO) {
++                    loadSaveState(state)
+                 }
++            if (loaded) {
++                Smz3Tracker.loadGoalsAt(appContext, index)
++                return SlotLoad.LOADED
+             }
++            sideEffects.showToast(appContext.getString(R.string.game_toast_load_state_failed))
+         } catch (e: Throwable) {
+             val errorMessageId =
+                 when (e) {
+@@ -68,6 +72,7 @@ class GameViewModelSaves(
+                 }
+             sideEffects.showToast(appContext.getString(errorMessageId))
+         }
++        return SlotLoad.FAILED
+     }
+ 
+     suspend fun captureSaveSnapshot(useEmulationThread: Boolean): SaveSnapshot? {
+@@ -119,7 +124,7 @@ class GameViewModelSaves(
      }
  
      private suspend fun isAutoSaveEnabled(): Boolean {
@@ -3727,7 +3839,7 @@ index 1eea23b..8f5ac58 100644
      }
  
      private suspend fun takeScreenshotPreview(index: Int) {
-@@ -155,16 +157,18 @@ class GameViewModelSaves(
+@@ -155,16 +160,18 @@ class GameViewModelSaves(
              retroGameView.changeDisk(saveState.metadata.diskIndex)
          }
  
@@ -5614,7 +5726,7 @@ index 0000000..eaebc9d
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
 new file mode 100644
-index 0000000..da8f5bf
+index 0000000..0f59f32
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
 @@ -0,0 +1,180 @@
@@ -5757,7 +5869,7 @@ index 0000000..da8f5bf
 +        }
 +        when (action) {
 +            Smz3HotkeyAction.SAVE_STATE -> { h.hotkeySaveState(slot(context)); h.hotkeyToast("State saved in slot ${slot(context)}") }
-+            Smz3HotkeyAction.LOAD_STATE -> { h.hotkeyLoadState(slot(context)); h.hotkeyToast("State loaded from slot ${slot(context)}") }
++            Smz3HotkeyAction.LOAD_STATE -> h.hotkeyLoadState(slot(context))   // its toast comes from the result
 +            Smz3HotkeyAction.FAST_FORWARD -> if (challengeRun(context)) h.hotkeyToast("No fast forward in a daily challenge") else h.hotkeyFastForward(speed(context))   // held: released in onKey
 +            Smz3HotkeyAction.REWIND -> when {
 +                !Smz3Rewind.allowed(context) -> h.hotkeyToast("Rewind is off in this run")
@@ -5957,10 +6069,10 @@ index 0000000..3d11f48
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 new file mode 100644
-index 0000000..be9e929
+index 0000000..2f4e071
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
-@@ -0,0 +1,346 @@
+@@ -0,0 +1,347 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.animation.ValueAnimator
@@ -6272,8 +6384,9 @@ index 0000000..be9e929
 +    private var presentation: Smz3IdlePresentation? = null
 +
 +    fun show(context: Context) {
++        val target = Smz3ScreenMode.secondDisplay(context)
++        if (target == null) { hide(); return }   // the screen mode was set to single in the game
 +        presentation?.let { it.clearFade(); return }   // back from a game that never started
-+        val target = Smz3ScreenMode.secondDisplay(context) ?: return
 +        runCatching { presentation = Smz3IdlePresentation(context, target).also { it.show() } }
 +    }
 +
@@ -6878,10 +6991,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..bf34a1e
+index 0000000..c6ab967
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,150 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7004,6 +7117,7 @@ index 0000000..bf34a1e
 +    /** The daily challenge: the run list's Daily row, fed with each /api/daily answer (null: offline). */
 +    @JvmStatic external fun uiDailyEnable(on: Boolean)
 +    @JvmStatic external fun uiDailySet(json: String?, nowMs: Long, hasRun: Boolean)
++    @JvmStatic external fun uiDailyBegan(beganAt: Long)
 +    @JvmStatic external fun uiDailyWindow(): String
 +    /** The challenge run's settings in the app's format, from the server's ones; "" when they do not fit. */
 +    @JvmStatic external fun dailySettingsJson(serverSettings: String, check: String): String
@@ -7111,10 +7225,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..d82efe5
+index 0000000..c4632fc
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1140 @@
+@@ -0,0 +1,1154 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -7790,6 +7904,7 @@ index 0000000..d82efe5
 +    private lateinit var chatLines: TextView
 +    private lateinit var chatScroll: ScrollView
 +    private lateinit var chatInput: android.widget.EditText
++    private lateinit var chatNote: TextView
 +    private lateinit var chatToggle: Button
 +    private lateinit var muteRow: LinearLayout
 +    private lateinit var phraseBox: LinearLayout
@@ -7819,18 +7934,27 @@ index 0000000..d82efe5
 +        val input = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
 +        input.addView(chatInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 +        input.addView(overlayButton("SEND") { sendChat() })
-+        chatToggle = overlayButton("") { Smz3RaceState.toggleChat() }
++        chatToggle = overlayButton("") { Smz3RaceState.toggleChat(); said(null) }
 +        input.addView(chatToggle)
 +        column.addView(input)
++        chatNote = label(12f, Role.ACCENT).apply { visibility = View.GONE }
++        column.addView(chatNote)
 +        muteRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 +        column.addView(android.widget.HorizontalScrollView(context).apply { addView(muteRow) })
 +        return column
 +    }
 +
++    /** A line typed keeps its text when it could not go, with the reason under it. */
 +    private fun sendChat() {
-+        Smz3RaceState.say(chatInput.text.toString())
++        if (!said(Smz3RaceState.say(chatInput.text.toString()))) return
 +        chatInput.setText("")
 +        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(chatInput.windowToken, 0)
++    }
++
++    private fun said(why: String?): Boolean {
++        chatNote.text = why ?: ""
++        chatNote.visibility = if (why == null) View.GONE else View.VISIBLE
++        return why == null
 +    }
 +
 +    /** The CHAT tab and the RUN standings, while an online race (or the daily challenge, chat only) is on; redrawn only when
@@ -7849,7 +7973,7 @@ index 0000000..d82efe5
 +            phraseBox.removeAllViews()
 +            for (row in race.phrases.chunked(4)) {
 +                val line = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-+                for (p in row) line.addView(overlayButton(p) { Smz3RaceState.say(p) }.apply { isAllCaps = false; textSize = 12f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
++                for (p in row) line.addView(overlayButton(p) { said(Smz3RaceState.say(p)) }.apply { isAllCaps = false; textSize = 12f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 +                phraseBox.addView(line)
 +            }
 +        }
@@ -7894,9 +8018,12 @@ index 0000000..d82efe5
 +                val next = order.getOrNull(if (current == null) 0 else order.indexOf(current) + 1)
 +                return next
 +            }
++            // single screen: R3 on its own opens the tracker, so no hotkey may be R3 alone
++            val r3 = android.view.KeyEvent.KEYCODE_BUTTON_THUMBR
 +            first.setOnClickListener {
 +                val keys = Smz3Hotkeys.keys(context, action)
-+                val next = cycle(keys[0]) ?: Smz3Hotkeys.BUTTONS[0]
++                var next = cycle(keys[0]) ?: Smz3Hotkeys.BUTTONS[0]
++                if (next == r3 && keys.size < 2 && Smz3ScreenMode.singleActive) next = cycle(next) ?: Smz3Hotkeys.BUTTONS[0]
 +                Smz3Hotkeys.setKeys(context, action, listOf(next) + keys.drop(1).filter { it != next })
 +                refresh()
 +            }
@@ -7904,6 +8031,7 @@ index 0000000..d82efe5
 +                val keys = Smz3Hotkeys.keys(context, action)
 +                var next = cycle(keys.getOrNull(1))
 +                if (next == keys[0]) next = cycle(next)   // skip the first button, keep going to the rest
++                if (next == null && keys[0] == r3 && Smz3ScreenMode.singleActive) next = cycle(null).let { if (it == keys[0]) cycle(it) else it }
 +                Smz3Hotkeys.setKeys(context, action, if (next == null) listOf(keys[0]) else listOf(keys[0], next))
 +                refresh()
 +            }
@@ -8529,10 +8657,10 @@ index 0000000..f5b88e6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
 new file mode 100644
-index 0000000..ea61d3f
+index 0000000..039ea09
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,135 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8595,15 +8723,45 @@ index 0000000..ea61d3f
 +            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(-1) } else return false
 +            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(1) } else return false
 +            android.view.KeyEvent.KEYCODE_BUTTON_B -> if (overlay) { if (down) trackerOpen.value = false } else return false
-+            else -> return false
++            else -> return overlay && swallowed(event)
 +        }
 +        return true
 +    }
 +
-+    fun mode(context: Context): Mode =
-+        runCatching { Mode.valueOf(prefs(context).getString("mode", null) ?: "AUTO") }.getOrDefault(Mode.AUTO)
++    /** Under the open tracker the game gets no pad presses, but releases go through (none stays held) and so do the
++     * menu combo's buttons. */
++    private fun swallowed(event: android.view.KeyEvent): Boolean {
++        val code = event.keyCode
++        if (event.action == android.view.KeyEvent.ACTION_UP) return false
++        val pad = android.view.KeyEvent.isGamepadButton(code) || code == android.view.KeyEvent.KEYCODE_DPAD_UP ||
++            code == android.view.KeyEvent.KEYCODE_DPAD_DOWN || code == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
++            code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT || code == android.view.KeyEvent.KEYCODE_DPAD_CENTER
++        if (!pad || code == android.view.KeyEvent.KEYCODE_BUTTON_THUMBL) return false
++        val menu = Smz3Shortcuts.padShortcuts.values.flatten().filter { it.type == com.swordfish.lemuroid.app.shared.settings.GameShortcutType.MENU }
++        return menu.none { code in it.keys }
++    }
 +
-+    fun setMode(context: Context, mode: Mode) = prefs(context).edit().putString("mode", mode.name).apply()
++    private var heldView: com.swordfish.libretrodroid.GLRetroView? = null
++
++    /** Single screen, landscape: the game stands still under the open tracker, unless a race or the daily challenge is on
++     * (their clock runs for everyone, and the race keeps its own hold). */
++    fun syncHold() {
++        val want = singleActive && landscape && trackerOpen.value && !Smz3RaceState.on
++        if (!want) { heldView?.setHeld(false); heldView = null; return }
++        val view = Smz3Rewind.view
++        if (view == null || view === heldView) return
++        heldView?.setHeld(false)
++        heldView = view
++        view.setHeld(true)
++    }
++
++    /** Read from disk each time: the game's process changes it, the menu's reads it. */
++    @Suppress("DEPRECATION")
++    fun mode(context: Context): Mode =
++        runCatching { Mode.valueOf(context.getSharedPreferences(FILE, Context.MODE_MULTI_PROCESS).getString("mode", null) ?: "AUTO") }.getOrDefault(Mode.AUTO)
++
++    /** Written at once: the game's process may close right after. */
++    fun setMode(context: Context, mode: Mode) { prefs(context).edit().putString("mode", mode.name).commit() }
 +
 +    /** The display the tracker goes to, or null when it shares the game's screen. */
 +    fun secondDisplay(context: Context): Display? {
@@ -8640,10 +8798,10 @@ index 0000000..ea61d3f
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt
 new file mode 100644
-index 0000000..5b9b5f6
+index 0000000..5693c1e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,148 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8751,6 +8909,7 @@ index 0000000..5b9b5f6
 +            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_HOME, KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN,
 +            KeyEvent.KEYCODE_POWER, KeyEvent.KEYCODE_APP_SWITCH -> return "Android"
 +            KeyEvent.KEYCODE_BUTTON_MODE -> return "the emulator's menu"
++            KeyEvent.KEYCODE_BUTTON_THUMBR -> if (Smz3ScreenMode.singleActive) return "the tracker"
 +        }
 +        val mapped = padBindings?.invoke(event.device)?.get(InputKey(code))?.keyCode ?: code
 +        SNES_KEYS[mapped]?.let { return "the SNES $it button" }
@@ -12006,10 +12165,10 @@ index c3c69c7..13cb599 100644
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
 new file mode 100644
-index 0000000..f52f761
+index 0000000..964e2cf
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,207 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -12128,7 +12287,8 @@ index 0000000..f52f761
 +    fun setSince(s: Long) = synchronized(lock) { since = s }
 +    fun setProgress(p: Int) = synchronized(lock) { progress = p.coerceIn(0, 100) }
 +    fun event(text: String) = synchronized(lock) { if (events.size < 8) events += text }
-+    fun chat(text: String) = synchronized(lock) { if (chats.size < 3) chats += text }
++    /** False when three lines already wait for the next poll. */
++    fun chat(text: String): Boolean = synchronized(lock) { (chats.size < 3).also { if (it) chats += text } }
 +
 +    private fun saveToken() { runCatching { if (token.isEmpty()) tokenFile?.delete() else tokenFile?.writeText(token) } }
 +
@@ -12218,15 +12378,16 @@ index 0000000..f52f761
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..55cde3c
+index 0000000..1ba36b0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,557 @@
+@@ -0,0 +1,617 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
 +import android.app.AlertDialog
 +import android.app.Dialog
++import android.content.DialogInterface
 +import android.graphics.Color
 +import android.os.Handler
 +import android.os.Looper
@@ -12238,6 +12399,7 @@ index 0000000..55cde3c
 +import android.view.KeyEvent
 +import android.view.View
 +import android.view.ViewGroup
++import android.widget.Button
 +import android.widget.FrameLayout
 +import android.widget.TextView
 +import com.swordfish.lemuroid.app.mobile.feature.runs.RaceClient
@@ -12274,11 +12436,15 @@ index 0000000..55cde3c
 +
 +    fun shown(l: Line) = l.kind != "chat" || (!chatOff && l.pid !in muted)
 +
-+    fun say(text: String) {
++    /** Sends a line: null once it is on its way, otherwise why it was not sent. */
++    fun say(text: String): String? {
++        if (chatOff) return "Chat is off: turn it on to send"
 +        val t = text.trim().filter { it.code in 0x20..0x7E }.take(80)
-+        if (t.isEmpty() || chatOff) return
-+        if (daily) dailySay?.invoke(t) else RaceClient.chat(t)
++        if (t.isEmpty()) return if (text.isBlank()) "Type something first" else "Only plain letters, numbers and signs can be sent"
++        if (daily) dailySay?.invoke(t) ?: return "Not sent"
++        else if (!RaceClient.chat(t)) return "Too fast: wait a moment"
 +        Smz3Finish.cue(6)
++        return null
 +    }
 +
 +    /** Who can be muted (pid to name): the race's rivals, or whoever has spoken in the daily's chat. */
@@ -12379,6 +12545,11 @@ index 0000000..55cde3c
 +    private var card: AlertDialog? = null
 +    private var box: AlertDialog? = null     // the pause picker, the vote, or the wait for the others' answers
 +    private var boxKind = ""
++    private var leaveBox: AlertDialog? = null   // the way out while the game is held: asked, or offered when no answer comes
++    private var leaveKind = ""
++    private var quietSince = 0L                 // when the wait for the server's first answer (re)started
++    private var noSent = 0L                     // the vote this player took back or changed to no
++    private var waitShown = ""                  // what the wait box shows, so it is made again when that changes
 +    private val tick = object : Runnable {
 +        override fun run() { update(); main.postDelayed(this, 200) }
 +    }
@@ -12416,9 +12587,14 @@ index 0000000..55cde3c
 +        hold = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
 +            setContentView(holdText!!)
 +            setCancelable(false)
-+            setOnKeyListener { _, _, _ -> true }
++            setOnKeyListener { _, k, e ->   // every key stops here; B or back asks to leave
++                val out = k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_BUTTON_B || k == KeyEvent.KEYCODE_ESCAPE
++                if (out && e.action == KeyEvent.ACTION_UP) showHoldLeave(false)
++                true
++            }
 +            show()
 +        }
++        quietSince = System.currentTimeMillis()
 +        main.post(tick)
 +    }
 +
@@ -12426,7 +12602,7 @@ index 0000000..55cde3c
 +     * activity is only being made again (a turn of the screen), the race goes on. */
 +    fun stop(closing: Boolean) {
 +        main.removeCallbacks(tick)
-+        hold?.dismiss(); card?.dismiss(); box?.dismiss()
++        hold?.dismiss(); card?.dismiss(); box?.dismiss(); leaveBox?.dismiss()
 +        if (!on || !closing) return
 +        on = false
 +        Smz3RaceState.on = false
@@ -12441,26 +12617,37 @@ index 0000000..55cde3c
 +    /** The back button in a race: the abandon prompt, with the pause when it can be asked. True when it took the press. */
 +    fun handleBack(): Boolean {
 +        if (!on || (state != "running" && !back) || kept) return false
-+        if (card?.isShowing == true || box?.isShowing == true) return true
++        if (card?.isShowing == true || box?.isShowing == true || leaveBox?.isShowing == true) return true
++        val timeIn = myTime() >= 0   // only watching now: nothing is abandoned
 +        val b = AlertDialog.Builder(activity)
-+            .setTitle("Abandon the race?")
-+            .setPositiveButton("Leave the race") { _, _ -> onLeave() }
-+            .setNegativeButton("Keep racing", null)
++            .setTitle(if (timeIn) "Leave the race?" else "Abandon the race?")
++            .setPositiveButton(if (timeIn) "Back to menu" else "Leave the race") { _, _ -> onLeave() }
++            .setNegativeButton(if (timeIn) "Keep watching" else "Keep racing", null)
 +        val pause = canPause()
 +        if (pause) b.setNeutralButton("Ask to pause") { _, _ -> showPicker() }
-+        b.create().apply {
-+            setOnKeyListener { d, k, e ->
-+                if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener k == KeyEvent.KEYCODE_BUTTON_A || k == KeyEvent.KEYCODE_BUTTON_B || k == KeyEvent.KEYCODE_BUTTON_Y
-+                when (k) {
-+                    KeyEvent.KEYCODE_BUTTON_A -> { d.dismiss(); onLeave(); true }
-+                    KeyEvent.KEYCODE_BUTTON_B -> { d.dismiss(); true }
-+                    KeyEvent.KEYCODE_BUTTON_Y -> { if (pause) { d.dismiss(); showPicker() }; true }
-+                    else -> false
-+                }
-+            }
-+            show()
-+        }
++        var ask: AlertDialog? = null
++        ask = keyed(b.create(), onLeave, { }) { k ->
++            (k == KeyEvent.KEYCODE_BUTTON_Y && pause).also { if (it) { ask?.dismiss(); showPicker() } }
++        }.apply { show() }
 +        return true
++    }
++
++    /** The way out while the game is held (waiting, counting down, back from a pause): B or back asks, and after a minute
++     * with no answer from the server it is offered. */
++    private fun showHoldLeave(noAnswer: Boolean) {
++        val kind = if (noAnswer) "none" else "ask"
++        if (activity.isFinishing || (leaveBox?.isShowing == true && leaveKind == kind)) return
++        leaveBox?.dismiss()
++        leaveKind = kind
++        val stay = { leaveKind = ""; quietSince = System.currentTimeMillis() }
++        val b = AlertDialog.Builder(activity).setCancelable(false)
++        if (noAnswer) {
++            b.setTitle("No connection").setMessage("The race server has not answered for a minute.")
++                .setPositiveButton("Leave") { _, _ -> onLeave() }.setNegativeButton("Keep waiting") { _, _ -> stay() }
++        } else {
++            b.setTitle("Leave the race?").setPositiveButton("Leave the race") { _, _ -> onLeave() }.setNegativeButton("Stay") { _, _ -> stay() }
++        }
++        leaveBox = keyed(b.create(), onLeave, stay).apply { show() }
 +    }
 +
 +    private fun me(): JSONObject? = (0 until players.length()).map { players.getJSONObject(it) }.firstOrNull { it.optString("pid") == you }
@@ -12612,7 +12799,10 @@ index 0000000..55cde3c
 +                }
 +            }
 +            if (state == "cancelled" || state == "finished") hold?.dismiss()
++            // no answer at all for a minute: a way out instead of a wait with no end
++            if (state.isEmpty() && now - quietSince > 60_000 && leaveBox?.isShowing != true) showHoldLeave(true)
 +        }
++        if (leaveKind == "none" && state.isNotEmpty()) { leaveBox?.dismiss(); leaveKind = "" }
 +        // a paused game must not move, nor may any game while a pause vote is open; before the start it waits for 0, like everyone
 +        val voting = state == "running" && voteBy.isNotEmpty() && card?.isShowing != true
 +        val waiting = state == "running" && goAt > 0 && goIn > 0
@@ -12621,7 +12811,7 @@ index 0000000..55cde3c
 +        val unknown = !primed && !Smz3RaceState.started
 +        setHeld(on && (unknown || back || kept || voting || waiting))
 +        if (voteOpen() && card?.isShowing != true && boxKind != "vote") showVote()
-+        else if (voting && !voteOpen() && boxKind != "wait" && boxKind != "pick") showWait()
++        else if (voting && !voteOpen() && boxKind != "pick" && (boxKind != "wait" || waitShown != waitKey())) showWait()
 +        else if (!voting && (boxKind == "vote" || boxKind == "wait")) { box?.dismiss(); boxKind = "" }
 +        if (now >= newsUntil) news?.visibility = View.GONE
 +        say?.let { v ->   // two seconds, then it fades
@@ -12680,17 +12870,31 @@ index 0000000..55cde3c
 +        return text.toString()
 +    }
 +
-+    /** A box with A and B (and Y) that takes those buttons; the game behind it stands still while it is a pause box. */
++    /** A box with A and B (and Y) that takes those buttons; the game behind it stands still while it is a pause box. A
++     * presses the button the d-pad moved to, or does [a] when it was not moved. */
 +    private fun keyed(d: AlertDialog, a: (() -> Unit)?, b: (() -> Unit)?, extra: ((Int) -> Boolean)? = null) = d.apply {
++        var moved = false
 +        setOnKeyListener { dd, k, e ->
 +            if (extra != null && e.action == KeyEvent.ACTION_DOWN && extra(k)) return@setOnKeyListener true
++            if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) moved = true
 +            if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener k == KeyEvent.KEYCODE_BUTTON_A || k == KeyEvent.KEYCODE_BUTTON_B
 +            when (k) {
-+                KeyEvent.KEYCODE_BUTTON_A -> { if (a != null) { dd.dismiss(); a() }; true }
++                KeyEvent.KEYCODE_BUTTON_A -> {
++                    val f = if (moved) focused(dd) else null
++                    if (f != null) f.performClick() else if (a != null) { dd.dismiss(); a() }
++                    true
++                }
 +                KeyEvent.KEYCODE_BUTTON_B -> { if (b != null) { dd.dismiss(); b() }; true }
 +                else -> false
 +            }
 +        }
++    }
++
++    /** The box's button that has the focus, if any. */
++    private fun focused(d: DialogInterface): Button? {
++        val box = d as? AlertDialog ?: return null
++        return listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)
++            .mapNotNull { box.getButton(it) }.firstOrNull { it.visibility == View.VISIBLE && it.isFocused }
 +    }
 +
 +    /** The resume time, from an hour to a week from now; the others vote on it. */
@@ -12732,10 +12936,26 @@ index 0000000..55cde3c
 +        ).apply { show() }
 +    }
 +
++    private fun waitKey() = "$voteAt ${voteBy == you} ${voted()} ${noSent == voteAt}"
++
++    /** The asker can take the request back and a yes can become a no, once each vote. */
 +    private fun showWait() {
 +        box?.dismiss()
 +        boxKind = "wait"
-+        box = keyed(AlertDialog.Builder(activity).setTitle("Pause the race?").setMessage("Waiting for the others to answer").setCancelable(false).create(), null, null).apply { show() }
++        waitShown = waitKey()
++        val at = voteAt
++        val asker = voteBy == you
++        val change = noSent != at && (asker || voted())
++        val no = { noSent = at; voteDone = at; RaceClient.send("vote", JSONObject().put("yes", false), true); Smz3Finish.cue(5); boxKind = "" }
++        val text = when {
++            noSent == at -> if (asker) "Taken back: waiting for the server" else "You said no: waiting for the server"
++            asker -> "You asked to pause until ${whenAt(at)}. Waiting for the others to answer"
++            voted() -> "You said yes. Waiting for the others to answer"
++            else -> "Waiting for the others to answer"
++        }
++        val b = AlertDialog.Builder(activity).setTitle("Pause the race?").setMessage(text).setCancelable(false)
++        if (change) b.setNegativeButton(if (asker) "Take back" else "Change to No") { _, _ -> no() }
++        box = keyed(b.create(), null, if (change) no else null).apply { show() }
 +    }
 +
 +    private fun showPausedCard() {
@@ -12973,3 +13193,73 @@ index 0000000..ecb0eea
 +<paths>
 +    <cache-path name="update" path="update/" />
 +</paths>
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameMenuContract.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameMenuContract.kt
+index 70ae399..1cee607 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameMenuContract.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/GameMenuContract.kt
+@@ -12,6 +12,7 @@ object GameMenuContract {
+     const val EXTRA_FAST_FORWARD = "EXTRA_FAST_FORWARD"
+     const val EXTRA_CURRENT_TILT_CONFIG = "EXTRA_CURRENT_TILT_CONFIG"
+     const val EXTRA_TILT_ALL_CONFIGS = "EXTRA_TILT_ALL_CONFIGS"
++    const val EXTRA_TOUCH_CONTROLS_SHOWN = "EXTRA_TOUCH_CONTROLS_SHOWN"
+ 
+     const val RESULT_RESET = "RESULT_RESET"
+     const val RESULT_SAVE = "RESULT_SAVE"
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuActivity.kt
+index b8cbfc8..aac224d 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuActivity.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuActivity.kt
+@@ -82,6 +82,7 @@ class GameMenuActivity : RetrogradeComponentActivity() {
+         val currentDisk: Int,
+         val currentTiltConfiguration: TiltConfiguration,
+         val allTiltConfigurations: List<TiltConfiguration>,
++        val touchControlsShown: Boolean = true,
+     )
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+@@ -127,6 +128,8 @@ class GameMenuActivity : RetrogradeComponentActivity() {
+                     intent.serializable<Array<TiltConfiguration>>(GameMenuContract.EXTRA_TILT_ALL_CONFIGS)
+                         ?.toList()
+                         ?: emptyList(),
++                touchControlsShown =
++                    extras?.getBoolean(GameMenuContract.EXTRA_TOUCH_CONTROLS_SHOWN, true) ?: true,
+             )
+ 
+         setContent {
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuHomeScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuHomeScreen.kt
+index 09b87ea..4091294 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuHomeScreen.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/gamemenu/GameMenuHomeScreen.kt
+@@ -128,18 +128,20 @@ fun GameMenuHomeScreen(
+             )
+         }
+ 
+-        LemuroidSettingsMenuLink(
+-            title = { Text(text = stringResource(id = R.string.game_menu_edit_touch_controls)) },
+-            icon = {
+-                Icon(
+-                    painterResource(R.drawable.ic_menu_controls),
+-                    contentDescription = stringResource(id = R.string.game_menu_edit_touch_controls),
+-                )
+-            },
+-            onClick = {
+-                onResult { putExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, true) }
+-            },
+-        )
++        if (gameMenuRequest.touchControlsShown) {
++            LemuroidSettingsMenuLink(
++                title = { Text(text = stringResource(id = R.string.game_menu_edit_touch_controls)) },
++                icon = {
++                    Icon(
++                        painterResource(R.drawable.ic_menu_controls),
++                        contentDescription = stringResource(id = R.string.game_menu_edit_touch_controls),
++                    )
++                },
++                onClick = {
++                    onResult { putExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, true) }
++                },
++            )
++        }
+ 
+         if (gameMenuRequest.advancedCoreOptions.isNotEmpty() || gameMenuRequest.coreOptions.isNotEmpty()) {
+             LemuroidSettingsMenuLink(

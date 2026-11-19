@@ -692,6 +692,9 @@ JNIEXPORT void JNICALL NATIVE(uiDailySet)(JNIEnv *env, jclass cls, jstring json,
     ui_daily_set(&g_ui, &d, hasRun);
 }
 
+/* When the kept attempt's game started (SmzDailyRun.began_at), so the menu's clock counts as the game does. */
+JNIEXPORT void JNICALL NATIVE(uiDailyBegan)(JNIEnv *env, jclass cls, jlong beganAt) { ui_daily_began(&g_ui, beganAt); }
+
 JNIEXPORT jstring JNICALL NATIVE(uiDailyWindow)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, g_ui.daily.window); }
 
 /* The settings JSON of the challenge run in the app's format: the menu, set from the server's settings (the player's sprites
