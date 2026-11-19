@@ -2281,10 +2281,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..e689d9f
+index 0000000..ba99fd7
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5912 @@
+@@ -0,0 +1,5915 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -7033,7 +7033,8 @@ index 0000000..e689d9f
 +
 +// ---- touch: the tabs, scrolling by dragging, the map's buttons and panning
 +
-+static int touchX, touchY, touchStartX, touchStartY, touchMoved;
++static int touchX, touchY, touchStartX, touchStartY, touchMoved;   // touchMoved: the touch became a drag
++#define TAP_SLOP 12   // px a tap may wander and still be a tap
 +static u64 touchAt;
 +static bool touching = false;
 +
@@ -7189,17 +7190,19 @@ index 0000000..e689d9f
 +            return true;
 +        }
 +        if (!touching) return true;
-+        int dx = t.px - touchX, dy = t.py - touchY;
-+        touchMoved += abs(dx) + abs(dy);
++        // a resistive screen jitters under a still finger: only the distance from where it landed makes a drag, and
++        // once it is one, every move scrolls
++        int dx = t.px - touchX, dy = t.py - touchY, far = abs(t.px - touchStartX) + abs(t.py - touchStartY);
++        if (!touchMoved && far > TAP_SLOP) { touchMoved = 1; dx = t.px - touchStartX; dy = t.py - touchStartY; }
 +        touchX = t.px; touchY = t.py;
-+        if (touchMoved > 6 && (dx || dy)) dragBy(dx, dy);
++        if (touchMoved && (dx || dy)) dragBy(dx, dy);
 +        // holding a filled ALttP slot opens its picker
-+        if (touchMoved <= 6 && tab == TAB_RUN && scPick < 0 && osGetTime() - touchAt >= 600 && shortcutTap(touchStartX, touchStartY, true)) { touching = false; dirty = true; }
++        if (!touchMoved && tab == TAB_RUN && scPick < 0 && osGetTime() - touchAt >= 600 && shortcutTap(touchStartX, touchStartY, true)) { touching = false; dirty = true; }
 +        return true;
 +    }
 +    if (touching) {
 +        touching = false;
-+        if (touchMoved <= 6) { trackerTap(touchStartX, touchStartY); dirty = true; }
++        if (!touchMoved) { trackerTap(touchStartX, touchStartY); dirty = true; }
 +    }
 +    return false;
 +}
