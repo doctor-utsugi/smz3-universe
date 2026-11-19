@@ -324,7 +324,7 @@ static void race_input(SmzUi *u, UiButton b)
         if (*c < u->race.room_count) { snprintf(u->race.code, sizeof u->race.code, "%s", u->race.rooms[*c].code); race_reset(u); u->action = ACT_RACE_JOIN; u->screen = UI_BUSY; snprintf(u->status, sizeof u->status, "Joining..."); }
         break;
     case UI_RACE_ROOM:
-        if (*c == r->n) u->action = ACT_RACE_CLOSE;
+        if (*c == r->n) { if (r->n < 2) snprintf(u->notice, sizeof u->notice, "Needs 2 players"); else u->action = ACT_RACE_CLOSE; }
         else if (!strcmp(r->you, r->creator) && strcmp(r->p[*c].pid, r->you)) { u->action = ACT_RACE_KICK; u->action_slot = *c; }
         break;
     case UI_RACE_READY: {
@@ -357,6 +357,8 @@ static int visible(const SmzUi *u, int level, int *idx)
         if (i == UIO_HELPS && u->value[UIO_HELP] != 1) continue;   /* the count only matters in the limited mode */
         if (!strncmp(UI_OPTS[i].key, "Spazers", 7) && u->value[UIO_MODE] != 2) continue;   /* Spazer Hunt only */
         if (i == UIO_MUSIC && u->sprite_count[3] <= 2) continue;   /* no music package installed: nothing to pick (the 3DS has none) */
+        if (i == UIO_PLANDO && u->sprite_count[2] < 2) continue;   /* no plando file: only None */
+        if (i == UIO_FILTER && (u->no_opts & UI_NO_FILTER)) continue;
         idx[n++] = i;
     }
     return n;
@@ -500,17 +502,18 @@ static void spec_summary(const SmzUi *u, const char *spec, char *out, size_t cap
     }
 }
 
-static void saved_add(SmzUi *u, const char *name, const char *spec)
+static int saved_add(SmzUi *u, const char *name, const char *spec)
 {
     int i;
     for (i = 0; i < u->saved_count && strcasecmp(u->saved[i].name, name); i++) {}
     if (i == u->saved_count) {
-        if (i >= UI_MAX_SAVED) return;
+        if (i >= UI_MAX_SAVED) return -1;
         u->saved_count++;
     }
     snprintf(u->saved[i].name, sizeof u->saved[i].name, "%s", name);
     snprintf(u->saved[i].spec, sizeof u->saved[i].spec, "%s", spec);
     u->saved_dirty = 1;
+    return 0;
 }
 
 void ui_saved_load(SmzUi *u, const char *text)
@@ -996,8 +999,8 @@ static void online_input(SmzUi *u, UiButton b)
     else if (b == BTN_A) {
         u->player_dirty = 1;
         if (*c == 0) {
+            if (!u->player[0]) { u->name_for = 3; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; return; }
             u->online_mode = 1;
-            if (!u->player[0]) { u->name_for = 1; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; return; }
             if (u->online_gen) { u->action = ACT_GENERATE; u->action_slot = u->active_slot; }   /* asked on Start: it starts */
             else u->screen = UI_START;
         } else {
@@ -1098,14 +1101,15 @@ static void name_input(SmzUi *u, UiButton b)
             if (u->name_for) {
                 snprintf(u->player, sizeof u->player, "%s", u->name);
                 u->player_dirty = 1;
+                if (u->name_for == 3) u->online_mode = 1;   /* the online Yes counts once there is a name */
                 u->screen = back;
                 if (u->player_opts) { country_open(u); break; }   /* from Options the country follows the name */
                 if (u->online_gen && !u->country[0]) { u->country_cursor = u->country_scroll = 0; u->screen = UI_COUNTRY; }
                 break;
             }
             make_spec(u, spec, sizeof spec);
-            saved_add(u, u->name, spec);
-            snprintf(u->notice, sizeof u->notice, "Saved: %.20s", u->name);
+            if (saved_add(u, u->name, spec)) snprintf(u->notice, sizeof u->notice, "Full: delete a saved one first");
+            else snprintf(u->notice, sizeof u->notice, "Saved: %.20s", u->name);
             u->screen = UI_CREATE;
             break;
         }
@@ -1147,13 +1151,12 @@ static void random_sprite(SmzUi *u, int game)
     u->value[game ? UIO_SAMUS : UIO_LINK] = 1 + (int)(u->rng % (uint32_t)(n - 1));
 }
 
-/* The options that differ from the Original rules, in list order; returns how many fit in idx. */
+/* The options that differ from the Original rules (as ui_is_default counts them), in list order; returns how many fit in idx. */
 static int changed_opts(const SmzUi *u, int *idx)
 {
     int n = 0;
     for (int i = 0; i < UI_OPT_COUNT && n < UI_MAX_OPTS; i++) {
-        OptKind k = UI_OPTS[i].kind;
-        if (k == OPT_SPRITE || k == OPT_SEED || u->value[i] == UI_OPTS[i].def) continue;
+        if (ui_opt_cosmetic(i) || (UI_OPTS[i].kind == OPT_SPRITE ? !u->value[i] : u->value[i] == UI_OPTS[i].def)) continue;
         idx[n++] = i;
     }
     return n;
@@ -1896,7 +1899,7 @@ static void race_draw(SmzUi *u)
             text(u, 14, y + 4, mine ? C_ACCENT : C_TEXT, 0, r->p[i].name);
             text(u, UI_W - 14, y + 4, C_DIM, 2, !strcmp(r->p[i].pid, r->creator) ? "creator" : creator && !mine ? "A remove" : "");
         }
-        if (creator) race_row(u, r->n, 66 + r->n * 18, r->n < 2 ? "Close the room" : "Start race", r->n < 2 ? "needs 2 players" : "skins and the ready room", r->n < 2 ? C_DIM : C_TEXT);
+        if (creator) race_row(u, r->n, 66 + r->n * 18, "Start race", r->n < 2 ? "needs 2 players" : "skins and the ready room", r->n < 2 ? C_DIM : C_TEXT);
         else text(u, UI_W / 2, 200, C_DIM, 1, "Give this code to the other players");
         legend(u, creator ? "A Choose  B Leave" : "B Leave");
         break;
@@ -2416,7 +2419,7 @@ void ui_draw(SmzUi *u)
         }
         if (u->ladder_tab == 3) {
             world_tab(u);
-            legend(u, u->world_cursor < 0 ? (u->world_month ? "A This month  Left Right Tab" : "A Last month  Left Right Tab")
+            legend(u, u->world_cursor < 0 && u->world_prev.n ? (u->world_month ? "A This month  Left Right Tab" : "A Last month  Left Right Tab")
                       : u->world_month ? "A Top 10  Left Right Tab" : "Up Down Goal  Left Right Tab");
             break;
         }

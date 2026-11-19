@@ -79,6 +79,12 @@ int hk_held(SDL_GameController *c, int action)
     return pad_held(c, k[0]) && (k[1] < 0 || pad_held(c, k[1]));
 }
 
+int hk_uses(int code)
+{
+    for (int a = 0; code >= 0 && a < HK_COUNT; a++) if (keys[a][0] == code || keys[a][1] == code) return 1;
+    return 0;
+}
+
 int hk_press(SDL_GameController *c, int code)
 {
     int best = -1, size = 0;

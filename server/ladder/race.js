@@ -445,7 +445,7 @@ module.exports = function race(ctx) {
         case 'vote':
           if (room.state !== 'running' || !room.vote || me.left) return fail(res, 409, 'not now');
           if (b.yes === true) { if (!room.vote.yes.includes(me.pid)) room.vote.yes.push(me.pid); }
-          else { room.vote = null; note(room, 'system', me.pid, me.name + ' said no to the pause'); }
+          else { const mine = room.vote.by === me.pid; room.vote = null; note(room, 'system', me.pid, me.name + (mine ? ' took back the pause request' : ' said no to the pause')); }
           maybePause(room);
           return { room: view(room) };
         case 'back':   // in the game again after a pause, with the saved state loaded

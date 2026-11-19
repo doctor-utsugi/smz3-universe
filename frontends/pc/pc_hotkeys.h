@@ -16,6 +16,8 @@ void hk_cycle(int action, int which);
 /* A press of code (pad_event_code's): the action it completes, or -1. The combo's buttons stop reaching the game until released. */
 int hk_press(SDL_GameController *c, int code);
 int hk_held(SDL_GameController *c, int action);
+/* True when code is one of the buttons of a hotkey. */
+int hk_uses(int code);
 /* Once a frame: gives back to the game the buttons of a combo that were let go. */
 void hk_tick(SDL_GameController *c);
 

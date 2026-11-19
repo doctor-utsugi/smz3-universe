@@ -2281,10 +2281,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..001442e
+index 0000000..c2b76e8
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5787 @@
+@@ -0,0 +1,5854 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2333,6 +2333,7 @@ index 0000000..001442e
 +#include "3dsmenu.h"
 +#include "3dsfiles.h"
 +#include "3dsinput.h"
++#include "3dsui_notif.h"
 +#include "smz3run.h"
 +#include "smz3online.h"
 +
@@ -4527,13 +4528,17 @@ index 0000000..001442e
 +    return m;
 +}
 +
-+static void barSays(bool save, bool ok)
++// The bar's note for a moment; with the bar out of sight, the usual note over the game says it instead.
++static void barNoteShow(const char *note, bool ok)
 +{
-+    snprintf(barNote, sizeof barNote, "%s", ok ? (save ? "Saved" : "Loaded") : save ? "Not saved" : "No state yet");
++    snprintf(barNote, sizeof barNote, "%s", note);
 +    barNoteOk = ok;
 +    barNoteUntil = osGetTime() + 1500;
 +    dirty = true;
++    if (!inBar || tab != TAB_RUN) notif3dsTrigger(Notif::Misc, ok ? Notif::Type::Success : Notif::Type::Warning, NOTIF_DEFAULT_DURATION, note);
 +}
++
++static void barSays(bool save, bool ok) { barNoteShow(ok ? (save ? "Saved" : "Loaded") : save ? "Not saved" : "No state yet", ok); }
 +
 +static int pendingState = -1;   // a SAVE (1) or LOAD (0) asked for, done after the frame (smz3TrackerFrame)
 +
@@ -4592,7 +4597,7 @@ index 0000000..001442e
 +
 +static void rewindAsk()
 +{
-+    if (!gRewindRun) { snprintf(barNote, sizeof barNote, "No rewind"); barNoteOk = false; barNoteUntil = osGetTime() + 1500; dirty = true; return; }
++    if (!gRewindRun) { barNoteShow("No rewind", false); return; }
 +    rwCmd = 3;
 +}
 +
@@ -4758,7 +4763,8 @@ index 0000000..001442e
 +    settings3DS.isDirty = true;
 +}
 +
-+static bool previewOpen(int row)
++// screen0 and colours0: the values before any change made on the way in, which B puts back.
++static bool previewOpen(int row, int screen0, int colours0)
 +{
 +    if (!pvBuf && !(pvBuf = (u8 *)malloc(RW_BUF_CAP))) return false;
 +    LightLock_Lock(&snd3DS.snesAccessLock);
@@ -4766,7 +4772,7 @@ index 0000000..001442e
 +    LightLock_Unlock(&snd3DS.snesAccessLock);
 +    if (!pvSize) return false;
 +    pvRow = row; pvCmd = 0;
-+    pvScreen0 = settings3DS.SmzScreen; pvColours0 = settings3DS.SmzColours;
++    pvScreen0 = screen0; pvColours0 = colours0;
 +    pvOpen = true;
 +    snd3dsDrainMixing();
 +    dirty = true;
@@ -4811,6 +4817,24 @@ index 0000000..001442e
 +    }
 +    text(12, 196, INK, "A  Keep        B  Undo", HALIGN_CENTER, 308);
 +    text(12, 224, DIM, "Up and Down pick, Left and Right change", HALIGN_CENTER, 308);
++}
++
++// A tap on the picture screen: a row picks it, a tap on the picked row's half steps its value, the legend keeps or
++// undoes. True when it asks for the close (the touch then opens the menu, as A and B do).
++static bool previewTap(int x, int y)
++{
++    for (int r = 0; r < 2; r++) {
++        int y0 = 70 + r * 54;
++        if (x < 12 || x >= 308 || y < y0 || y >= y0 + 44) continue;
++        if (r != pvRow) { pvRow = r; uiCueSound(UI_CUE_MOVE); }
++        else { previewStep(r, x < 160 ? -1 : 1); uiCueSound(UI_CUE_SELECT); }
++        dirty = true;
++        return false;
++    }
++    if (y < 188 || y >= 216) return false;
++    pvCmd = x < 160 ? 1 : 2;
++    uiCueSound(pvCmd == 1 ? UI_CUE_CONFIRM : UI_CUE_BACK);
++    return true;
 +}
 +
 +bool smz3FastForward(unsigned held)
@@ -4884,6 +4908,7 @@ index 0000000..001442e
 +    if (x >= xf) {
 +        if (!gChallenge && !ffSlider) ffToggle = !ffToggle;   // the slider, while up, decides alone
 +    } else if (x >= xr) rewindAsk();
++    else if (barNoteUntil && osGetTime() < barNoteUntil) return true;   // the note stands where SAVE and LOAD were: no button
 +    else if (x < SC_ROW_X + BAR_BTN_W) requestState(true);
 +    else if (x >= SC_ROW_X + BAR_BTN_W + 3) requestState(false);
 +    dirty = true;
@@ -6070,6 +6095,13 @@ index 0000000..001442e
 +
 +static void raceVote(bool yes) { rg.voteDone = rg.room.vote_at; smzRaceSend("vote", yes ? "\"yes\":true" : "\"yes\":false", true); uiCueSound(yes ? UI_CUE_CONFIRM : UI_CUE_BACK); dirty = true; }
 +
++// This 3DS's own pause request, still waiting on the others: a no from its asker withdraws it (the server drops the vote).
++static bool raceCanWithdraw()
++{
++    const SmzRace *r = &rg.room;
++    return rg.on && !rg.pick && r->state == RACE_RUNNING && r->vote_by[0] && !strcmp(r->vote_by, r->you) && r->vote_at != rg.voteDone;
++}
++
 +static void raceAskPause()
 +{
 +    char f[48];
@@ -6243,7 +6275,7 @@ index 0000000..001442e
 +    }
 +}
 +
-+// A on the result card (or its left button): the winner's time goes to the ladder once; otherwise the card closes.
++// A on the result card (or its left button): the winner's time goes to the ladder once; otherwise the card closes and the game goes on.
 +static void raceCardA()
 +{
 +    dirty = true;
@@ -6265,7 +6297,7 @@ index 0000000..001442e
 +    if (me && me->place) { snprintf(t, sizeof t, "%d%s PLACE", me->place, ordinal(me->place)); return t; }
 +    return "DEFEAT";
 +}
-+static const char *raceCardALabel() { int st = rg.room.state; return rg.paused ? "Back to menu" : raceWon() && !rg.draft && (st == RACE_FINISHED || st == RACE_RUNNING) ? "Save to ladder" : "Keep playing"; }
++static const char *raceCardALabel() { int st = rg.room.state; return rg.paused ? "Back to the runs" : !rg.ladder && raceWon() && !rg.draft && (st == RACE_FINISHED || st == RACE_RUNNING) ? "Save to ladder" : "Keep playing"; }
 +static int raceCardColor() { return rg.paused || raceFirst() ? 0xF2A33A : rg.room.state == RACE_CANCELLED ? 0x8793A6 : 0xE05A4F; }
 +
 +// The card's line under its title.
@@ -6393,6 +6425,9 @@ index 0000000..001442e
 +    return n;
 +}
 +
++static const char *chatNote;   // why the typed line was not sent, over it until chatNoteUntil
++static u64 chatNoteUntil;
++
 +static void chatButton(int x0, int y0, int x1, int y1, int bg, int ink, const char *label, int id, int arg)
 +{
 +    fill(x0, y0, x1, y1, bg);
@@ -6407,7 +6442,8 @@ index 0000000..001442e
 +        char line[96];
 +        snprintf(line, sizeof line, "%s_", rg.typed);
 +        fill(4, y0 + 3, 316, y0 + 19, theme.panel);
-+        textFit(8, y0 + 5, 304, theme.text, line);
++        bool note = chatNoteUntil && osGetTime() < chatNoteUntil;
++        textFit(8, y0 + 5, 304, note ? theme.dim : theme.text, note ? chatNote : line);
 +        int ky = y0 + 23, kh = (y1 - ky - 4) / 5;
 +        for (int row = 0; row < 4; row++)
 +            for (int i = 0; i < 10; i++) {
@@ -6465,6 +6501,7 @@ index 0000000..001442e
 +        const ChatHit &h = chatHits[i];
 +        if (x < h.x0 || x >= h.x1 || y < h.y0 || y >= h.y1) continue;
 +        size_t n = strlen(rg.typed);
++        if (h.id != CH_SEND) chatNoteUntil = 0;
 +        switch (h.id) {
 +        case CH_PHRASE: raceSay(rg.on ? PHRASES[h.arg] : SMZ_DAILY_PHRASE[h.arg]); break;
 +        case CH_KB: rg.kb = true; break;
@@ -6474,7 +6511,14 @@ index 0000000..001442e
 +        case CH_SHIFT: rg.kbUpper = !rg.kbUpper; break;
 +        case CH_SPACE: if (n && n + 1 < sizeof rg.typed - 4) { rg.typed[n] = ' '; rg.typed[n + 1] = 0; } break;
 +        case CH_DEL: if (n) rg.typed[n - 1] = 0; break;
-+        case CH_SEND: raceSay(rg.typed); rg.typed[0] = 0; rg.kb = false; break;
++        case CH_SEND:
++            if (rg.typed[0] && (rg.chatOff || chatClosed())) {   // kept, with why it went nowhere
++                chatNote = rg.chatOff ? "Not sent: the chat is off" : "Not sent: the window is closed";
++                chatNoteUntil = osGetTime() + 2500;
++                break;
++            }
++            raceSay(rg.typed); rg.typed[0] = 0; rg.kb = false;
++            break;
 +        case CH_CLOSE: rg.kb = false; break;
 +        }
 +        uiCueSound(h.id == CH_KEY || h.id == CH_DEL || h.id == CH_SPACE ? UI_CUE_MOVE : UI_CUE_SELECT);
@@ -6504,7 +6548,11 @@ index 0000000..001442e
 +    }
 +    const SmzRace *r = &rg.room;
 +    text(0, 40, 0xF2A33A, "Pause the race?", HALIGN_CENTER, 320);
-+    if (!raceVoteOpen()) { text(0, 80, 0xE8ECF2, "Waiting for the others to answer", HALIGN_CENTER, 320); return; }
++    if (!raceVoteOpen()) {
++        text(0, 80, 0xE8ECF2, "Waiting for the others to answer", HALIGN_CENTER, 320);
++        if (raceCanWithdraw()) { fill(80, ASK_BTN_Y, 240, ASK_BTN_Y + 32, 0x1D2430); text(80, ASK_BTN_Y + 9, 0xE8ECF2, "B  Withdraw", HALIGN_CENTER, 240); }
++        return;
++    }
 +    const char *who = "A rival";
 +    for (int i = 0; i < r->n; i++) if (!strcmp(r->p[i].pid, r->vote_by)) who = r->p[i].name;
 +    raceWhen(r->vote_at, when, sizeof when);
@@ -6524,6 +6572,7 @@ index 0000000..001442e
 +        return;
 +    }
 +    if (raceVoteOpen() && y >= ASK_BTN_Y && y < ASK_BTN_Y + 32) raceVote(x < 160);
++    else if (raceCanWithdraw() && y >= ASK_BTN_Y && y < ASK_BTN_Y + 32 && x >= 80 && x < 240) raceVote(false);
 +}
 +
 +static bool raceAsking() { return rg.on && !rg.card && (rg.pick || (rg.room.state == RACE_RUNNING && rg.room.vote_by[0])); }
@@ -6555,17 +6604,17 @@ index 0000000..001442e
 +            text(296, y, c, t, HALIGN_RIGHT);
 +            y += 16;
 +        }
-+    if (rg.ladder || rg.paused) {
-+        if (rg.ladder) text(0, CARD_BTN_Y - 18, 0x4FC3F7, "Saved to the ladder", HALIGN_CENTER, 320);
++    if (rg.paused) {
 +        fill(80, CARD_BTN_Y, 240, CARD_BTN_Y + 32, 0xF2A33A);
-+        text(80, CARD_BTN_Y + 9, 0x10161F, rg.paused ? "Back to menu" : "Close", HALIGN_CENTER, 240);
++        text(80, CARD_BTN_Y + 9, 0x10161F, "Back to the runs", HALIGN_CENTER, 240);
 +        return;
 +    }
++    if (rg.ladder) text(0, CARD_BTN_Y - 18, 0x4FC3F7, "Saved to the ladder", HALIGN_CENTER, 320);
 +    fill(12, CARD_BTN_Y, 156, CARD_BTN_Y + 32, 0xF2A33A);
 +    text(12, CARD_BTN_Y + 9, 0x10161F, raceCardALabel(), HALIGN_CENTER, 156);
 +    fill(164, CARD_BTN_Y, 308, CARD_BTN_Y + 32, 0x1D2430);
 +    fill(164, CARD_BTN_Y, 308, CARD_BTN_Y + 1, 0x4A5568);
-+    text(164, CARD_BTN_Y + 9, 0xE8ECF2, "Close", HALIGN_CENTER, 308);
++    text(164, CARD_BTN_Y + 9, 0xE8ECF2, "Back to the runs", HALIGN_CENTER, 308);
 +}
 +
 +// Players back after a pause, of those still in.
@@ -6594,7 +6643,7 @@ index 0000000..001442e
 +    raceBackCount(&back, &in);
 +    unsigned h = 1u + (unsigned)(count + 1);
 +    h = h * 31 + (news ? rg.newsSeq % 1000 + 1 : 0);
-+    h = h * 31 + (rg.card ? 1 : 0) + (rg.ladder ? 2 : 0) + (rg.paused ? 4 : 0) + (raceVoteOpen() ? 8 : 0);
++    h = h * 31 + (rg.card ? 1 : 0) + (rg.ladder ? 2 : 0) + (rg.paused ? 4 : 0) + (raceVoteOpen() ? 8 : 0) + (raceCanWithdraw() ? 16 : 0);
 +    h = h * 31 + (waiting ? back * 16 + in + 1 : 0);
 +    h = h * 31 + (asking ? (rg.pick ? rg.pickI + 2 : 1) : 0);
 +    h = h * 31 + (goal ? 1 : 0);
@@ -6633,13 +6682,14 @@ index 0000000..001442e
 +        else if (me && me->time_ms >= 0) { fmtTime(me->time_ms, t, sizeof t); if (me->place) snprintf(line, sizeof line, "Place %d  -  %s", me->place, t); else snprintf(line, sizeof line, "%s", t); }
 +        else snprintf(line, sizeof line, "%s", smz_race_format_name(rg.room.format));
 +        cvText(mx, 120, 13, 0xE8ECF2, 255, line, 1);
-+        if (rg.paused) cvButton(mx - 50, 146, "A", "Back to menu", 255);
-+        else if (rg.ladder) { cvText(mx, 138, 13, 0x4FC3F7, 255, "Saved to the ladder", 1); cvButton(mx - 30, 150, "B", "Close", 255); }
++        if (rg.paused) cvButton(mx - (18 + ui3dsGetStringWidth("Back to the runs")) / 2.0f, 146, "A", "Back to the runs", 255);
 +        else {
 +            const char *al = raceCardALabel();
-+            int w1 = 18 + ui3dsGetStringWidth(al), w2 = 18 + ui3dsGetStringWidth("Close"), bx = (int)(mx - (w1 + 24 + w2) / 2.0f);
-+            cvButton(bx, 146, "A", al, 255);
-+            cvButton(bx + w1 + 24, 146, "B", "Close", 255);
++            int y = rg.ladder ? 150 : 146;
++            if (rg.ladder) cvText(mx, 136, 13, 0x4FC3F7, 255, "Saved to the ladder", 1);
++            int w1 = 18 + ui3dsGetStringWidth(al), w2 = 18 + ui3dsGetStringWidth("Back to the runs"), bx = (int)(mx - (w1 + 24 + w2) / 2.0f);
++            cvButton(bx, y, "A", al, 255);
++            cvButton(bx + w1 + 24, y, "B", "Back to the runs", 255);
 +        }
 +        return;
 +    }
@@ -6675,7 +6725,10 @@ index 0000000..001442e
 +            cvText(mx, 100, 13, 0xE8ECF2, 255, m, 1);
 +            cvButton(mx - 60, 122, "A", "Yes", 255);
 +            cvButton(mx + 20, 122, "B", "No", 255);
-+        } else cvText(mx, 110, 13, 0xE8ECF2, 255, "Pause the race? Waiting for the others", 1);
++        } else {
++            cvText(mx, 110, 13, 0xE8ECF2, 255, "Pause the race? Waiting for the others", 1);
++            if (raceCanWithdraw()) cvButton(mx - (18 + ui3dsGetStringWidth("Withdraw")) / 2.0f, 128, "B", "Withdraw", 255);
++        }
 +    } else if (go > 3000) {
 +        snprintf(m, sizeof m, "%s in %d", rg.room.pauses ? "The race goes on" : "The race starts", count);
 +        int w = ui3dsGetStringWidth(m, 0, 0xffff, 17);
@@ -7060,7 +7113,12 @@ index 0000000..001442e
 +bool smz3TrackerTouch(unsigned keysDown, unsigned keysHeld)
 +{
 +    if (!smz3IsRun() || curSlot < 0) return false;
-+    if (pvOpen) return true;   // the picture screen takes buttons only
++    if (pvOpen) {   // the picture screen: its rows and its legend
++        if (!(keysDown & KEY_TOUCH) || pvCmd) return true;
++        touchPosition t;
++        hidTouchRead(&t);
++        return !previewTap(t.px, t.py);
++    }
 +    if (rwOpen) {   // the rewind screen: hold the arrows, tap play or back
 +        if (keysHeld & KEY_TOUCH) {
 +            touchPosition t;
@@ -7084,9 +7142,9 @@ index 0000000..001442e
 +            if (rg.on && rg.card) {   // the race's result: its buttons, nothing under it
 +                touching = false;
 +                if (t.py < CARD_BTN_Y || t.py >= CARD_BTN_Y + 32) return true;
-+                if (rg.ladder || rg.paused ? t.px < 80 || t.px >= 240 : t.px < 160) { if (!rg.ladder && !rg.paused) raceCardA(); return true; }
++                if (rg.paused ? t.px < 80 || t.px >= 240 : t.px < 160) { if (!rg.paused) raceCardA(); return true; }
 +                rg.card = false;
-+                wantRunList = true;   // Close: the touch opens the menu, which goes on to the run list
++                wantRunList = true;   // Back to the runs: the touch opens the menu, which goes on to the run list
 +                return false;
 +            }
 +            if (cardState) {   // the details: a tap before their buttons only jumps to them
@@ -7433,7 +7491,7 @@ index 0000000..001442e
 +        return ~(unsigned)KEY_TOUCH;
 +    }
 +    if (rg.on && rg.card) {   // A and B are the race's result card's
-+        if ((keysDown & KEY_A) && !rg.ladder && !rg.paused) raceCardA();
++        if ((keysDown & KEY_A) && !rg.paused) raceCardA();
 +        else if (keysDown & (rg.paused ? KEY_A | KEY_B : KEY_B)) { rg.card = false; wantRunList = *openMenu = true; dirty = true; }
 +        return KEY_A | KEY_B;
 +    }
@@ -7443,6 +7501,7 @@ index 0000000..001442e
 +            else if (keysDown & KEY_A) raceAskPause();
 +            else if (keysDown & KEY_B) { rg.pick = false; uiCueSound(UI_CUE_BACK); dirty = true; }
 +        } else if (raceVoteOpen() && (keysDown & (KEY_A | KEY_B))) raceVote(keysDown & KEY_A);
++        else if (raceCanWithdraw() && (keysDown & KEY_B)) raceVote(false);
 +        return ~(unsigned)KEY_TOUCH;
 +    }
 +    if (raceWaiting() || raceFrozen()) return ~(unsigned)KEY_TOUCH;   // the game takes no button before the start, nor while it stands still
@@ -7502,6 +7561,7 @@ index 0000000..001442e
 +        smz_counters_tick(&goalc, trk.started ? (int)trk.game : 0, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, (int)(trk.zelda_cleared + trk.metroid_cleared));
 +    runPendingState();
 +    if (barNoteUntil && now >= barNoteUntil) { barNoteUntil = 0; dirty = true; }
++    if (chatNoteUntil && now >= chatNoteUntil) { chatNoteUntil = 0; dirty = true; }
 +    if (noStatesUntil && now >= noStatesUntil) { noStatesUntil = 0; dirty = true; }
 +    if (cardState) { cardSounds(); if (cardT() < T_BUTTONS + 0.4f && sinceDraw >= 2) dirty = true; }   // the details move at 30 fps
 +    bool portal = portalPlaying(), visor = visorPlaying(), portalEnd = (portalAt && !portal) || (visorAt && !visor);
@@ -7900,6 +7960,8 @@ index 0000000..001442e
 +    return y >= PM_LIST_Y && r < PM_ROWS_SHOWN && scroll + r < n ? scroll + r : -1;
 +}
 +
++static int pmReturnTo = -1;   // the row the menu reopens on after the picture screen
++
 +static void pmFollow(int cursor, int *scroll)
 +{
 +    if (cursor < *scroll) *scroll = cursor;
@@ -7972,6 +8034,8 @@ index 0000000..001442e
 +{
 +    PauseRow rows[16];
 +    int n = pauseRows(rows), cursor = 0, scroll = 0, slot = settings3DS.CurrentSaveSlot;   // it opens on Resume, as on the Thor
++    for (int i = 0; i < n && pmReturnTo >= 0; i++) if (rows[i].id == pmReturnTo) cursor = i;   // back from the picture screen: on its row
++    pmReturnTo = -1;
 +    if (slot < 1 || slot > SAVESLOTS_MAX) slot = 1;
 +    char note[64] = "";
 +    int result = SMZ3_PAUSE_CLOSING;
@@ -8056,8 +8120,11 @@ index 0000000..001442e
 +            case PM_MUTE: snd3dsMuted = !snd3dsMuted; snd3dsApplyOutputVolume(); uiCueSound(UI_CUE_SELECT); break;
 +            case PM_SCREEN:
 +            case PM_COLOURS:   // the choice is tried on the game: the menu gives way to the picture screen
++            {
++                int screen0 = settings3DS.SmzScreen, colours0 = settings3DS.SmzColours;
 +                if (act != 1) previewStep(row.id == PM_COLOURS, step);
-+                if (previewOpen(row.id == PM_COLOURS)) { uiCueSound(UI_CUE_CONFIRM); result = SMZ3_PAUSE_RESUME; goto done; }
++                if (previewOpen(row.id == PM_COLOURS, screen0, colours0)) { pmReturnTo = row.id; uiCueSound(UI_CUE_CONFIRM); result = SMZ3_PAUSE_RESUME; goto done; }
++            }
 +                uiCueSound(UI_CUE_SELECT);
 +                break;
 +            case PM_ROW0: case PM_ROW1: smz3SetShortcutRowShown(row.id == PM_ROW1, !smz3ShortcutRowShown(row.id == PM_ROW1)); uiCueSound(UI_CUE_SELECT); break;

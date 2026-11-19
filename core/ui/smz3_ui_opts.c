@@ -53,7 +53,7 @@ const UiOptDef UI_OPTS[] = {
     {"NerfedCharge", "Nerfed charge", "Charge the beam from the start, at a third of the damage.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
     {"SaveStates", "Save states", "Allow save states in this run. Off keeps the run honest: only the game's own saves.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
     {"QuickMorph", "Quick morph", "Super Metroid: the aim-down button turns Samus into a ball; aim up and down share one button.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
-    {"MusicPackage", "Music package", "Original, random, or a pack from /sdcard/SMZ3/music (MSU-1). Android only.", OPT_SPRITE, LEVEL_RUN, 0, 1, 0, 0},
+    {"MusicPackage", "Music package", "Original, random, or an MSU-1 pack from the SMZ3 music folder.", OPT_SPRITE, LEVEL_RUN, 0, 1, 0, 0},
     {"ShowReachable", "Reachable checks", "The tracker map marks the checks you can reach now.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
     {"ShowFixedKeys", "Fixed keys", "The dungeon maps mark the keys under pots and on enemies until you take them.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
     {"Rewind", "Rewind", "Go back a few seconds while playing. Offline runs only: ladder and daily runs never rewind.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
@@ -184,12 +184,17 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
 }
 
 /* 1 when every option that changes the run's rules is at its default; the seed, sprites, screen, map view and jingle are cosmetic. */
+int ui_opt_cosmetic(int i)
+{
+    return i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_REACH || i == O_FKEYS;
+}
+
 int ui_is_default(const SmzUi *u)
 {
     int want[UI_MAX_OPTS];
     ui_expected_values(u, want);
     for (int i = 0; i < UI_OPT_COUNT; i++) {
-        if (i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_REACH || i == O_FKEYS) continue;
+        if (ui_opt_cosmetic(i)) continue;
         if (UI_OPTS[i].kind == OPT_SPRITE) { if (u->value[i] != 0) return 0; continue; }
         if (u->value[i] != want[i]) return 0;
     }

@@ -28,7 +28,7 @@ int pad_keyed(int action) { return action >= 0 && action < PA_COUNT; }
  * the zoom) only act while it is open, when the game takes no input, so a button may share them. */
 static const struct { SDL_Keycode k; const char *use; } FIXED_KEYS[] = {
     {SDLK_UP, "the D-pad"}, {SDLK_DOWN, "the D-pad"}, {SDLK_LEFT, "the D-pad"}, {SDLK_RIGHT, "the D-pad"},
-    {SDLK_F9, "the aspect ratio"}, {SDLK_F11, "full screen"},
+    {SDLK_F11, "full screen"},
 };
 
 static void keys_save(void)
@@ -157,6 +157,17 @@ const char *pad_code_name(int code)
     if (code >= 0 && code < (int)(sizeof BUTTON / sizeof BUTTON[0])) return BUTTON[code];
     snprintf(other, sizeof other, "Button %d", code);
     return other;
+}
+
+const char *pad_action_icon(int action)
+{
+    static const char *const ICON[] = {"A", "B", "X", "Y", "SELECT", NULL, "START", "L3", "R3", "L", "R", "UP", "DOWN", "LEFT", "RIGHT"};
+    int code = action >= 0 && action < PA_COUNT ? code_of[action] : -1;
+    if (code < 0) return NULL;
+    if (code == PAD_AXIS_BASE + SDL_CONTROLLER_AXIS_TRIGGERLEFT) return "LT";
+    if (code == PAD_AXIS_BASE + SDL_CONTROLLER_AXIS_TRIGGERRIGHT) return "RT";
+    if (code < (int)(sizeof ICON / sizeof ICON[0]) && ICON[code]) return ICON[code];
+    return pad_code_name(code);
 }
 
 int pad_held(SDL_GameController *c, int code)

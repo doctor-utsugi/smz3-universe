@@ -795,7 +795,7 @@ index 0000000..dda2ab1
 +    right: Smz3PadLayout.Placement,
 +) = remember { mutableStateOf(left to right) }.also { it.value = left to right }
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
-index 57f2e76..0738087 100644
+index 57f2e76..3ec3a43 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 @@ -1,5 +1,10 @@
@@ -874,7 +874,7 @@ index 57f2e76..0738087 100644
  
              val infoDialogDisplayed =
                  remember {
-@@ -172,176 +209,34 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -172,176 +209,36 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                      .collectAsState(MainViewModel.UiState())
                      .value
  
@@ -1054,7 +1054,7 @@ index 57f2e76..0738087 100644
 -                                        ),
 -                                ),
 +                            retrogradeDb = retrogradeDb,
-+                            onContinue = { run, loadState ->
++                            onContinue = { run, loadState, failed ->
 +                                scope.launch {
 +                                    val owned = run.romPath.isNotEmpty() && java.io.File(run.romPath).exists()
 +                                    val found = if (owned) {
@@ -1063,10 +1063,12 @@ index 57f2e76..0738087 100644
 +                                    } else {
 +                                        retrogradeDb.gameDao().selectById(run.gameId)
 +                                    }
-+                                    found?.let { game ->
-+                                        RunStore.setActiveSlot(applicationContext, run.slot)
-+                                        if (loadState) onGameClick(game) else gameInteractor.onGameRestart(game)
++                                    if (found == null) {
++                                        failed("This run's ROM is missing")
++                                        return@launch
 +                                    }
++                                    RunStore.setActiveSlot(applicationContext, run.slot)
++                                    if (loadState) onGameClick(found) else gameInteractor.onGameRestart(found)
 +                                }
 +                            },
                          )
@@ -1378,10 +1380,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..03b8423
+index 0000000..afdb03e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,898 @@
+@@ -0,0 +1,932 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1476,6 +1478,7 @@ index 0000000..03b8423
 +    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME, UPDATE }
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
++private const val UI_HOME = 17
 +private const val UI_OPT_QUIT = 8
 +private var homeShown = false            // the start menu comes once per launch; back from a game is the run list
 +
@@ -1548,8 +1551,8 @@ index 0000000..03b8423
 +fun NativeMenuScreen(
 +    modifier: Modifier = Modifier,
 +    retrogradeDb: RetrogradeDatabase,
-+    /** loadState false starts from the game's own save and ignores the save state. */
-+    onContinue: (Run, Boolean) -> Unit,
++    /** loadState false starts from the game's own save and ignores the save state; the last argument says why it could not start. */
++    onContinue: (Run, Boolean, (String) -> Unit) -> Unit,
 +) {
 +    val context = LocalContext.current
 +    val scope = rememberCoroutineScope()
@@ -1570,7 +1573,18 @@ index 0000000..03b8423
 +            closing.snapTo(0f)
 +            closing.animateTo(1f, tween(500, easing = LinearEasing))
 +            kotlinx.coroutines.delay(1500)
-+            onContinue(run, state)
++            onContinue(run, state) { why ->   // no game to start: the menu comes back at once and says why
++                scope.launch {
++                    launching = false
++                    frozen[0] = null
++                    com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.show(context)
++                    Smz3Native.uiBusy(why.take(43))
++                    version++
++                    kotlinx.coroutines.delay(4000)
++                    Smz3Native.uiIdle()
++                    version++
++                }
++            }
 +        }
 +    }
 +    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
@@ -1713,23 +1727,39 @@ index 0000000..03b8423
 +        }
 +    }
 +
-+    val generateAgain = remember { arrayOf<((Int) -> Unit)?>(null) }
-+    var romSlot by remember { mutableIntStateOf(-1) }
++    // what runs once the ROM picker returns with the files picked (none when it was cancelled)
++    val afterRoms = remember { arrayOf<(suspend (List<android.net.Uri>) -> Unit)?>(null) }
 +    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-+        val slot = romSlot
-+        scope.launch {
-+            if (uris.isEmpty()) { Smz3Native.uiIdle(); version++; return@launch }
++        val then = afterRoms[0] ?: return@rememberLauncherForActivityResult
++        afterRoms[0] = null
++        scope.launch { then(uris) }
++    }
++
++    fun askRoms(then: suspend (List<android.net.Uri>) -> Unit) {
++        afterRoms[0] = then
++        picker.launch(arrayOf("*/*"))
++    }
++
++    /** No usable base ROMs: says why when one is the wrong revision, asks for the two ROMs (files or zips), then [retry]. */
++    suspend fun needRoms(wrong: String?, retry: () -> Unit) {
++        if (wrong != null) {
++            Smz3Native.uiBusy(wrong.take(43))
++            version++
++            kotlinx.coroutines.delay(3000)
++        }
++        Smz3Native.uiBusy("Pick your Super Metroid and ALttP ROMs")
++        version++
++        askRoms { uris ->
++            if (uris.isEmpty()) { Smz3Native.uiIdle(); version++; return@askRoms }
 +            Smz3Native.uiBusy("Reading the ROMs ...")
 +            version++
 +            val message = RunGenerator.importRoms(context, uris)
-+            if (message.startsWith("Both")) generateAgain[0]?.invoke(slot)
-+            else {
-+                Smz3Native.uiBusy(message.take(43))
-+                version++
-+                kotlinx.coroutines.delay(4000)
-+                Smz3Native.uiIdle()
-+                version++
-+            }
++            if (message.startsWith("Both")) { retry(); return@askRoms }
++            Smz3Native.uiBusy(message.take(43))
++            version++
++            kotlinx.coroutines.delay(4000)
++            Smz3Native.uiIdle()
++            version++
 +        }
 +    }
 +
@@ -1740,15 +1770,9 @@ index 0000000..03b8423
 +            val outcome = runCatching {
 +                val games = retrogradeDb.gameDao().selectListBySystem("snes")
 +                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
-+                    ?: run {
-+                        if (RunGenerator.wrongBaseRom == null) {   // nothing usable yet: ask for the two ROMs (files or zips), generation restarts afterwards
-+                            romSlot = slot
-+                            Smz3Native.uiBusy("Pick your Super Metroid and ALttP ROMs")
-+                            version++
-+                            picker.launch(arrayOf("*/*"))
-+                            return@launch
-+                        }
-+                        error(RunGenerator.wrongBaseRom!!)
++                    ?: run {   // none usable (missing or the wrong revision): ask for the ROMs, generation restarts afterwards
++                        needRoms(RunGenerator.wrongBaseRom) { generate(slot) }
++                        return@launch
 +                    }
 +                Smz3Native.uiBusy("Generating the seed ...")
 +                version++
@@ -1794,8 +1818,6 @@ index 0000000..03b8423
 +        }
 +    }
 +
-+    generateAgain[0] = ::generate
-+
 +    /** Start or Continue on the Daily screen: makes the window's run in the daily slot unless it is there, then plays it. */
 +    fun startDaily() {
 +        val window = Smz3Native.uiDailyWindow()
@@ -1807,7 +1829,11 @@ index 0000000..03b8423
 +            val outcome = runCatching {
 +                val games = retrogradeDb.gameDao().selectListBySystem("snes")
 +                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
-+                    ?: error(RunGenerator.wrongBaseRom ?: "Make a run first: it asks for the base ROMs")
++                    ?: run {
++                        quiet[0] = false
++                        needRoms(RunGenerator.wrongBaseRom) { startDaily() }
++                        return@launch
++                    }
 +                val (attempt, server) = withContext(Dispatchers.IO) { DailyChallenge.start(context, window) }.getOrThrow()
 +                val raw = Smz3Native.dailySettingsJson(server, attempt.check).ifEmpty { error("The challenge's settings do not fit") }
 +                Smz3Native.uiSetPlando(null)
@@ -1878,7 +1904,15 @@ index 0000000..03b8423
 +            val outcome = runCatching {
 +                val games = retrogradeDb.gameDao().selectListBySystem("snes")
 +                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
-+                    ?: error(RunGenerator.wrongBaseRom ?: "Make a run first: it asks for the base ROMs")
++                    ?: run {   // the ready room stays while the picker is open: the game is built again once both ROMs are in
++                        val wrong = RunGenerator.wrongBaseRom
++                        askRoms { uris ->
++                            val message = if (uris.isEmpty()) null else RunGenerator.importRoms(context, uris)
++                            if (message?.startsWith("Both") == true) buildRace()
++                            else { Smz3Native.uiRaceFail((message ?: wrong ?: "Pick the base ROMs to race").take(31)); version++ }
++                        }
++                        return@launch
++                    }
 +                val raw = Smz3Native.raceSettingsJson().ifEmpty { error("The race's settings do not fit") }
 +                Smz3Native.uiSetPlando(null)
 +                val settings = JSONObject(raw)
@@ -2029,6 +2063,8 @@ index 0000000..03b8423
 +                        Key.ButtonStart -> 9
 +                        else -> return@onKeyEvent false
 +                    }
++                    // the core has nothing behind the start menu: Android's Back there leaves the app, as Options > Quit does
++                    if (e.key == Key.Back && Smz3Native.uiScreen() == UI_HOME) { (context as? android.app.Activity)?.finish(); return@onKeyEvent true }
 +                    if (!(wipe.isRunning && wipe.value < 0.6f)) press(b)   // a new screen takes its time: no skipping through
 +                    true
 +                }
@@ -3281,7 +3317,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..3594e64 100644
+index 6d06420..662c32e 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3330,7 +3366,15 @@ index 6d06420..3594e64 100644
                      baseGameScreenViewModel.requestFinish()
                  }
              },
-@@ -209,7 +220,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -204,12 +215,14 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+                     baseGameScreenViewModel.retroGameView.retroGameView?.getAvailableDisks() ?: 0,
+                 )
+                 this.putExtra(GameMenuContract.EXTRA_GAME, game)
+-                this.putExtra(GameMenuContract.EXTRA_SYSTEM_CORE_CONFIG, systemCoreConfig)
++                // Save and Load only on runs that allow states, as the hotkeys do; the menu hides them otherwise.
++                val statesAllowed = systemCoreConfig.statesSupported && Smz3Hotkeys.saveStatesAllowed(this@BaseGameActivity)
++                this.putExtra(GameMenuContract.EXTRA_SYSTEM_CORE_CONFIG, systemCoreConfig.copy(statesSupported = statesAllowed))
+                 this.putExtra(
                      GameMenuContract.EXTRA_AUDIO_ENABLED,
                      baseGameScreenViewModel.retroGameView.retroGameView?.audioEnabled,
                  )
@@ -3339,7 +3383,7 @@ index 6d06420..3594e64 100644
                  this.putExtra(
                      GameMenuContract.EXTRA_FAST_FORWARD,
                      (baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1) > 1,
-@@ -244,7 +255,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -244,7 +257,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                              it.currentTiltConfiguration,
                              it.tiltConfigurations,
                          )
@@ -3348,7 +3392,7 @@ index 6d06420..3594e64 100644
                      is GameViewModelSideEffects.UiEffect.SuccessfulFinish -> performSuccessfulActivityFinish()
                      is GameViewModelSideEffects.UiEffect.FailureFinish -> performErrorFinish(it.message)
                      is GameViewModelSideEffects.UiEffect.SaveQuickSave -> performSaveQuickSave()
-@@ -262,6 +273,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -262,6 +275,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          baseGameScreenViewModel.loadQuickSave()
      }
  
@@ -3424,15 +3468,21 @@ index 6d06420..3594e64 100644
      private fun performToggleFastForward() {
          baseGameScreenViewModel.toggleFastForward()
      }
-@@ -344,6 +424,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -343,7 +425,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+         finishTriggered = true
      }
  
++    override fun onPause() {
++        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.releaseKeys()
++        super.onPause()
++    }
++
      override fun onStop() {
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Rewind.close(false)
          if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
              baseGameScreenViewModel.requestBackgroundSave()
          }
-@@ -351,6 +432,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -351,6 +439,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onDestroy() {
@@ -3452,8 +3502,24 @@ index 6d06420..3594e64 100644
          if (!isChangingConfigurations) {
              GameService.requestTermination()
          }
+@@ -397,14 +498,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+                 }
+             }
+             if (data?.hasExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD) == true) {
+-                baseGameScreenViewModel.retroGameView.retroGameView?.apply {
+-                    val fastForwardEnabled =
+-                        data.getBooleanExtra(
+-                            GameMenuContract.RESULT_ENABLE_FAST_FORWARD,
+-                            false,
+-                        )
+-                    this.frameSpeed = if (fastForwardEnabled) 2 else 1
+-                }
++                baseGameScreenViewModel.setFastForward(data.getBooleanExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD, false))
+             }
+             if (data?.getBooleanExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, false) == true) {
+                 baseGameScreenViewModel.showEditControls(true)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
-index 8f91e6c..7dd9a41 100644
+index 8f91e6c..8883b96 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 @@ -16,6 +16,10 @@ import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
@@ -3493,7 +3559,7 @@ index 8f91e6c..7dd9a41 100644
          withLoading {
              saves.saveQuickSave()
          }
-@@ -261,16 +265,39 @@ class BaseGameScreenViewModel(
+@@ -261,16 +265,45 @@ class BaseGameScreenViewModel(
  
      fun loadQuickSave() {
          Timber.d("Loading quick save")
@@ -3504,16 +3570,22 @@ index 8f91e6c..7dd9a41 100644
          }
      }
  
--    fun toggleFastForward() {
+     fun toggleFastForward() {
 -        Timber.d("Loading quick save")
-+    fun toggleFastForward() = toggleFastForward(2)
-+
-+    fun toggleFastForward(speed: Int) {
-         retroGameView.retroGameView?.apply {
+-        retroGameView.retroGameView?.apply {
 -            frameSpeed = if (frameSpeed == 1) 2 else 1
-+            frameSpeed = if (frameSpeed == 1) speed else 1
-+            sideEffects.showToast(if (frameSpeed == 1) "Normal speed" else "Fast forward x$frameSpeed")
++        val enable = (retroGameView.retroGameView?.frameSpeed ?: 1) == 1
++        if (setFastForward(enable)) sideEffects.showToast(if (enable) "Fast forward x${Smz3Hotkeys.speed(appContext)}" else "Normal speed")
++    }
++
++    /** Same path as the fast-forward hotkey: the configured speed, the run clock scaled with it, none in a daily challenge. */
++    fun setFastForward(enabled: Boolean): Boolean {
++        if (enabled && Smz3Hotkeys.challengeRun(appContext)) {
++            sideEffects.showToast("No fast forward in a daily challenge")
++            return false
 +        }
++        hotkeyHost.hotkeyFastForward(if (enabled) Smz3Hotkeys.speed(appContext) else 1)
++        return true
 +    }
 +
 +    private val hotkeyHost = object : Smz3HotkeyHost {
@@ -3537,7 +3609,7 @@ index 8f91e6c..7dd9a41 100644
          }
      }
  
-@@ -309,21 +336,40 @@ class BaseGameScreenViewModel(
+@@ -309,21 +342,40 @@ class BaseGameScreenViewModel(
  
      override fun onCreate(owner: LifecycleOwner) {
          super.onCreate(owner)
@@ -7039,10 +7111,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..b4ad706
+index 0000000..d82efe5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1133 @@
+@@ -0,0 +1,1140 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -7180,6 +7252,12 @@ index 0000000..b4ad706
 +        super.onSizeChanged(w, h, oldw, oldh)
 +        val size = if (w / density < 430f) 12f else 15f
 +        tabs.forEach { it.textSize = size; it.maxLines = 1 }
++    }
++
++    /** The tracker closed: a bind panel left waiting must not take the next press in game. */
++    override fun onDetachedFromWindow() {
++        Smz3Shortcuts.capture = null
++        super.onDetachedFromWindow()
 +    }
 +
 +    /** Moves [delta] tabs to the right (left when negative), wrapping around. */
@@ -7433,7 +7511,7 @@ index 0000000..b4ad706
 +                    val cell = shortcutIcon(item).apply {
 +                        setPadding(dp(6), dp(6), dp(6), dp(6))
 +                        if (current()?.id == item.id) setBackgroundColor(Color.argb(160, 255, 213, 74))
-+                        setOnClickListener { Smz3Shortcuts.setSlot(context, slot, item.id); shortcutShown = ""; fill(); refresh() }
++                        setOnClickListener { Smz3Shortcuts.capture = null; Smz3Shortcuts.assignSlot(context, slot, item.id); shortcutShown = ""; fill(); refresh() }
 +                    }
 +                    grid.addView(cell)
 +                }
@@ -7454,7 +7532,7 @@ index 0000000..b4ad706
 +        val buttons = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 +        buttons.addView(bindBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f))
 +        buttons.addView(unbindBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-+        if (slot != null) buttons.addView(overlayButton("CLEAR") { Smz3Shortcuts.setSlot(context, slot, -1); shortcutShown = ""; showShortcutPanel(slot, null) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
++        if (slot != null) buttons.addView(overlayButton("CLEAR") { Smz3Shortcuts.capture = null; Smz3Shortcuts.assignSlot(context, slot, -1); shortcutShown = ""; showShortcutPanel(slot, null) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 +        buttons.addView(overlayButton("CLOSE") { Smz3Shortcuts.capture = null; shortcutOverlay.apply { visibility = View.GONE; removeAllViews() } }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 +        box.addView(buttons)
 +        refresh()
@@ -7824,8 +7902,9 @@ index 0000000..b4ad706
 +            }
 +            second.setOnClickListener {
 +                val keys = Smz3Hotkeys.keys(context, action)
-+                val next = cycle(keys.getOrNull(1))
-+                Smz3Hotkeys.setKeys(context, action, if (next == null || next == keys[0]) listOf(keys[0]) else listOf(keys[0], next))
++                var next = cycle(keys.getOrNull(1))
++                if (next == keys[0]) next = cycle(next)   // skip the first button, keep going to the rest
++                Smz3Hotkeys.setKeys(context, action, if (next == null) listOf(keys[0]) else listOf(keys[0], next))
 +                refresh()
 +            }
 +            configButtons += ::refresh
@@ -8450,10 +8529,10 @@ index 0000000..f5b88e6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
 new file mode 100644
-index 0000000..64d0866
+index 0000000..ea61d3f
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,105 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8483,16 +8562,36 @@ index 0000000..64d0866
 +        trackerOpen.value = !trackerOpen.value
 +    }
 +
++    private val held = HashSet<Int>()
++    private var r3Alone = false
++
++    /** The game lost focus (its menu opened): the releases of the keys held now go elsewhere. */
++    fun releaseKeys() {
++        held.clear()
++        r3Alone = false
++    }
++
 +    /**
-+     * Pad keys in single-screen mode: R3 opens and closes the tracker; while it covers the game (landscape), L1 and R1
-+     * change tab and B closes it. True when the key was used here.
++     * Pad keys in single-screen mode: R3 pressed and released on its own opens and closes the tracker, and goes on to
++     * the rest so combos with it (L3 + R3 opens the menu) still work; while the tracker covers the game (landscape),
++     * L1 and R1 change tab and B closes it. True when the key was used here.
 +     */
 +    fun onKey(event: android.view.KeyEvent): Boolean {
 +        if (!singleActive) return false
++        val code = event.keyCode
 +        val down = event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0
++        if (down) {
++            held.add(code)
++            r3Alone = if (code == android.view.KeyEvent.KEYCODE_BUTTON_THUMBR) held.size == 1 else false
++        } else if (event.action == android.view.KeyEvent.ACTION_UP) {
++            held.remove(code)
++        }
 +        val overlay = trackerOpen.value && landscape
-+        when (event.keyCode) {
-+            android.view.KeyEvent.KEYCODE_BUTTON_THUMBR -> if (down) toggleTracker()
++        when (code) {
++            android.view.KeyEvent.KEYCODE_BUTTON_THUMBR -> {
++                if (event.action == android.view.KeyEvent.ACTION_UP && r3Alone) { r3Alone = false; toggleTracker() }
++                return false
++            }
 +            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(-1) } else return false
 +            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(1) } else return false
 +            android.view.KeyEvent.KEYCODE_BUTTON_B -> if (overlay) { if (down) trackerOpen.value = false } else return false
@@ -8541,10 +8640,10 @@ index 0000000..64d0866
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt
 new file mode 100644
-index 0000000..cd98374
+index 0000000..5b9b5f6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,147 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8595,6 +8694,18 @@ index 0000000..cd98374
 +    fun slot(context: Context, i: Int): Int = prefs(context).getInt("slot$i", -1).takeIf { it in items.indices } ?: -1
 +
 +    fun setSlot(context: Context, i: Int, id: Int) = prefs(context).edit().putInt("slot$i", id).apply()
++
++    /** Puts [id] in slot [i] (-1 empties it). The button of the item it held moves to [id], or goes away when the slot is
++     * emptied or [id] has its own, unless another slot still holds that item. */
++    fun assignSlot(context: Context, i: Int, id: Int) {
++        val old = slot(context, i)
++        setSlot(context, i, id)
++        if (old == -1 || old == id || (0 until SLOTS).any { slot(context, it) == old }) return
++        val code = key(context, old) ?: return
++        val edit = prefs(context).edit().remove("key$code")
++        if (id != -1 && key(context, id) == null) edit.putInt("key$code", id)
++        edit.apply()
++    }
 +
 +    fun rowShown(context: Context): Boolean = prefs(context).getBoolean("row", true)
 +
@@ -12107,7 +12218,7 @@ index 0000000..f52f761
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..38d48b2
+index 0000000..55cde3c
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 @@ -0,0 +1,557 @@
@@ -12593,7 +12704,7 @@ index 0000000..38d48b2
 +            AlertDialog.Builder(activity).setTitle("Pause until").setMessage(line()).setCancelable(false)
 +                .setPositiveButton("Ask the others") { _, _ -> ask() }
 +                .setNegativeButton("Cancel") { _, _ -> cancel() }
-+                .setNeutralButton("Next time", null)
++                .setNeutralButton("Change time", null)
 +                .create(),
 +            ask, cancel,
 +        ) { k ->
@@ -12656,7 +12767,7 @@ index 0000000..38d48b2
 +            .setTitle(title)
 +            .setMessage(text.toString())
 +            .setCancelable(false)
-+            .setNegativeButton("Close") { _, _ -> onLeave() }
++            .setNegativeButton("Back to menu") { _, _ -> onLeave() }   // shown once this time is in or the race is over
 +        if (ladder) b.setPositiveButton("Save to ladder") { _, _ -> saveToLadder() }
 +        else b.setPositiveButton(if (saved || myTime() >= 0) "Keep watching" else "Keep playing", null)
 +        card = keyed(b.create(), if (ladder) ({ saveToLadder() }) else ({ }), onLeave).apply { show() }

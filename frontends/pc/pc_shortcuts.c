@@ -44,6 +44,7 @@ SDL_Keycode sc_key(int id) { return id >= 0 && id < SC_COUNT ? key_of[id] : SDLK
 int sc_pad(int id) { return id >= 0 && id < SC_COUNT ? pad_of[id] : -1; }
 void sc_clear(int id) { if (id >= 0 && id < SC_COUNT) { key_of[id] = SDLK_UNKNOWN; pad_of[id] = -1; sc_cfg_save(); } }
 void sc_drop_key(int id) { if (id >= 0 && id < SC_COUNT) { key_of[id] = SDLK_UNKNOWN; sc_cfg_save(); } }
+void sc_drop_pad(int id) { if (id >= 0 && id < SC_COUNT) { pad_of[id] = -1; sc_cfg_save(); } }
 
 static char why[96];
 

@@ -15,6 +15,8 @@ int pad_code(int action);
 void pad_set(int action, int code);
 const char *pad_action_name(int action);
 const char *pad_code_name(int code);
+/* The help icon (pc_help.h's pad names) of an action's button, NULL for none. */
+const char *pad_action_icon(int action);
 /* The keyboard: the key of an SNES button (PA_B .. PA_SELECT), fast forward or rewind, kept in keys.cfg; SDLK_UNKNOWN when it has none
  * or for the other actions. */
 int pad_keyed(int action);

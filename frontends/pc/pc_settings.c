@@ -14,7 +14,11 @@
 
 enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_VIDEO, S_SC, S_SCBIND };
 #define MAIN_COUNT 4
+#ifdef __linux__
 #define VIDEO_ROWS 11
+#else
+#define VIDEO_ROWS 10   /* no Screens row: two windows only exist on Linux */
+#endif
 #define VIDEO_COUNT (VIDEO_ROWS + 1)
 static const char *const ASPECTS[] = {"Run default", "4:3", "8:7 (square pixels)", "Stretch", "Pixel perfect"};
 static const char *const FILTERS[] = {"Sharp", "Smooth", "Scanlines", "LCD grid"};
@@ -26,9 +30,11 @@ static int ff_speed = 4;
 static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide, screens;   /* screens: 0 auto, 1 single, 2 dual */   /* ch_hide: bits of the daily challenge info not shown in game */
 #define ROW_H 22
 #define SHOWN 8
+#define PAD_ROWS (PA_COUNT + 3)   /* the buttons, then Item shortcuts, Reset to defaults and Back */
 
 static SettingsHooks hk;
 static int screen, cursor, scroll, rebind_action;
+static int direct, sc_from_pad;   /* opened straight at a page from the menu's Options (Back closes it); shortcuts reached from Buttons and keys */
 static Uint32 rebind_until;
 static char sc_msg[96];   /* the last bind's result on the item shortcuts screen */
 
@@ -39,7 +45,8 @@ static char cwd[1024];
 
 void settings_init(const SettingsHooks *hooks) { hk = *hooks; }
 int settings_active(void) { return screen != S_OFF; }
-void settings_open(void) { screen = S_MAIN; cursor = 0; scroll = 0; }
+void settings_open(void) { screen = S_MAIN; cursor = 0; scroll = 0; direct = 0; }
+void settings_open_page(int video) { screen = video ? S_VIDEO : S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; direct = 1; }
 
 int settings_aspect(void) { return vid_aspect; }
 int settings_filter(void) { return vid_filter; }
@@ -104,9 +111,9 @@ static void video_change(int row, int dir)
 /* the compact video panel shown over the game */
 const char *settings_video_row(int row, char *val, size_t cap)
 {
-    static const char *const L[VIDEO_ROWS] = {"Full screen", "Window size", "Aspect ratio", "Filter", "Minimap", "Minimap size",
+    static const char *const L[] = {"Full screen", "Window size", "Aspect ratio", "Filter", "Minimap", "Minimap size",
                                               "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints", "Challenge: next hint in", "Screens"};
-    const char *v[VIDEO_ROWS] = {hk.is_fullscreen() ? "On" : "Off", SIZES[vid_size], ASPECTS[vid_aspect], FILTERS[vid_filter], MM_SIDES[mm_side], MM_SIZES[mm_size],
+    const char *v[] = {hk.is_fullscreen() ? "On" : "Off", SIZES[vid_size], ASPECTS[vid_aspect], FILTERS[vid_filter], MM_SIDES[mm_side], MM_SIZES[mm_size],
                                  ch_hide & 1 ? "Hidden" : "Shown", ch_hide & 2 ? "Hidden" : "Shown", ch_hide & 4 ? "Hidden" : "Shown", ch_hide & 8 ? "Hidden" : "Shown", SCREENS[screens]};
     if (row < 0 || row >= VIDEO_ROWS) row = 0;
     snprintf(val, cap, "%s", v[row]);
@@ -238,9 +245,23 @@ static void clamp_scroll(int rows)
     if (scroll < 0) scroll = 0;
 }
 
+static int rows_of(void) { return screen == S_MAIN ? MAIN_COUNT : screen == S_VIDEO ? VIDEO_COUNT : screen == S_PAD ? PAD_ROWS : screen == S_SC ? SC_COUNT + 1 : screen == S_FILES ? file_rows() : 0; }
+
+/* Back: to the page it came from, or closed when it was opened straight at this page */
+static void go_back(void)
+{
+    int from = screen;
+    scroll = 0;
+    if (screen == S_MAIN) screen = S_OFF;
+    else if (screen == S_FILES) leave_files();
+    else if (screen == S_SC && sc_from_pad) { screen = S_PAD; cursor = PA_COUNT; }
+    else if (direct) screen = S_OFF;
+    else { cursor = from == S_SC ? 2 : from == S_VIDEO ? 1 : 0; screen = S_MAIN; }
+}
+
 void settings_nav(UiButton b)
 {
-    int rows = screen == S_MAIN ? MAIN_COUNT : screen == S_VIDEO ? VIDEO_COUNT : screen == S_PAD ? PA_COUNT + 2 : screen == S_SC ? SC_COUNT + 1 : screen == S_FILES ? file_rows() : 0;
+    int rows = rows_of();
     if (screen == S_REBIND || screen == S_SCBIND) return;
     if (b == BTN_DOWN && cursor < rows - 1) cursor++;
     else if (b == BTN_UP && cursor > 0) cursor--;
@@ -248,29 +269,27 @@ void settings_nav(UiButton b)
     else if ((b == BTN_R || b == BTN_L) && screen == S_SC) cursor = b == BTN_R ? (cursor + SHOWN < rows ? cursor + SHOWN : rows - 1) : (cursor > SHOWN ? cursor - SHOWN : 0);
     else if (b == BTN_R && screen == S_FILES) cursor = cursor + SHOWN < rows ? cursor + SHOWN : rows - 1;
     else if (b == BTN_L && screen == S_FILES) cursor = cursor > SHOWN ? cursor - SHOWN : 0;
-    else if (b == BTN_B) {
-        if (screen == S_MAIN) screen = S_OFF;
-        else if (screen == S_FILES) leave_files();
-        else { cursor = screen == S_SC ? 2 : screen == S_VIDEO ? 1 : 0; screen = S_MAIN; scroll = 0; }
-    } else if (b == BTN_A) {
+    else if (b == BTN_B) go_back();
+    else if (b == BTN_A) {
         if (screen == S_MAIN) {
             if (cursor == 0) { screen = S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; }
             else if (cursor == 1) { screen = S_VIDEO; cursor = 0; scroll = 0; }
-            else if (cursor == 2) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; }
+            else if (cursor == 2) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 0; }
             else hk.quit();
         } else if (screen == S_VIDEO) {
-            if (cursor == VIDEO_ROWS) { screen = S_MAIN; cursor = 1; scroll = 0; }
+            if (cursor == VIDEO_ROWS) go_back();
             else video_change(cursor, 1);
         } else if (screen == S_PAD) {
             if (cursor < PA_COUNT) { rebind_action = cursor; rebind_until = SDL_GetTicks() + 6000; screen = S_REBIND; }
-            else if (cursor == PA_COUNT) { pad_cfg_reset(); pad_cfg_save(); snprintf(sc_msg, sizeof sc_msg, "Back to the default keys and buttons"); }
-            else { screen = S_MAIN; cursor = 0; scroll = 0; }
+            else if (cursor == PA_COUNT) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 1; }
+            else if (cursor == PA_COUNT + 1) { pad_cfg_reset(); pad_cfg_save(); snprintf(sc_msg, sizeof sc_msg, "Back to the default keys and buttons"); }
+            else go_back();
         } else if (screen == S_SC) {
             if (cursor < SC_COUNT) { rebind_action = cursor; rebind_until = SDL_GetTicks() + 6000; screen = S_SCBIND; }
-            else { screen = S_MAIN; cursor = 2; scroll = 0; }
+            else go_back();
         } else if (screen == S_FILES) file_pick(cursor);
     }
-    clamp_scroll(rows);
+    clamp_scroll(rows_of());
 }
 
 int settings_raw(const SDL_Event *e, int code)
@@ -281,10 +300,21 @@ int settings_raw(const SDL_Event *e, int code)
         if (e->type == SDL_KEYDOWN && e->key.repeat) return 1;
         if (e->type == SDL_KEYDOWN && e->key.keysym.sym == SDLK_ESCAPE) { screen = S_SC; return 1; }
         if (e->type == SDL_KEYDOWN && e->key.keysym.sym == SDLK_DELETE) { sc_clear(rebind_action); snprintf(sc_msg, sizeof sc_msg, "%s has no key or button now", name); screen = S_SC; return 1; }
+        int owner = -1, old = sc_pad(rebind_action);
         if (e->type == SDL_KEYDOWN) err = sc_bind_key(rebind_action, e->key.keysym.sym);
-        else if (code >= 0) err = sc_bind_pad(rebind_action, code);
+        else if (code >= 0) {   /* a button of an action moves here and the action takes the shortcut's old one: a pad has no free buttons */
+            int fixed = (code >= SDL_CONTROLLER_BUTTON_DPAD_UP && code <= SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || code == SDL_CONTROLLER_BUTTON_GUIDE;
+            for (int i = 0; i < SC_COUNT && !fixed; i++) if (i != rebind_action && sc_pad(i) == code) fixed = 1;
+            for (int a = PA_B; a <= PA_SELECT && !fixed && old < 0; a++)   /* an SNES button is never left without one */
+                if (pad_code(a) == code) { snprintf(sc_msg, sizeof sc_msg, "%s is the SNES %s button", pad_code_name(code), pad_action_name(a)); screen = S_SC; return 1; }
+            for (int a = 0; a < PA_COUNT && !fixed; a++) if (pad_code(a) == code) { pad_set(a, old); owner = a; }
+            if (owner >= 0) pad_cfg_save();
+            err = sc_bind_pad(rebind_action, code);
+        }
         else return 0;
         if (err) snprintf(sc_msg, sizeof sc_msg, "%s", err);
+        else if (owner >= 0 && old >= 0) snprintf(sc_msg, sizeof sc_msg, "%s is on %s, %s took its old button", name, pad_code_name(code), pad_action_name(owner));
+        else if (owner >= 0) snprintf(sc_msg, sizeof sc_msg, "%s is on %s (%s lost it)", name, pad_code_name(code), pad_action_name(owner));
         else snprintf(sc_msg, sizeof sc_msg, "%s is on %s", name, e->type == SDL_KEYDOWN ? SDL_GetKeyName(e->key.keysym.sym) : pad_code_name(code));
         screen = S_SC;
         return 1;
@@ -296,7 +326,7 @@ int settings_raw(const SDL_Event *e, int code)
     if (e->type == SDL_KEYDOWN && pad_keyed(rebind_action)) {
         SDL_Keycode key = e->key.keysym.sym;
         const char *use = pad_key_use(key);
-        if (key == SDLK_DELETE) { pad_set_key(rebind_action, SDLK_UNKNOWN); snprintf(sc_msg, sizeof sc_msg, "%s has no key now", name); }
+        if (key == SDLK_DELETE) { pad_set_key(rebind_action, SDLK_UNKNOWN); pad_set(rebind_action, -1); pad_cfg_save(); snprintf(sc_msg, sizeof sc_msg, "%s has no key or button now", name); }
         else if (key == pad_key(rebind_action)) sc_msg[0] = 0;
         else if (pad_key_action(key) >= 0) {   /* another button's key: the two swap, so taking S for jump just works */
             int other = pad_key_action(key);
@@ -304,7 +334,11 @@ int settings_raw(const SDL_Event *e, int code)
             pad_set_key(rebind_action, key);
             snprintf(sc_msg, sizeof sc_msg, "%s is on %s, %s took its old key", name, SDL_GetKeyName(key), pad_action_name(other));
         }
-        else if (use) snprintf(sc_msg, sizeof sc_msg, "%s is kept for %s: pick another key", SDL_GetKeyName(key), use);
+        else if (use) {   /* the dialog stays open for another key */
+            snprintf(sc_msg, sizeof sc_msg, "%s is kept for %s: pick another key", SDL_GetKeyName(key), use);
+            rebind_until = SDL_GetTicks() + 6000;
+            return 1;
+        }
         else {   /* an item shortcut's key goes to the button; the shortcut keeps its controller button */
             int taken = -1;
             for (int i = 0; i < SC_COUNT && taken < 0; i++) if (sc_key(i) == key) taken = i;
@@ -316,10 +350,16 @@ int settings_raw(const SDL_Event *e, int code)
         screen = S_PAD;
         return 1;
     }
-    if (code >= 0) {
+    if (code >= 0) {   /* like the keys: another action's button swaps, a shortcut's is taken from it */
+        int old = pad_code(rebind_action), other = -1, taken = -1;
+        if (code == old) { sc_msg[0] = 0; screen = S_PAD; return 1; }
+        for (int a = 0; a < PA_COUNT; a++) if (a != rebind_action && pad_code(a) == code) { pad_set(a, old); other = a; }
+        for (int i = 0; i < SC_COUNT; i++) if (sc_pad(i) == code) { sc_drop_pad(i); taken = i; }
         pad_set(rebind_action, code);
         pad_cfg_save();
-        snprintf(sc_msg, sizeof sc_msg, "%s is on %s", name, pad_code_name(code));
+        if (other >= 0) snprintf(sc_msg, sizeof sc_msg, "%s is on %s, %s %s", name, pad_code_name(code), pad_action_name(other), old >= 0 ? "took its old button" : "has no button now");
+        else if (taken >= 0) snprintf(sc_msg, sizeof sc_msg, "%s is on %s (the %s shortcut lost it)", name, pad_code_name(code), smz_shortcuts[taken].name);
+        else snprintf(sc_msg, sizeof sc_msg, "%s is on %s", name, pad_code_name(code));
         screen = S_PAD;
         return 1;
     }
@@ -388,7 +428,7 @@ void settings_draw(float k, float ox, float oy)
             else rect(k, ox, oy, 20, 154, 280.0f * left / 6000.0f, 6, 5);
         }
     } else if (screen == S_PAD || screen == S_REBIND) {
-        for (int i = 0; i < SHOWN && scroll + i < PA_COUNT + 2; i++) {
+        for (int i = 0; i < SHOWN && scroll + i < PAD_ROWS; i++) {
             int r = scroll + i;
             char val[64];
             if (pad_keyed(r)) snprintf(val, sizeof val, "%s  /  %s", pad_key(r) != SDLK_UNKNOWN ? SDL_GetKeyName(pad_key(r)) : "-", pad_code_name(pad_code(r)));
@@ -397,7 +437,7 @@ void settings_draw(float k, float ox, float oy)
             char label[64];
             if (r < 8) snprintf(label, sizeof label, "%s  %s", pad_action_name(r), USE[r]); else snprintf(label, sizeof label, "%s", r < PA_COUNT ? pad_action_name(r) : "");
             if (r < PA_COUNT) row(k, ox, oy, i, label, pad_keyed(r) ? val : pad_code_name(pad_code(r)), r == cursor);
-            else row(k, ox, oy, i, r == PA_COUNT ? "Reset to defaults" : "Back", NULL, r == cursor);
+            else row(k, ox, oy, i, r == PA_COUNT ? "Item shortcuts" : r == PA_COUNT + 1 ? "Reset to defaults" : "Back", NULL, r == cursor);
         }
         if (sc_msg[0]) text(k, ox, oy, 12, 32 + SHOWN * ROW_H - 1, 5, 0, sc_msg);
         hint = "A change   B back";
@@ -408,7 +448,7 @@ void settings_draw(float k, float ox, float oy)
             int keyed = pad_keyed(rebind_action);
             snprintf(msg, sizeof msg, keyed ? "Press a key or a button for %s" : "Press the button for %s", pad_action_name(rebind_action));
             text(k, ox, oy, 160, 98, 3, 1, msg);
-            text(k, ox, oy, 160, 122, 4, 1, keyed ? "Delete clears the key   Esc or wait to cancel" : "Esc or wait to cancel");
+            text(k, ox, oy, 160, 122, 4, 1, keyed ? "Delete clears it   Esc or wait to cancel" : "Esc or wait to cancel");
             int left = (int)(rebind_until - SDL_GetTicks());
             if (left <= 0) screen = S_PAD;
             else rect(k, ox, oy, 20, 154, 280.0f * left / 6000.0f, 6, 5);

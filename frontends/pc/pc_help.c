@@ -154,7 +154,8 @@ static float pad_icon(float x, float cy, float h, const char *p)
     if (!strcmp(p, "UP")) return dpad(x, cy, h, 1, 0);
     if (!strcmp(p, "DOWN")) return dpad(x, cy, h, 1, 0);
     if (!strcmp(p, "LEFT") || !strcmp(p, "RIGHT")) return dpad(x, cy, h, 0, 1);
-    return dpad(x, cy, h, 1, 1);
+    if (!strcmp(p, "DPAD")) return dpad(x, cy, h, 1, 1);
+    return pill(x, cy, h, p, edge);   /* any other button: its name */
 }
 
 float help_icon(float x, float y, float h, const char *p, const char *kb)
@@ -256,7 +257,7 @@ void help_bar_hint(float k, float ox, float oy, const char *hint)
         const char *pad = KEYWORD[kw].pad, *kb = KEYWORD[kw].kb;
         if (j < nw && keyword(words[j]) >= 0 && ((!strcmp(words[i], "Left") && !strcmp(words[j], "Right")) || (!strcmp(words[i], "Up") && !strcmp(words[j], "Down")) || (!strcmp(words[i], "L") && !strcmp(words[j], "R")))) {
             pad = !strcmp(words[i], "Up") ? "UD" : !strcmp(words[i], "Left") ? "LR" : "LR2";
-            kb = !strcmp(words[i], "Up") ? "^" : !strcmp(words[i], "Left") ? "<" : "Q";
+            kb = !strcmp(words[i], "Up") ? "^" : !strcmp(words[i], "Left") ? "<" : "Q W";
             j++;
         }
         labels[n][0] = 0;

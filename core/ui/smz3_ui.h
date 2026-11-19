@@ -81,7 +81,7 @@ typedef struct {
     int saved_count, saved_cursor, saved_scroll, saved_col, saved_confirm, saved_dirty;
     char name[24];               /* the name being typed for a new saved custom or for the player */
     int name_len, key_cursor;
-    int name_for;                /* 0 saved custom, 1 player name */
+    int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
     char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
     char update[16];    /* a newer release ("v0.9.0") than this build, "" none; update_install: the host can install it */
@@ -98,6 +98,7 @@ typedef struct {
     float orb_x, orb_k;          /* that marker as drawn: it eases to the choice and grows in when the screen opens */
     int orb_on;
     int flags;                   /* the host draws "flag/<CC>" pictures; without them countries show as their code */
+    int no_opts;                 /* UI_NO_* options the host ignores: their rows are hidden (0 shows them all) */
     int ladder_on, ladder_tab, ladder_scroll;   /* the host can show the online tables / the tab shown (0 original, 1 monthly, 2 weekly) / first row shown */
     struct { int loaded; char label[16]; int n; struct { char name[24]; char cc[3]; int64_t ms; } row[UI_LADDER_ROWS]; } ladder[3];   /* loaded: 0 not yet, 1 ok, -1 failed */
     struct { int loaded; char month[8]; int64_t ends_at; int counted, gems_if_met, n;
@@ -131,6 +132,7 @@ typedef struct {
 } SmzUi;
 
 /* Option indices the host reads from u->value (see ui_settings for the rest). */
+enum { UI_NO_FILTER = 1 };   /* SmzUi.no_opts */
 enum { UIO_LINK = 6, UIO_SAMUS = 7, UIO_PLANDO = 18, UIO_JINGLE = 19, UIO_MAP = 8, UIO_MODE = 17, UIO_DARK = 9, UIO_FILTER = 10, UIO_SHAPE = 11, UIO_HELP = 12, UIO_HELPS = 13, UIO_NERF = 22, UIO_SAVES = 23, UIO_MORPH = 24, UIO_MUSIC = 25 };
 
 extern const UiOptDef UI_OPTS[];
@@ -184,6 +186,8 @@ int ui_player_dirty(SmzUi *u);
 int ui_online_now(const SmzUi *u);
 /* The run's rules are the randomizer's own (looks and tracker aids aside): only such a run, or a monthly or weekly one, goes to the online ladder. */
 int ui_is_default(const SmzUi *u);
+/* 1 for an option that never makes a run non-default (seed, sprites, screen, map view, jingle, tracker aids ...). */
+int ui_opt_cosmetic(int opt);
 int ui_run_ladder(const SmzUi *u);
 /* The daily challenge: once enabled, the run list has a Daily row on top and a token counter by the Ladder button. The host
  * hands in each /api/daily answer (ui_daily_set) and says whether it keeps an attempt of the open window (Continue instead

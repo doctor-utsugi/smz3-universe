@@ -1243,19 +1243,20 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             map_legend(ren, x0 + w, area.y + area.h + 4 * u, 18 * u, 0, in_logic != NULL);
         }
     } else {
-        char slots[52];   /* the keys as bound in the options */
+        char slots[52], lr[52];   /* the keys as bound in the options */
         snprintf(slots, sizeof slots, "%s %s", pad_key_label(PA_QPREV), pad_key_label(PA_QNEXT));
+        snprintf(lr, sizeof lr, "%s %s", pad_key_label(PA_L), pad_key_label(PA_R));
         const HelpItem LEFT[] = {
-            {"", "", "#Tracker"}, {"R3", pad_key_label(PA_TRACKER), "Open and close"}, {"LR2", "Q E", "Change tab"}, {NULL, "P", "Pause the game while open"},
-            {"", "", "#Playing"}, {"RT", pad_key_label(PA_FAST), "Fast forward"}, {"LT", pad_key_label(PA_REWIND), "Rewind (when the run allows it)"}, {"L3", pad_key_label(PA_LEAVE), "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"START", "O", "Options (in the tracker)"},
-            {NULL, pad_key_label(PA_QSAVE), "Save state"}, {NULL, pad_key_label(PA_QLOAD), "Load state"}, {NULL, slots, "State slot"},
+            {"", "", "#Tracker"}, {pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER), "Open and close"}, {"LR2", "Q E", "Change tab"}, {NULL, "P", "Pause the game while open"},
+            {"", "", "#Playing"}, {pad_action_icon(PA_FAST), pad_key_label(PA_FAST), "Fast forward"}, {pad_action_icon(PA_REWIND), pad_key_label(PA_REWIND), "Rewind (when the run allows it)"}, {pad_action_icon(PA_LEAVE), pad_key_label(PA_LEAVE), "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"START", "O", "Options (in the tracker)"},
+            {pad_action_icon(PA_QSAVE), pad_key_label(PA_QSAVE), "Save state"}, {pad_action_icon(PA_QLOAD), pad_key_label(PA_QLOAD), "Load state"}, {NULL, slots, "State slot"},
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
         };
-        static const HelpItem RIGHT[] = {
+        const HelpItem RIGHT[] = {
             {"", "", "#Map"}, {"STICK", "<", "Move the map"}, {"RT", "+", "Zoom in"}, {"LT", "-", "Zoom out"}, {"STICK", NULL, "Right stick up / down: zoom"}, {"A", "F", "Follow the player"},
             {"Y", "D", "Dungeon pictures"}, {"DPAD", "^", "Pick dungeon and floor"}, {"A", "H", "Back to Link's floor"},
-            {"", "", "#Keyboard as a pad"}, {NULL, "^", "D-pad (arrows)"}, {NULL, "X", "A"}, {NULL, "Z", "B"}, {NULL, "S", "X"}, {NULL, "A", "Y"},
-            {NULL, "Q W", "L and R"}, {NULL, "Enter", "Start"}, {NULL, "Backspace", "Select"},
+            {"", "", "#Keyboard as a pad"}, {NULL, "^", "D-pad (arrows)"}, {NULL, pad_key_label(PA_A), "A"}, {NULL, pad_key_label(PA_B), "B"}, {NULL, pad_key_label(PA_X), "X"}, {NULL, pad_key_label(PA_Y), "Y"},
+            {NULL, lr, "L and R"}, {NULL, pad_key_label(PA_START), "Start"}, {NULL, pad_key_label(PA_SELECT), "Select"},
         };
         int nl = sizeof LEFT / sizeof LEFT[0], nr = sizeof RIGHT / sizeof RIGHT[0];
         float rh = 30 * u, top = y0 + 36 * u, bot = win_h - 44 * u;
@@ -1283,7 +1284,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     }
     if (!chat) bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};
     if (tab != ct) bar[nb++] = (HelpItem){"START", "O", "Options"};
-    bar[nb++] = (HelpItem){"R3", pad_key_label(PA_TRACKER), "Close"};
+    bar[nb++] = (HelpItem){pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER), "Close"};
     help_bar(0, win_h - 44 * u, (float)win_w, 44 * u, bar, nb);
 }
 
@@ -1792,6 +1793,7 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
 
 static UiButton map_key(SDL_Keycode k, int *ok);
 static void menu_button(UiButton b);
+static void toggle_fullscreen(void);
 static int g_menu_quit;   /* Quit picked in the options */
 
 static void play(int slot, int game_save_only)
@@ -2031,7 +2033,7 @@ static void play(int slot, int game_save_only)
                 else if (states && !show && (k == pad_key(PA_QPREV) || k == pad_key(PA_QNEXT))) { qslot = (qslot + (k == pad_key(PA_QNEXT) ? 1 : QSLOTS - 1)) % QSLOTS; char m[32]; snprintf(m, sizeof m, "State slot %d", qslot + 1); note(m); }
                 else if (show && k == SDLK_ESCAPE) show = 0;   /* Esc always closes the tracker */
                 else if (k == pad_key(PA_LEAVE)) { if (show) show = 0; else if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }   /* a finished run has nothing to save */
-                else if (k == SDLK_F11) SDL_SetWindowFullscreen(win, SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                else if (k == SDLK_F11) toggle_fullscreen();
                 else if (show && tab == TAB_MAP && k == SDLK_d) dungeon_toggle(&dv, lp);
                 else if (show && tab == TAB_MAP && dungeon_showing(&dv, lp) && (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_UP || k == SDLK_DOWN || k == SDLK_h)) {
                     if (k == SDLK_LEFT) dungeon_step(&dv, lp, -1);
@@ -2083,7 +2085,8 @@ static void play(int slot, int game_save_only)
                     else if (hk == HK_LEAVE) { if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }
                     if (hk >= 0) continue;
                 }
-                if (!win2 && rw && !show && !leaving && !vpanel && !finished && b == pad_code(PA_REWIND)) { rw_cmd = 3; continue; }
+                int own = !win2 || !hk_uses(b);   /* dual screen: a button of a hotkey combo stays the combo's */
+                if (own && rw && !show && !leaving && !vpanel && !finished && b == pad_code(PA_REWIND)) { rw_cmd = 3; continue; }
                 if (vpanel) {
                     if (b == SDL_CONTROLLER_BUTTON_B || b == SDL_CONTROLLER_BUTTON_X || b == pad_code(PA_TRACKER)) vpanel = 0;
                     else if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) vrow = (vrow + settings_video_rows() - 1) % settings_video_rows();
@@ -2101,17 +2104,18 @@ static void play(int slot, int game_save_only)
                     continue;
                 }
                 int combo = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK);
-                int qs = b == pad_code(PA_QSAVE) || (combo && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
-                int ql = b == pad_code(PA_QLOAD) || (combo && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-                int qp = b == pad_code(PA_QPREV) || (combo && b == SDL_CONTROLLER_BUTTON_DPAD_LEFT);
-                int qn = b == pad_code(PA_QNEXT) || (combo && b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
-                if (!win2 && states && !show && (qs || ql || qp || qn)) {
+                combo = combo && !win2;   /* Select belongs to the hotkeys there */
+                int qs = (own && b == pad_code(PA_QSAVE)) || (combo && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+                int ql = (own && b == pad_code(PA_QLOAD)) || (combo && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+                int qp = (own && b == pad_code(PA_QPREV)) || (combo && b == SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+                int qn = (own && b == pad_code(PA_QNEXT)) || (combo && b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+                if (states && !show && (qs || ql || qp || qn)) {
                     if (qs) quick_state(slot, qslot, 1);
                     else if (ql) { if (quick_state(slot, qslot, 0)) trk.state_loaded = 3; }
                     else { qslot = (qslot + (qn ? 1 : QSLOTS - 1)) % QSLOTS; char m[32]; snprintf(m, sizeof m, "State slot %d", qslot + 1); note(m); }
                 }
                 else if (b == pad_code(PA_TRACKER)) { if (!ren2) show = !show; }
-                else if (b == pad_code(PA_LEAVE)) { if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }
+                else if (own && b == pad_code(PA_LEAVE)) { if (show) show = 0; else if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }   /* like the key: the tracker closes first */
                 else if (show && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) tab = (tab + 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) tab = (tab + ntabs - 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_DPAD_DOWN && tab != TAB_MAP) scroll++;
@@ -2220,7 +2224,9 @@ static void play(int slot, int game_save_only)
         int opts = settings_active();   /* the options opened from the tracker */
         int input = show || opts || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || waiting || frozen || rg.card ? 0 : pad_bits(keys);
         SDL_Keycode ffk = pad_key(PA_FAST);
-        fast = !challenge && !rw_open && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)] && !show) || (win2 ? hk_held(pad, HK_FAST) : pad_held(pad, pad_code(PA_FAST))));
+        int pad_ff = pad_held(pad, pad_code(PA_FAST)) && (!win2 || !hk_uses(pad_code(PA_FAST)));
+        if (win2) pad_ff |= hk_held(pad, HK_FAST);
+        fast = !challenge && !rw_open && !show && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)]) || pad_ff);
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
         int hold = (show && pause_on_overlay) || opts || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || waiting || rg.card;
         int hide = !hold && !show && SDL_GetTicks() - mouse_at > 1500;
@@ -2436,7 +2442,7 @@ static void play(int slot, int game_save_only)
             float need = h * 3.2f + gfx_text_width(px, "Tracker") + 20 * u, side = ww - (gx + gw);
             float x = side >= need ? gx + gw + (side - need) / 2 + 10 * u : gx + 10 * u;
             if (side < need) gfx_rect(x - 4 * u, y - h / 2 - 4 * u, need - 12 * u, h + 8 * u, (SDL_Color){0x08, 0x0B, 0x11, 150});   /* over the game: a backing */
-            x += help_icon(x, y, h, "R3", pad_key_label(PA_TRACKER)) + 7 * u;
+            x += help_icon(x, y, h, pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER)) + 7 * u;
             gfx_text(x, y - px / 2, px, C(0x87, 0x93, 0xA6), 0, "Tracker");
         }
         if (show && !ren2) {
@@ -2519,9 +2525,7 @@ static void play(int slot, int game_save_only)
         }
         if (finished && !done_popup && !exit_at && !show) {   /* the credits: the way out stays on screen */
             float u = wh / 720.0f;
-            const char *nm = pad_code_name(pad_code(PA_LEAVE));
-            const char *icon = !strcmp(nm, "Back") ? "SELECT" : !strcmp(nm, "Start") ? "START" : !strcmp(nm, "LB") ? "L" : !strcmp(nm, "RB") ? "R" : nm;
-            HelpItem back[] = {{icon, "Esc", "Back to menu"}};
+            HelpItem back[] = {{pad_action_icon(PA_LEAVE), pad_key_label(PA_LEAVE), "Back to menu"}};
             gfx_rect(ww / 2.0f - 142 * u, wh - 62 * u, 284 * u, 46 * u, (SDL_Color){0x10, 0x16, 0x1F, 210});
             gfx_rect(ww / 2.0f - 142 * u, wh - 62 * u, 284 * u, 3 * u, (SDL_Color){0xF2, 0xA3, 0x3A, 255});
             help_prompt(ww / 2.0f, wh - 54 * u, 30 * u, back, 1);
@@ -2844,6 +2848,7 @@ static void window_main(int start_slot)
     ui.flags = 1;
     ui.rings = 1;
     ui.orbs = 1;
+    ui.no_opts = UI_NO_FILTER;   /* the PC draws no screen filter */
     install_bundled_sprites();
     refill_sprites();
     refill_slots();
@@ -3043,7 +3048,7 @@ static void window_main(int start_slot)
             else if (act == ACT_RACE_START) { pending_play = RACE_SLOT - 1; pending_state_only = 0; instant = 1; }   /* the start is the server's: no fade to wait */
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
                 if (slot == UI_OPT_QUIT) quit_menu();
-                else { settings_open(); if (slot == UI_OPT_VIDEO) settings_nav(BTN_DOWN); settings_nav(BTN_A); }
+                else settings_open_page(slot == UI_OPT_VIDEO);
             }
             else if (act == ACT_UPDATE && !g_update_state) {
                 char m[44];
