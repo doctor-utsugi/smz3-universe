@@ -1,0 +1,2 @@
+Country flags rendered from Noto Color Emoji (Google), licensed under the SIL Open Font License 1.1.
+Regenerate with tools/gen_flags.py.

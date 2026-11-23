@@ -1,0 +1,20 @@
+diff --git a/src/TrackerCouncil.Smz3.SeedGenerator/Generation/PatcherService.cs b/src/TrackerCouncil.Smz3.SeedGenerator/Generation/PatcherService.cs
+index 8c1458b..2ea197a 100644
+--- a/src/TrackerCouncil.Smz3.SeedGenerator/Generation/PatcherService.cs
++++ b/src/TrackerCouncil.Smz3.SeedGenerator/Generation/PatcherService.cs
+@@ -11,6 +11,7 @@ namespace TrackerCouncil.Smz3.SeedGenerator.Generation;
+ /// </summary>
+ public class PatcherService : IPatcherService
+ {
++    public static readonly List<string> Trace = new();
+     private readonly ILogger<PatcherService> _logger;
+     private readonly RomPatchFactory _romPatchFactory;
+ 
+@@ -28,6 +29,7 @@ public class PatcherService : IPatcherService
+         {
+             var updates = patch.GetChanges(data).ToList();
+             _logger.LogInformation("Retrieving {Number} updates from {Name}", updates.Count, patch.GetType().Name);
++            foreach (var u in updates) Trace.Add($"{patch.GetType().Name}\t{u.Offset:X}\t{System.Convert.ToHexString(u.Data)}");
+             patches.AddRange(updates);
+         }
+ 

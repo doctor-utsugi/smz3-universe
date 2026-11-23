@@ -1,0 +1,240 @@
+{
+ "name": "SNES greatest hits",
+ "tracks": [
+  {
+   "slot": 2,
+   "folder": "ct",
+   "title": "Peaceful Days"
+  },
+  {
+   "slot": 4,
+   "folder": "ff6",
+   "title": "Techno de Chocobo"
+  },
+  {
+   "slot": 5,
+   "folder": "ct",
+   "title": "Secret of the Forest"
+  },
+  {
+   "slot": 7,
+   "folder": "ct",
+   "title": "Guardia Millennial Fair"
+  },
+  {
+   "slot": 9,
+   "folder": "terra",
+   "title": "Dark Side Field"
+  },
+  {
+   "slot": 11,
+   "folder": "iog",
+   "title": "Deep Sadness"
+  },
+  {
+   "slot": 12,
+   "folder": "dkdt",
+   "title": "Hot Pursuit"
+  },
+  {
+   "slot": 13,
+   "folder": "ff6",
+   "title": "Mt. Koltz"
+  },
+  {
+   "slot": 14,
+   "folder": "yi",
+   "title": "Bonus Game"
+  },
+  {
+   "slot": 15,
+   "folder": "ff6",
+   "title": "The Phantom Forest"
+  },
+  {
+   "slot": 16,
+   "folder": "terra",
+   "title": "Castle"
+  },
+  {
+   "slot": 17,
+   "folder": "ff5",
+   "title": "The Ancient Library"
+  },
+  {
+   "slot": 18,
+   "folder": "ff4",
+   "title": "Into the Darkness"
+  },
+  {
+   "slot": 20,
+   "folder": "terra",
+   "title": "Sanctuary"
+  },
+  {
+   "slot": 21,
+   "folder": "ct",
+   "title": "Boss Battle 2"
+  },
+  {
+   "slot": 22,
+   "folder": "Super Castlevania IV",
+   "title": "Chandeliers"
+  },
+  {
+   "slot": 23,
+   "folder": "terra",
+   "title": "Shopping"
+  },
+  {
+   "slot": 24,
+   "folder": "dkc",
+   "title": "Cave Dweller Concert"
+  },
+  {
+   "slot": 26,
+   "folder": "ff4",
+   "title": "The Prelude"
+  },
+  {
+   "slot": 27,
+   "folder": "sd2",
+   "title": "The Fairy Child"
+  },
+  {
+   "slot": 28,
+   "folder": "ff6",
+   "title": "Kefka"
+  },
+  {
+   "slot": 30,
+   "folder": "ct",
+   "title": "Lavos' Theme"
+  },
+  {
+   "slot": 31,
+   "folder": "ct",
+   "title": "Last Battle"
+  },
+  {
+   "slot": 32,
+   "folder": "ct",
+   "title": "Schala's Theme"
+  },
+  {
+   "slot": 103,
+   "folder": "ff6",
+   "title": "The Magic House"
+  },
+  {
+   "slot": 104,
+   "folder": "ff5",
+   "title": "A Presentiment"
+  },
+  {
+   "slot": 105,
+   "folder": "ff4",
+   "title": "Red Wings"
+  },
+  {
+   "slot": 106,
+   "folder": "terra",
+   "title": "Origins"
+  },
+  {
+   "slot": 108,
+   "folder": "ct",
+   "title": "Ruined World"
+  },
+  {
+   "slot": 109,
+   "folder": "ct",
+   "title": "Sealed Door"
+  },
+  {
+   "slot": 110,
+   "folder": "ff5",
+   "title": "The Airship"
+  },
+  {
+   "slot": 111,
+   "folder": "dkq",
+   "title": "Stickerbrush Symphony"
+  },
+  {
+   "slot": 112,
+   "folder": "dkc",
+   "title": "Jungle Groove"
+  },
+  {
+   "slot": 113,
+   "folder": "Mega Man X",
+   "title": "Flame Mammoth"
+  },
+  {
+   "slot": 114,
+   "folder": "dkq",
+   "title": "Hot-Head Bop"
+  },
+  {
+   "slot": 115,
+   "folder": "dkc",
+   "title": "Aquatic Ambiance"
+  },
+  {
+   "slot": 116,
+   "folder": "ff6",
+   "title": "The Serpent Trench"
+  },
+  {
+   "slot": 117,
+   "folder": "Mega Man X",
+   "title": "Sigma Fortress 1"
+  },
+  {
+   "slot": 118,
+   "folder": "ff6",
+   "title": "The Decisive Battle"
+  },
+  {
+   "slot": 119,
+   "folder": "ff6",
+   "title": "The Fierce Battle"
+  },
+  {
+   "slot": 120,
+   "folder": "Mega Man X2",
+   "title": "Red Alert"
+  },
+  {
+   "slot": 121,
+   "folder": "iog",
+   "title": "Space Beyond Time"
+  },
+  {
+   "slot": 122,
+   "folder": "ct",
+   "title": "Battle with Magus"
+  },
+  {
+   "slot": 123,
+   "folder": "Contra III",
+   "title": "Invasion"
+  },
+  {
+   "slot": 124,
+   "folder": "yi",
+   "title": "Mini-Boss"
+  },
+  {
+   "slot": 126,
+   "folder": "Demons Crest",
+   "title": "Catacombs of the Dead"
+  },
+  {
+   "slot": 127,
+   "folder": "Super Castlevania IV",
+   "title": "Rotating Room"
+  }
+ ]
+}
