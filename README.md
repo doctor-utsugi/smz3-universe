@@ -9,6 +9,8 @@ Seeds are made on the device itself from your two ROMs, offline. The generator i
 
 **Download: [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest)**
 
+[![SMZ3 Universe video on YouTube](https://img.youtube.com/vi/PVDEDpWTlVg/maxresdefault.jpg)](https://youtu.be/PVDEDpWTlVg)
+
 | AYN Thor: Super Metroid | AYN Thor: A Link to the Past | AYN Thor: runs |
 |---|---|---|
 | ![Thor, Super Metroid](docs/shots/thor-stacked-metroid.png) | ![Thor, A Link to the Past](docs/shots/thor-stacked-zelda.png) | ![Thor, runs](docs/shots/thor-stacked-runs.png) |
