@@ -1,8 +1,8 @@
 diff --git a/Makefile b/Makefile
-index 31fa536..2caaa30 100644
+index 31fa536..7e5d3b0 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -90,6 +90,8 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
+@@ -90,13 +90,16 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
  # rcheevos (RetroAchievements) is third-party code, 
  # so don't apply our strict warnings or -Werror to it.
  # It has warnings that would otherwise stop the build.
@@ -11,7 +11,16 @@ index 31fa536..2caaa30 100644
  rcheevos/%.o: CFLAGS := $(filter-out -Werror -Wno-register,$(CFLAGS)) -w \
                          -Wno-error=incompatible-pointer-types -Wno-error=int-conversion
  
-@@ -132,7 +134,7 @@ RCHEEVOS_CFILES    := $(foreach d,$(RCHEEVOS_SRCDIRS),$(patsubst $(SOURCES)/%,%,
+ #---------------------------------------------------------------------------------
+ # Libraries needed to link into the executable.
+ #---------------------------------------------------------------------------------
+-LIBS := -lcitro3d -lctru -lpng -lz -lm
++# curl (with mbedtls) fetches the self-update from GitHub, which httpc cannot reach
++LIBS := -lcitro3d -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lctru -lpng -lz -lm
+ 
+ #---------------------------------------------------------------------------------
+ # list of directories containing libraries, this must be the top level containing
+@@ -132,7 +135,7 @@ RCHEEVOS_CFILES    := $(foreach d,$(RCHEEVOS_SRCDIRS),$(patsubst $(SOURCES)/%,%,
  # exclude optional raintegration and libretro
  RCHEEVOS_CFILES    := $(filter-out rcheevos/src/rc_client_raintegration.c rcheevos/src/rc_libretro.c,$(RCHEEVOS_CFILES))
  
@@ -20,7 +29,7 @@ index 31fa536..2caaa30 100644
  CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
  			Snes9x/fxinst.cpp Snes9x/fxemu.cpp \
  			Snes9x/ppu.cpp Snes9x/ppuvsect.cpp Snes9x/hwregisters.cpp \
-@@ -149,7 +151,7 @@ CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
+@@ -149,7 +152,7 @@ CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
  			3dsgpu.cpp 3dssound.cpp 3dsfont.cpp 3dsglyphs.cpp 3dsui.cpp 3dsui_notif.cpp 3dsui_img.cpp 3dsimg_cache.cpp 3dsexit.cpp \
  			3dsconfig.cpp 3dsfiles.cpp 3dsinput.cpp 3dslcd.cpp \
  			3dsimpl.cpp 3dsimpl_tilecache.cpp 3dsimpl_gpu.cpp 3dsthemes.cpp 3dssettings.cpp \
@@ -1140,21 +1149,25 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..4b27d15
+index 0000000..50e940e
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1022 @@
+@@ -0,0 +1,1220 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
 +
 +#include <3ds.h>
 +#include <dirent.h>
++#include <malloc.h>
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
++#include <strings.h>
 +#include <sys/stat.h>
 +#include <time.h>
++#define CURL_STATICLIB
++#include <curl/curl.h>
 +
 +extern "C" {
 +#include "smz3_race.h"
@@ -2166,12 +2179,206 @@ index 0000000..4b27d15
 +    smz_race_quote(player, name, sizeof name);
 +    snprintf(out, cap, "\"install\":\"%s\",\"player\":%s,\"country\":\"%s\",\"version\":\"%s\"", id, name, country, SMZ3_VERSION);
 +}
++
++// ---- the self-update: the release's file streamed from GitHub with curl (httpc follows no redirects, and the console's SSL module
++// cannot talk to GitHub), straight into its place, so the whole file never sits in memory
++
++extern "C" { extern int __system_argc; extern char **__system_argv; }
++
++#define UPDATE_CHUNK (128 * 1024)
++#define UPDATE_SOC (0x100000)
++
++struct UpdateSink { FILE *file; Handle cia; u64 at; u8 *buf; size_t n; bool failed; };
++
++static char gUpdateJson[256], gUpdateErr[40];
++static volatile int gUpdateState;   // 0 idle, 1 working, 2 done, 3 failed
++static volatile s64 gUpdateGot, gUpdateTotal;
++
++// The running .3dsx, as hbmenu passes it in argv[0] ("sdmc:/3ds/SMZ3-3ds.3dsx"); false for 3dslink or a loader that gives none.
++static bool selfPath(char *out, size_t cap)
++{
++    if (__system_argc < 1 || !__system_argv || !__system_argv[0]) return false;
++    const char *p = __system_argv[0];
++    size_t n = strlen(p);
++    if (strncmp(p, "sdmc:/", 6) || n < 11 || n + 5 > cap || strcasecmp(p + n - 5, ".3dsx")) return false;
++    snprintf(out, cap, "%s", p);
++    return true;
++}
++
++// envIsHomebrew: the homebrew loader hands a .3dsx its services (__service_ptr), a .cia started from HOME gets none. The title id
++// cannot tell them apart (a .3dsx under hbmenu runs as whatever title hosts it), and argv[0] is missing under some loaders.
++bool smzUpdateCanInstall(void)
++{
++    char self[256];
++    if (envIsHomebrew()) return selfPath(self, sizeof self);
++    if (R_FAILED(amInit())) return false;
++    amExit();
++    return true;
++}
++
++static bool sinkFlush(UpdateSink *s)
++{
++    if (s->failed || !s->n) return !s->failed;
++    if (s->file) s->failed = fwrite(s->buf, 1, s->n, s->file) != s->n;
++    else { u32 w = 0; s->failed = R_FAILED(FSFILE_Write(s->cia, &w, s->at, s->buf, (u32)s->n, 0)) || w != s->n; }
++    s->at += s->n;
++    s->n = 0;
++    return !s->failed;
++}
++
++static size_t sinkWrite(char *data, size_t size, size_t count, void *arg)
++{
++    UpdateSink *s = (UpdateSink *)arg;
++    size_t len = size * count;
++    for (size_t done = 0; done < len;) {
++        size_t k = len - done < UPDATE_CHUNK - s->n ? len - done : UPDATE_CHUNK - s->n;
++        memcpy(s->buf + s->n, data + done, k);
++        s->n += k;
++        done += k;
++        if (s->n == UPDATE_CHUNK && !sinkFlush(s)) return 0;   // a short count stops curl
++    }
++    return len;
++}
++
++static int updateProgress(void *, curl_off_t total, curl_off_t now, curl_off_t, curl_off_t) { gUpdateTotal = total; gUpdateGot = now; return 0; }
++
++// Streams url into the sink: NULL once the whole file came (as long as the server said), else why not.
++static const char *download(const char *url, UpdateSink *s)
++{
++    CURL *c = curl_easy_init();
++    if (!c) return "No network";
++    curl_easy_setopt(c, CURLOPT_URL, url);
++    curl_easy_setopt(c, CURLOPT_USERAGENT, "smz3-3ds");
++    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);   // GitHub answers with a redirect to its file host
++    curl_easy_setopt(c, CURLOPT_FAILONERROR, 1L);
++    curl_easy_setopt(c, CURLOPT_CAINFO, "romfs:/smz3/cacert.pem");   // the console has no store: the build ships one, so a new build is only taken from the real hosts
++    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 20L);
++    curl_easy_setopt(c, CURLOPT_LOW_SPEED_LIMIT, 1L);
++    curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 30L);
++    curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 64L * 1024);
++    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, sinkWrite);
++    curl_easy_setopt(c, CURLOPT_WRITEDATA, s);
++    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
++    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, updateProgress);
++    CURLcode rc = curl_easy_perform(c);
++    curl_off_t len = -1;
++    curl_easy_getinfo(c, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &len);
++    curl_easy_cleanup(c);
++    if (rc != CURLE_OK) { log3dsWrite("update %s: curl %d", url, (int)rc); return s->failed ? "Couldn't write the SD card" : "Download failed"; }
++    if (!sinkFlush(s)) return "Couldn't write the SD card";
++    if (len <= 0 || (u64)len != s->at) { log3dsWrite("update %s: got %llu of %lld", url, (unsigned long long)s->at, (long long)len); return "Download incomplete"; }
++    return NULL;
++}
++
++// The .3dsx: downloaded next to the running one, which stays until the new file is whole, then renamed over it.
++static const char *install3dsx(const char *base, UpdateSink *s)
++{
++    char self[256], part[264], old[264], url[320];
++    if (!selfPath(self, sizeof self)) return "Can't find the .3dsx";
++    snprintf(part, sizeof part, "%s.new", self);
++    snprintf(old, sizeof old, "%s.old", self);
++    snprintf(url, sizeof url, "%sSMZ3-3ds.3dsx", base);
++    if (!(s->file = fopen(part, "wb"))) return "Couldn't write the SD card";
++    const char *err = download(url, s);
++    if (fclose(s->file) && !err) err = "Couldn't write the SD card";
++    s->file = NULL;
++    if (!err) {
++        remove(old);   // FAT renames onto no existing file
++        if (rename(self, old)) err = "Couldn't replace the .3dsx";
++        else if (rename(part, self)) { rename(old, self); err = "Couldn't replace the .3dsx"; }
++        else remove(old);
++    }
++    if (err) remove(part);
++    return err;
++}
++
++// The .cia: streamed into the AM service as FBI does; a cancelled install leaves the title as it was.
++static const char *installCia(const char *base, UpdateSink *s)
++{
++    char url[320];
++    snprintf(url, sizeof url, "%sSMZ3-3ds.cia", base);
++    Result rc = amInit();
++    if (R_FAILED(rc)) { log3dsWrite("update: amInit %08lx", (unsigned long)rc); return "The console refused the install"; }
++    const char *err = NULL;
++    if (R_FAILED(rc = AM_StartCiaInstall(MEDIATYPE_SD, &s->cia))) { log3dsWrite("update: start %08lx", (unsigned long)rc); err = "The console refused the install"; }
++    else if ((err = download(url, s))) AM_CancelCIAInstall(s->cia);
++    else if (R_FAILED(rc = AM_FinishCiaInstall(s->cia))) { log3dsWrite("update: finish %08lx", (unsigned long)rc); err = "The console refused the install"; }
++    amExit();
++    return err;
++}
++
++static void updateThread(void *)
++{
++    static bool curlReady;
++    if (!curlReady) curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
++    char base[200];
++    UpdateSink s = {};
++    const char *err = NULL;
++    u32 *soc = NULL;
++    bool socOwn = false;
++    if (!jsonStr(gUpdateJson, "base", base, sizeof base) || strncmp(base, "http", 4)) err = "No release to install";
++    else if (!onNetwork()) err = "No wifi";
++    else if (!curlReady || !(s.buf = (u8 *)malloc(UPDATE_CHUNK)) || !(soc = (u32 *)memalign(0x1000, UPDATE_SOC))) err = "Not enough memory";
++    else {
++        socOwn = R_SUCCEEDED(socInit(soc, UPDATE_SOC));   // else the RetroAchievements code has it up already
++        if (!socOwn) { free(soc); soc = NULL; }
++        err = envIsHomebrew() ? install3dsx(base, &s) : installCia(base, &s);
++    }
++    if (socOwn) { socExit(); free(soc); }
++    free(s.buf);
++    LightLock_Lock(&gLock);
++    if (err) snprintf(gUpdateErr, sizeof gUpdateErr, "%s", err);
++    gUpdateState = err ? 3 : 2;
++    LightLock_Unlock(&gLock);
++}
++
++void smzUpdateStart(const char *versionJson)
++{
++    lockInit();
++    LightLock_Lock(&gLock);
++    bool busy = gUpdateState == 1;
++    if (!busy) { gUpdateState = 1; gUpdateGot = gUpdateTotal = 0; snprintf(gUpdateJson, sizeof gUpdateJson, "%s", versionJson); }
++    LightLock_Unlock(&gLock);
++    // curl and mbedtls's handshake want more stack than the other threads
++    if (!busy && !threadCreate(updateThread, NULL, 256 * 1024, 0x30, -2, true)) {
++        LightLock_Lock(&gLock);
++        snprintf(gUpdateErr, sizeof gUpdateErr, "Not enough memory");
++        gUpdateState = 3;
++        LightLock_Unlock(&gLock);
++    }
++}
++
++int smzUpdateTake(char *err, size_t cap)
++{
++    lockInit();
++    LightLock_Lock(&gLock);
++    int r = 0;
++    if (gUpdateState == 2) { r = 1; gUpdateState = 0; }
++    else if (gUpdateState == 3) { r = 2; gUpdateState = 0; snprintf(err, cap, "%s", gUpdateErr); }
++    LightLock_Unlock(&gLock);
++    return r;
++}
++
++int smzUpdateProgress(void)
++{
++    s64 total = gUpdateTotal, got = gUpdateGot;
++    return total > 0 ? (int)(got * 100 / total) : -1;
++}
++
++bool smzUpdateRelaunch(void)
++{
++    if (envIsHomebrew()) return false;
++    u64 tid = 0;
++    if (R_FAILED(APT_GetProgramID(&tid)) || R_FAILED(APT_PrepareToDoApplicationJump(0, tid, MEDIATYPE_SD))) return false;
++    static u8 param[0x300], hmac[0x20];
++    return R_SUCCEEDED(APT_DoApplicationJump(param, sizeof param, hmac));
++}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..6d0df7b
+index 0000000..7568e0b
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,116 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2206,6 +2413,15 @@ index 0000000..6d0df7b
 +// The newest release (/api/version): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
 +void smzOnlineRequestVersion(void);
 +int smzOnlineTakeVersion(char *out, size_t cap);
++// The self-update: the .cia installed through the AM service, the .3dsx written over its own file (docs/STANDALONE.md).
++// CanInstall says whether this build can; Start downloads the release of an /api/version answer on a thread. Take returns 1
++// once it is installed, 2 when it failed (err says why, the build kept as it was), 0 meanwhile. Progress: percent, -1 unknown.
++bool smzUpdateCanInstall(void);
++void smzUpdateStart(const char *versionJson);
++int smzUpdateTake(char *err, size_t cap);
++int smzUpdateProgress(void);
++// After a .cia install: starts the new title once the app closes; false for the .3dsx or when the console says no.
++bool smzUpdateRelaunch(void);
 +// Sends a run's goal counters (smz_counters_text) on a thread; slot as in the run id "s<slot>-<created>".
 +void smzOnlineGoalsReport(int slot, int64_t created, bool online, const char *counters);
 +// The player's profile file text ("name\tCC\tmode"), and saving it back.
@@ -2281,10 +2497,10 @@ index 0000000..6d0df7b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..240d027
+index 0000000..8d0535f
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5923 @@
+@@ -0,0 +1,5956 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3476,6 +3692,8 @@ index 0000000..240d027
 +        ui_idle(&ui);
 +        pendingNote[0] = 0;
 +    }
++    static char versionJson[256];
++    static bool updating;   // Options > Update: the release downloads on a thread, the menu waits on its progress
 +    u64 lastTick = osGetTime();
 +    while (aptMainLoop()) {
 +        hidScanInput();
@@ -3498,7 +3716,7 @@ index 0000000..240d027
 +        else if (down & KEY_SELECT) b = BTN_SELECT;
 +        else if (down & KEY_START) b = BTN_START;
 +        else have = false;
-+        if (uiBusy()) have = false, down &= ~KEY_TOUCH;   // a new screen takes its time: no skipping through
++        if (uiBusy() || updating) have = false, down &= ~KEY_TOUCH;   // a new screen takes its time: no skipping through
 +        static SmzUi before;   // copied only on input: the struct is large
 +        if (have) {
 +            before = ui;
@@ -3538,8 +3756,7 @@ index 0000000..240d027
 +                if (smzDailyLoad(&dk) && !strcmp(dk.window, daily.window)) ui_daily_began(&ui, dk.began_at);   // the menu's clock as the game counts it
 +            }
 +            else if (ds == 2 && ui.daily.loaded == 0) { memset(&daily, 0, sizeof daily); daily.loaded = -1; ui_daily_set(&ui, &daily, 0); }
-+            static char versionJson[256];
-+            if (smzOnlineTakeVersion(versionJson, sizeof versionJson) == 1) { versionKnown = true; ui_update_load_json(&ui, versionJson, SMZ3_VERSION, 0); }
++            if (smzOnlineTakeVersion(versionJson, sizeof versionJson) == 1) { versionKnown = true; ui_update_load_json(&ui, versionJson, SMZ3_VERSION, smzUpdateCanInstall()); }
 +            if (osGetTime() >= nextInfo) { nextInfo = osGetTime() + 60000; smzDailyRequestInfo(); if (!versionKnown) smzOnlineRequestVersion(); }
 +            if (osGetTime() >= nextRetry) {
 +                nextRetry = osGetTime() + 10000;
@@ -3556,10 +3773,42 @@ index 0000000..240d027
 +            }
 +            smzRaceSetSince(ui.race.room.since);
 +        }
++        if (updating) {
++            char m[44], err[40];
++            int pct = smzUpdateProgress(), st = smzUpdateTake(err, sizeof err);
++            if (pct >= 0) snprintf(m, sizeof m, "Downloading %s... %d%%", ui.update, pct);
++            else snprintf(m, sizeof m, "Downloading %s...", ui.update);
++            ui_busy(&ui, m);
++            if (st == 1) {   // installed: the .cia starts again as the new title, the .3dsx waits for the player to restart it
++                updating = false;
++                ui.update[0] = 0;
++                if (smzUpdateRelaunch()) { ui_busy(&ui, "Starting the new version ..."); drawUi(&ui); quitAsked = true; break; }
++                ui_idle(&ui);
++                ui.screen = UI_OPTIONS;
++                snprintf(ui.notice, sizeof ui.notice, "Restart SMZ3 to finish the update");
++            }
++            else if (st == 2) {   // the build stays as it was: the error, then the link
++                updating = false;
++                ui_busy(&ui, err);
++                drawUi(&ui);
++                svcSleepThread(2500000000LL);
++                ui_idle(&ui);
++                ui.screen = UI_OPTIONS;
++                ui.update_install = 0;
++                snprintf(ui.notice, sizeof ui.notice, "smz3-universe.duckdns.org/download");
++            }
++        }
 +        if (ui.action != ACT_NONE) {
 +            int act = ui.action, slot = ui.action_slot;
 +            ui.action = ACT_NONE;
 +            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { quitAsked = true; break; }
++            if (act == ACT_UPDATE && !updating) {
++                char m[44];
++                snprintf(m, sizeof m, "Downloading %s...", ui.update);
++                ui_busy(&ui, m);
++                updating = true;
++                smzUpdateStart(versionJson);
++            }
 +            if (act == ACT_LADDER) smzOnlineRequestLadders();
 +            else if (act == ACT_DELETE) { deleteRun(slot); refreshSlots(&ui); }
 +            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }

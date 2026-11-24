@@ -24,6 +24,8 @@ cp "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/ips/*.ips romfs/smz
 python3 "$ROOT"/tools/gen_3ds_assets.py "$ROOT"/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3 source/smz3_mapdata.c romfs/smz3
 python3 "$ROOT"/tools/gen_pc_logo.py "$ROOT"/assets/logo.png romfs/smz3/logo.pv 22
 python3 "$ROOT"/tools/gen_flags.py --pv romfs/smz3/flags
+# the certificate authorities the self-update checks GitHub against (the console has no store of its own)
+cp /etc/ssl/certs/ca-certificates.crt romfs/smz3/cacert.pem
 # the community sprites ship in the app; the SD card's 3ds/SMZ3/sprites can still add or replace one
 rm -rf romfs/smz3/sprites && cp -r "$ROOT"/assets/sprites romfs/smz3/sprites
 # the app's icon on the HOME menu is the Thor's launcher icon, cut from the logo as tools/gen_app_icon.py does
