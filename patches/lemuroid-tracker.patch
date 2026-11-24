@@ -1480,7 +1480,7 @@ index 0000000..4275937
 +    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME, UPDATE }
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
-+private const val UI_HOME = 17
++private const val UI_GAMES = 27          // the game carousel: Back there leaves the app
 +private const val UI_OPT_QUIT = 8
 +private var homeShown = false            // the start menu comes once per launch; back from a game is the run list
 +
@@ -2067,7 +2067,7 @@ index 0000000..4275937
 +                        else -> return@onKeyEvent false
 +                    }
 +                    // the core has nothing behind the start menu: Android's Back there leaves the app, as Options > Quit does
-+                    if (e.key == Key.Back && Smz3Native.uiScreen() == UI_HOME) { (context as? android.app.Activity)?.finish(); return@onKeyEvent true }
++                    if (e.key == Key.Back && Smz3Native.uiScreen() == UI_GAMES) { (context as? android.app.Activity)?.finish(); return@onKeyEvent true }
 +                    if (!(wipe.isRunning && wipe.value < 0.6f)) press(b)   // a new screen takes its time: no skipping through
 +                    true
 +                }

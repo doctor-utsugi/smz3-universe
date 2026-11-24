@@ -27,7 +27,7 @@ extern int smz_ui_w, smz_ui_h;
 
 typedef enum { BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_L, BTN_R, BTN_SELECT, BTN_START } UiButton;   /* START: only the keyboard uses it (to Save) */
 typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY, UI_LOGO, UI_HOME, UI_OPTIONS,
-               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY } UiScreen;
+               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES } UiScreen;
 typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
@@ -65,7 +65,7 @@ enum { C_BG, C_PANEL, C_SEL, C_TEXT, C_DIM, C_ACCENT, C_WARN, C_GREEN, C_CYAN, C
 #define UI_COLORS 22
 
 typedef struct { int16_t x, y, w, h; uint8_t kind; int16_t idx; } UiHit;
-enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE };
+enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME };
 
 typedef struct {
     UiScreen screen, back;
@@ -112,6 +112,7 @@ typedef struct {
     SmzDailyInfo daily;
     char start_label[24], notice[40];
     int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
+    int game_mode, game_cursor, game_spin, game_state[3];   /* the game entered (SMZ_MODE_*) / the carousel's front card / where it is turned to, in thousandths of a card / UI_GAME_* per game */
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
     struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started, find_ms;   /* find_ms: since the list was last asked for */
              char code[8];                    /* the code typed to join, or the room picked in the list */
@@ -227,6 +228,10 @@ const char *ui_run_label(const SmzUi *u);
 enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8 };
 void ui_home_enable(SmzUi *u, int mask);
 void ui_home_open(SmzUi *u);
+/* The game carousel, the first screen after the logo: the three games turn on a ring and A enters one (u->game_mode), which
+ * opens the start menu above for that game; B there turns back to the carousel. The host sets each game's state. */
+enum { UI_GAME_READY, UI_GAME_NO_ROM, UI_GAME_SOON };
+void ui_game_state(SmzUi *u, int mode, int state);
 void ui_tick(SmzUi *u, int ms);
 /* The server's /api/version answer ({"tag":"v0.9.0"}) against this build's version (SMZ3_VERSION): when the tag is newer,
  * the start menu says so and Options gets an Update row. can_install: picking it comes back as ACT_UPDATE and the host

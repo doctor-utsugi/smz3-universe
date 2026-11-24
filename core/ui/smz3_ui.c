@@ -3,8 +3,10 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 #include "smz3_ui.h"
 #include "smz3_goal.h"
+#include "smz3_run.h"
 
 #define ROW_H 20
 #define LIST_Y 44
@@ -56,6 +58,7 @@ void ui_init(SmzUi *u)
     for (int g = 0; g < 4; g++) { strcpy(u->sprites[g][0], g == 2 ? "None" : "Original"); u->sprite_count[g] = 1; }
     strcpy(u->sprites[3][1], "Random"); u->sprite_count[3] = 2;
     u->slot_count = 4;
+    u->game_state[SMZ_MODE_Z3] = u->game_state[SMZ_MODE_SM] = UI_GAME_SOON;   /* until their generators are in */
     u->screen = UI_SLOTS_SCREEN;
     u->rng = (uint32_t)time(NULL) * 2654435761u | 1;
     ui_saved_load(u, NULL);
@@ -146,9 +149,15 @@ static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /*
 
 void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
 void ui_home_open(SmzUi *u) { u->screen = UI_LOGO; u->logo_ms = LOGO_MS; u->home_cursor = 0; }
+void ui_game_state(SmzUi *u, int mode, int state) { if (mode >= 0 && mode < SMZ_MODE_COUNT) u->game_state[mode] = state; }
 void ui_tick(SmzUi *u, int ms)
 {
-    if (u->screen == UI_LOGO && (u->logo_ms -= ms) <= 0) u->screen = UI_HOME;
+    if (u->screen == UI_LOGO && (u->logo_ms -= ms) <= 0) u->screen = UI_GAMES;
+    if (u->screen == UI_GAMES) {   /* the ring eases to the front card the short way round */
+        int want = u->game_cursor * 1000, d = ((want - u->game_spin) % 3000 + 4500) % 3000 - 1500, step = d * ms / 120;
+        u->game_spin = (abs(d) <= 4 || !step ? want : u->game_spin + step) % 3000;
+        if (u->game_spin < 0) u->game_spin += 3000;
+    }
     if (u->screen == UI_RACE_LIST && (u->race.find_ms += ms) >= 5000 && u->action == ACT_NONE) { u->race.find_ms = 0; u->action = ACT_RACE_FIND; }   /* the list stays fresh */
 }
 
@@ -163,8 +172,22 @@ static int option_rows(const SmzUi *u, int *kind)
 
 static int paused_row(const SmzUi *u);
 
+static const char *const GAME_NAMES[SMZ_MODE_COUNT] = {"SMZ3", "A Link to the Past", "Super Metroid"};
+static const char *const GAME_LINES[SMZ_MODE_COUNT] = {"Zelda + Metroid", "Randomizer", "Randomizer"};
+static const char *const GAME_PICS[SMZ_MODE_COUNT] = {"logo", "link/Original", "samus/Original"};
+
+static void games_input(SmzUi *u, UiButton b)
+{
+    if (b == BTN_LEFT || b == BTN_RIGHT || b == BTN_L || b == BTN_R) u->game_cursor = (u->game_cursor + (b == BTN_LEFT || b == BTN_L ? SMZ_MODE_COUNT - 1 : 1)) % SMZ_MODE_COUNT;
+    else if (b != BTN_A) return;
+    else if (u->game_state[u->game_cursor] == UI_GAME_SOON) snprintf(u->notice, sizeof u->notice, "%s is coming soon", GAME_NAMES[u->game_cursor]);
+    else if (u->game_state[u->game_cursor] == UI_GAME_NO_ROM) snprintf(u->notice, sizeof u->notice, "Add the %s ROM first", u->game_cursor == SMZ_MODE_SM ? "Super Metroid" : "Zelda");
+    else { u->game_mode = u->game_cursor; u->notice[0] = 0; u->screen = UI_HOME; u->home_cursor = 0; }
+}
+
 static void home_input(SmzUi *u, UiButton b)
 {
+    if (b == BTN_B) { u->screen = UI_GAMES; u->notice[0] = 0; return; }
     if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
@@ -1369,6 +1392,7 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_RULES: rules_input(u, b); break;
     case UI_DAILY: daily_input(u, b); break;
     case UI_HOME: home_input(u, b); break;
+    case UI_GAMES: games_input(u, b); break;
     case UI_RACE_SIZE: case UI_RACE_WAY: case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC:
     case UI_RACE_LIST: case UI_RACE_ROOM: case UI_RACE_READY: race_input(u, b); break;
     case UI_OPTIONS: options_input(u, b); break;
@@ -1385,7 +1409,7 @@ UiCue ui_cue(const SmzUi *a, const SmzUi *z, int b)
     if (z->world_top != a->world_top) return z->world_top >= 0 ? UI_CUE_OPEN : UI_CUE_BACK;
     if (z->level != a->level || z->ladder_tab != a->ladder_tab || z->world_month != a->world_month) return UI_CUE_TAB;
     if (memcmp(z->value, a->value, sizeof z->value) || z->run_mode != a->run_mode || z->name_len != a->name_len || strcmp(z->name, a->name)) return UI_CUE_SELECT;
-    if (z->slot_cursor != a->slot_cursor || z->menu_cursor != a->menu_cursor || z->confirm_cursor != a->confirm_cursor ||
+    if (z->game_cursor != a->game_cursor || z->slot_cursor != a->slot_cursor || z->menu_cursor != a->menu_cursor || z->confirm_cursor != a->confirm_cursor ||
         memcmp(z->cursor, a->cursor, sizeof z->cursor) || memcmp(z->scroll, a->scroll, sizeof z->scroll) ||
         z->sprite_cursor != a->sprite_cursor || z->mode_cursor != a->mode_cursor || z->saved_cursor != a->saved_cursor ||
         z->saved_col != a->saved_col || z->key_cursor != a->key_cursor || z->country_cursor != a->country_cursor ||
@@ -1443,12 +1467,13 @@ void ui_touch(SmzUi *u, int x, int y)
         }
         case H_SPRITE: u->sprite_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_HOME: u->home_cursor = t->idx; ui_input(u, BTN_A); break;
+        case H_GAME: if (t->idx == u->game_cursor) ui_input(u, BTN_A); else u->game_cursor = t->idx; break;   /* a side card turns to the front first */
         case H_OPTION: u->options_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_RACE: u->race.cursor = t->idx; ui_input(u, BTN_A); break;
         }
         return;
     }
-    if (u->screen == UI_LOGO || u->screen == UI_HOME || u->screen == UI_BUSY || (u->screen == UI_SLOTS_SCREEN && !u->home_on)) return;
+    if (u->screen == UI_LOGO || u->screen == UI_GAMES || u->screen == UI_BUSY || (u->screen == UI_SLOTS_SCREEN && !u->home_on)) return;
     if (y < 28 && x < 100) ui_input(u, BTN_B);
 }
 
@@ -2165,9 +2190,37 @@ void ui_draw(SmzUi *u)
         text(u, UI_W / 2, 150, C_DIM, 1, "A Link to the Past + Super Metroid");
         if (u->version[0]) text(u, UI_W / 2, 166, C_DIM, 1, u->version);
         break;
+    case UI_GAMES: {
+        /* three cards on a ring seen from the front: the far ones smaller and higher, drawn first so the near one covers them */
+        int order[SMZ_MODE_COUNT], n = 0;
+        float depth[SMZ_MODE_COUNT];
+        for (int g = 0; g < SMZ_MODE_COUNT; g++) {
+            depth[g] = cosf((g * 1000 - u->game_spin) * 6.2831853f / 3000);
+            int at = n++;
+            while (at > 0 && depth[order[at - 1]] > depth[g]) { order[at] = order[at - 1]; at--; }
+            order[at] = g;
+        }
+        for (int i = 0; i < n; i++) {
+            int g = order[i], dim = u->game_state[g] != UI_GAME_READY;
+            float a = (g * 1000 - u->game_spin) * 6.2831853f / 3000, k = 0.55f + 0.45f * (depth[g] + 0.5f) / 1.5f;
+            int w = (int)(150 * k), h = (int)(170 * k), x = UI_W / 2 + (int)(sinf(a) * (UI_W * 0.34f)) - w / 2, y = 34 + (int)((1 - k) * 60);
+            int front = g == u->game_cursor && depth[g] > 0.9f;
+            rect(u, x - 2, y - 2, w + 4, h + 4, front ? C_ACCENT : C_PANEL);
+            rect(u, x, y, w, h, front ? C_SEL : C_BG);
+            put(u, 2, x + w / 4, y + h / 10, w / 2, h / 2, dim ? C_DIM : C_TEXT, 0, GAME_PICS[g]);
+            hit(u, H_GAME, g, x, y, w, h);
+            if (k < 0.8f) continue;   /* only the cards turned to the front carry their names */
+            text(u, x + w / 2, y + h * 2 / 3, dim ? C_DIM : C_ACCENT, 1, GAME_NAMES[g]);
+            text(u, x + w / 2, y + h * 2 / 3 + 16, C_DIM, 1, u->game_state[g] == UI_GAME_SOON ? "Coming soon" : u->game_state[g] == UI_GAME_NO_ROM ? "ROM missing" : GAME_LINES[g]);
+        }
+        if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
+        else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
+        legend(u, "Left/Right Turn  A Choose");
+        break;
+    }
     case UI_HOME:
-        put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, "logo");
-        text(u, UI_W / 2, 48, C_ACCENT, 1, "SMZ3");
+        put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
+        text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
         for (int r = 0; r < HOME_ROWS; r++) {
             int y = 70 + r * 34, off = (r == 1 || r == 2) && !u->race.on;   /* the online rows, without a connection */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
@@ -2178,7 +2231,7 @@ void ui_draw(SmzUi *u)
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
-        legend(u, "A Choose");
+        legend(u, "A Choose  B Games");
         break;
     case UI_OPTIONS: {
         title(u, "Options");
