@@ -5578,10 +5578,10 @@ index 0000000..96cc28c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt
 new file mode 100644
-index 0000000..d3cee61
+index 0000000..3f61dbe
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,179 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -5643,7 +5643,7 @@ index 0000000..d3cee61
 +    private val row get() = 22 * density
 +
 +    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (row * 5).toInt())
++        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (row * if (Smz3Tracker.smAlone) 3 else 5).toInt())   // Super Metroid alone: no crystals, no Ganon
 +    }
 +
 +    private fun write(canvas: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, align: Paint.Align = Paint.Align.LEFT) {
@@ -5704,17 +5704,19 @@ index 0000000..d3cee61
 +        y += row
 +
 +        // crystals: all seven by number when the run wants seven, else as many slots as it wants, filled by count
-+        write(canvas, "Crystals", 0f, y + row * 0.68f, 12f, textColor)
-+        if (crystalsNeeded > 0) {
-+            val slot = minOf(row * 0.75f, (iconsRight - iconsLeft) / crystalsNeeded)
-+            val gh = slot * 1.15f
-+            for (i in 0 until crystalsNeeded) {
-+                val done = if (crystalsNeeded == 7) crystals and (1 shl i) != 0 else i < got
-+                drawGem(canvas, iconsLeft + i * slot, y + (row - gh) / 2, slot * 0.85f, gh, done, crystalsNeeded == 7 && (i == 4 || i == 5), if (crystalsNeeded == 7) i + 1 else 0)
++        if (!Smz3Tracker.smAlone) {
++            write(canvas, "Crystals", 0f, y + row * 0.68f, 12f, textColor)
++            if (crystalsNeeded > 0) {
++                val slot = minOf(row * 0.75f, (iconsRight - iconsLeft) / crystalsNeeded)
++                val gh = slot * 1.15f
++                for (i in 0 until crystalsNeeded) {
++                    val done = if (crystalsNeeded == 7) crystals and (1 shl i) != 0 else i < got
++                    drawGem(canvas, iconsLeft + i * slot, y + (row - gh) / 2, slot * 0.85f, gh, done, crystalsNeeded == 7 && (i == 4 || i == 5), if (crystalsNeeded == 7) i + 1 else 0)
++                }
 +            }
++            write(canvas, "${minOf(got, crystalsNeeded)}/$crystalsNeeded", w, y + row * 0.68f, 12f, if (got >= crystalsNeeded) ok else textColor, Paint.Align.RIGHT)
++            y += row
 +        }
-+        write(canvas, "${minOf(got, crystalsNeeded)}/$crystalsNeeded", w, y + row * 0.68f, 12f, if (got >= crystalsNeeded) ok else textColor, Paint.Align.RIGHT)
-+        y += row
 +
 +        // Metroid bosses: the beaten ones first, then the ones still standing, as many as Tourian wants
 +        write(canvas, "Bosses", 0f, y + row * 0.68f, 12f, textColor)
@@ -5733,18 +5735,20 @@ index 0000000..d3cee61
 +
 +        val boxX = 0f
 +        val nameX = 18 * density
-+        drawBox(canvas, boxX, y + row / 2, finished)
-+        write(canvas, "Ganon", nameX, y + row * 0.68f, 12f, textColor)
-+        val tower = towerNeeds - got
-+        val ganon = ganonNeeds - got
-+        val ganonNote = when {
-+            finished -> "Beaten"
-+            tower > 0 -> "Tower: $tower crystal${if (tower == 1) "" else "s"} more"
-+            ganon > 0 -> "Ganon: $ganon crystal${if (ganon == 1) "" else "s"} more"
-+            else -> "Tower open"
++        if (!Smz3Tracker.smAlone) {
++            drawBox(canvas, boxX, y + row / 2, finished)
++            write(canvas, "Ganon", nameX, y + row * 0.68f, 12f, textColor)
++            val tower = towerNeeds - got
++            val ganon = ganonNeeds - got
++            val ganonNote = when {
++                finished -> "Beaten"
++                tower > 0 -> "Tower: $tower crystal${if (tower == 1) "" else "s"} more"
++                ganon > 0 -> "Ganon: $ganon crystal${if (ganon == 1) "" else "s"} more"
++                else -> "Tower open"
++            }
++            write(canvas, ganonNote, w, y + row * 0.68f, 11f, if (finished || (tower <= 0 && ganon <= 0)) ok else dimColor, Paint.Align.RIGHT)
++            y += row
 +        }
-+        write(canvas, ganonNote, w, y + row * 0.68f, 11f, if (finished || (tower <= 0 && ganon <= 0)) ok else dimColor, Paint.Align.RIGHT)
-+        y += row
 +
 +        drawBox(canvas, boxX, y + row / 2, finished)
 +        write(canvas, "Mother Brain", nameX, y + row * 0.68f, 12f, textColor)
@@ -8570,10 +8574,10 @@ index 0000000..a000c02
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RewardsView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RewardsView.kt
 new file mode 100644
-index 0000000..3d557e1
+index 0000000..686ef24
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RewardsView.kt
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,94 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8636,6 +8640,7 @@ index 0000000..3d557e1
 +            }
 +            x += unit
 +        }
++        if (Smz3Tracker.smAlone) return   // the crystals are ALttP's
 +        x += unit * 0.25f
 +        val gw = unit * 0.7f
 +        val gh = unit * 0.9f
