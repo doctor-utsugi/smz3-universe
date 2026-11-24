@@ -264,6 +264,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     if (!ready) load(r);
     patches_apply();
     if (v->follow && d->has_position) { v->cx = d->x; v->cy = d->y; }
+    v->cx = fminf(fmaxf(v->cx, HALF_X), HALF_END); v->cy = fminf(fmaxf(v->cy, 0), MAP_H);   /* never pan off the game's half */
     float z = v->zoom, ox = area.x + area.w / 2.0f - v->cx * z, oy = area.y + area.h / 2.0f - v->cy * z;
     SDL_RenderSetClipRect(r, &area);
     gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
