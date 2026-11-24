@@ -1,3 +1,20 @@
+diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
+index 2f74136..e699eb8 100644
+--- a/rust/maprando-game/src/lib.rs
++++ b/rust/maprando-game/src/lib.rs
+@@ -5326,8 +5326,10 @@ impl GameData {
+                 path.display()
+             )
+         })?;
+-        for file in file_it {
+-            let file = file?;
++        // Sorted, so a seed's title screen does not depend on the filesystem's directory order.
++        let mut files = file_it.collect::<std::io::Result<Vec<_>>>()?;
++        files.sort_by_key(|f| f.file_name());
++        for file in files {
+             let filename = file.file_name().into_string().unwrap();
+             let img = read_image(&file.path())?;
+ 
 diff --git a/rust/maprando/Cargo.toml b/rust/maprando/Cargo.toml
 index f1440c1..592099a 100644
 --- a/rust/maprando/Cargo.toml

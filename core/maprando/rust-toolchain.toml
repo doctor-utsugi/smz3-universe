@@ -1,0 +1,4 @@
+# Seeds must match on every host, and sort and hashing details change between Rust releases: one pinned toolchain.
+[toolchain]
+channel = "1.90.0"
+profile = "minimal"
