@@ -42,6 +42,10 @@ its row in the list shows the crystals and bosses you have so far.
 - Original: the default rules. A run with these rules can go on the online ladder.
 - Custom: every option of the web generator, from item placement and keysanity to logic tweaks, starting items and
   plando. You can save a setup and pick it again later. Changed rules keep the run off the online ladder.
+- Map Rando (Super Metroid runs): [Map Rando](https://maprando.com) rebuilds the whole map, as SM races play it.
+  Pick Beginner, Season 5 or another preset and a skill level. PC, Linux handhelds, the Thor and Android make the
+  seed on the device; the 3DS downloads it from the server, so it needs a connection there. The tracker shows items
+  and the hash only, since its map is the vanilla one. These runs stay off the online ladder for now.
 - Monthly seed: one fixed seed per month, the same for everyone, with its own table of best times.
 - Weekly run: a short run on a new seed every Monday at 00:00 UTC. Two crystals open Ganon's Tower and Ganon, and
   one boss opens Tourian.
@@ -209,3 +213,11 @@ and prepare first.
 
 The Android app is a fork of [Lemuroid](https://github.com/Swordfish90/Lemuroid) (GPL-3.0) on LibretroDroid, the 3DS
 app is built on [snes9x_3ds](https://github.com/matbo87/snes9x_3ds).
+
+## Credits
+
+SMZ3 and Super Metroid generators: tewtal (MIT). A Link to the Past: sporchia and alttpr (MIT), z3randomizer by
+KatDevsGames (MIT), Enemizer by Zarby89 (MIT). Map Rando: maddo and kyleb (MIT). Map Rando's logic data is
+[sm-json-data](https://github.com/vg-json-data/sm-json-data), developed by the A Link to the Past Randomizer & Super
+Metroid Randomizer communities, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Emulation by Snes9x,
+snes9x_3ds, Lemuroid and LibretroDroid. [THIRD_PARTY.md](THIRD_PARTY.md) has the notices.

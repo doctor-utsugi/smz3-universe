@@ -290,23 +290,50 @@ host and called through a small C interface, the way `maprando-wasm` wraps them 
   way every device sees the same pool, or the same seed number would pick different maps.
 - **Where it runs:**
   - PC, Linux handhelds, Android and the Thor: yes.
-  - New 3DS: does not fit as the crate stands. Measured on 2026-11-24 (pinned commit `8adf9c9`, `core/maprando`): the
+  - New 3DS: does not fit as the crate stands, so it takes the server's seed (below) like the old 3DS. Measured on 2026-11-24 (pinned commit `8adf9c9`, `core/maprando`): the
     loaded data takes about 270 MB (`GameData`) and 600 MB once the link data is built, and a seed peaks at 740 to 870 MB,
     while the whole New 3DS has 256 MB (about 124 MB for an app, 178 MB in its extended mode). It goes the old 3DS's way.
-  - Old 3DS (268 MHz, less memory): Map Rando shows as *Not compatible on this console* for now. Once everything else
-    is done, the work is to make it fit: lighter data, fewer attempts per seed, maps fetched one at a time.
-  - Last resort if the old 3DS still cannot: the server runs the same crate, patches a vanilla SM ROM it keeps and
-    sends a delta BPS patch, which the console applies to the player's ROM (a small BPS reader in `core/common/`).
+  - Old 3DS (268 MHz, less memory): out of reach for the same reason. Making the crate fit (lighter data, fewer
+    attempts per seed, maps fetched one at a time) stays step 10.
+  - Both 3DS models today: the server runs the same crate, patches a vanilla SM ROM it keeps and sends a delta BPS
+    patch (`GET /api/maprando/seed`), which the console applies to the player's ROM with `core/common/smz3_bps.c`
+    after stripping a copier header. Map Rando is offered only with a connection; the errors say which of no
+    connection, server busy (503), too many requests, a ROM that is not the vanilla one (CRC) or a damaged patch.
 - **Seeds:** Map Rando draws from Rust's `StdRng` seeded from a number (`rust/maprando-web/src/main.rs`), so the same
   settings and seed number give the same seed on every device built from the same pinned crates, which the monthly,
   weekly and daily need. Its site caps a seed's attempts by time (60 seconds, `attempts_timeout`); the devices cap
   them by count instead, so a slow console reaches the same seed as a fast one instead of giving up earlier.
-- **Ladders:** Map Rando Season 5 and Map Rando Beginner as SM preset tables (see Ladder presets); the monthly and weekly can also be Map Rando seeds.
+- **Ladders:** Map Rando Season 5 and Map Rando Beginner as SM preset tables (see Ladder presets); the monthly and
+  weekly can also be Map Rando seeds. Not built yet: the ladder has no preset dimension for any game (a table is a
+  game and a kind: original, monthly or weekly), so a Map Rando run is a custom run and never goes online. The tables
+  come with that dimension, for Z3's presets too.
 - **Tracker and proof:** the tracker's SM map does not match a rebuilt map, so it shows items and the hash only until
-  the map can be drawn from the seed's room layout. The proof checker keeps the time and rate rules; its logic check
-  runs the same crate on the server.
-- End of run: found in Map Rando's ASM, as for the other two ROMs.
-- Map Rando's licence and its submodules' licences are read before this step; sm-json-data needs CC BY 4.0 credit.
+  the map can be drawn from the seed's room layout. The proof checker would keep the time and rate rules only: there
+  is no logic check for a Map Rando seed (`smz_sm_proof_logic` answers "no logic" for one). Running the crate on the
+  server for it comes with the tables.
+- **Save and items:** Map Rando keeps 0xA00-byte save slots at $0010, $0A10 and $1410 (classic SM: 0x65C), items at
+  +0xB0; the hosts pass `SMZ3_MAPRANDO` with the mode. Checked on a generated ROM: the 100 item PLMs keep bit index =
+  location id, so the tracker's location table holds.
+- **End of run:** Map Rando's `hook_samus_enter_ship` tests event 0x0E and the gunship code at $A2:AA09 still sets
+  $0FB2 to $AA4F, so the classic SM check (event 0x0E and $0FB2 == $AA4F) holds unchanged.
+- **Licences:** Map Rando is MIT (Copyright (c) 2023 maddo, kyleb); sm-json-data is CC BY 4.0. Both are credited on
+  every host's About screen and in `THIRD_PARTY.md`.
+
+#### On each host (step 9)
+
+- **Run settings:** an SM run picks its generator, Classic (tewtal's, the default) or Map Rando, with a preset
+  (Beginner = upstream's Default, Season 5 = Community Race Season 5, Mentor Tournament, Expert Challenge) and a
+  skill level (the preset's own, or Basic to Beyond). The run's JSON gains
+  `"sm":{"generator":"maprando","preset":"<upstream name>"[,"skill":"<name>"]}`; a classic run's JSON and ROM are
+  byte-identical to before. The mode screen has a Map Rando row that starts a run with Map Rando picked.
+- **PC:** the Makefile builds `core/maprando` with cargo (target dir `build/maprando-target`, MinGW target on
+  Windows) when `vendor/maprando` and cargo are there. The data is looked up in `../share/smz3/maprando-data`
+  (AppImage), `maprando-data` and `../maprando-data` beside the executable. Generation runs on a thread, with
+  "Generating Map Rando seed... try N" and the seconds.
+- **Android and the Thor:** CMake runs `cargo ndk` for arm64-v8a and links the crate into `libsmz3core.so`; the data
+  ships as `assets/maprando/data.zip` and is unpacked once (a stamp says when to unpack again), then the seed is
+  generated in the background with the attempt count on screen.
+- **3DS:** the server's BPS patch, as above, with a download progress bar.
 
 ## Work in order
 
@@ -333,7 +360,11 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
    logics, byte-identical to alttpr; offered in `Z3_OPTIONS` and on every host's Custom screen. Boss shuffle places bosses but
    waits for the Enemizer (step 9) to write them; the customizer is not started.
 9. **Map Rando** on every host but the old 3DS; then the Enemizer boss shuffle.
+   Done (see Map Rando, On each host): PC, Linux handhelds, Android and the Thor generate on the device; both 3DS
+   models take the server's BPS patch, with a connection. The ladder tables wait for a preset dimension on the
+   ladder. The Enemizer boss shuffle is in `core/z3gen` (Z3.md).
 10. **Map Rando on the old 3DS**, after everything else; the server and BPS patch only if it cannot fit.
+    Today both 3DS models use the server's BPS patch (step 9); running the crate on the console is still open.
 
 ## Not doing
 

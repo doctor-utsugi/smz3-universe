@@ -1,6 +1,7 @@
 # Builds the PC app for Linux, Windows and macOS, the Android app and the 3DS homebrew. vendor/ is not in git: the IPS patches and map icons are copied from their source
 # repositories by tools/prepare_assets.py. The Super Metroid room table is derived from a ROM and cannot be committed, so these CI
 # builds ship an empty one (the map still works, without the discovered-room overlay of Super Metroid).
+# Map Rando (tools/maprando/fetch.sh, Rust) goes into the Linux, Windows and Android builds; macOS is built without it.
 name: pc
 on:
   workflow_dispatch:
@@ -25,7 +26,9 @@ jobs:
           [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
           python3 -c 'import PIL' 2>/dev/null || python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
           python3 tools/prepare_assets.py
-      - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev python3-pil
+      - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev python3-pil zstd
+      - name: Map Rando sources and data
+        run: tools/maprando/fetch.sh
       - run: ./build-pc.sh
       - run: ./tools/build-appimage.sh
       - uses: actions/upload-artifact@v4
@@ -47,9 +50,13 @@ jobs:
           [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
           python3 -c 'import PIL' 2>/dev/null || python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
           python3 tools/prepare_assets.py
-      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 python3-pil
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 python3-pil zstd
+      - name: Map Rando sources and data
+        run: |
+          tools/maprando/fetch.sh
+          cd core/maprando && rustup target add x86_64-pc-windows-gnu
       - run: ./build-pc.sh windows
-      - run: cp -r assets/sprites build/win/sprites && cd build/win && zip -9 -r ../../SMZ3-windows-x64.zip smz3.exe sprites
+      - run: cp -r assets/sprites build/win/sprites && cp -r build/maprando-data build/win/maprando-data && cd build/win && zip -9 -r ../../SMZ3-windows-x64.zip smz3.exe sprites maprando-data
       - uses: actions/upload-artifact@v4
         with:
           name: smz3-windows
@@ -141,6 +148,12 @@ jobs:
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
         run: echo "$ANDROID_KEYSTORE" | base64 -d > vendor/Lemuroid/release.jks
+      - name: Map Rando sources, data and the Android Rust target
+        run: |
+          sudo apt-get install -y zstd
+          tools/maprando/fetch.sh
+          cargo install --locked cargo-ndk --version 4.1.2
+          cd core/maprando && rustup target add aarch64-linux-android
       - run: ./build-android.sh release
       - run: cp build/smz3-release.apk SMZ3-android-arm64.apk
       - uses: actions/upload-artifact@v4
