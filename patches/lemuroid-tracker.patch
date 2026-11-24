@@ -311,7 +311,7 @@ index 0000000..147df74
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..2f7cf00
+index 0000000..35969c0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 @@ -0,0 +1,481 @@
@@ -614,7 +614,7 @@ index 0000000..2f7cf00
 +        Text(clock(s.elapsedMs), color = TEXT, fontSize = 16.sp, maxLines = 1, softWrap = false)
 +        Spacer(Modifier.height(4.dp))
 +        if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.smAlone) Counter("Zelda", s.zeldaCleared, s.zeldaTotal)
-+        Counter("Metroid", s.metroidCleared, s.metroidTotal)
++        if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.z3Alone) Counter("Metroid", s.metroidCleared, s.metroidTotal)
 +    }
 +}
 +
@@ -1389,10 +1389,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..8c9e7f5
+index 0000000..9c9f173
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1026 @@
+@@ -0,0 +1,1062 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1489,7 +1489,8 @@ index 0000000..8c9e7f5
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_GAMES = 27          // the game carousel: Back there leaves the app
 +private const val UI_OPT_QUIT = 8
-+private const val SMZ_MODE_SM = 2         // SMZ_MODE_* in core/ui/smz3_run.h
++private const val SMZ_MODE_Z3 = 1         // SMZ_MODE_* in core/ui/smz3_run.h
++private const val SMZ_MODE_SM = 2
 +private const val UI_GAME_READY = 0       // UI_GAME_* in core/ui/smz3_ui.h
 +private const val UI_GAME_NO_ROM = 1
 +private var homeShown = false            // the start menu comes once per launch; back from a game is the run list
@@ -1633,11 +1634,14 @@ index 0000000..8c9e7f5
 +        Smz3MenuSelection.select(context, if (slot >= 0) slot else null)
 +    }
 +
-+    /** Super Metroid's card in the carousel: ready once its ROM is found (it needs no other). */
++    /** The single-game cards in the carousel: each ready once its own ROM is found (it needs no other). */
 +    fun checkSmRom() {
 +        scope.launch {
-+            val found = runCatching { RunGenerator.findSmRom(context, retrogradeDb.gameDao().selectListBySystem("snes")) }.getOrNull() != null
-+            Smz3Native.uiGameState(SMZ_MODE_SM, if (found) UI_GAME_READY else UI_GAME_NO_ROM)
++            val games = runCatching { retrogradeDb.gameDao().selectListBySystem("snes") }.getOrDefault(emptyList())
++            val sm = runCatching { RunGenerator.findSmRom(context, games) }.getOrNull() != null
++            Smz3Native.uiGameState(SMZ_MODE_SM, if (sm) UI_GAME_READY else UI_GAME_NO_ROM)
++            val z3 = runCatching { RunGenerator.findZ3Rom(context, games) }.getOrNull() != null
++            Smz3Native.uiGameState(SMZ_MODE_Z3, if (z3) UI_GAME_READY else UI_GAME_NO_ROM)
 +            version++
 +        }
 +    }
@@ -1678,7 +1682,8 @@ index 0000000..8c9e7f5
 +
 +    DisposableEffect(Unit) {
 +        Smz3Native.uiInit()
-+        Smz3Native.uiGameState(SMZ_MODE_SM, UI_GAME_NO_ROM)   // until its ROM is found (checkSmRom)
++        Smz3Native.uiGameState(SMZ_MODE_SM, UI_GAME_NO_ROM)   // until their ROMs are found (checkSmRom)
++        Smz3Native.uiGameState(SMZ_MODE_Z3, UI_GAME_NO_ROM)
 +        Smz3Native.uiSetSlotCount(RunStore.SLOTS)
 +        Smz3Native.uiSetSprites(0, spriteNames(context, 0))
 +        Smz3Native.uiSetSprites(1, spriteNames(context, 1))
@@ -1841,12 +1846,43 @@ index 0000000..8c9e7f5
 +        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +    }
 +
++    /** A Link to the Past alone: only its JP ROM and its own generator, a 2 MB ROM; offline for now. */
++    suspend fun generateZ3(slot: Int) {
++        val z3 = RunGenerator.findZ3Rom(context, retrogradeDb.gameDao().selectListBySystem("snes"))
++            ?: error(RunGenerator.wrongBaseRom ?: "Add the ALttP JP ROM first")
++        Smz3Native.uiBusy("Generating the seed ...")
++        version++
++        val link = JSONObject(Smz3Native.uiSettingsJson(1)).optString("linkSprite").takeIf { it.isNotEmpty() }?.let { spriteFile(context, 0, "$it.rdc") }
++        val (rom, settings) = RunGenerator.generateZ3(z3, link, java.security.SecureRandom().nextInt(Int.MAX_VALUE))
++        val json = JSONObject(settings)
++        val seed = json.optString("seed")
++        val name = Smz3Native.uiRunLabel().ifBlank { "Run ${slot + 1}" }
++        val romFile = RunStore.newRomFile(context, seed, settings)
++        romFile.writeBytes(rom)
++        Smz3Native.setMode(SMZ_MODE_Z3)
++        val totals = Smz3Native.summarize(ByteArray(0), ByteArray(0))
++        val prefs = com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper.getLegacySharedPreferences(context)
++        prefs.edit().putString(context.getString(com.swordfish.lemuroid.R.string.pref_key_shader_filter), json.optString("screenFilter", "sharp")).apply()
++        RunStore.clearExtras(context, slot)
++        RunStore.save(
++            context,
++            Run(
++                slot = slot, name = name, gameId = 0, createdAt = System.currentTimeMillis(),
++                zeldaTotal = totals[3], metroidTotal = totals[5], logic = "Vanilla", romPath = romFile.path, seed = seed,
++                settings = settings, mapMode = json.optString("mapMode", "all"),
++            ),
++        )
++        val game = RunGenerator.registerGame(context, retrogradeDb, slot, name)
++        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
++    }
++
 +    fun generate(slot: Int) {
 +        Smz3Native.uiBusy("Reading the base ROMs ...")
 +        version++
 +        scope.launch {
 +            val outcome = runCatching {
 +                if (Smz3Native.uiGameMode() == SMZ_MODE_SM) { generateSm(slot); return@runCatching }
++                if (Smz3Native.uiGameMode() == SMZ_MODE_Z3) { generateZ3(slot); return@runCatching }
 +                val games = retrogradeDb.gameDao().selectListBySystem("snes")
 +                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
 +                    ?: run {   // none usable (missing or the wrong revision): ask for the ROMs, generation restarts afterwards
@@ -2689,10 +2725,10 @@ index 0000000..eb60b72
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt
 new file mode 100644
-index 0000000..962b5fd
+index 0000000..177fca9
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,322 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2804,6 +2840,17 @@ index 0000000..962b5fd
 +        (rom ?: error(Smz3Native.lastError().ifEmpty { "generation failed" })) to seed.toString()
 +    }
 +
++    /** A Link to the Past alone: the 2 MB ROM of the menu's run and its settings with the seed and hash. */
++    suspend fun generateZ3(z3: ByteArray, linkRdc: ByteArray?, seedIfRandom: Int): Pair<ByteArray, String> = withContext(Dispatchers.IO) {
++        var out: Pair<ByteArray, String>? = null
++        val thread = Thread(null, {
++            out = Smz3Native.generateZ3(z3, linkRdc, seedIfRandom)?.let { it to Smz3Native.z3LastSettings() }
++        }, "z3-generate", 64L * 1024 * 1024)
++        thread.start()
++        thread.join()
++        out ?: error(Smz3Native.lastError().ifEmpty { "generation failed" })
++    }
++
 +    /** Super Metroid alone: the 4 MB ROM for a "game":"sm" [settingsJson] and that JSON with the seed hash added. */
 +    suspend fun generateSm(sm: ByteArray, settingsJson: String, samusRdc: ByteArray? = null): Pair<ByteArray, String> = withContext(Dispatchers.IO) {
 +        var out: Pair<ByteArray, String>? = null
@@ -2846,7 +2893,7 @@ index 0000000..962b5fd
 +     * library games and then in the usual ROM folders on the device.
 +     */
 +    suspend fun findBaseRoms(context: Context, games: List<Game>): Pair<ByteArray, ByteArray>? = withContext(Dispatchers.IO) {
-+        val (sm, z3) = searchBaseRoms(context, games, true)
++        val (sm, z3) = searchBaseRoms(context, games, true, true)
 +        if (sm != null && z3 != null) {
 +            goalIcons(context, sm, z3)
 +            sm to z3
@@ -2854,9 +2901,12 @@ index 0000000..962b5fd
 +    }
 +
 +    /** Super Metroid alone needs only its own ROM, looked for as [findBaseRoms] does. */
-+    suspend fun findSmRom(context: Context, games: List<Game>): ByteArray? = withContext(Dispatchers.IO) { searchBaseRoms(context, games, false).first }
++    suspend fun findSmRom(context: Context, games: List<Game>): ByteArray? = withContext(Dispatchers.IO) { searchBaseRoms(context, games, true, false).first }
 +
-+    private fun searchBaseRoms(context: Context, games: List<Game>, needZ3: Boolean): Pair<ByteArray?, ByteArray?> {
++    /** And A Link to the Past alone only its own. */
++    suspend fun findZ3Rom(context: Context, games: List<Game>): ByteArray? = withContext(Dispatchers.IO) { searchBaseRoms(context, games, false, true).second }
++
++    private fun searchBaseRoms(context: Context, games: List<Game>, needSm: Boolean, needZ3: Boolean): Pair<ByteArray?, ByteArray?> {
 +        var sm: ByteArray? = null
 +        var z3: ByteArray? = null
 +        wrongBaseRom = null
@@ -2877,12 +2927,12 @@ index 0000000..962b5fd
 +        // the copies kept by the ROM picker come first: the originals may have moved or been deleted since
 +        for (name in listOf("sm.bin", "z3.bin")) offer(runCatching { File(baseDir(context), name).readBytes() }.getOrNull())
 +        for (game in games) {
-+            if (sm != null && (z3 != null || !needZ3)) break
++            if ((sm != null || !needSm) && (z3 != null || !needZ3)) break
 +            offer(runCatching { openRom(context, game).use { it.readBytes() } }.getOrNull())
 +        }
 +        val folders = listOf("Download/roms", "Download", "Roms", "roms", "ROMs").map { File("/sdcard", it) }
 +        for (folder in folders) {
-+            if (sm != null && (z3 != null || !needZ3)) break
++            if ((sm != null || !needSm) && (z3 != null || !needZ3)) break
 +            folder.listFiles()?.filter { it.isFile && (it.length() == 0x300000L || it.length() == 0x100000L || it.length() == 0x300200L || it.length() == 0x100200L) }
 +                ?.forEach { offer(runCatching { it.readBytes() }.getOrNull()) }
 +        }
@@ -3307,10 +3357,10 @@ index 0000000..de4a770
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt
 new file mode 100644
-index 0000000..849ed4e
+index 0000000..788d635
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,23 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -3328,7 +3378,8 @@ index 0000000..849ed4e
 +        3 -> "finished"
 +        else -> "not started"
 +    }
-+    val checks = if (RunStore.mode == "sm") "Metroid ${run.metroidCleared}/${run.metroidTotal}"   // Super Metroid alone: its own count
++    val checks = if (RunStore.mode == "sm") "Metroid ${run.metroidCleared}/${run.metroidTotal}"   // a single game: its own count
++        else if (RunStore.mode == "z3") "Zelda ${run.zeldaCleared}/${run.zeldaTotal}"
 +        else "Zelda ${run.zeldaCleared}/${run.zeldaTotal} · Metroid ${run.metroidCleared}/${run.metroidTotal}"
 +    return "$checks\n" +
 +        "$time played · $game · $last"
@@ -4892,7 +4943,7 @@ index 0000000..d5c4d50
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DungeonPanel.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DungeonPanel.kt
 new file mode 100644
-index 0000000..d71c7a9
+index 0000000..66012d4
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DungeonPanel.kt
 @@ -0,0 +1,269 @@
@@ -4952,7 +5003,7 @@ index 0000000..d71c7a9
 +    private val blackRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.BLACK; strokeWidth = 3f }
 +
 +    /** True when the view should draw the dungeon picture rather than the world map. */
-+    fun showsDungeon(): Boolean = maps.available && if (!interactive) live != null else when (mode) {
++    fun showsDungeon(): Boolean = maps.available && !Smz3Tracker.smAlone && if (!interactive) live != null else when (mode) {
 +        MODE_WORLD -> false
 +        MODE_PICKED -> true
 +        else -> live != null
@@ -4990,7 +5041,7 @@ index 0000000..d71c7a9
 +    /** The chip that leads from the world map into the dungeon pictures. */
 +    fun drawWorldChip(canvas: Canvas, h: Int) {
 +        hits.clear()
-+        if (!maps.available || !interactive) return
++        if (!maps.available || !interactive || Smz3Tracker.smAlone) return
 +        val d = density
 +        chip(canvas, RectF(6f * d, h - 38f * d, 98f * d, h - 6f * d), "DUNGEONS") {
 +            if (live == null) pick(pickedD, pickedIdx) else mode = MODE_AUTO
@@ -6242,7 +6293,7 @@ index 0000000..3d11f48
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 new file mode 100644
-index 0000000..b3a3675
+index 0000000..6aac24b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 @@ -0,0 +1,347 @@
@@ -6462,7 +6513,7 @@ index 0000000..b3a3675
 +            text(canvas, if (info.finished) "FINISHED IN" else "PLAY TIME", x, t + 55f, 5.5f, DIM)
 +            text(canvas, clock(info.playTimeMs), x, t + 68f, 12f, if (info.finished) GREEN else TEXT)
 +            if (com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.mode != "sm") bar(canvas, "ZELDA", info.zelda, x, t + 82f, w - 18f, GREEN)   // none in Super Metroid alone
-+            bar(canvas, "METROID", info.metroid, x, t + 100f, w - 18f, BLUE)
++            if (com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.mode != "z3") bar(canvas, "METROID", info.metroid, x, t + 100f, w - 18f, BLUE)   // none in A Link to the Past alone
 +            var y = t + 124f
 +            val room = ((h - 141f) / 10f).toInt().coerceAtLeast(0)
 +            val lines = info.diff.take(if (info.diff.size > room) maxOf(0, room - 1) else room)
@@ -6595,10 +6646,10 @@ index 0000000..b3a3675
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
 new file mode 100644
-index 0000000..ade056c
+index 0000000..bb9bef5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,517 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -6636,6 +6687,16 @@ index 0000000..ade056c
 +
 +    /** The map is drawn into its half-size coordinate space (what markers, rooms and the player position use). */
 +    private val mapRect = RectF(0f, 0f, MAP_W, MAP_H)
++
++    // The other game's portals painted over for a single-game run (tools/map_portals.py): the clean crops side by side and,
++    // per crop, x, y, w, h on the full-size map and x in the strip.
++    private val patchStrip: Bitmap? = runCatching { context.assets.open("smz3/map_patches.png").use { BitmapFactory.decodeStream(it) } }.getOrNull()
++    private val patches: List<IntArray> = runCatching {
++        val a = JSONArray(context.assets.open("smz3/map_patches.json").use { String(it.readBytes()) })
++        List(a.length()) { i -> a.getJSONArray(i).let { p -> IntArray(5) { p.getInt(it) } } }
++    }.getOrDefault(emptyList())
++    private val patchSrc = Rect()
++    private val patchDst = RectF()
 +
 +    private val markers: List<IntArray> = runCatching {
 +        val json = context.assets.open("smz3/map_markers.json").use { String(it.readBytes()) }
@@ -6923,6 +6984,7 @@ index 0000000..ade056c
 +        val bmp = bitmap ?: return
 +        if (width == 0 || height == 0) return
 +        if (Smz3Tracker.smAlone) { fitRect(RectF(SM_LEFT, 0f, MAP_W, MAP_H)); return }   // Super Metroid alone: its half of the map
++        if (Smz3Tracker.z3Alone) { fitRect(RectF(0f, 0f, SM_LEFT, MAP_H)); return }   // A Link to the Past alone: the other half
 +        val s = minOf(width.toFloat() / MAP_W, height.toFloat() / MAP_H)
 +        matrix.reset()
 +        matrix.postScale(s, s)
@@ -6976,7 +7038,14 @@ index 0000000..ade056c
 +        canvas.save()
 +        canvas.concat(matrix)
 +        if (Smz3Tracker.smAlone) canvas.clipRect(SM_LEFT, 0f, MAP_W, MAP_H)
++        if (Smz3Tracker.z3Alone) canvas.clipRect(0f, 0f, SM_LEFT, MAP_H)
 +        canvas.drawBitmap(bmp, null, mapRect, bitmapPaint)
++        val strip = patchStrip
++        if (strip != null && (Smz3Tracker.smAlone || Smz3Tracker.z3Alone)) for (p in patches) {
++            patchSrc.set(p[4], 0, p[4] + p[2], p[3])
++            patchDst.set(p[0] / 2f, p[1] / 2f, (p[0] + p[2]) / 2f, (p[1] + p[3]) / 2f)
++            canvas.drawBitmap(strip, patchSrc, patchDst, bitmapPaint)
++        }
 +        canvas.restore()
 +        // Parts of the map not seen yet are covered by a veil: light when everything is shown, dark when only discovered parts are.
 +        val layer = canvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), null)
@@ -6993,7 +7062,7 @@ index 0000000..ade056c
 +        val pts = FloatArray(2)
 +        val radius = (5f + 2f * zoom).coerceIn(5f, 16f)
 +        for (m in markers) {
-+            if (Smz3Tracker.smAlone && m[1] < SM_LEFT) continue
++            if ((Smz3Tracker.smAlone && m[1] < SM_LEFT) || (Smz3Tracker.z3Alone && m[1] >= SM_LEFT)) continue
 +            pts[0] = m[1].toFloat(); pts[1] = m[2].toFloat()
 +            matrix.mapPoints(pts)
 +            if (pts[0] < -20 || pts[1] < -20 || pts[0] > width + 20 || pts[1] > height + 20) continue
@@ -7040,7 +7109,7 @@ index 0000000..ade056c
 +            }
 +        }
 +        for (b in bosses) {
-+            if (Smz3Tracker.smAlone && b.x < SM_LEFT) continue
++            if ((Smz3Tracker.smAlone && b.x < SM_LEFT) || (Smz3Tracker.z3Alone && b.x >= SM_LEFT)) continue
 +            if (discoveredOnly && !isSeen(b.x, b.y)) continue
 +            pts[0] = b.x; pts[1] = b.y
 +            matrix.mapPoints(pts)
@@ -7171,10 +7240,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..551c7a6
+index 0000000..ebc0b8e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,169 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7230,7 +7299,13 @@ index 0000000..551c7a6
 +    /** The settings given to the last [generateSm], with the seed hash it added. */
 +    @JvmStatic external fun smLastSettings(): String
 +
-+    /** Which randomizer's ROM the memory reads follow (0 SMZ3, 2 Super Metroid alone). */
++    /** A Link to the Past alone: the 2 MB ROM of the menu's run from the 1 MB JP ROM (a random seed whose fill fails moves on), or null. */
++    @JvmStatic external fun generateZ3(z3: ByteArray, linkRdc: ByteArray?, seedIfRandom: Int): ByteArray?
++
++    /** The settings of the last [generateZ3], with its seed and hash. */
++    @JvmStatic external fun z3LastSettings(): String
++
++    /** Which randomizer's ROM the memory reads follow (0 SMZ3, 1 A Link to the Past alone, 2 Super Metroid alone). */
 +    @JvmStatic external fun setMode(mode: Int)
 +
 +    @JvmStatic external fun itemByName(name: String): Int
@@ -7418,10 +7493,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..a000c02
+index 0000000..dc940e7
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1157 @@
+@@ -0,0 +1,1162 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -7490,6 +7565,7 @@ index 0000000..a000c02
 +    private val themedText = mutableListOf<Pair<TextView, Role>>()
 +    private val themedBars = mutableListOf<ProgressBar>()
 +    private val itemNames by lazy { List(Smz3Native.inventoryCount()) { Smz3Native.inventoryInfo(it).split("|")[1] } }
++    private val itemGames by lazy { List(Smz3Native.inventoryCount()) { Smz3Native.inventoryInfo(it).split("|")[0].toInt() } }
 +    private val tabs = mutableListOf<TextView>()
 +    private val pages = mutableListOf<View>()
 +
@@ -7744,8 +7820,9 @@ index 0000000..a000c02
 +
 +    /** The rows over the mini map: five ALttP slots, or the beams owned and under them the HUD weapons owned. */
 +    private fun renderShortcuts(game: Int) {
-+        val on = (game == 1 || game == 2) && Smz3Shortcuts.rowShown(context)
-+        val weaponsOn = game == 2 && Smz3Shortcuts.weaponRowShown(context)
++        val single = Smz3Tracker.z3Alone || Smz3Tracker.smAlone   // the single-game ROMs have no shortcut hooks
++        val on = (game == 1 || game == 2) && Smz3Shortcuts.rowShown(context) && !single
++        val weaponsOn = game == 2 && Smz3Shortcuts.weaponRowShown(context) && !single
 +        val slots = List(Smz3Shortcuts.SLOTS) { Smz3Shortcuts.slot(context, it) }
 +        val key = "$on $weaponsOn $game $slots ${Smz3Shortcuts.owned} ${Smz3Shortcuts.active} ${theme.accent}"
 +        if (key == shortcutShown) return
@@ -7904,7 +7981,7 @@ index 0000000..a000c02
 +        for (gameId in listOf(1, 2)) {
 +            for (i in 0 until Smz3Native.inventoryCount()) {
 +                val info = Smz3Native.inventoryInfo(i).split("|")
-+                if (info[0].toInt() != gameId) continue
++                if (info[0].toInt() != gameId || !Smz3Tracker.gameShown(gameId)) continue
 +                val cell = FrameLayout(context).apply { setPadding(dp(3), dp(3), dp(3), dp(3)) }
 +                val icon = ImageView(context).apply {
 +                    scaleType = ImageView.ScaleType.FIT_CENTER
@@ -8347,6 +8424,7 @@ index 0000000..a000c02
 +        val bars = if (daily || goalsRun) View.GONE else View.VISIBLE
 +        listOf(zeldaText, zeldaBar, metroidText, metroidBar, rewards).forEach { it.visibility = bars }
 +        if (Smz3Tracker.smAlone) { zeldaText.visibility = View.GONE; zeldaBar.visibility = View.GONE }   // no Zelda in Super Metroid alone
++        if (Smz3Tracker.z3Alone) { metroidText.visibility = View.GONE; metroidBar.visibility = View.GONE }   // nor Metroid in A Link to the Past alone
 +        goals.visibility = if (goalsRun && !daily) View.VISIBLE else View.GONE
 +    }
 +
@@ -8449,7 +8527,7 @@ index 0000000..a000c02
 +        }
 +        var lastGame = 0
 +        for ((key, locs) in byRegion.entries.sortedBy { it.key.first }) {
-+            if (key.first == 1 && Smz3Tracker.smAlone) continue   // Super Metroid alone has no Zelda checks
++            if (!Smz3Tracker.gameShown(key.first)) continue   // a single game: its own checks only
 +            if (key.first != lastGame) {
 +                lastGame = key.first
 +                column.addView(label(12f, Role.DIM).apply {
@@ -8497,6 +8575,7 @@ index 0000000..a000c02
 +        areaBox = s.areaBox
 +        game.text = when {
 +            !s.started -> "Waiting for a file"
++            s.game == 1 && Smz3Tracker.smHash.isNotEmpty() -> "A Link to the Past  ·  ${Smz3Tracker.smHash}"
 +            s.game == 1 -> "A Link to the Past"
 +            s.game == 2 && Smz3Tracker.smHash.isNotEmpty() -> "Super Metroid  ·  ${Smz3Tracker.smHash}"
 +            s.game == 2 -> "Super Metroid"
@@ -8512,9 +8591,10 @@ index 0000000..a000c02
 +        metroidText.text = "Metroid  ${s.metroidCleared} / ${s.metroidTotal}"
 +        zeldaBar.progress = if (s.zeldaTotal == 0) 0 else s.zeldaCleared * 100 / s.zeldaTotal
 +        metroidBar.progress = if (s.metroidTotal == 0) 0 else s.metroidCleared * 100 / s.metroidTotal
-+        val itemsOwned = s.inventory.count { it > 0 }
++        val shownItems = itemGames.indices.filter { Smz3Tracker.gameShown(itemGames[it]) }   // the items of the games played
++        val itemsOwned = shownItems.count { (s.inventory.getOrNull(it) ?: 0) > 0 }
 +        val perHour = if (sec >= 300) "%.1f".format(cleared * 3600f / sec) else "-"
-+        stats.text = "Checks  $cleared / $total\nItems  $itemsOwned / ${itemNames.size}   ·   $perHour/h"
++        stats.text = "Checks  $cleared / $total\nItems  $itemsOwned / ${shownItems.size}   ·   $perHour/h"
 +        rewards.set(s.bossMask, s.crystalMask)
 +        goals.set(s.bossMask, s.crystalMask, s.game == 3)
 +        renderRecentItems(s.recentItems)
@@ -8581,10 +8661,10 @@ index 0000000..a000c02
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RewardsView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RewardsView.kt
 new file mode 100644
-index 0000000..686ef24
+index 0000000..5aecb8e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RewardsView.kt
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,99 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -8612,6 +8692,10 @@ index 0000000..686ef24
 +    private val tokens: List<Bitmap?> = listOf("kraid", "phantoon", "draygon", "ridley").map { name ->
 +        runCatching { context.assets.open("smz3/rewards/${name}_boss_token.png").use { BitmapFactory.decodeStream(it) } }.getOrNull()?.let(::cropToArt)
 +    }
++    // A Link to the Past alone: its pendants where the Metroid bosses go (bit 0 green, 1 blue, 2 red)
++    private val pendants: List<Bitmap?> = listOf("green", "blue", "red").map { name ->
++        runCatching { context.assets.open("smz3/rewards/${name}_pendant_boss_token.png").use { BitmapFactory.decodeStream(it) } }.getOrNull()?.let(::cropToArt)
++    }
 +    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 +    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; isFakeBoldText = true }
 +    private val gem = Path()
@@ -8636,8 +8720,9 @@ index 0000000..686ef24
 +        val unit = minOf(height.toFloat(), width / (4f + 0.25f + 7 * 0.7f + 0.2f))
 +        var x = 0f
 +        val top = (height - unit) / 2f
-+        for (i in 0 until 4) {
-+            val bmp = tokens[i]
++        val shown = if (Smz3Tracker.z3Alone) pendants else tokens
++        for (i in shown.indices) {
++            val bmp = shown[i]
 +            val done = bosses and (1 shl i) != 0
 +            if (bmp != null) {
 +                val h = unit * bmp.height / bmp.width
@@ -9210,10 +9295,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..5cb83c5
+index 0000000..f5d9f20
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,474 @@
+@@ -0,0 +1,481 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -9297,8 +9382,14 @@ index 0000000..5cb83c5
 +    /** The run is Super Metroid alone: the map shows its half only and the Zelda counters are hidden. */
 +    @Volatile var smAlone = false
 +
-+    /** Its seed hash, the four words of its file select screen ("" for other runs). */
++    /** The run is A Link to the Past alone: the map shows its half only and the Metroid counters are hidden. */
++    @Volatile var z3Alone = false
++
++    /** A single game's seed hash, the words or icons of its file select screen ("" for SMZ3 runs). */
 +    @Volatile var smHash = ""
++
++    /** Whether the run has the game (1 Zelda, 2 Metroid). */
++    fun gameShown(game: Int) = if (game == 1) !smAlone else !z3Alone
 +
 +    /** Set after a save state is loaded: the next reads drop the recent checks and items the state undid. */
 +    @Volatile var stateLoaded = 0
@@ -9339,7 +9430,8 @@ index 0000000..5cb83c5
 +        // which randomizer's ROM runs: the memory reads (in this process) and the tracker follow it
 +        val activeRun = RunStore.activeSlot(context)?.let { RunStore.load(context, it) }
 +        smAlone = RunStore.mode == "sm"
-+        smHash = if (smAlone) activeRun?.let { runCatching { org.json.JSONObject(it.settings).optString("hash") }.getOrNull() }.orEmpty() else ""
++        z3Alone = RunStore.mode == "z3"
++        smHash = if (smAlone || z3Alone) activeRun?.let { runCatching { org.json.JSONObject(it.settings).optString("hash") }.getOrNull() }.orEmpty() else ""
 +        Smz3Native.setMode(RunStore.modeIndex())
 +        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 +        displays.registerDisplayListener(

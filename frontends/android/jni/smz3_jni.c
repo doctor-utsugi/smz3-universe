@@ -606,6 +606,37 @@ JNIEXPORT jstring JNICALL NATIVE(uiSettingsJson)(JNIEnv *env, jclass cls, jint s
     return (*env)->NewStringUTF(env, buf);
 }
 
+#include "smz3_host.h"
+#include "smz3_z3.h"
+/* A Link to the Past alone: the 2 MB ROM of the menu's run from the 1 MB JP ROM (smz_host_generate, which moves on from a
+ * random seed whose fill fails), its settings with the seed hash read back by z3LastSettings. */
+static char g_z3_json[4096];
+
+JNIEXPORT jbyteArray JNICALL NATIVE(generateZ3)(JNIEnv *env, jclass cls, jbyteArray z3, jbyteArray linkRdc, jint seedIfRandom)
+{
+    g_error[0] = 0;
+    if ((*env)->GetArrayLength(env, z3) != SMZ_Z3_BASE_SIZE) { snprintf(g_error, sizeof g_error, "the ALttP ROM has the wrong size"); return NULL; }
+    jbyte *zb = (*env)->GetByteArrayElements(env, z3, NULL);
+    jbyte *lk = linkRdc ? (*env)->GetByteArrayElements(env, linkRdc, NULL) : NULL;
+    uint8_t *rom = malloc(SMZ_HOST_ROM_SIZE);
+    char seed[16];
+    int rc = rom ? smz_host_generate(&g_ui, seedIfRandom, NULL, (const uint8_t *)zb, (const uint8_t *)lk,
+                                     lk ? (size_t)(*env)->GetArrayLength(env, linkRdc) : 0, NULL, 0, NULL, NULL, rom,
+                                     g_z3_json, sizeof g_z3_json, seed, sizeof seed, NULL) : -1;
+    jbyteArray result = NULL;
+    if (rc) snprintf(g_error, sizeof g_error, rc == -6 ? "the sprite file is not valid" : "generation failed (%d)", rc);
+    else {
+        result = (*env)->NewByteArray(env, SMZ_Z3_ROM_SIZE);
+        (*env)->SetByteArrayRegion(env, result, 0, SMZ_Z3_ROM_SIZE, (const jbyte *)rom);
+    }
+    if (lk) (*env)->ReleaseByteArrayElements(env, linkRdc, lk, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, z3, zb, JNI_ABORT);
+    free(rom);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL NATIVE(z3LastSettings)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, g_z3_json); }
+
 /* Saved customs: the host stores the text in a file; null (no file yet) installs the built-in ones. */
 JNIEXPORT void JNICALL NATIVE(uiSavedLoad)(JNIEnv *env, jclass cls, jstring text)
 {

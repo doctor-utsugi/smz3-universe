@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 project(smz3core C)
 
+# every A Link to the Past generator source, like the 3DS build copies them
+file(GLOB Z3GEN_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../../core/z3gen/*.c)
 add_library(smz3core SHARED
     jni/smz3_jni.c
     ../../core/smz3_state.c
@@ -39,13 +41,20 @@ add_library(smz3core SHARED
     ../../core/smgen/sm_world_gen.c
     ../../core/smgen/sm_patch.c
     ../../core/smgen/sm_options_gen.c
-    ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c)
-target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/smgen ../../core/ui)
+    ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c
+    ../../core/ui/smz3_z3.c
+    ${Z3GEN_SRC}
+    ${CMAKE_CURRENT_BINARY_DIR}/z3_ips_data.c)
+target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/smgen ../../core/z3gen ../../core/ui)
 # the Super Metroid base patch as a C array, made at build time like the PC build does
 find_program(PYTHON3 python3 REQUIRED)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c
     COMMAND ${PYTHON3} ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/gen_sm_ips_c.py ${CMAKE_CURRENT_SOURCE_DIR}/../../patches/sm_randomizer.ips ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/gen_sm_ips_c.py ${CMAKE_CURRENT_SOURCE_DIR}/../../patches/sm_randomizer.ips)
+# and A Link to the Past's (z3randomizer)
+add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/z3_ips_data.c
+    COMMAND ${PYTHON3} ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/z3/gen_z3_ips_c.py ${CMAKE_CURRENT_SOURCE_DIR}/../../patches/z3_base.ips ${CMAKE_CURRENT_BINARY_DIR}/z3_ips_data.c
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/z3/gen_z3_ips_c.py ${CMAKE_CURRENT_SOURCE_DIR}/../../patches/z3_base.ips)
 # the release tag shown on the second screen: the tag CI builds, else the newest tag here
 if("$ENV{GITHUB_REF_NAME}" MATCHES "^v")
     set(SMZ3_VERSION "$ENV{GITHUB_REF_NAME}")
