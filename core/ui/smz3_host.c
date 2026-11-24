@@ -5,6 +5,7 @@
 #include "smz3_ui_gen.h"
 #include "smz3_run.h"
 #include "smz3_sm.h"
+#include "smz3_z3.h"
 
 void smz_host_sprites(const SmzUi *u, char link[32], char samus[32])
 {
@@ -33,6 +34,16 @@ int smz_host_generate(const SmzUi *u, int32_t seed_if_random, const uint8_t *sm,
             if (tries && ui_settings_json(u, seed_if_random, settings_json, json_cap) < 0) return -8;
             snprintf(seed_text, seed_cap, "%d", u->value[0] ? u->value[0] : (int)seed_if_random);
             rc = smz_sm_generate(settings_json, json_cap, sm, samus_rdc, samus_len, rom_out, SMZ_HOST_ROM_SIZE);
+        }
+        return rc;
+    }
+    if (u->game_mode == SMZ_MODE_Z3) {   /* A Link to the Past alone: its own generator, only the JP ROM, a 2 MB ROM */
+        int rc = -3;
+        /* alttpr fails a fill now and then (no location for an item, -3; unwinnable, -4): a random seed moves on */
+        for (int tries = 0; (rc == -3 || rc == -4) && tries < (u->value[0] ? 1 : 32); tries++, seed_if_random++) {
+            if (tries && ui_settings_json(u, seed_if_random, settings_json, json_cap) < 0) return -8;
+            snprintf(seed_text, seed_cap, "%d", u->value[0] ? u->value[0] : (int)seed_if_random);
+            rc = smz_z3_generate(settings_json, json_cap, z3, link_rdc, link_len, rom_out, SMZ_HOST_ROM_SIZE);
         }
         return rc;
     }

@@ -323,6 +323,9 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 5. **Z3 base patch and oracle** (stages 1-2 above).
 6. **Z3 generator** for the first-release options (stages 3-6).
 7. **Z3 on the hosts** and **Z3 online**, as steps 3 and 4.
+   Hosts done, offline (see Z3.md, step 7): PC, 3DS and Android generate and track Z3 runs. A single-game run shows
+   nothing of the other game on the second screen: no portals on its half of the map, no Dungeons button in SM, no
+   other game's bosses, crystals, counters or items (SMZ3 54, SM 21, Z3 33), no shortcut rows. Online is next.
 8. **Z3 next options**, then glitched logic.
    Generator done (`core/z3gen`, see Z3.md): Inverted, Retro, Triforce Hunt, Ganonhunt, Completionist and the five
    logics, byte-identical to alttpr; offered in `Z3_OPTIONS`, not yet on the hosts. Boss shuffle places bosses but

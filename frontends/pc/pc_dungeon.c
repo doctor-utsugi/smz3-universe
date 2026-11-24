@@ -85,7 +85,7 @@ int dungeon_live(const uint8_t *wram, size_t len, DungeonLive *out)
 
 void dungeon_view_init(DungeonView *v) { *v = (DungeonView){0, 0, 2, 0}; v->idx = 0; }
 
-int dungeon_showing(const DungeonView *v, const DungeonLive *live) { return state > 0 && !v->world && (v->picked || live); }
+int dungeon_showing(const DungeonView *v, const DungeonLive *live) { return state > 0 && !smz3_sm_alone() && !v->world && (v->picked || live); }
 
 static void shown(const DungeonView *v, const DungeonLive *live, int *d, int *idx)
 {
@@ -120,6 +120,7 @@ void dungeon_here(DungeonView *v) { v->picked = 0; v->world = 0; }
 
 void dungeon_toggle(DungeonView *v, const DungeonLive *live)
 {
+    if (smz3_sm_alone()) return;   /* no dungeons in Super Metroid */
     if (dungeon_showing(v, live)) v->world = 1;
     else if (live) dungeon_here(v);
     else { v->world = 0; if (!v->picked) pick(v, v->d, meta.below[v->d]); }

@@ -8,12 +8,12 @@ OUT := $(ROOT)/build/win
 CC := x86_64-w64-mingw32-gcc
 SDL := $(OUT)/SDL2/x86_64-w64-mingw32
 S9X := $(OUT)/s9x
-CFLAGS := -O2 -I$(CURDIR) -std=gnu11 -w -DSDL_MAIN_HANDLED -I$(CORE) -I$(CORE)/gen -I$(CORE)/smgen -I$(CORE)/ui -I$(S9X)/libretro -I$(S9X)/libretro/libretro-common/include -I$(SDL)/include/SDL2
+CFLAGS := -O2 -I$(CURDIR) -std=gnu11 -w -DSDL_MAIN_HANDLED -I$(CORE) -I$(CORE)/gen -I$(CORE)/smgen -I$(CORE)/z3gen -I$(CORE)/ui -I$(S9X)/libretro -I$(S9X)/libretro/libretro-common/include -I$(SDL)/include/SDL2
 LIBS := -static -L$(SDL)/lib -lSDL2 -lm -lstdc++ -lwinmm -limm32 -lole32 -loleaut32 -lversion -lsetupapi -lgdi32 -lcrypt32 -lshell32 -luser32 -ladvapi32 -lwinpthread
 EXE := .exe
 else
 OUT := $(ROOT)/build/pc
-CFLAGS := -O2 -I$(CURDIR) -std=gnu11 -w -I$(CORE) -I$(CORE)/gen -I$(CORE)/smgen -I$(CORE)/ui -I$(S9X)/libretro -I$(S9X)/libretro/libretro-common/include $(shell sdl2-config --cflags)
+CFLAGS := -O2 -I$(CURDIR) -std=gnu11 -w -I$(CORE) -I$(CORE)/gen -I$(CORE)/smgen -I$(CORE)/z3gen -I$(CORE)/ui -I$(S9X)/libretro -I$(S9X)/libretro/libretro-common/include $(shell sdl2-config --cflags)
 ifeq ($(shell uname -s),Darwin)
 # macOS: SDL2 goes inside the binary (Homebrew's libSDL2.a), so players need no Homebrew
 LIBS := $(shell sdl2-config --prefix)/lib/libSDL2.a $(filter-out -lSDL2 -L%,$(shell sdl2-config --static-libs)) -lm -lstdc++
@@ -27,10 +27,11 @@ SMZ3_VERSION ?= $(or $(filter v%,$(GITHUB_REF_NAME)),$(shell git -C $(ROOT) desc
 CFLAGS += -DSMZ3_VERSION='"$(SMZ3_VERSION)"'
 
 SMGEN := sm_generate sm_fill sm_world sm_world_gen sm_patch sm_options_gen
+Z3GEN := $(notdir $(basename $(wildcard $(CORE)/z3gen/*.c)))
 GEN := smz3_generate smz3_fill smz3_world smz3_world_gen smz3_rng smz3_patch smz3_rom smz3_text smz3_sprite smz3_hints smz3_itemopts smz3_plando smz3_md5 smz3_romsetup smz3_romderived smz3_dungeonmaps smz3_goalicons
-SRC := $(addprefix $(CORE)/gen/,$(addsuffix .c,$(GEN))) $(addprefix $(CORE)/smgen/,$(addsuffix .c,$(SMGEN))) $(CORE)/smz3_state.c $(CORE)/smz3_locations.c $(CORE)/smz3_inventory.c \
-       $(CORE)/ui/smz3_ui.c $(CORE)/ui/smz3_ui_opts.c $(CORE)/ui/smz3_run.c $(CORE)/ui/smz3_host.c $(CORE)/ui/smz3_tracker.c $(CORE)/ui/smz3_goal.c $(CORE)/ui/smz3_daily.c $(CORE)/ui/smz3_race.c $(CORE)/ui/smz3_shortcuts.c $(CORE)/ui/smz3_counters.c $(CORE)/ui/smz3_discovery.c $(CORE)/ui/smz3_runlogic.c $(CORE)/ui/smz3_proof.c $(CORE)/ui/smz3_preview.c $(CORE)/ui/smz3_rewind.c $(CORE)/ui/smz3_sm.c \
-       $(wildcard pc_*.c) font_data.c $(OUT)/ips_data.c $(OUT)/sm_ips_data.c $(OUT)/map_data.c $(OUT)/logo_data.c
+SRC := $(addprefix $(CORE)/gen/,$(addsuffix .c,$(GEN))) $(addprefix $(CORE)/smgen/,$(addsuffix .c,$(SMGEN))) $(addprefix $(CORE)/z3gen/,$(addsuffix .c,$(Z3GEN))) $(CORE)/smz3_state.c $(CORE)/smz3_locations.c $(CORE)/smz3_inventory.c \
+       $(CORE)/ui/smz3_ui.c $(CORE)/ui/smz3_ui_opts.c $(CORE)/ui/smz3_run.c $(CORE)/ui/smz3_host.c $(CORE)/ui/smz3_tracker.c $(CORE)/ui/smz3_goal.c $(CORE)/ui/smz3_daily.c $(CORE)/ui/smz3_race.c $(CORE)/ui/smz3_shortcuts.c $(CORE)/ui/smz3_counters.c $(CORE)/ui/smz3_discovery.c $(CORE)/ui/smz3_runlogic.c $(CORE)/ui/smz3_proof.c $(CORE)/ui/smz3_preview.c $(CORE)/ui/smz3_rewind.c $(CORE)/ui/smz3_sm.c $(CORE)/ui/smz3_z3.c \
+       $(wildcard pc_*.c) font_data.c $(OUT)/ips_data.c $(OUT)/sm_ips_data.c $(OUT)/z3_ips_data.c $(OUT)/map_data.c $(OUT)/logo_data.c
 OBJ := $(patsubst %.c,$(OUT)/o/%.o,$(notdir $(SRC)))
 
 all: $(OUT)/smz3$(EXE)
@@ -54,7 +55,11 @@ $(OUT)/sm_ips_data.c: $(ROOT)/tools/gen_sm_ips_c.py $(ROOT)/patches/sm_randomize
 	mkdir -p $(OUT)
 	python3 $< $(ROOT)/patches/sm_randomizer.ips $@
 
-$(OUT)/map_data.c: $(ROOT)/tools/gen_pc_assets.py $(wildcard $(ROOT)/assets/flags/*.png) $(wildcard $(ROOT)/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/goals/*.png)
+$(OUT)/z3_ips_data.c: $(ROOT)/tools/z3/gen_z3_ips_c.py $(ROOT)/patches/z3_base.ips
+	mkdir -p $(OUT)
+	python3 $< $(ROOT)/patches/z3_base.ips $@
+
+$(OUT)/map_data.c: $(ROOT)/tools/gen_pc_assets.py $(ROOT)/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/map_patches.png $(wildcard $(ROOT)/assets/flags/*.png) $(wildcard $(ROOT)/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3/goals/*.png)
 	mkdir -p $(OUT)
 	python3 $< $(ROOT)/vendor/Lemuroid/lemuroid-app/src/main/assets/smz3 $@
 
@@ -72,6 +77,9 @@ $(OUT)/o/ips_data.o: $(OUT)/ips_data.c
 	@mkdir -p $(OUT)/o
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 $(OUT)/o/sm_ips_data.o: $(OUT)/sm_ips_data.c
+	@mkdir -p $(OUT)/o
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+$(OUT)/o/z3_ips_data.o: $(OUT)/z3_ips_data.c
 	@mkdir -p $(OUT)/o
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 $(OUT)/o/map_data.o: $(OUT)/map_data.c

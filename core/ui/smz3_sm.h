@@ -9,7 +9,7 @@
 #define SMZ_SM_BASE_SIZE 0x300000   /* the Super Metroid (JU) ROM the player gives */
 #define SMZ_SM_ROM_SIZE 0x400000    /* the LoROM a run plays */
 
-/* The size of the ROM a run of this mode (SMZ_MODE_*) plays: 6 MB for SMZ3, 4 MB for Super Metroid. */
+/* The size of the ROM a run of this mode (SMZ_MODE_*) plays: 6 MB for SMZ3, 2 MB for A Link to the Past, 4 MB for Super Metroid. */
 size_t smz_mode_rom_size(int mode);
 
 /* Generates the run of a "game":"sm" settings JSON (ui_settings_json) from the JU ROM in sm into rom_out (cap at least

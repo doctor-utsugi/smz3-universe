@@ -23,6 +23,44 @@ static int readys[2];
 #define ready readys[gfx_slot()]
 static void load(SDL_Renderer *r);
 
+/* The portals of the other game: their pixels as the map has them and painted over (map_portals.py), swapped into each
+ * window's texture when a single-game run is tracked. */
+static uint8_t *patch_px[2];   /* 0 the map's own, 1 the clean ones; the patches one after another, RGBA rows */
+static int patched[2];         /* per window: which set its texture holds */
+
+static void patches_load(const unsigned char *map, int w)
+{
+    int pw, ph, n;
+    unsigned char *strip = stbi_load_from_memory(PC_MAP_PATCH_PNG, (int)PC_MAP_PATCH_PNG_LEN, &pw, &ph, &n, 4);
+    size_t total = 0;
+    for (int i = 0; i < PC_MAP_PATCH_COUNT; i++) total += (size_t)PC_MAP_PATCHES[i][2] * PC_MAP_PATCHES[i][3] * 4;
+    if (strip && (patch_px[0] = malloc(total)) && (patch_px[1] = malloc(total))) {
+        size_t o = 0;
+        for (int i = 0; i < PC_MAP_PATCH_COUNT; i++) {
+            const int *p = PC_MAP_PATCHES[i];
+            for (int y = 0; y < p[3]; y++, o += (size_t)p[2] * 4) {
+                memcpy(patch_px[0] + o, map + ((size_t)(p[1] + y) * w + p[0]) * 4, (size_t)p[2] * 4);
+                memcpy(patch_px[1] + o, strip + ((size_t)y * pw + p[4]) * 4, (size_t)p[2] * 4);
+            }
+        }
+    } else { free(patch_px[0]); patch_px[0] = NULL; }
+    stbi_image_free(strip);
+}
+
+static void patches_apply(void)
+{
+    int want = smz3_sm_alone() || smz3_z3_alone();
+    if (!map_tex || !patch_px[0] || patched[gfx_slot()] == want) return;
+    patched[gfx_slot()] = want;
+    size_t o = 0;
+    for (int i = 0; i < PC_MAP_PATCH_COUNT; i++) {
+        const int *p = PC_MAP_PATCHES[i];
+        SDL_Rect r = {p[0], p[1], p[2], p[3]};
+        SDL_UpdateTexture(map_tex, &r, patch_px[want] + o, p[2] * 4);
+        o += (size_t)p[2] * p[3] * 4;
+    }
+}
+
 static SDL_Texture *make_disc(SDL_Renderer *r, int ring)
 {
     enum { N = 64 };
@@ -67,6 +105,8 @@ static void load(SDL_Renderer *r)
         map_tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, map_w, map_h);
         SDL_UpdateTexture(map_tex, NULL, img, map_w * 4);
         SDL_SetTextureScaleMode(map_tex, SDL_ScaleModeLinear);
+        patched[gfx_slot()] = 0;
+        if (!patch_px[0]) patches_load(img, map_w);
         stbi_image_free(img);
     }
     disc_tex = make_disc(r, 0);
@@ -92,13 +132,15 @@ void map_view_move(MapView *v, float dx, float dy, float dz)
     if (dz != 0) { v->zoom *= dz; if (v->zoom < 0.4f) v->zoom = 0.4f; if (v->zoom > 8) v->zoom = 8; }
 }
 
-/* Super Metroid alone shows only the Metroid half of the combined map, right of x 480 (smz_disc_area_box). */
+/* A single game shows only its half of the combined map: Super Metroid right of x 480 (smz_disc_area_box), A Link to the
+ * Past left of it. */
 #define HALF_X (smz3_sm_alone() ? 480.0f : 0.0f)
+#define HALF_END (smz3_z3_alone() ? 480.0f : MAP_W)
 
 void map_view_fit(MapView *v, SDL_Rect area)
 {
-    v->zoom = fminf(area.w / (MAP_W - HALF_X), area.h / MAP_H);
-    v->cx = (MAP_W + HALF_X) / 2; v->cy = MAP_H / 2;
+    v->zoom = fminf(area.w / (HALF_END - HALF_X), area.h / MAP_H);
+    v->cx = (HALF_END + HALF_X) / 2; v->cy = MAP_H / 2;
 }
 
 static const uint8_t *visible;
@@ -142,14 +184,15 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
               const uint8_t *in_logic, const uint8_t *wram, size_t wram_len, Uint32 ticks)
 {
     if (!ready) load(r);
+    patches_apply();
     if (v->follow && d->has_position) { v->cx = d->x; v->cy = d->y; }
     float z = v->zoom, ox = area.x + area.w / 2.0f - v->cx * z, oy = area.y + area.h / 2.0f - v->cy * z;
     SDL_RenderSetClipRect(r, &area);
     gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
     if (!map_tex) { SDL_RenderSetClipRect(r, NULL); return; }
-    float sx = map_w / MAP_W, hx = HALF_X;
-    SDL_FRect whole = {ox + hx * z, oy, (MAP_W - hx) * z, MAP_H * z};
-    SDL_Rect part = {(int)(hx * sx), 0, map_w - (int)(hx * sx), map_h};
+    float sx = map_w / MAP_W, hx = HALF_X, he = HALF_END;
+    SDL_FRect whole = {ox + hx * z, oy, (he - hx) * z, MAP_H * z};
+    SDL_Rect part = {(int)(hx * sx), 0, (int)(he * sx) - (int)(hx * sx), map_h};
     Uint8 veil = discovered_only ? 20 : 145;
     SDL_SetTextureColorMod(map_tex, veil, veil, veil);
     SDL_RenderCopyF(r, map_tex, &part, &whole);
@@ -160,7 +203,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
         SmzRect q = seen[i];
         if (q.x < hx) { q.w += q.x - hx; q.x = hx; }
         if (q.y < 0) { q.h += q.y; q.y = 0; }
-        if (q.x + q.w > MAP_W) q.w = MAP_W - q.x;
+        if (q.x + q.w > he) q.w = he - q.x;
         if (q.y + q.h > MAP_H) q.h = MAP_H - q.y;
         if (q.w <= 0 || q.h <= 0) continue;
         SDL_Rect src = {(int)(q.x * sx), (int)(q.y * sx), (int)ceilf(q.w * sx), (int)ceilf(q.h * sx)};
@@ -173,7 +216,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     for (int k = 0; k < d->data->n_markers; k++) {
         const SmzMarker *m = &d->data->markers[k];
         int i = m->index;
-        if (i < 0 || i >= (int)smz3_location_count || i >= 512 || (hx > 0 && smz3_locations[i].game == SMZ3_GAME_ZELDA)) continue;
+        if (i < 0 || i >= (int)smz3_location_count || i >= 512 || !smz3_mode_has(smz3_locations[i].game)) continue;
         float px = ox + m->x * z, py = oy + m->y * z;
         if (px < area.x - 20 || py < area.y - 20 || px > area.x + area.w + 20 || py > area.y + area.h + 20) continue;
         if (discovered_only && !seen_at(seen, ns, (float)m->x, (float)m->y)) continue;
@@ -216,7 +259,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     int nb = wram ? smz_disc_boss_marks(d, wram, wram_len, boss, 16) : 0;
     for (int i = 0; i < nb; i++) {
         float px = ox + boss[i].x * z, py = oy + boss[i].y * z, h = fminf(20, fmaxf(8, 7 + 3 * z));
-        if (boss[i].x < hx) continue;
+        if (boss[i].x < hx || boss[i].x > he) continue;
         if (discovered_only && !seen_at(seen, ns, boss[i].x, boss[i].y)) continue;
         SDL_Color c = boss[i].done ? (SDL_Color){0x60, 0x68, 0x78, 255} : (SDL_Color){0xE0, 0x5A, 0x4F, 255};
         gfx_rect(px - h, py - h, 2 * h, 2 * h, (SDL_Color){0, 0, 0, 255});

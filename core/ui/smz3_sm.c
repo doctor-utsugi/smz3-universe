@@ -6,7 +6,7 @@
 #include "sm_generate.h"
 #include "smz3_state.h"
 
-size_t smz_mode_rom_size(int mode) { return mode == SMZ_MODE_SM ? SMZ_SM_ROM_SIZE : 0x600000; }
+size_t smz_mode_rom_size(int mode) { return mode == SMZ_MODE_SM ? SMZ_SM_ROM_SIZE : mode == SMZ_MODE_Z3 ? 0x200000 : 0x600000; }
 
 /* The 32 words of sm_randomizer_rom's randopatches/seed_display.asm, one per hash byte (its low 5 bits). */
 static const char *const WORDS[32] = {

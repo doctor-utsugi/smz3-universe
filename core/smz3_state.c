@@ -9,10 +9,12 @@
 #define SRAM_ZELDA 0x0000        /* 0xA06000 */
 #define SRAM_METROID 0x20C0      /* 0xA160C0 */
 
-static int g_sm_alone;
+static int g_sm_alone, g_z3_alone;
 
-void smz3_set_mode(int mode) { g_sm_alone = mode == 2; }
+void smz3_set_mode(int mode) { g_sm_alone = mode == 2; g_z3_alone = mode == 1; }
 int smz3_sm_alone(void) { return g_sm_alone; }
+int smz3_z3_alone(void) { return g_z3_alone; }
+int smz3_mode_has(smz3_game game) { return game == SMZ3_GAME_ZELDA ? !g_sm_alone : !g_z3_alone; }
 
 /* Super Metroid alone: the item bits of the last used save slot ($70:1FEC; slots of 0x65C bytes from $70:0010, $7ED870 at +0xB0). */
 static size_t sm_slot_items(const uint8_t *sram, size_t sram_len)
@@ -24,6 +26,7 @@ static size_t sm_slot_items(const uint8_t *sram, size_t sram_len)
 smz3_game smz3_current_game(const uint8_t *sram, size_t sram_len)
 {
     if (g_sm_alone) return SMZ3_GAME_METROID;
+    if (g_z3_alone) return SMZ3_GAME_ZELDA;
     if (sram_len <= SRAM_GAME) return SMZ3_GAME_NONE;
     switch (sram[SRAM_GAME]) {
     case 0x00: return SMZ3_GAME_ZELDA;
@@ -55,6 +58,9 @@ int smz3_run_finished(const uint8_t *wram, size_t wram_len, const uint8_t *sram,
         unsigned state = wram[WRAM_METROID_STATE] | wram[WRAM_METROID_STATE + 1] << 8;
         return state == 0x26 || state == 0x27 || ((wram[0xD821] & 0x40) && (wram[0xFB2] | wram[0xFB3] << 8) == 0xAA4F);
     }
+    /* A Link to the Past alone: every goal ends in the Triforce room (z3randomizer's StatsFinalPrep sets module 0x19), then
+     * the credits (0x1A). */
+    if (g_z3_alone) return wram_len > WRAM_ZELDA_MODULE && (wram[WRAM_ZELDA_MODULE] == 0x19 || wram[WRAM_ZELDA_MODULE] == 0x1A);
     smz3_game g = smz3_current_game(sram, sram_len);
     if (g == SMZ3_GAME_CREDITS) return 1;
     if (sram_len <= 0x3506 || !sram[0x3402]) return 0;
@@ -70,7 +76,12 @@ int smz3_run_finished(const uint8_t *wram, size_t wram_len, const uint8_t *sram,
 int smz3_started(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len)
 {
     switch (smz3_current_game(sram, sram_len)) {
-    case SMZ3_GAME_ZELDA: return wram_len > WRAM_ZELDA_MODULE && wram[WRAM_ZELDA_MODULE] >= 6 && wram[WRAM_ZELDA_MODULE] < 0x20;
+    case SMZ3_GAME_ZELDA:
+        if (g_z3_alone) {   /* not the attract mode (0x14), which plays with the items before any file is loaded */
+            unsigned m = wram_len > WRAM_ZELDA + 0x3C5 ? wram[WRAM_ZELDA_MODULE] : 0;
+            return m >= 6 && m < 0x20 && m != 0x14 && wram[WRAM_ZELDA + 0x3C5] != 0x55;
+        }
+        return wram_len > WRAM_ZELDA_MODULE && wram[WRAM_ZELDA_MODULE] >= 6 && wram[WRAM_ZELDA_MODULE] < 0x20;
     case SMZ3_GAME_METROID:
         if (g_sm_alone) {   /* its own intro (0x1E) runs before the items are loaded, while they still read as Snes9x's 0x55 fill */
             unsigned st = wram_len > WRAM_METROID + 1 && !wram[WRAM_METROID_STATE + 1] ? wram[WRAM_METROID_STATE] : 0;
@@ -127,15 +138,16 @@ void smz3_summarize(const uint8_t *wram, size_t wram_len,
     smz3_game from = save_only ? SMZ3_GAME_NONE : out->game;
     if ((!out->started || out->game == SMZ3_GAME_NONE) && !save_only) {
         for (unsigned i = 0; i < smz3_location_count; i++) {
+            if (!smz3_mode_has(smz3_locations[i].game)) continue;
             if (smz3_locations[i].game != SMZ3_GAME_ZELDA) out->metroid_total++;
-            else if (!g_sm_alone) out->zelda_total++;
+            else out->zelda_total++;
         }
         return;
     }
 
     for (unsigned i = 0; i < smz3_location_count; i++) {
         const smz3_location *loc = &smz3_locations[i];
-        if (g_sm_alone && loc->game == SMZ3_GAME_ZELDA) continue;
+        if (!smz3_mode_has(loc->game)) continue;
         int cleared = smz3_location_cleared(loc, from, wram, wram_len, sram, sram_len);
         if (loc->game == SMZ3_GAME_ZELDA) {
             out->zelda_total++;

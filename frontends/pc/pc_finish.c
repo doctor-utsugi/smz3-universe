@@ -187,7 +187,7 @@ void finish_draw(const FinishCard *f, int ww, int wh)
             gfx_text(lx, ry, 18 * u, dim, 0, "COMPLETION");
             snprintf(v, sizeof v, "%d%%", (int)(pct(all, all_total) * fill + 0.5f));
             gfx_text(rx, ry - 4 * u, 26 * u, with_a((SDL_Color){0xFF, 0xE0, 0x7A, 255}, rp), 2, v);
-        } else if (r == 1 && !f->zelda_total) continue;   /* Super Metroid alone: no Zelda row */
+        } else if ((r == 1 && !f->zelda_total) || (r == 2 && !f->metroid_total)) continue;   /* a single game: no row for the other */
         else if (r <= 2) {
             unsigned got = r == 1 ? f->zelda : f->metroid, of = r == 1 ? f->zelda_total : f->metroid_total;
             SDL_Color bar = r == 1 ? (SDL_Color){0x5B, 0xD4, 0x6A, 255} : (SDL_Color){0xFF, 0x8A, 0x3D, 255};
@@ -226,7 +226,8 @@ void finish_panel(const FinishCard *f, float x, float w, float h)
     gfx_text(lx, y, 12 * u, dim, 0, "COMPLETION"); y += 20 * u;
     snprintf(v, sizeof v, "%d%%", pct(all, all_total));
     gfx_text(lx, y, 30 * u, (SDL_Color){0xFF, 0xE0, 0x7A, 255}, 0, v); y += 58 * u;
-    for (int r = !f->zelda_total; r < 2; r++, y += 58 * u) {   /* Super Metroid alone: Metroid only */
+    for (int r = !f->zelda_total; r < 2; r++, y += 58 * u) {   /* a single game: its own row only */
+        if (r && !f->metroid_total) break;
         unsigned got = r ? f->metroid : f->zelda, of = r ? f->metroid_total : f->zelda_total;
         gfx_text(lx, y, 12 * u, dim, 0, r ? "METROID" : "ZELDA");
         snprintf(v, sizeof v, "%u/%u  %d%%", got, of, pct(got, of));
@@ -271,7 +272,7 @@ void finish_screen(const FinishCard *f, int ww, int wh, int open, FinishButtons 
             gfx_text(lx, y, 28 * u, dim, 0, "COMPLETION");
             snprintf(v, sizeof v, "%d%%", (int)(pct(f->zelda + f->metroid, f->zelda_total + f->metroid_total) * grow + 0.5f));
             gfx_text(rx, y - 20 * u, 72 * u, with_a(pale, rp), 2, v);
-        } else if (r == 2 && !f->zelda_total) continue;
+        } else if ((r == 2 && !f->zelda_total) || (r == 3 && !f->metroid_total)) continue;
         else {
             unsigned got = r == 2 ? f->zelda : f->metroid, of = r == 2 ? f->zelda_total : f->metroid_total;
             gfx_text(lx, y, 28 * u, dim, 0, r == 2 ? "ZELDA" : "METROID");

@@ -34,6 +34,10 @@ int smz_boss_mask(const uint8_t *wram, size_t wram_len, const uint8_t *sram, siz
     /* area byte (from $7ED828 / save RAM $2078) and flag of Kraid, Phantoon, Draygon, Ridley */
     static const int area[4] = {1, 3, 4, 2};
     uint8_t flags[8];
+    if (smz3_z3_alone()) {   /* A Link to the Past alone: its pendants instead ($7EF374: 4 green, 2 blue, 1 red) */
+        unsigned p = game == 1 ? (wram_len > 0xF374 ? wram[0xF374] : 0) : (sram_len > 0x374 ? sram[0x374] : 0);
+        return (p >> 2 & 1) | (p & 2) | (p & 1) << 2;
+    }
     if (game == 2 || smz3_sm_alone()) {   /* Super Metroid alone keeps them only in work RAM */
         if (wram_len < 0xD830) return 0;
         memcpy(flags, wram + 0xD828, 8);
@@ -49,7 +53,7 @@ int smz_boss_mask(const uint8_t *wram, size_t wram_len, const uint8_t *sram, siz
 int smz_prepared_apply(int dead_mask, uint8_t *wram, size_t wram_len, uint8_t *sram, size_t sram_len)
 {
     static const int area[4] = {1, 3, 4, 2};
-    if (!dead_mask || sram_len < 0x33FF || smz3_sm_alone()) return 0;
+    if (!dead_mask || sram_len < 0x33FF || smz3_sm_alone() || smz3_z3_alone()) return 0;
     int changed = 0;
     if (sram[0x33FE] == 0xFF) {
         /* only in game (state 8 and on): while the file loads the game fills these bytes itself */
@@ -99,7 +103,7 @@ void smz_tracker_tick(SmzTracker *t, const uint8_t *wram, size_t wram_len, const
     memset(cleared, 0, sizeof cleared);
     if (s.started)
         for (unsigned i = 0; i < smz3_location_count && i < SMZ_TRK_MAX_LOCS; i++)
-            cleared[i] = !(smz3_sm_alone() && smz3_locations[i].game == SMZ3_GAME_ZELDA)   /* no Zelda in Super Metroid alone */
+            cleared[i] = smz3_mode_has(smz3_locations[i].game)   /* only the game of a single-game run */
                 && smz3_location_cleared(&smz3_locations[i], s.game, wram, wram_len, sram, sram_len) > 0;
     /* a transition frame can briefly read as not started: hold the last live state */
     if (s.started) {

@@ -35,11 +35,13 @@ typedef struct {
     unsigned metroid_total, metroid_cleared;
 } smz3_summary;
 
-/* Which randomizer's ROM is running (SMZ_MODE_* of core/ui/smz3_run.h: 0 SMZ3, 2 Super Metroid alone); every read below
- * follows it. Hosts set it when a run starts; SMZ3 until then. In Super Metroid alone the game is always Metroid, the
- * Zelda checks and items are not counted and the save RAM is the game's own (three slots). */
+/* The running ROM's SMZ_MODE_* (0 SMZ3, 1 ALttP alone, 2 SM alone), set by the hosts; a single game counts only its own
+ * checks. SM alone has its own three-slot SRAM; ALttP alone keeps the combo's Zelda layout (z3randomizer's sram.asm). */
 void smz3_set_mode(int mode);
 int smz3_sm_alone(void);
+int smz3_z3_alone(void);
+/* Whether the running mode has this game's checks and items. */
+int smz3_mode_has(smz3_game game);
 
 smz3_game smz3_current_game(const uint8_t *sram, size_t sram_len);
 int smz3_started(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len);

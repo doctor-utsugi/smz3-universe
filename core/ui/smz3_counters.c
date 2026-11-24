@@ -64,7 +64,7 @@ static uint64_t bosses_beaten(int game, const uint8_t *wram, size_t wl, const ui
         unsigned v = game == 1 ? at(wram, wl, 0xF000 + o) : at(sram, sl, o);
         if (v & 0x08) m |= 1ull << ZBOSS[i].counter;
     }
-    for (size_t i = 0; i < sizeof MBOSS / sizeof MBOSS[0]; i++) {
+    for (size_t i = 0; i < sizeof MBOSS / sizeof MBOSS[0] && !smz3_z3_alone(); i++) {   /* A Link to the Past alone: no Metroid */
         unsigned v = game == 2 || alone ? at(wram, wl, 0xD828 + MBOSS[i].area) : at(sram, sl, 0x2078 + MBOSS[i].area);
         if (v & MBOSS[i].bit) m |= 1ull << MBOSS[i].counter;
     }

@@ -78,6 +78,7 @@ int smz_run_load(const char *path, SmzRun *r)
 void smz_run_summary(const SmzRun *r, char *out, int cap)
 {
     long long s = r->play_ms / 1000;
+    if (r->mode == SMZ_MODE_Z3) { snprintf(out, cap, "Zelda %d/%d - %lld:%02lld:%02lld", r->zelda_cleared, r->zelda_total, s / 3600, s / 60 % 60, s % 60); return; }
     if (r->mode == SMZ_MODE_SM) { snprintf(out, cap, "Metroid %d/%d - %lld:%02lld:%02lld", r->metroid_cleared, r->metroid_total, s / 3600, s / 60 % 60, s % 60); return; }
     snprintf(out, cap, "Zelda %d/%d - Metroid %d/%d - %lld:%02lld:%02lld", r->zelda_cleared, r->zelda_total,
              r->metroid_cleared, r->metroid_total, s / 3600, s / 60 % 60, s % 60);

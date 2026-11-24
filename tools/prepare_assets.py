@@ -33,6 +33,18 @@ markers = json.loads((root / "data/map_markers.json").read_text())
 (assets / "map_markers.json").write_text(json.dumps(
     [[m["index"], m["x"] // 2, m["y"] // 2] for m in markers]))
 print("map", img.size, "(half-size coordinates)", len(markers), "markers")
+# The portals painted over, for the single-game modes (tools/map_portals.py): the clean crops side by side and their places.
+import sys
+sys.path.insert(0, str(root / "tools"))
+import map_portals
+crops = map_portals.patches(img)
+strip = Image.new("RGB", (sum(c[2] for c in crops), max(c[3] for c in crops)))
+rects, sx = [], 0
+for x, y, w, h, crop in crops:
+    strip.paste(crop, (sx, 0)); rects.append([x, y, w, h, sx]); sx += w
+strip.save(assets / "map_patches.png", optimize=True)
+(assets / "map_patches.json").write_text(json.dumps(rects))
+print(len(rects), "map patches")
 
 
 # Super Metroid room rectangles (from the user's own ROM via tools/sm_rooms.py) and ALttP dungeon centres,
@@ -57,6 +69,9 @@ rewards_dst = assets / "rewards"
 rewards_dst.mkdir(exist_ok=True)
 for name in ("unknown", "kraid boss token", "phantoon boss token", "draygon boss token", "ridley boss token"):
     shutil.copyfile(rewards_src / (name + ".png"), rewards_dst / (name.replace(" ", "_") + ".png"))
+# the pendants, A Link to the Past's rewards where Super Metroid's bosses go ("reward/green_pendant" ...)
+for name in ("green pendant", "blue pendant", "red pendant"):
+    shutil.copyfile(rewards_src.parent / "Dungeons" / (name + ".png"), rewards_dst / (name.replace(" ", "_") + "_boss_token.png"))
 print("reward icons copied")
 
 # World goal icons that the sprite set has; the other goals draw a sprite cut from the player's own ROM

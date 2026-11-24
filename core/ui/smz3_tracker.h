@@ -22,7 +22,7 @@ typedef struct {
     int n_recent_checks;
     int recent_items[SMZ_TRK_RECENT];        /* inventory indices, newest first */
     int n_recent_items;
-    int boss_mask;                           /* bit 0 Kraid, 1 Phantoon, 2 Draygon, 3 Ridley */
+    int boss_mask;                           /* bit 0 Kraid, 1 Phantoon, 2 Draygon, 3 Ridley (ALttP alone: pendants, smz_boss_mask) */
     int crystal_mask;                        /* bit n-1 is crystal n */
     int64_t elapsed_ms;                      /* run play time including this session */
     int64_t save_ms; int save_zelda, save_metroid;   /* the game's own save: valid when save_ms > 0 */
@@ -57,7 +57,8 @@ void smz_tracker_commit(SmzTracker *t);
 int smz_tracker_logic_items(const SmzTracker *t, const uint8_t *wram, size_t wram_len, const uint8_t *sram,
                             size_t sram_len, int keysanity, int *out, int cap);
 
-/* Which Super Metroid bosses (bit 0 Kraid, 1 Phantoon, 2 Draygon, 3 Ridley) and ALttP crystals are done. */
+/* Which Super Metroid bosses (bit 0 Kraid, 1 Phantoon, 2 Draygon, 3 Ridley) and ALttP crystals are done. In A Link to the
+ * Past alone the boss mask holds its pendants instead: bit 0 green, 1 blue, 2 red. */
 int smz_boss_mask(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len, int game);
 /* A mid-game daily start: keeps the Super Metroid bosses in dead_mask (smz_boss_mask bits) dead, in work RAM while Super
  * Metroid is played and in its save copy otherwise. Called while the run is played; 1 when it changed memory. */

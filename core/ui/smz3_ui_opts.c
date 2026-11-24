@@ -8,6 +8,7 @@
 #include "smz3_jingles_data.h"
 #include "smz3_runlogic.h"
 #include "smz3_run.h"
+#include "z3_generate.h"
 
 static const char *const N_KEYS[] = {"None", "Both games", "Zelda only", "Metroid only", "Random"};
 static const char *const N_PLACE[] = {"Anywhere", "Dungeons + Metroid", "Crystal dungeons + Metroid", "Vanilla game", "Opposite game"};
@@ -20,6 +21,17 @@ static const char *const N_WALL[] = {"Easy", "Normal", "Medium", "Hard"};
 static const char *const N_MODE[] = {"Vanilla", "All Dungeons", "Spazer Hunt"};
 static const char *const N_SMLOGIC[] = {"Casual", "Tournament"};
 static const char *const N_SMPLACE[] = {"Full", "Major/minor split"};
+/* A Link to the Past alone: the values of Z3_OPTIONS (core/z3gen/z3_options_gen.c) in its order, so an index is a value there */
+static const char *const N_Z3STATE[] = {"Standard", "Open"};
+static const char *const N_Z3GOAL[] = {"Defeat Ganon", "Fast Ganon", "All Dungeons", "Master Sword Pedestal"};
+static const char *const N_Z3CRYSTALS[] = {"None", "1", "2", "3", "4", "5", "6", "7", "Random"};
+static const char *const N_Z3DUNGEON[] = {"Standard", "Maps and compasses", "Maps, compasses, keys", "Full keysanity"};
+static const char *const N_Z3ACCESS[] = {"100% Inventory", "100% Locations", "Not guaranteed"};
+static const char *const N_Z3PLACE[] = {"Basic", "Advanced"};
+static const char *const N_Z3SWORDS[] = {"Randomized", "Assured", "Vanilla", "Swordless"};
+static const char *const N_Z3POOL[] = {"Normal", "Hard", "Expert"};
+static const char *const N_Z3HEART[] = {"Off", "Double", "Normal", "Half", "Quarter"};
+static const char *const N_Z3MENU[] = {"Slow", "Normal", "Fast", "Instant"};
 /* "Random" then the jingles in SMZ_JINGLES order (tools/gen_jingles.py); the static assert below keeps the lists in step. */
 static const char *const N_JINGLE[] = {"Random", "Vanilla", "Blue Badger", "Battletoads Win", "Vampire Killer", "FF Victory", "KQ5 Town", "Kirby Win",
     "Buffed Kirby Win", "Mega Man Boss Selected", "SNAAAKE", "Pizza Time", "Shadowgate", "Sonic 2 Bonus", "SMB1", "Theme of Super Metroid",
@@ -84,10 +96,39 @@ const UiOptDef UI_OPTS[] = {
     {"SmLogic", "Logic", "Casual expects only easy moves; Tournament may ask for harder ones.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMLOGIC},
     {"SmPlacement", "Item placement", "Split keeps major items on major spots and minor ones on minor spots.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMPLACE},
     {"SmRace", "Race seed", "No spoiler: the same seed number gives another seed.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
+    /* A Link to the Past alone (alttpr's options, z3_option_set): only shown, saved and written to the settings in that mode */
+    {"Z3WorldState", "World state", "Open starts in Link's house; Standard starts with the escape from the castle.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_Z3STATE},
+    {"Z3Goal", "Goal", "What ends the run.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3GOAL},
+    {"Z3TowerOpen", "Crystals for Tower", "Crystals needed to open Ganon's Tower.", OPT_ENUM, LEVEL_RUN, 0, 8, 7, N_Z3CRYSTALS},
+    {"Z3GanonOpen", "Crystals for Ganon", "Crystals needed to damage Ganon.", OPT_ENUM, LEVEL_RUN, 0, 8, 7, N_Z3CRYSTALS},
+    {"Z3DungeonItems", "Dungeon items", "Which dungeon items may leave their dungeon.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3DUNGEON},
+    {"Z3Accessibility", "Accessibility", "100% Inventory: every item can be reached; Locations: every place too.", OPT_ENUM, LEVEL_RUN, 0, 2, 0, N_Z3ACCESS},
+    {"Z3Placement", "Item placement", "Basic keeps items out of places that need tricks or many hearts.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_Z3PLACE},
+    {"Z3Swords", "Swords", "Assured starts with a sword; Swordless has none.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3SWORDS},
+    {"Z3ItemPool", "Item pool", "Hard and Expert take upgrades out of the pool.", OPT_ENUM, LEVEL_RUN, 0, 2, 0, N_Z3POOL},
+    {"Z3ItemFunction", "Item functionality", "Hard and Expert weaken some items.", OPT_ENUM, LEVEL_RUN, 0, 2, 0, N_Z3POOL},
+    {"Z3Hints", "Hints", "The telepathic tiles tell where items are.", OPT_BOOL, LEVEL_RUN, 0, 1, 1, 0},
+    {"Z3Tournament", "Tournament", "No spoiler, as alttpr's race seeds.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
+    {"Z3HeartBeep", "Heart beep", "How often the low health beep sounds.", OPT_ENUM, LEVEL_RUN, 0, 4, 2, N_Z3HEART},
+    {"Z3MenuSpeed", "Menu speed", "How fast the item menu opens.", OPT_ENUM, LEVEL_RUN, 0, 3, 1, N_Z3MENU},
+    {"Z3Quickswap", "Item quickswap", "L and R change the item without the menu.", OPT_BOOL, LEVEL_RUN, 0, 1, 1, 0},
 };
 const int UI_OPT_COUNT = sizeof UI_OPTS / sizeof UI_OPTS[0];
-#define O_SM0 (UI_OPT_COUNT - 3)
+#define O_Z3N 15
+#define O_Z30 (UI_OPT_COUNT - O_Z3N)
+#define O_SM0 (O_Z30 - 3)
 enum { O_SMLOGIC, O_SMPLACE, O_SMRACE };   /* after O_SM0 */
+/* after O_Z30; each is the Z3_OPTIONS entry of its key, whose values it lists in their order */
+enum { O_Z3STATE, O_Z3GOAL, O_Z3TOWER, O_Z3GANON, O_Z3DUNGEON, O_Z3ACCESS, O_Z3PLACE, O_Z3SWORDS, O_Z3POOL, O_Z3FUNC, O_Z3HINTS,
+       O_Z3TOURN, O_Z3HEART, O_Z3MENU, O_Z3SWAP };
+static const char *const Z3_KEYS[O_Z3N] = {"world_state", "goals", "tower_open", "ganon_open", "dungeon_items", "accessibility",
+    "item_placement", "weapons", "item_pool", "item_functionality", "hints", "tournament", "heart_beep", "menu_speed", "quickswap"};
+
+static const Z3Option *z3_opt(int o)
+{
+    for (int k = 0; k < Z3_OPTION_COUNT; k++) if (!strcmp(Z3_OPTIONS[k].key, Z3_KEYS[o])) return &Z3_OPTIONS[k];
+    return NULL;
+}
 
 /* The Create run tabs: the popular options, the run itself, what only touches one game, and how it is played. */
 const char *const UI_TABS[LEVEL_ITEMS][24] = {
@@ -109,6 +150,13 @@ const char *const UI_TABS_SM[LEVEL_ITEMS][24] = {
     {NULL},
     {NULL},
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", NULL},
+};
+const char *const UI_TABS_Z3[LEVEL_ITEMS][24] = {
+    {"Z3WorldState", "Z3Goal", "Z3Swords", "Z3DungeonItems", "Z3Placement", "SaveStates", "Rewind", NULL},
+    {"Seed", "Z3WorldState", "Z3Goal", "Z3TowerOpen", "Z3GanonOpen", "Z3Accessibility", "Z3Placement", "Z3Tournament", "MapMode", NULL},
+    {"Z3DungeonItems", "Z3Swords", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", NULL},
+    {NULL},
+    {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", "Z3HeartBeep", "Z3MenuSpeed", "Z3Quickswap", NULL},
 };
 _Static_assert((int)O_LINK == UIO_LINK && (int)O_SAMUS == UIO_SAMUS && (int)O_PLANDO == UIO_PLANDO && (int)O_JINGLE == UIO_JINGLE && (int)O_MAP == UIO_MAP && (int)O_SHAPE == UIO_SHAPE && (int)O_HELP == UIO_HELP && (int)O_HELPS == UIO_HELPS && (int)O_MODE == UIO_MODE, "option indices");
 
@@ -193,6 +241,28 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
         u->value[O_REWIND] = strstr(json, "\"rewind\":true") != NULL;
         return;
     }
+    if (smz_settings_mode(json) == SMZ_MODE_Z3) {   /* back from alttpr's keys and values, by their place in Z3_OPTIONS */
+        const char *seed = strstr(json, "\"seed\":\"");
+        u->value[O_SEED] = seed ? atoi(seed + 8) : 0;
+        for (int i = O_Z30; i < UI_OPT_COUNT; i++) u->value[i] = UI_OPTS[i].def;
+        for (int o = 0; o < O_Z3N; o++) {
+            const Z3Option *z = z3_opt(o);
+            char pat[40];
+            if (!z) continue;
+            snprintf(pat, sizeof pat, "\"%s\":\"", z->key);
+            const char *at = strstr(json, pat);
+            if (!at) continue;
+            at += strlen(pat);
+            if (!z->values) u->value[O_Z30 + o] = !strncmp(at, "true", 4);
+            else for (int v = 0; v < z->n_values && v <= UI_OPTS[O_Z30 + o].max; v++) {
+                size_t k = strlen(z->values[v].key);
+                if (!strncmp(at, z->values[v].key, k) && at[k] == '"') u->value[O_Z30 + o] = o == O_Z3HINTS ? v == 0 : v;
+            }
+        }
+        u->value[O_SAVES] = strstr(json, "\"saveStates\":true") != NULL;
+        u->value[O_REWIND] = strstr(json, "\"rewind\":true") != NULL;
+        return;
+    }
     smz_logic_settings(json, &s);
     u->value[O_SEED] = s.seed;
     u->value[O_KEYS] = KEYIDX[s.keysanity & 3];
@@ -214,13 +284,15 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
 int ui_opt_cosmetic(int i)
 {
     return i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_REACH || i == O_FKEYS
-        || i == O_SM0 + O_SMRACE;
+        || i == O_SM0 + O_SMRACE || i == O_Z30 + O_Z3TOURN || i == O_Z30 + O_Z3HEART || i == O_Z30 + O_Z3MENU || i == O_Z30 + O_Z3SWAP;
 }
 
 int ui_opt_hidden(const SmzUi *u, int i)
 {
-    int sm = u->game_mode == SMZ_MODE_SM;   /* each game shows only its own options; SMZ3 never sees Super Metroid's */
+    int sm = u->game_mode == SMZ_MODE_SM, z3 = u->game_mode == SMZ_MODE_Z3;   /* each game shows only its own options */
+    if (i >= O_Z30) return !z3;
     if (i >= O_SM0) return !sm;
+    if (z3) return !(i == O_SEED || i == O_LINK || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_SAVES || i == O_REWIND);
     if (sm) return !(i == O_SEED || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_SAVES || i == O_REWIND);
     int mode = u->value[O_MODE];
     if (i == O_HELPS) return u->value[O_HELP] != 1;
@@ -262,7 +334,43 @@ static int sm_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
         u->value[O_SM0 + O_SMPLACE] ? "split" : "full", race ? "true" : "false",
         u->value[O_MAP] ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
         ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], samus);
-    for (int i = O_SM0, first = 1; i < UI_OPT_COUNT && n < (int)cap; i++) {   /* "Label: value" for the run's info screen */
+    for (int i = O_SM0, first = 1; i < O_Z30 && n < (int)cap; i++) {   /* "Label: value" for the run's info screen */
+        char v[44];
+        ui_value_text(u, i, v, sizeof v);
+        n += snprintf(out + n, cap - n, "%s\"%s: %s\"", first ? "" : ",", UI_OPTS[i].label, v);
+        first = 0;
+    }
+    if (n < (int)cap) n += snprintf(out + n, cap - n, "]}");
+    return n < (int)cap ? n : -1;
+}
+
+/* A Link to the Past alone: alttpr's options in "z3" (the cosmetic ones only when changed, so Original is z3_settings_default),
+ * then the keys the hosts read for every run, as Super Metroid's. */
+static int z3_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t cap)
+{
+    static const char *const FILTER[] = {"sharp", "smooth", "crt", "lcd"};
+    static const char *const SHAPE[] = {"original", "wide", "pixel"};
+    char link[32] = "";
+    int li = u->value[O_LINK];
+    if (li > 0 && li < u->sprite_count[0]) snprintf(link, sizeof link, "%s", u->sprites[0][li]);
+    int n = snprintf(out, cap, "{\"game\":\"z3\",\"seed\":\"%d\",\"z3\":{", u->value[O_SEED] ? u->value[O_SEED] : seed_if_random);
+    for (int o = 0, first = 1; o < O_Z3N && n < (int)cap; o++) {
+        int i = O_Z30 + o, v = u->value[i];
+        const Z3Option *z = z3_opt(o);
+        if (!z || (ui_opt_cosmetic(i) && o != O_Z3TOURN && v == UI_OPTS[i].def)) continue;
+        if (o == O_Z3HINTS) v = !v;
+        const char *val = !z->values ? (v ? "true" : "false") : v < z->n_values ? z->values[v].key : z->def;
+        n += snprintf(out + n, cap - n, "%s\"%s\":\"%s\"", first ? "" : ",", z->key, val);
+        first = 0;
+    }
+    if (n < (int)cap) n += snprintf(out + n, cap - n,
+        "},\"mapMode\":\"%s\",\"saveStates\":%s,\"rewind\":%s,\"defaultRules\":%s,\"screenFilter\":\"%s\",\"screenShape\":\"%s\",\"linkSprite\":\"%s\","
+        "\"samusSprite\":\"\",\"helpMode\":\"none\",\"helpCount\":0,\"plando\":\"\",\"musicPackage\":\"\",\"lightDarkRooms\":false,\"nerfedCharge\":false,"
+        "\"quickMorph\":false,\"showReachable\":false,\"showFixedKeys\":false,\"diff\":[",
+        u->value[O_MAP] ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
+        ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], link);
+    for (int i = O_Z30, first = 1; i < UI_OPT_COUNT && n < (int)cap; i++) {   /* the world state, the goal and what was changed */
+        if (i > O_Z30 + O_Z3GOAL && u->value[i] == UI_OPTS[i].def) continue;
         char v[44];
         ui_value_text(u, i, v, sizeof v);
         n += snprintf(out + n, cap - n, "%s\"%s: %s\"", first ? "" : ",", UI_OPTS[i].label, v);
@@ -276,6 +384,7 @@ static int sm_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
 int ui_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t cap)
 {
     if (u->game_mode == SMZ_MODE_SM) return sm_settings_json(u, seed_if_random, out, cap);
+    if (u->game_mode == SMZ_MODE_Z3) return z3_settings_json(u, seed_if_random, out, cap);
     static const char *const KEYS[] = {"None", "Zelda", "SuperMetroid", "Both"};
     static const char *const PLACE[] = {"Anywhere", "DungeonsAndMetroid", "CrystalDungeonsAndMetroid", "SameGame", "OppositeGame"};
     static const char *const FILTER[] = {"sharp", "smooth", "crt", "lcd"};

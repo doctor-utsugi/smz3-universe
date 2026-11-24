@@ -27,6 +27,8 @@ void store_roms_set(const char *sm, const char *z3);
 int store_load_base(uint8_t **sm, uint8_t **z3, char *err, size_t errcap);
 /* Only the Super Metroid ROM, all a Super Metroid run needs. */
 int store_load_sm(uint8_t **sm, char *err, size_t errcap);
+/* Only the A Link to the Past ROM, all an A Link to the Past run needs. */
+int store_load_z3(uint8_t **z3, char *err, size_t errcap);
 
 uint8_t *store_read(const char *path, size_t *len);
 int store_write(const char *path, const void *data, size_t len);

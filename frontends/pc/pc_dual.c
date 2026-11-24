@@ -233,17 +233,22 @@ static void gem_shape(float l, float t, float w, float h, SDL_Color c)
     gfx_quad(b, cs);
 }
 
-/* One line with the four boss tokens and the seven numbered crystals; what is still missing is dimmed. */
+/* One line with the four boss tokens (A Link to the Past alone: its three pendants) and the seven numbered crystals (none in
+ * Super Metroid alone); what is still missing is dimmed. */
 static void rewards(float x, float y, float w, float h)
 {
     static const char *const TOKEN[4] = {"rewards/kraid_boss_token.png", "rewards/phantoon_boss_token.png", "rewards/draygon_boss_token.png", "rewards/ridley_boss_token.png"};
+    static const char *const PENDANT[3] = {"rewards/green_pendant_boss_token.png", "rewards/blue_pendant_boss_token.png", "rewards/red_pendant_boss_token.png"};
+    int z3 = smz3_z3_alone(), nt = z3 ? 3 : 4;
     float unit = fminf(h, w / (4 + 0.25f + 7 * 0.7f + 0.2f));
-    for (int i = 0; i < 4; i++) {
-        SDL_Rect art = map_icon_art(TOKEN[i]);
+    for (int i = 0; i < nt; i++) {
+        const char *k = z3 ? PENDANT[i] : TOKEN[i];
+        SDL_Rect art = map_icon_art(k);
         float th = unit * art.h / art.w;
-        icon_at(TOKEN[i], &art, x, y + (h - th) / 2, unit, th, (F.t->boss_mask >> i & 1) ? 255 : 90);
+        icon_at(k, &art, x, y + (h - th) / 2, unit, th, (F.t->boss_mask >> i & 1) ? 255 : 90);
         x += unit;
     }
+    if (smz3_sm_alone()) return;
     x += unit * 0.25f;
     float gw = unit * 0.7f, gh = unit * 0.9f, gt = y + (h - gh) / 2, in = 1.5f * u * 0.7f;
     for (int n = 1; n <= 7; n++) {
@@ -256,7 +261,7 @@ static void rewards(float x, float y, float w, float h)
     }
 }
 
-static char run_hash[48];   /* a Super Metroid run's seed hash (its settings' "hash"), "" otherwise */
+static char run_hash[64];   /* a single-game run's seed hash (its settings' "hash"), "" otherwise */
 
 static void run_left(float x, float top, float cw, float h)
 {
@@ -295,23 +300,27 @@ static void run_left(float x, float top, float cw, float h)
         }
         y += 6 * u;
     }
-    if (smz3_sm_alone()) {   /* Super Metroid alone: its seed hash where the Zelda count goes */
+    if (smz3_sm_alone() || smz3_z3_alone()) {   /* a single game: its seed hash where the other game's count goes */
         if (run_hash[0]) { gfx_text(x, y, fit_px(run_hash, cw, 13 * u, 8 * u), AMBER, 0, run_hash); y += 29 * u; }
-    } else {
+    }
+    if (!smz3_sm_alone()) {
         snprintf(s, sizeof s, "Zelda  %u / %u", t->zelda_cleared, t->zelda_total);
         gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
         bar(x, y, cw, 8 * u, t->zelda_total ? (float)t->zelda_cleared / t->zelda_total : 0, GREEN); y += 12 * u;
     }
-    snprintf(s, sizeof s, "Metroid  %u / %u", t->metroid_cleared, t->metroid_total);
-    gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
-    bar(x, y, cw, 8 * u, t->metroid_total ? (float)t->metroid_cleared / t->metroid_total : 0, RED); y += 12 * u;
+    if (!smz3_z3_alone()) {
+        snprintf(s, sizeof s, "Metroid  %u / %u", t->metroid_cleared, t->metroid_total);
+        gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
+        bar(x, y, cw, 8 * u, t->metroid_total ? (float)t->metroid_cleared / t->metroid_total : 0, RED); y += 12 * u;
+    }
     snprintf(s, sizeof s, "Checks  %u / %u", done, total);
     gfx_text(x, y, 13 * u, TEXT, 0, s); y += 16 * u;
-    int items = 0;
-    for (unsigned i = 0; i < smz3_inventory_count && i < SMZ_TRK_MAX_INV; i++) if (t->inventory[i] > 0) items++;
+    int items = 0, n_items = 0;   /* the items of the games played */
+    for (unsigned i = 0; i < smz3_inventory_count && i < SMZ_TRK_MAX_INV; i++)
+        if (smz3_mode_has(smz3_inventory_items[i].game)) { n_items++; if (t->inventory[i] > 0) items++; }
     char rate[16] = "-";
     if (played >= 300000) snprintf(rate, sizeof rate, "%.1f", done * 3600000.0 / played);
-    snprintf(s, sizeof s, "Items  %d / %u   -   %s/h", items, smz3_inventory_count, rate);
+    snprintf(s, sizeof s, "Items  %d / %d   -   %s/h", items, n_items, rate);
     gfx_text(x, y, 13 * u, TEXT, 0, s); y += 20 * u;
     rewards(x, y, cw, 28 * u); y += 32 * u;
     if (t->n_recent_items) {
@@ -374,7 +383,7 @@ static void shortcut_cell(float x, float y, float w, float h, int id, int hit, i
 /* The rows over the mini map: five ALttP slots, or the beams owned and under them the HUD weapons owned. Returns the y under them. */
 static float shortcut_rows(float x, float y, float w)
 {
-    int game = F.t->started ? (int)F.t->game : 0, on = (game == SMZ3_GAME_ZELDA || game == SMZ3_GAME_METROID) && sc_row_shown();
+    int game = F.t->started ? (int)F.t->game : 0, on = (game == SMZ3_GAME_ZELDA || game == SMZ3_GAME_METROID) && sc_row_shown() && !smz3_z3_alone() && !smz3_sm_alone();   /* the single-game ROMs have no shortcut hooks */
     if (on && game == SMZ3_GAME_ZELDA) {
         for (int i = 0; i < SC_SLOTS; i++) shortcut_cell(x + i * w / SC_SLOTS, y + 2 * u, w / SC_SLOTS, 44 * u, sc_slot(i), HIT_SLOT, i);
         y += 48 * u;
@@ -383,7 +392,7 @@ static float shortcut_rows(float x, float y, float w)
         for (int id = SC_WAVE; id < SC_WEAPON_FIRST; id++) if (owned >> id & 1) { shortcut_cell(x + k * w / 4, y + 2 * u, w / 4, 44 * u, id, HIT_SHORTCUT, id); k++; }
         y += 48 * u;
     }
-    if (game == SMZ3_GAME_METROID && sc_weapon_row_shown()) {
+    if (game == SMZ3_GAME_METROID && sc_weapon_row_shown() && !smz3_sm_alone()) {
         int k = 0;
         for (int id = SC_WEAPON_FIRST; id < SC_COUNT; id++) if (owned >> id & 1) { shortcut_cell(x + k * w / 4, y, w / 4, 44 * u, id, HIT_SHORTCUT, id); k++; }
         if (k) y += 46 * u;
@@ -474,12 +483,14 @@ static int shows_count(const char *name, int level)
 /* One grid for both games, A Link to the Past first; the square cell is what the page allows. */
 static void page_items(float top)
 {
-    int columns = 9, n = smz3_inventory_count < SMZ_TRK_MAX_INV ? (int)smz3_inventory_count : SMZ_TRK_MAX_INV, rows = (n + columns - 1) / columns, k = 0;
+    int columns = 9, n = smz3_inventory_count < SMZ_TRK_MAX_INV ? (int)smz3_inventory_count : SMZ_TRK_MAX_INV, shown = 0, k = 0;
+    for (int i = 0; i < n; i++) shown += smz3_mode_has(smz3_inventory_items[i].game);
+    int rows = (shown + columns - 1) / columns;
     float iw = W - 24 * u, ih = H - top - 8 * u, cell = fminf(iw / columns, ih / rows), left = 12 * u + (iw - cell * columns) / 2, y = top + 4 * u;
     for (int g = SMZ3_GAME_ZELDA; g <= SMZ3_GAME_METROID; g++)
         for (int i = 0; i < n; i++) {
             const smz3_inv_item *it = &smz3_inventory_items[i];
-            if ((int)it->game != g || (smz3_sm_alone() && g == SMZ3_GAME_ZELDA)) continue;
+            if ((int)it->game != g || !smz3_mode_has(it->game)) continue;
             float cx = left + (k % columns) * cell, cy = y + (k / columns) * cell;
             int level = F.t->inventory[i];
             k++;
@@ -525,7 +536,7 @@ static void page_checks(float top)
     char s[96];
     for (int r = 0; r < n_regions; r++) {
         const Region *g = &regions[r];
-        if (smz3_sm_alone() && g->game == SMZ3_GAME_ZELDA) continue;
+        if (!smz3_mode_has(g->game)) continue;
         if (g->game != game) {
             game = g->game;
             y += 8 * u;
@@ -572,7 +583,7 @@ static void page_map(float top)
         return;
     }
     map_draw(R, &mv, map_area, F.t, F.disc, F.discovered_only, F.in_logic, F.wram, F.wram_len, SDL_GetTicks());
-    if (dungeon_available(R)) {
+    if (!smz3_sm_alone() && dungeon_available(R)) {
         dungeon_chip_draw(6 * u, H - 38 * u, 92 * u, 32 * u, "DUNGEONS", 0);
         add_hit(6 * u, H - 38 * u, 92 * u, 32 * u, HIT_DUNGEONS, 0);
     }

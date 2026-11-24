@@ -146,6 +146,7 @@ extern const UiOptDef UI_OPTS[];
 extern const int UI_OPT_COUNT;
 extern const char *const UI_TABS[LEVEL_ITEMS][24];   /* option keys per tab, in display order, NULL ended */
 extern const char *const UI_TABS_SM[LEVEL_ITEMS][24];   /* the same for Super Metroid alone (u->game_mode SMZ_MODE_SM) */
+extern const char *const UI_TABS_Z3[LEVEL_ITEMS][24];   /* and for A Link to the Past alone (SMZ_MODE_Z3) */
 
 void ui_init(SmzUi *u);
 void ui_set_slot(SmzUi *u, int i, int used, const char *name, const char *summary);
@@ -269,7 +270,8 @@ void ui_idle(SmzUi *u);
 void ui_draw(SmzUi *u);
 
 /* Writes the settings JSON the frontends store with a run; returns its length or -1 when cap is too small. For Super Metroid
- * alone (u->game_mode SMZ_MODE_SM) it is "game":"sm" with the generator's own options in "sm" (sm_option_set keys and values). */
+ * alone (u->game_mode SMZ_MODE_SM) it is "game":"sm" with the generator's own options in "sm" (sm_option_set keys and values);
+ * for A Link to the Past alone "game":"z3" with alttpr's in "z3" (z3_option_set keys and values). */
 int ui_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t cap);
 
 #endif

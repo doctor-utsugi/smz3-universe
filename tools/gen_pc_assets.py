@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Packs the map assets of the app (map image, room table, region boxes, location markers) into a C file for the PC binary."""
+"""Packs the map assets of the app (map image and its portal patches, room table, region boxes, location markers) into a C file for the PC binary."""
 import json, os, sys
 src, dst = sys.argv[1], sys.argv[2]
 rooms = json.load(open(os.path.join(src, "sm_rooms.json")))
@@ -13,6 +13,13 @@ out.append("static const SmzMarker MARKERS[] = {" + ",".join("{%d,%d,%d}" % tupl
 out.append("const SmzMapData PC_MAP_DATA = {ROOMS, %d, REGIONS, %d, MARKERS, %d};" % (len(rooms), len(regions), len(markers)))
 out.append("const unsigned char PC_MAP_PNG[] = {" + ",".join(str(b) for b in png) + "};")
 out.append("const unsigned PC_MAP_PNG_LEN = %d;" % len(png))
+# the portals painted over for the single-game modes (tools/map_portals.py, written by prepare_assets.py)
+patches = json.load(open(os.path.join(src, "map_patches.json")))
+strip = open(os.path.join(src, "map_patches.png"), "rb").read()
+out.append("const unsigned char PC_MAP_PATCH_PNG[] = {" + ",".join(str(b) for b in strip) + "};")
+out.append("const unsigned PC_MAP_PATCH_PNG_LEN = %d;" % len(strip))
+out.append("const int PC_MAP_PATCHES[][5] = {" + ",".join("{%d,%d,%d,%d,%d}" % tuple(p) for p in patches) + "};")
+out.append("const int PC_MAP_PATCH_COUNT = %d;" % len(patches))
 icons = sorted(os.listdir(os.path.join(src, "items")))
 # the boss tokens of the run list, named "rewards/<file>" beside the item icons (paths are relative to items/)
 icons += ["../rewards/" + n for n in sorted(os.listdir(os.path.join(src, "rewards")))]

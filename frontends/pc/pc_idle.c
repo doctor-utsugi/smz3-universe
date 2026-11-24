@@ -183,7 +183,7 @@ static void run_card(float l, float t, float w, float h)
     clock_text(card.ms, line, sizeof line);
     text(x, t + 68, 12, card.finished ? GREEN : TEXT, 0, line);
     if (card.zelda_total) bar("ZELDA", card.zelda, card.zelda_total, x, t + 82, w - 18, GREEN);   /* none in Super Metroid alone */
-    bar("METROID", card.metroid, card.metroid_total, x, t + 100, w - 18, BLUE);
+    if (card.metroid_total) bar("METROID", card.metroid, card.metroid_total, x, t + 100, w - 18, BLUE);   /* none in A Link to the Past alone */
     float y = t + 124;
     int room = (int)((h - 141) / 10);
     if (room < 0) room = 0;
