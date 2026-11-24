@@ -1149,10 +1149,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..50e940e
+index 0000000..0477115
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1220 @@
+@@ -0,0 +1,1227 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1171,6 +1171,7 @@ index 0000000..50e940e
 +
 +extern "C" {
 +#include "smz3_race.h"
++#include "smz3_run.h"
 +#include "smz3_version.h"
 +}
 +
@@ -1179,12 +1180,18 @@ index 0000000..50e940e
 +// no secrets, a name, a country and times
 +#define BASE_URL "http://smz3-universe.duckdns.org"
 +
++int smzRunMode;
++
 +static char *pathOf(const char *fmt, int slot)
 +{
 +    static char buf[4][128];
-+    static int next;
-+    char *p = buf[next++ & 3];
-+    snprintf(p, 128, fmt, slot);
++    static int next, made;
++    char *p = buf[next++ & 3], rel[96];
++    snprintf(rel, sizeof rel, fmt, slot);
++    if (!smzRunMode || strncmp(rel, ONLINE_DIR "/", sizeof ONLINE_DIR)) { snprintf(p, 128, "%s", rel); return p; }
++    snprintf(p, 128, ONLINE_DIR "/%s", smz_mode_id(smzRunMode));   // the other games' slots keep their own online files
++    if (!(made >> smzRunMode & 1)) { mkdir(p, 0777); made |= 1 << smzRunMode; }
++    snprintf(p, 128, ONLINE_DIR "/%s/%s", smz_mode_id(smzRunMode), rel + sizeof ONLINE_DIR);
 +    return p;
 +}
 +
@@ -2375,10 +2382,10 @@ index 0000000..50e940e
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..7568e0b
+index 0000000..aa631ac
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,120 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2494,13 +2501,17 @@ index 0000000..7568e0b
 +// The fields that say who joins: install, player, country and the app's version.
 +void smzRaceWho(const char *player, const char *country, char *out, size_t cap);
 +
++
++// SMZ_MODE_* of the game entered from the carousel: SMZ3 keeps its files where they were, the others get folders of their own
++extern int smzRunMode;
++
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..8d0535f
+index 0000000..5fefd14
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5956 @@
+@@ -0,0 +1,5965 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2555,6 +2566,14 @@ index 0000000..8d0535f
 +
 +#define OLD_DIR "sdmc:/SMZ3"   // the data folder of older builds
 +#define RUN_DIR SMZ_DIR "/runs"
++// the runs of the game entered: SMZ3 keeps runs/, the other games runs/<id>/
++static const char *runDir(void)
++{
++    static char dir[64];
++    if (!smzRunMode) return RUN_DIR;
++    snprintf(dir, sizeof dir, RUN_DIR "/%s", smz_mode_id(smzRunMode));
++    return dir;
++}
 +#define SPRITE_DIR SMZ_DIR "/sprites"
 +#define SPRITE_ROMFS "romfs:/smz3/sprites"   // the community sprites shipped in the app
 +#define GOALS_DIR SMZ_DIR "/goals"   // the world goal icons cut from the base ROMs
@@ -3268,7 +3287,7 @@ index 0000000..8d0535f
 +{
 +    for (int i = 0; i < UI_SLOTS; i++) {
 +        char path[96], sum[64];
-+        snprintf(path, sizeof path, RUN_DIR "/slot%d.run", i);
++        snprintf(path, sizeof path, "%s/slot%d.run", runDir(), i);
 +        SmzRun r;
 +        if (runLoad(path, &r) == 0) { smz_run_summary(&r, sum, sizeof sum); ui_set_slot(u, i, 1, r.name, sum); ui_set_slot_stats(u, i, r.zelda_cleared, r.zelda_total, r.metroid_cleared, r.metroid_total, r.play_ms, r.game, r.boss_mask, r.crystal_mask); ui_set_slot_rules(u, i, r.settings); ui_set_slot_online(u, i, smzOnlineSlotKind(i)); }
 +        else ui_set_slot(u, i, 0, "", "");
@@ -3346,12 +3365,12 @@ index 0000000..8d0535f
 +        if (job.rc == 0) {
 +            char name[96];
 +            smz_run_rom_name(job.json, job.seedText, name, sizeof name);
-+            mkdir(SMZ_DIR, 0777); mkdir(RUN_DIR, 0777); mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777);
++            mkdir(SMZ_DIR, 0777); mkdir(RUN_DIR, 0777); mkdir(runDir(), 0777); mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777);
 +            SmzRun r;
 +            memset(&r, 0, sizeof r);
 +            snprintf(r.name, sizeof r.name, "%s", ui_run_label(u)[0] ? ui_run_label(u) : "Run");
 +            snprintf(r.seed, sizeof r.seed, "%s", job.seedText);
-+            snprintf(r.rom_path, sizeof r.rom_path, RUN_DIR "/%s", name);
++            snprintf(r.rom_path, sizeof r.rom_path, "%s/%s", runDir(), name);
 +            snprintf(r.settings, sizeof r.settings, "%s", job.json);
 +            if (dailyCheck && smz_daily_mark_settings(r.settings, sizeof r.settings, dailyCheck, dailySettings)) {
 +                snprintf(message, cap, "The challenge's settings do not fit");
@@ -3380,7 +3399,7 @@ index 0000000..8d0535f
 +                    for (int i = 0; i < SMZ_HOST_HELP_COUNT; i++) fprintf(h, "%s\n", mode == 2 ? "" : job.hints + i * SMZ_HOST_HELP_TEXT);
 +                    fclose(h);
 +                }
-+                snprintf(path, sizeof path, RUN_DIR "/slot%d.run", slot);
++                snprintf(path, sizeof path, "%s/slot%d.run", runDir(), slot);
 +                ok = runSave(path, &r) == 0;
 +                if (ok) smzOnlineMarkRun(slot, dailyCheck ? 0 : ui_online_now(u), ui_run_weekly(u) ? 3 : ui_run_monthly(u) ? 2 : 1);
 +            }
@@ -3415,7 +3434,7 @@ index 0000000..8d0535f
 +static void deleteRun(int slot)
 +{
 +    char path[96];
-+    snprintf(path, sizeof path, RUN_DIR "/slot%d.run", slot);
++    snprintf(path, sizeof path, "%s/slot%d.run", runDir(), slot);
 +    SmzRun r;
 +    if (runLoad(path, &r) == 0 && r.rom_path[0]) remove(r.rom_path);
 +    remove(path);
@@ -3427,7 +3446,7 @@ index 0000000..8d0535f
 +    SmzDailyRun r;
 +    char path[96];
 +    struct stat st;
-+    snprintf(path, sizeof path, RUN_DIR "/slot%d.run", SMZ_DAILY_SLOT);
++    snprintf(path, sizeof path, "%s/slot%d.run", runDir(), SMZ_DAILY_SLOT);
 +    return window[0] && smzDailyLoad(&r) && !strcmp(r.window, window) && stat(path, &st) == 0;
 +}
 +
@@ -3493,14 +3512,14 @@ index 0000000..8d0535f
 +    deleteRun(SMZ_RACE_SLOT);
 +    bool ok = generateRun(&gu, SMZ_RACE_SLOT, message, cap, NULL, NULL, u->race.room.settings);
 +    char path[96];
-+    snprintf(path, sizeof path, RUN_DIR "/slot%d.run", SMZ_RACE_SLOT);
++    snprintf(path, sizeof path, "%s/slot%d.run", runDir(), SMZ_RACE_SLOT);
 +    SmzRun r;
 +    if (ok && runLoad(path, &r) == 0) {
 +        smzOnlineMarkRun(SMZ_RACE_SLOT, 0, 1);   // never on a ladder of its own: the race has its own
 +        char old[PATH_MAX];
 +        file3dsGetRelatedPath(r.rom_path, old, sizeof old, ".srm", "saves");   // an earlier game of the same name
 +        remove(old);
-+        snprintf(old, sizeof old, RUN_DIR "/slot%d.discovery", SMZ_RACE_SLOT);
++        snprintf(old, sizeof old, "%s/slot%d.discovery", runDir(), SMZ_RACE_SLOT);
 +        remove(old);
 +        ok = runSave(path, &r) == 0;
 +        if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
@@ -3699,6 +3718,7 @@ index 0000000..8d0535f
 +        hidScanInput();
 +        u32 down = hidKeysDown();
 +        ui_tick(&ui, (int)(osGetTime() - lastTick));
++        if (ui.game_mode != smzRunMode) { smzRunMode = ui.game_mode; mkdir(RUN_DIR, 0777); mkdir(runDir(), 0777); refreshSlots(&ui); }   // a game entered from the carousel: its own runs
 +        lastTick = osGetTime();
 +        UiButton b;
 +        bool have = true;
@@ -3828,7 +3848,7 @@ index 0000000..8d0535f
 +            if (act == ACT_CONTINUE || act == ACT_LOAD_SAVE || act == ACT_LOAD_STATE) {
 +                char path[96], state[PATH_MAX];
 +                SmzRun r;
-+                snprintf(path, sizeof path, RUN_DIR "/slot%d.run", slot);
++                snprintf(path, sizeof path, "%s/slot%d.run", runDir(), slot);
 +                bool loaded = runLoad(path, &r) == 0;
 +                bool states = loaded && strstr(r.settings, "\"saveStates\":true") && smzOnlineSlotKind(slot) < 1 && slot != SMZ_DAILY_SLOT && slot != SMZ_RACE_SLOT;
 +                if (states) file3dsGetRelatedPath(r.rom_path, state, sizeof state, ".auto.frz", "savestates");
@@ -7522,13 +7542,13 @@ index 0000000..8d0535f
 +    static int64_t nextHintAsk = 0, nextBeat = 0, nextPlayersNote = 0, nextChatPoll = 0;
 +    static u64 nextGoals = 0;
 +    char discPath[96];
-+    snprintf(discPath, sizeof discPath, RUN_DIR "/slot%d.discovery", curSlot);
++    snprintf(discPath, sizeof discPath, "%s/slot%d.discovery", runDir(), curSlot);
 +    if (gPlaySlot != curSlot) {
 +        curSlot = gPlaySlot;
-+        snprintf(discPath, sizeof discPath, RUN_DIR "/slot%d.discovery", curSlot);
++        snprintf(discPath, sizeof discPath, "%s/slot%d.discovery", runDir(), curSlot);
 +        SmzRun r0;
 +        char rp[96];
-+        snprintf(rp, sizeof rp, RUN_DIR "/slot%d.run", curSlot);
++        snprintf(rp, sizeof rp, "%s/slot%d.run", runDir(), curSlot);
 +        memset(&r0, 0, sizeof r0);
 +        if (curSlot >= 0 && runLoad(rp, &r0) == 0) smz_tracker_reset(&trk, r0.play_ms, r0.save_ms, r0.save_zelda, r0.save_metroid);
 +        else smz_tracker_reset(&trk, 0, 0, 0, 0);
@@ -7622,7 +7642,7 @@ index 0000000..8d0535f
 +        bool bg = trk.game != 3;   // in play the writes go to the thread; the finish is written at once, the online finish reads it
 +        char rp[96];
 +        SmzRun r1;
-+        snprintf(rp, sizeof rp, RUN_DIR "/slot%d.run", curSlot);
++        snprintf(rp, sizeof rp, "%s/slot%d.run", runDir(), curSlot);
 +        bool have = runLoad(rp, &r1) == 0 && trk.started;
 +        if (have) smz_counters_text(&goalc, r1.goals, sizeof r1.goals);
 +        if (have && nowMs >= nextGoals) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
@@ -7732,7 +7752,7 @@ index 0000000..8d0535f
 +    if (curSlot < 0 || curSlot != gPlaySlot) return;
 +    char rp[96];
 +    SmzRun r;
-+    snprintf(rp, sizeof rp, RUN_DIR "/slot%d.run", curSlot);
++    snprintf(rp, sizeof rp, "%s/slot%d.run", runDir(), curSlot);
 +    if (runLoad(rp, &r) != 0) return;
 +    smz_counters_text(&goalc, r.goals, sizeof r.goals);
 +    if (trk.started && !finishedBefore) {   // the run's file is written every ten seconds: the last ones go in now
@@ -7969,7 +7989,7 @@ index 0000000..8d0535f
 +             : u->screen == UI_SLOT_MENU || u->screen == UI_CONFIRM ? u->active_slot : -1;
 +    SmzRun r;
 +    char path[96];
-+    snprintf(path, sizeof path, RUN_DIR "/slot%d.run", slot);
++    snprintf(path, sizeof path, "%s/slot%d.run", runDir(), slot);
 +    bool have = slot >= 0 && slot < UI_SLOTS && runLoad(path, &r) == 0;
 +    int kind = have ? smzOnlineRunMode(slot) : 0, tab = kind >= 1 && kind <= 3 ? kind - 1 : 0;
 +    bool online = u->ladder[0].loaded == 1 || u->ladder[1].loaded == 1 || u->ladder[2].loaded == 1;
