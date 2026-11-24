@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMZ3 Universe</title>
+<meta name="description" content="Super Metroid and A Link to the Past randomizer runs for the AYN Thor, the 3DS, Android and PC, with a live tracker on the second screen, daily challenges, ladders and online races.">
+<meta property="og:title" content="SMZ3 Universe">
+<meta property="og:description" content="The SMZ3 randomizer with a live tracker, daily challenges, ladders and online races. AYN Thor, 3DS, Android, Linux handhelds and PC.">
+<meta property="og:image" content="https://doctor-utsugi.github.io/smz3-universe/img/thor-stacked-zelda.png">
+<link rel="icon" href="img/icon.png">
+<style>
+  :root {
+    --bg: #0d0f1a;
+    --panel: #161a2b;
+    --line: #262c45;
+    --text: #e6e8f2;
+    --dim: #9aa1bd;
+    --metroid: #ff8a3d;
+    --zelda: #46d17d;
+    --accent: #7aa7ff;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--accent); }
+  img { max-width: 100%; display: block; image-rendering: pixelated; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  h1, h2, h3 { line-height: 1.2; margin: 0 0 12px; }
+  h2 { font-size: 30px; }
+  h3 { font-size: 19px; }
+  p { margin: 0 0 14px; }
+  .dim { color: var(--dim); }
+
+  header { padding: 64px 0 48px; text-align: center; }
+  .logo { display: inline-flex; align-items: center; gap: 14px; }
+  .logo img { width: 64px; height: 64px; border-radius: 14px; }
+  .logo h1 { font-size: 46px; letter-spacing: 0.5px; }
+  .tag { font-size: 21px; max-width: 720px; margin: 18px auto 8px; }
+  .tag .sm { color: var(--metroid); font-weight: 700; }
+  .tag .z { color: var(--zelda); font-weight: 700; }
+  .devices { color: var(--dim); margin-bottom: 28px; }
+  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 700;
+    text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--panel);
+  }
+  .btn.main { background: var(--accent); color: #0b1020; border-color: var(--accent); }
+  .video { margin: 40px auto 0; max-width: 860px; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  .video iframe { width: 100%; height: 100%; border: 0; }
+
+  .grid { display: grid; gap: 18px; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  figure img { width: 100%; }
+  figcaption { padding: 10px 14px; color: var(--dim); font-size: 15px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .card p:last-child { margin-bottom: 0; }
+
+  .feature { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; margin-top: 36px; }
+  .feature img { border-radius: 10px; border: 1px solid var(--line); }
+  .feature.flip .shot { order: 2; }
+
+  .online-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 24px; }
+  .online-list .card h3 { color: var(--accent); }
+
+  .games { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 24px; }
+  .games .card h3.sm { color: var(--metroid); }
+  .games .card h3.z { color: var(--zelda); }
+  .soon { display: inline-block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+          padding: 2px 8px; border-radius: 20px; background: var(--line); color: var(--dim); margin-left: 6px; vertical-align: middle; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 16px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; white-space: nowrap; }
+  code { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 15px; }
+
+  footer { padding: 40px 0 60px; border-top: 1px solid var(--line); color: var(--dim); font-size: 15px; }
+
+  @media (max-width: 800px) {
+    .g3, .online-list, .games { grid-template-columns: 1fr; }
+    .g2, .feature { grid-template-columns: 1fr; }
+    .feature.flip .shot { order: 0; }
+    .logo h1 { font-size: 34px; }
+    th, td { padding: 8px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="logo"><img src="img/icon.png" alt=""><h1>SMZ3 Universe</h1></div>
+  <p class="tag">The <span class="sm">Super Metroid</span> + <span class="z">A Link to the Past</span> randomizer,
+    with the tracker on the second screen and online races, ladders and daily challenges.</p>
+  <p class="devices">AYN Thor · Android · Nintendo 3DS · Linux handhelds · Linux, Windows and macOS</p>
+  <div class="btns">
+    <a class="btn main" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">Download</a>
+    <a class="btn" href="https://smz3-universe.duckdns.org">Online ladders</a>
+    <a class="btn" href="https://github.com/doctor-utsugi/smz3-universe">Source on GitHub</a>
+  </div>
+  <div class="video">
+    <iframe src="https://www.youtube-nocookie.com/embed/PVDEDpWTlVg" title="SMZ3 Universe video" loading="lazy"
+      allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>One screen plays, the other tracks</h2>
+    <p class="dim">SMZ3 mixes both games into one: items from each are shuffled across both worlds, and doors take you
+      from Zebes to Hyrule and back. The tracker reads the game live, so you never mark anything by hand.</p>
+    <div class="grid g3" style="margin-top:24px">
+      <figure><img src="img/thor-stacked-metroid.png" alt="Super Metroid on the AYN Thor with the tracker below" loading="lazy"><figcaption>AYN Thor: Super Metroid</figcaption></figure>
+      <figure><img src="img/thor-stacked-zelda.png" alt="A Link to the Past on the AYN Thor with the tracker below" loading="lazy"><figcaption>AYN Thor: A Link to the Past</figcaption></figure>
+      <figure><img src="img/thor-stacked-runs.png" alt="The run list on the AYN Thor" loading="lazy"><figcaption>AYN Thor: your runs</figcaption></figure>
+    </div>
+    <div class="grid g2" style="margin-top:18px">
+      <figure><img src="img/readme-3ds-game.png" alt="SMZ3 Universe on the 3DS" loading="lazy"><figcaption>Nintendo 3DS</figcaption></figure>
+      <figure><img src="img/readme-pc-game.png" alt="SMZ3 Universe on PC" loading="lazy"><figcaption>PC</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Play online</h2>
+    <p class="dim">Everyone gets the same seeds, so there is always a time to beat. Every finish carries a proof of the
+      checks made along the way, and the server checks it against the seed's logic before it goes on the table.</p>
+    <div class="grid g2" style="margin-top:24px">
+      <figure><img src="img/3ds-runs-online.png" alt="Online runs on the 3DS" loading="lazy"><figcaption>Daily, weekly and monthly runs</figcaption></figure>
+      <figure><img src="img/3ds-ladder.png" alt="The online ladder on the 3DS" loading="lazy"><figcaption>The ladder, on the device and on the web</figcaption></figure>
+    </div>
+    <div class="online-list">
+      <div class="card"><h3>Daily challenge</h3><p>Three windows a day, four hours each. Everyone in a window gets the same
+        start and one goal, like "defeat two Super Metroid bosses". One attempt, real time, no save states, with hints
+        coming out on a schedule.</p></div>
+      <div class="card"><h3>Weekly run</h3><p>A short run on a new seed every Monday: two crystals open Ganon's Tower,
+        one boss opens Tourian.</p></div>
+      <div class="card"><h3>Monthly seed</h3><p>One fixed seed per month, the same for everyone, with its own table of
+        best times.</p></div>
+      <div class="card"><h3>Ladders</h3><p>Runs on the default rules go on the online ladder, on the device and at
+        <a href="https://smz3-universe.duckdns.org">smz3-universe.duckdns.org</a>.</p></div>
+      <div class="card"><h3>World goals</h3><p>Every month the players share a few goals, like "defeat 30 Kraids".
+        Everyone who helped enough gets paid in rupeergies when the month ends.</p></div>
+      <div class="card"><h3>Races</h3><p>2 to 8 players on any device, in public rooms or private ones with a code.
+        Draft is a quick start with a random goal; Championship is a longer run, with a note when a rival finds a big
+        item or beats a boss, and text chat.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>The tracker</h2>
+    <div class="feature">
+      <div class="shot"><img src="img/feature-map-thor.png" alt="Tracker map on the AYN Thor" loading="lazy"></div>
+      <div><h3>Both worlds on one map</h3><p>Checks you can reach in logic are marked, and the map can follow you as you
+        play. Inside a Zelda dungeon you get the game's own map of it, read from your ROM, with the keys still to take.</p>
+        <p>Hints are up to you: all of them, none, or a few you spend when you're stuck.</p></div>
+    </div>
+    <div class="feature flip">
+      <div class="shot"><img src="img/3ds-tracker-shortcuts-zelda.png" alt="Shortcut row on the 3DS" loading="lazy"></div>
+      <div><h3>Tap to equip</h3><p>On the Thor and the 3DS, tap a row over the map to equip a Zelda item, switch a beam,
+        or pick missiles, supers or power bombs.</p></div>
+    </div>
+    <div class="feature">
+      <div class="shot"><img src="img/feature-rewind-thor.png" alt="Rewind on the AYN Thor" loading="lazy"></div>
+      <div><h3>Rewind</h3><p>Hold a button and the game goes back, up to a minute on the Thor and PC. Let go to stop on a
+        frame and play on from there. Online runs never rewind.</p></div>
+    </div>
+    <div class="feature flip">
+      <div class="shot"><img src="img/sprite-picker-grid-layout.png" alt="Sprite picker" loading="lazy"></div>
+      <div><h3>517 Links, 107 Samuses</h3><p>Pick a community sprite per run, or let the run pick one at random.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Seeds made on the device</h2>
+    <p class="dim">The generator is built in: a C port of
+      <a href="https://github.com/TheTrackerCouncil/SMZ3Randomizer">SMZ3Randomizer</a>, checked seed by seed against
+      the original. A new seed takes a second, from your own two ROMs, with no connection needed.</p>
+    <table>
+      <tr><th>Cozy</th><td>Keys shuffled in Zelda only, easy wall jumps, dark rooms lit, save states and rewind on.</td></tr>
+      <tr><th>Original</th><td>The default rules. These runs can go on the online ladder.</td></tr>
+      <tr><th>Custom</th><td>Every option of the web generator: item placement, keysanity, logic tweaks, starting items, plando. Save a setup and pick it again later.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Three games <span class="soon">next release</span></h2>
+    <p class="dim">Pick the game on the first screen. Each one has its own runs, tracker, ladders, daily challenge and races.</p>
+    <div class="games">
+      <div class="card"><h3><span class="sm">SMZ3</span></h3><p>Both games in one seed, as above.</p></div>
+      <div class="card"><h3 class="sm">Super Metroid</h3><p>Super Metroid alone, plus
+        <a href="https://maprando.com">Map Rando</a> runs, which rebuild the whole map the way SM races play it.</p></div>
+      <div class="card"><h3 class="z">A Link to the Past</h3><p>Zelda alone, with the options its community plays:
+        Inverted, Retro, hunt goals, glitched logic and boss shuffle.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Get it</h2>
+    <p>You need your own ROMs: <b>Super Metroid (JU)</b> and <b>A Link to the Past (Japan v1.0)</b>. Then grab the file for your
+      device from the <a href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">latest release</a>.</p>
+    <table>
+      <tr><th>AYN Thor, Android</th><td><code>SMZ3-android-arm64.apk</code></td></tr>
+      <tr><th>Nintendo 3DS</th><td><code>SMZ3-3ds.cia</code> (FBI) or <code>SMZ3-3ds.3dsx</code> (Homebrew Launcher)</td></tr>
+      <tr><th>ROCKNIX, Knulli</th><td><code>SMZ3-ports-aarch64.zip</code></td></tr>
+      <tr><th>Linux</th><td><code>SMZ3-x86_64.AppImage</code></td></tr>
+      <tr><th>Windows</th><td><code>SMZ3-windows-x64.zip</code></td></tr>
+      <tr><th>macOS</th><td><code>SMZ3-macos-intel.tar.gz</code> (Apple silicon through Rosetta)</td></tr>
+    </table>
+    <p style="margin-top:18px">Step by step for every device:
+      <a href="https://github.com/doctor-utsugi/smz3-universe#2-install-it">installation guide</a>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>SMZ3 Universe is a fan project, free, and not affiliated with Nintendo. It builds on
+      <a href="https://github.com/TheTrackerCouncil/SMZ3Randomizer">SMZ3Randomizer</a>, snes9x and the work of the
+      randomizer communities; full credits are in the
+      <a href="https://github.com/doctor-utsugi/smz3-universe#credits">README</a>.</p>
+  </div>
+</footer>
+
+</body>
+</html>
