@@ -99,7 +99,8 @@ void smz_tracker_tick(SmzTracker *t, const uint8_t *wram, size_t wram_len, const
     memset(cleared, 0, sizeof cleared);
     if (s.started)
         for (unsigned i = 0; i < smz3_location_count && i < SMZ_TRK_MAX_LOCS; i++)
-            cleared[i] = smz3_location_cleared(&smz3_locations[i], s.game, wram, wram_len, sram, sram_len) > 0;
+            cleared[i] = !(smz3_sm_alone() && smz3_locations[i].game == SMZ3_GAME_ZELDA)   /* no Zelda in Super Metroid alone */
+                && smz3_location_cleared(&smz3_locations[i], s.game, wram, wram_len, sram, sram_len) > 0;
     /* a transition frame can briefly read as not started: hold the last live state */
     if (s.started) {
         t->live = s; memcpy(t->live_cleared, cleared, sizeof cleared); t->live_at_ms = t->now_ms; t->have_live = 1;

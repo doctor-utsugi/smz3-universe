@@ -72,6 +72,10 @@ int smz3_started(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size
     switch (smz3_current_game(sram, sram_len)) {
     case SMZ3_GAME_ZELDA: return wram_len > WRAM_ZELDA_MODULE && wram[WRAM_ZELDA_MODULE] >= 6 && wram[WRAM_ZELDA_MODULE] < 0x20;
     case SMZ3_GAME_METROID:
+        if (g_sm_alone) {   /* its own intro (0x1E) runs before the items are loaded, while they still read as Snes9x's 0x55 fill */
+            unsigned st = wram_len > WRAM_METROID + 1 && !wram[WRAM_METROID_STATE + 1] ? wram[WRAM_METROID_STATE] : 0;
+            return ((st >= 6 && st < 0x1E) || st == 0x26 || st == 0x27) && !(wram[WRAM_METROID] == 0x55 && wram[WRAM_METROID + 1] == 0x55);
+        }
         return wram_len > WRAM_METROID_STATE + 1 && wram[WRAM_METROID_STATE] >= 6 && wram[WRAM_METROID_STATE] < 0x30 && wram[WRAM_METROID_STATE] != 0x1F
             && !wram[WRAM_METROID_STATE + 1];
     case SMZ3_GAME_CREDITS: return 1;

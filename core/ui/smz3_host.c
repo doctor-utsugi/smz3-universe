@@ -27,8 +27,14 @@ int smz_host_generate(const SmzUi *u, int32_t seed_if_random, const uint8_t *sm,
     char link[32], samus[32];
     if (ui_settings_json(u, seed_if_random, settings_json, json_cap) < 0) return -8;
     if (u->game_mode == SMZ_MODE_SM) {   /* Super Metroid alone: its own generator, only its ROM, a 4 MB ROM */
-        snprintf(seed_text, seed_cap, "%d", u->value[0] ? u->value[0] : (int)seed_if_random);
-        return smz_sm_generate(settings_json, json_cap, sm, samus_rdc, samus_len, rom_out, SMZ_HOST_ROM_SIZE);
+        int rc = -3;
+        /* Casual + Full has no place for an early wall breaker in about 1 seed of 7 (the C# fails the same seeds): a random seed moves on */
+        for (int tries = 0; rc == -3 && tries < (u->value[0] ? 1 : 32); tries++, seed_if_random++) {
+            if (tries && ui_settings_json(u, seed_if_random, settings_json, json_cap) < 0) return -8;
+            snprintf(seed_text, seed_cap, "%d", u->value[0] ? u->value[0] : (int)seed_if_random);
+            rc = smz_sm_generate(settings_json, json_cap, sm, samus_rdc, samus_len, rom_out, SMZ_HOST_ROM_SIZE);
+        }
+        return rc;
     }
     ui_settings(u, seed_if_random, &s, &cfg, link, samus);
     cfg.link_rdc = link_rdc; cfg.link_rdc_len = link_len;

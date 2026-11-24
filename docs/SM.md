@@ -22,7 +22,7 @@ the commits above.
 
 | Stage | State | Files |
 |---|---|---|
-| 1. Oracle | Built (`dotnet build`), never run | `tools/gen-cli-sm/` |
+| 1. Oracle | Built (`dotnet build`), run (see Checks run) | `tools/gen-cli-sm/` |
 | 2. Logic and world | Generated, compiles | `tools/port_world_sm.py`, `core/smgen/sm_world{,_gen}.{h,c}` |
 | 3. Pools and filler | Ported, compiles | `core/smgen/sm_fill.{h,c}` |
 | 4. ROM | Base patch built, patcher ported, compiles | `tools/build_sm_ips.sh`, `patches/sm_randomizer.ips`, `tools/gen_sm_ips_c.py`, `tools/gen_sm_patchdata.py`, `core/smgen/sm_animals_data.h`, `core/smgen/sm_patch.{h,c}` |
@@ -30,7 +30,7 @@ the commits above.
 | Entry point | Written, compiles and links | `core/smgen/sm_generate.{h,c}` |
 
 Every `.c` in `core/smgen/` (and the generated `build/smgen/sm_ips_data.c`) compiles with `gcc -std=c99 -Wall -Wextra -c`
-without warnings, and they link together with `core/gen/smz3_rng.c`. None of it has been run.
+without warnings, and they link together with `core/gen/smz3_rng.c`. Checked against the oracle (see Checks run); not run in a game yet.
 
 ### 1. Oracle: `tools/gen-cli-sm`
 
@@ -103,7 +103,7 @@ taken apart). `sm_option_set(s, key, value)` takes the C# keys and values. `sm_g
 ids, seed_out, hash_out)` pads the JU ROM to 4 MB, applies the base patch, fills, checks the playthrough and patches.
 Defaults (`sm_settings_defaults`): Tournament, Split, not Race.
 
-## Checks ready to run (none run, waiting for the owner)
+## Checks
 
 1. Logic: `gen-cli-sm vectors` against the C helpers, and `gen-cli-sm worldvectors` against `sm_region_can_enter` /
    `sm_loc_available`. Needs a small C reader for the vector files (not written: no test files without a yes).
@@ -111,6 +111,26 @@ Defaults (`sm_settings_defaults`): Tournament, Split, not Race.
    `sm_fill`'s `item_at` (by location id).
 3. Patches: the same batch's `patch` lines against the bytes `sm_patch` writes (credits order included).
 4. ROM: `gen-cli-sm rom` against `sm_generate` with `ids = NULL`: byte-identical 4 MB ROMs expected.
+
+## Checks run
+
+2026-11-24, oracle built from `tools/gen-cli-sm` on .NET 10.0 with ICU (no invariant globalization). Harnesses
+lived outside the repo; no repo code changed.
+
+| Check | Cases | Result |
+|---|---|---|
+| 1. `vectors` (rngseeds 1, 77) vs `sm_Can*` / `sm_HasEnergyReserves` | 50000 inventories, 1050000 helper calls | 0 mismatches |
+| 1. `worldvectors` (rngseeds 2, 78), Casual and Tournament about half each | 50000 inventories, 800000 `CanEnter`, 5000000 `Available` | 0 mismatches |
+| 2. `placementbatch` vs `sm_fill`: 2250 seeds x {Casual, Tournament} x {Full, Split} x Race on/off | 18000 | 17374 equal location by location; the other 626 fail in both (see below) |
+| 3. Same batch, `patch` lines vs every byte `sm_patch` writes (both ways, GUIDs left out) | 17374 | all equal, credits order included |
+| 4. `rom` vs `sm_generate` (`ids = NULL`): 12 seeds x the 8 settings | 96 | 86 byte-identical 4 MB ROMs (GUID fields zero on both sides, so equal there too); 10 fail in both |
+
+`sm_playthrough_ok` passed on every generated seed, Race included.
+
+Casual + Full fails often upstream: when `InitialFill` draws Screw Attack or Speed Booster as the bomb-wall breaker
+(`Next(8)` is 0 or 1), Casual logic with only Morph and a Missile/Super placed has no location for it outside the
+"early" ones, and the C# throws "No location to place item". That was 626 of 4500 Casual + Full cases (about 14%),
+the same seeds in C (`sm_fill` -1, `sm_generate` -3). Other settings never failed. Hosts need to report it or reroll.
 
 ## Open problems
 
