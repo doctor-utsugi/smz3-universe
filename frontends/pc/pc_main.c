@@ -43,6 +43,7 @@
 #include "smz3_proof.h"
 #include "smz3_rewind.h"
 #include "smz3_sm.h"
+#include "smz3_z3.h"
 #include "smz3_romsetup.h"
 #include "pc_idle.h"
 #include "smz3_runlogic.h"
@@ -90,7 +91,11 @@ static void *generate_thread(void *arg)
     j->rom = malloc(SMZ_HOST_ROM_SIZE);
     j->rc = smz_host_generate(gu, j->seed_if_random, j->sm, j->z3, j->link, j->link_len, j->samus, j->samus_len, store_ips, NULL,
                               j->rom, json, sizeof json, seed, sizeof seed, NULL);
-    if (j->rc) { snprintf(j->err, sizeof j->err, "generation failed (%d)", j->rc); return NULL; }
+    if (j->rc) {
+        const char *why = gu->game_mode == SMZ_MODE_Z3 ? smz_z3_error(j->rc) : NULL;
+        if (why) snprintf(j->err, sizeof j->err, "%s", why); else snprintf(j->err, sizeof j->err, "generation failed (%d)", j->rc);
+        return NULL;
+    }
     memset(&j->run, 0, sizeof j->run);
     snprintf(j->run.name, sizeof j->run.name, "%s", ui_run_label(gu));
     snprintf(j->run.seed, sizeof j->run.seed, "%s", seed);
@@ -862,7 +867,6 @@ static void *goals_report_thread(void *arg)
 
 static void goals_report(int slot, const SmzRun *run)
 {
-    if (run->mode != SMZ_MODE_SMZ3 && run->mode != SMZ_MODE_SM) return;   /* the world goals: the games the server takes */
     GoalReport *g = calloc(1, sizeof *g);
     if (!g) return;
     g->slot = slot; g->created = run->created; g->online = online_slot_kind(slot) > 0;
@@ -3100,7 +3104,7 @@ static void window_main(int start_slot)
             if (ui.game_mode != store_get_mode()) {   /* a game entered from the carousel: its own runs, daily and seeds */
                 store_set_mode(ui.game_mode); refill_slots();
                 static int asked[SMZ_MODE_COUNT];
-                if (ui.game_mode == SMZ_MODE_SM && !asked[ui.game_mode]) { asked[ui.game_mode] = 1; detach(monthly_thread, NULL); }   /* SMZ3's came at launch */
+                if (ui.game_mode != SMZ_MODE_SMZ3 && !asked[ui.game_mode]) { asked[ui.game_mode] = 1; detach(monthly_thread, NULL); }   /* SMZ3's came at launch */
                 next_daily = 0;
                 if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows this game's tables */
             }

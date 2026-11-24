@@ -1150,10 +1150,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..bdec372
+index 0000000..a87d0bf
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1303 @@
+@@ -0,0 +1,1302 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1628,7 +1628,7 @@ index 0000000..bdec372
 +    char id[40], run[64], reply[256], body[2048], name[32], country[4];
 +    installId(id);
 +    playerOf(name, country);
-+    snprintf(run, sizeof run, "%s%d-%lld", modeNow() == SMZ_MODE_SM ? "m" : "s", g->slot, (long long)g->created);   // the games' slots apart
++    snprintf(run, sizeof run, "%s%d-%lld", modeNow() == SMZ_MODE_SM ? "m" : modeNow() == SMZ_MODE_Z3 ? "z" : "s", g->slot, (long long)g->created);   // the games' slots apart
 +    int n = snprintf(body, sizeof body, "{\"install\":\"%s\",\"run\":\"%s\",\"online\":%s,\"player\":\"%s\",", id, run, g->online ? "true" : "false", name);
 +    if (country[0]) n += snprintf(body + n, sizeof body - (size_t)n, "\"country\":\"%s\",", country);
 +    n += snprintf(body + n, sizeof body - (size_t)n, "\"counts\":{");
@@ -1807,7 +1807,6 @@ index 0000000..bdec372
 +{
 +    int was = tMode;
 +    for (int m = 0; m < SMZ_MODE_COUNT; m++) {
-+        if (m == SMZ_MODE_Z3) continue;   // no ladder yet
 +        tMode = m;
 +        flushFinishes();
 +        flushDaily();
@@ -2459,7 +2458,7 @@ index 0000000..bdec372
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..439b49a
+index 0000000..71d8657
 --- /dev/null
 +++ b/source/smz3online.h
 @@ -0,0 +1,124 @@
@@ -2473,7 +2472,7 @@ index 0000000..439b49a
 +#include "smz3_daily.h"
 +}
 +
-+// Online ladders (original, monthly, weekly) for the SMZ3 and Super Metroid runs: the same protocol as the other frontends, over the
++// Online ladders (original, monthly, weekly) for the runs of all three games: the same protocol as the other frontends, over the
 +// 3DS httpc service. Each request carries the game entered (smzRunMode) when it is not SMZ3.
 +// Everything blocking runs on its own thread; the menu polls for what arrived.
 +
@@ -2589,10 +2588,10 @@ index 0000000..439b49a
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..b186922
+index 0000000..205ffcc
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6066 @@
+@@ -0,0 +1,6069 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2621,6 +2620,7 @@ index 0000000..b186922
 +#include "smz3_romderived.h"
 +#include "smz3_rewind.h"
 +#include "smz3_sm.h"
++#include "smz3_z3.h"
 +// from smz3_rom.h, whose generator headers stay out of C++
 +int smz_rom_shortcut_hooks(uint8_t *rom);
 +void smz_rom_checksum(uint8_t *rom);
@@ -3498,6 +3498,8 @@ index 0000000..b186922
 +            if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
 +        } else if (job.rc == -1 && ipsFailed[0]) {
 +            snprintf(message, cap, ipsNoMemory ? "Out of memory loading %s" : "Missing patch %s", ipsFailed);
++        } else if (z3Run && smz_z3_error(job.rc)) {
++            snprintf(message, cap, "%s", smz_z3_error(job.rc));
 +        } else {
 +            snprintf(message, cap, "Generation failed (%d)", job.rc);
 +        }

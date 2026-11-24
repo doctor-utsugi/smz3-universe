@@ -1389,10 +1389,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..9c9f173
+index 0000000..8053d1d
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1062 @@
+@@ -0,0 +1,1079 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1702,7 +1702,7 @@ index 0000000..9c9f173
 +        AppUpdate.latest?.let { Smz3Native.uiUpdateJson(it) }
 +        Thread {
 +            for (game in RunStore.ONLINE_GAMES) {
-+                val m = if (game == "sm") SMZ_MODE_SM else 0
++                val m = when (game) { "sm" -> SMZ_MODE_SM; "z3" -> SMZ_MODE_Z3; else -> 0 }
 +                pendingMonthly[m].set(OnlineLadder.monthly(context, game)); pendingWeekly[m].set(OnlineLadder.weekly(context, game))
 +            }
 +        }.start()
@@ -1846,7 +1846,7 @@ index 0000000..9c9f173
 +        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +    }
 +
-+    /** A Link to the Past alone: only its JP ROM and its own generator, a 2 MB ROM; offline for now. */
++    /** A Link to the Past alone: only its JP ROM and its own generator, a 2 MB ROM; online like SMZ3 (its own ladder). */
 +    suspend fun generateZ3(slot: Int) {
 +        val z3 = RunGenerator.findZ3Rom(context, retrogradeDb.gameDao().selectListBySystem("snes"))
 +            ?: error(RunGenerator.wrongBaseRom ?: "Add the ALttP JP ROM first")
@@ -1872,6 +1872,7 @@ index 0000000..9c9f173
 +                settings = settings, mapMode = json.optString("mapMode", "all"),
 +            ),
 +        )
++        OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original")
 +        val game = RunGenerator.registerGame(context, retrogradeDb, slot, name)
 +        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +    }
@@ -1934,13 +1935,24 @@ index 0000000..9c9f173
 +        }
 +    }
 +
-+    /** The base ROMs of the game shown: SMZ3's two, or Super Metroid's alone (an empty Zelda); null when one is missing. */
++    /** The base ROMs of the game shown: SMZ3's two, or one game's alone (the other one empty); null when one is missing. */
 +    suspend fun onlineBases(): Pair<ByteArray, ByteArray>? {
 +        val games = retrogradeDb.gameDao().selectListBySystem("snes")
-+        return if (RunStore.mode == "sm") RunGenerator.findSmRom(context, games)?.let { it to ByteArray(0) } else RunGenerator.findBaseRoms(context, games)
++        return when (RunStore.mode) {
++            "sm" -> RunGenerator.findSmRom(context, games)?.let { it to ByteArray(0) }
++            "z3" -> RunGenerator.findZ3Rom(context, games)?.let { ByteArray(0) to it }
++            else -> RunGenerator.findBaseRoms(context, games)
++        }
 +    }
 +
-+    /** A challenge's or race's game from its settings [raw]: the ROM, its seed and the settings the run keeps (Super Metroid's get the seed hash). */
++    /** The message for a single game whose ROM is missing (SMZ3 asks for its two instead). */
++    fun singleRomMissing(): String? = when (RunStore.mode) {
++        "sm" -> RunGenerator.wrongBaseRom ?: "Add the Super Metroid ROM first"
++        "z3" -> RunGenerator.wrongBaseRom ?: "Add the ALttP JP ROM first"
++        else -> null
++    }
++
++    /** A challenge's or race's game from its settings [raw]: the ROM, its seed and the settings the run keeps (the single games' get the seed hash). */
 +    suspend fun onlineGame(sm: ByteArray, z3: ByteArray, raw: String): Triple<ByteArray, String, String> {
 +        val settings = JSONObject(raw)
 +        fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
@@ -1948,6 +1960,11 @@ index 0000000..9c9f173
 +        if (RunStore.mode == "sm") {
 +            val (rom, kept) = RunGenerator.generateSm(sm, raw, rdc(1, "samusSprite"))
 +            Smz3Native.setMode(SMZ_MODE_SM)
++            return Triple(rom, JSONObject(kept).optString("seed"), kept)
++        }
++        if (RunStore.mode == "z3") {
++            val (rom, kept) = RunGenerator.generateZ3Json(z3, raw, rdc(0, "linkSprite"))
++            Smz3Native.setMode(SMZ_MODE_Z3)
 +            return Triple(rom, JSONObject(kept).optString("seed"), kept)
 +        }
 +        val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
@@ -1967,7 +1984,7 @@ index 0000000..9c9f173
 +                val (sm, z3) = onlineBases()
 +                    ?: run {
 +                        quiet[0] = false
-+                        if (RunStore.mode == "sm") error(RunGenerator.wrongBaseRom ?: "Add the Super Metroid ROM first")
++                        singleRomMissing()?.let { error(it) }
 +                        needRoms(RunGenerator.wrongBaseRom) { startDaily() }
 +                        return@launch
 +                    }
@@ -2039,7 +2056,7 @@ index 0000000..9c9f173
 +            val outcome = runCatching {
 +                val (sm, z3) = onlineBases()
 +                    ?: run {   // the ready room stays while the picker is open: the game is built again once both ROMs are in
-+                        if (RunStore.mode == "sm") error(RunGenerator.wrongBaseRom ?: "Add the Super Metroid ROM first")
++                        singleRomMissing()?.let { error(it) }
 +                        val wrong = RunGenerator.wrongBaseRom
 +                        askRoms { uris ->
 +                            val message = if (uris.isEmpty()) null else RunGenerator.importRoms(context, uris)
@@ -2052,7 +2069,7 @@ index 0000000..9c9f173
 +                Smz3Native.uiSetPlando(null)
 +                val (rom, usedSeed, raw) = onlineGame(sm, z3, made)
 +                val settings = JSONObject(raw)
-+                if (RunStore.mode != "sm" && !Smz3Native.raceApplyStart(rom, raw)) error("The Draft's start does not fit")   // Drafts are SMZ3's
++                if (RunStore.mode == "smz3" && !Smz3Native.raceApplyStart(rom, raw)) error("The Draft's start does not fit")   // Drafts are SMZ3's
 +                RunStore.delete(context, RaceClient.SLOT)
 +                RunStore.goalsFile(context, RaceClient.SLOT).delete()   // a Draft's kills and rupees count from zero
 +                val romFile = RunStore.newRomFile(context, usedSeed, raw)
@@ -2457,10 +2474,10 @@ index 0000000..9c9f173
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..eb60b72
+index 0000000..774590d
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,263 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2472,8 +2489,8 @@ index 0000000..eb60b72
 +
 +/**
 + * The shared ladder at [BASE]. The server signs a token when a run starts and only accepts a time for a token it issued,
-+ * so a finished run is sent as just that token, the time and the player name. Original-rules runs only. SMZ3 and Super Metroid
-+ * each have their own tables: requests for a game other than SMZ3 carry its id.
++ * so a finished run is sent as just that token, the time and the player name. Original-rules runs only. Each of the three
++ * games has its own tables: requests for a game other than SMZ3 carry its id.
 + */
 +object OnlineLadder {
 +    private const val BASE = "https://smz3-universe.duckdns.org"
@@ -2703,7 +2720,8 @@ index 0000000..eb60b72
 +        }
 +        if (counts.length() == 0) return
 +        val (name, country) = profile(context)   // the name and flag last month's top 10 shows
-+        val body = JSONObject().put("install", installId(context)).put("run", (if (RunStore.mode == "sm") "m" else "s") + "$slot-$createdAt")   // the games' slots apart.put("online", online).put("counts", counts).put("player", name)
++        val prefix = when (RunStore.mode) { "sm" -> "m"; "z3" -> "z"; else -> "s" }   // the games' slots apart
++        val body = JSONObject().put("install", installId(context)).put("run", "$prefix$slot-$createdAt").put("online", online).put("counts", counts).put("player", name)
 +        if (country.length == 2) body.put("country", country)
 +        post("/api/goals/report", body)
 +    }
@@ -2725,10 +2743,10 @@ index 0000000..eb60b72
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt
 new file mode 100644
-index 0000000..177fca9
+index 0000000..92689a7
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunGenerator.kt
-@@ -0,0 +1,322 @@
+@@ -0,0 +1,333 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2845,6 +2863,17 @@ index 0000000..177fca9
 +        var out: Pair<ByteArray, String>? = null
 +        val thread = Thread(null, {
 +            out = Smz3Native.generateZ3(z3, linkRdc, seedIfRandom)?.let { it to Smz3Native.z3LastSettings() }
++        }, "z3-generate", 64L * 1024 * 1024)
++        thread.start()
++        thread.join()
++        out ?: error(Smz3Native.lastError().ifEmpty { "generation failed" })
++    }
++
++    /** A Link to the Past alone: the 2 MB ROM for a "game":"z3" [settingsJson] and that JSON with the seed hash added. */
++    suspend fun generateZ3Json(z3: ByteArray, settingsJson: String, linkRdc: ByteArray? = null): Pair<ByteArray, String> = withContext(Dispatchers.IO) {
++        var out: Pair<ByteArray, String>? = null
++        val thread = Thread(null, {
++            out = Smz3Native.generateZ3Json(z3, settingsJson, linkRdc)?.let { it to Smz3Native.z3LastSettings() }
 +        }, "z3-generate", 64L * 1024 * 1024)
 +        thread.start()
 +        thread.join()
@@ -3190,7 +3219,7 @@ index 0000000..91f0bba
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 new file mode 100644
-index 0000000..de4a770
+index 0000000..fbccecd
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 @@ -0,0 +1,161 @@
@@ -3247,7 +3276,7 @@ index 0000000..de4a770
 +    fun runsDir(context: Context, game: String) = File(context.filesDir, if (game == "smz3") "runs" else "runs/$game").apply { mkdirs() }
 +
 +    /** The games with an online ladder, daily challenge and races. */
-+    val ONLINE_GAMES = listOf("smz3", "sm")
++    val ONLINE_GAMES = listOf("smz3", "sm", "z3")
 +
 +    /** "&game=<id>" (or "?game=" with [first]) for a game other than SMZ3; SMZ3's requests stay as they were. */
 +    fun gameQuery(game: String = mode, first: Boolean = false) = if (game == "smz3") "" else (if (first) "?" else "&") + "game=" + game
@@ -7240,10 +7269,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..ebc0b8e
+index 0000000..8350ca0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,172 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7302,7 +7331,10 @@ index 0000000..ebc0b8e
 +    /** A Link to the Past alone: the 2 MB ROM of the menu's run from the 1 MB JP ROM (a random seed whose fill fails moves on), or null. */
 +    @JvmStatic external fun generateZ3(z3: ByteArray, linkRdc: ByteArray?, seedIfRandom: Int): ByteArray?
 +
-+    /** The settings of the last [generateZ3], with its seed and hash. */
++    /** A Link to the Past alone from a "game":"z3" settings JSON (a daily challenge's or a race's), or null (see [lastError]). */
++    @JvmStatic external fun generateZ3Json(z3: ByteArray, settingsJson: String, linkRdc: ByteArray?): ByteArray?
++
++    /** The settings of the last [generateZ3] or [generateZ3Json], with its seed and hash. */
 +    @JvmStatic external fun z3LastSettings(): String
 +
 +    /** Which randomizer's ROM the memory reads follow (0 SMZ3, 1 A Link to the Past alone, 2 Super Metroid alone). */
@@ -9295,10 +9327,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..f5d9f20
+index 0000000..341b1ac
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,481 @@
+@@ -0,0 +1,480 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -9419,7 +9451,6 @@ index 0000000..f5d9f20
 +
 +    /** Sends the run's world goal counters in the background (every few minutes, at the end and when the game closes). */
 +    fun reportGoals(context: Context, slot: Int, createdAt: Long) {
-+        if (RunStore.mode !in RunStore.ONLINE_GAMES) return   // ALttP alone has no online play yet
 +        val text = Smz3Native.countersText()
 +        val online = OnlineLadder.slotKind(context, slot) != 0
 +        Thread { OnlineLadder.reportGoals(context, slot, createdAt, online, text) }.start()

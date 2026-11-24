@@ -288,7 +288,7 @@ int online_goals_report(int slot, int64_t created, int online, const char *count
 {
     char id[48], run[64], body[2048], reply[256];
     install_id(id);
-    snprintf(run, sizeof run, "%s%d-%lld", store_get_mode() == SMZ_MODE_SM ? "m" : "s", slot, (long long)created);   /* the games' slots apart */
+    snprintf(run, sizeof run, "%s%d-%lld", store_get_mode() == SMZ_MODE_SM ? "m" : store_get_mode() == SMZ_MODE_Z3 ? "z" : "s", slot, (long long)created);   /* the games' slots apart */
     int n = snprintf(body, sizeof body, "{\"install\":\"%s\",\"run\":\"%s\",\"online\":%s,\"counts\":{", id, run, online ? "true" : "false");
     for (const char *p = counters; p && *p && n < (int)sizeof body - 64;) {
         const char *eq = strchr(p, '='), *end = strchr(p, ',');
@@ -320,7 +320,6 @@ void online_flush(void)
 {
     int was = store_thread_mode(SMZ_MODE_SMZ3);
     for (int m = 0; m < SMZ_MODE_COUNT; m++) {   /* each game's runs, whichever is entered */
-        if (m == SMZ_MODE_Z3) continue;   /* no ladder yet */
         store_thread_mode(m);
         flush_game();
     }

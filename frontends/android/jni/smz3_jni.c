@@ -624,7 +624,34 @@ JNIEXPORT jbyteArray JNICALL NATIVE(generateZ3)(JNIEnv *env, jclass cls, jbyteAr
                                      lk ? (size_t)(*env)->GetArrayLength(env, linkRdc) : 0, NULL, 0, NULL, NULL, rom,
                                      g_z3_json, sizeof g_z3_json, seed, sizeof seed, NULL) : -1;
     jbyteArray result = NULL;
-    if (rc) snprintf(g_error, sizeof g_error, rc == -6 ? "the sprite file is not valid" : "generation failed (%d)", rc);
+    if (rc && smz_z3_error(rc)) snprintf(g_error, sizeof g_error, "%s", smz_z3_error(rc));
+    else if (rc) snprintf(g_error, sizeof g_error, "generation failed (%d)", rc);
+    else {
+        result = (*env)->NewByteArray(env, SMZ_Z3_ROM_SIZE);
+        (*env)->SetByteArrayRegion(env, result, 0, SMZ_Z3_ROM_SIZE, (const jbyte *)rom);
+    }
+    if (lk) (*env)->ReleaseByteArrayElements(env, linkRdc, lk, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, z3, zb, JNI_ABORT);
+    free(rom);
+    return result;
+}
+
+/* A Link to the Past alone from a settings JSON (a daily challenge's or a race's), the seed hash added as generateZ3 does. */
+JNIEXPORT jbyteArray JNICALL NATIVE(generateZ3Json)(JNIEnv *env, jclass cls, jbyteArray z3, jstring settings, jbyteArray linkRdc)
+{
+    g_error[0] = 0;
+    if ((*env)->GetArrayLength(env, z3) != SMZ_Z3_BASE_SIZE) { snprintf(g_error, sizeof g_error, "the ALttP ROM has the wrong size"); return NULL; }
+    const char *j = (*env)->GetStringUTFChars(env, settings, NULL);
+    snprintf(g_z3_json, sizeof g_z3_json, "%s", j);
+    (*env)->ReleaseStringUTFChars(env, settings, j);
+    jbyte *zb = (*env)->GetByteArrayElements(env, z3, NULL);
+    jbyte *lk = linkRdc ? (*env)->GetByteArrayElements(env, linkRdc, NULL) : NULL;
+    uint8_t *rom = malloc(SMZ_HOST_ROM_SIZE);
+    int rc = rom ? smz_z3_generate(g_z3_json, sizeof g_z3_json, (const uint8_t *)zb, (const uint8_t *)lk,
+                                   lk ? (size_t)(*env)->GetArrayLength(env, linkRdc) : 0, rom, SMZ_HOST_ROM_SIZE) : -1;
+    jbyteArray result = NULL;
+    if (rc && smz_z3_error(rc)) snprintf(g_error, sizeof g_error, "%s", smz_z3_error(rc));
+    else if (rc) snprintf(g_error, sizeof g_error, "generation failed (%d)", rc);
     else {
         result = (*env)->NewByteArray(env, SMZ_Z3_ROM_SIZE);
         (*env)->SetByteArrayRegion(env, result, 0, SMZ_Z3_ROM_SIZE, (const jbyte *)rom);
