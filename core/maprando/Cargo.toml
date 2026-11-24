@@ -11,6 +11,7 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 maprando = { path = "../../vendor/maprando/rust/maprando", default-features = false }
 maprando-game = { path = "../../vendor/maprando/rust/maprando-game" }
+maprando-logic = { path = "../../vendor/maprando/rust/maprando-logic" }
 anyhow = "1"
 rand = "0.8.5"
 serde_json = "1"

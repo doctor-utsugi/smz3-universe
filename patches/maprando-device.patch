@@ -173,3 +173,16 @@ index 3f3fa5d..feb5224 100644
  impl MapRepository for HttpMapRepository {
      fn get_map_batch(
          &self,
+diff --git a/rust/maprando/src/randomize.rs b/rust/maprando/src/randomize.rs
+index 2481576..8c65cd2 100644
+--- a/rust/maprando/src/randomize.rs
++++ b/rust/maprando/src/randomize.rs
+@@ -5478,7 +5478,7 @@ impl<'r> Randomizer<'r> {
+         }
+     }
+ 
+-    fn get_initial_states(&self) -> (GlobalState, LocalState) {
++    pub fn get_initial_states(&self) -> (GlobalState, LocalState) {
+         let items = vec![false; self.game_data.item_isv.keys.len()];
+         let weapon_mask = self
+             .game_data

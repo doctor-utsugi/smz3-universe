@@ -223,7 +223,7 @@ int smz_sm_proof_logic(const char *json, const SmzProof *p, SmzProofVerdict *v)
 {
     static SmSeed seed;
     SmGenSettings s;
-    if (smz_sm_is_maprando(json)) return 0;   /* Map Rando's logic is the crate's: only the time and rate rules apply */
+    if (smz_sm_is_maprando(json)) return 0;   /* Map Rando's logic is the crate's, checked by the server (maprando.js) */
     if (sm_settings(json, &s) || sm_fill(&seed, &s)) return -1;
     SmProg prog;
     memset(&prog, 0, sizeof prog);

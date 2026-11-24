@@ -10,9 +10,14 @@ use maprando::difficulty::{get_full_global, get_link_difficulty_length};
 use maprando::map_repository::{MapPoolsConfig, MapRepository, PregeneratedMapRepository};
 use maprando::patch::{Rom, make_rom};
 use maprando::preset::PresetData;
-use maprando::randomize::{Randomizer, assign_map_areas, get_difficulty_tiers, get_objectives, randomize_doors};
+use maprando::randomize::{
+    DoorState, FlagLocationState, ItemLocationState, Randomization, RandomizationState, Randomizer, SaveLocationState,
+    TraverserPair, assign_map_areas, get_difficulty_tiers, get_objectives, make_locked_door_data, randomize_doors,
+};
 use maprando::settings::{RandomizerSettings, StartLocationMode};
-use maprando_game::GameData;
+use maprando::traverse::Traverser;
+use maprando_game::{GameData, HubLocation, Item, VertexKey};
+use maprando_logic::LocalState;
 use rand::{RngCore, SeedableRng};
 use std::ffi::{CStr, c_char};
 use std::path::{Path, PathBuf};
@@ -144,69 +149,260 @@ fn customize() -> CustomizeSettings {
     }
 }
 
-fn generate(st: &State, json: &str, seed: u64, max_attempts: u32, rom: &[u8]) -> Result<(Vec<u8>, String)> {
-    in_dir(&st.dir, || {
-        let gd = &st.game_data;
-        let settings = settings_of(st, json)?;
-        let tiers = get_difficulty_tiers(
-            &settings,
-            &st.preset_data.difficulty_tiers,
-            gd,
-            &st.preset_data.tech_by_difficulty["Implicit"],
-            &st.preset_data.notables_by_difficulty["Implicit"],
-        );
-        let mut rs = [0u8; 32];
-        rs[..8].copy_from_slice(&seed.to_le_bytes());
-        let mut rng = rand::rngs::StdRng::from_seed(rs);
-        // The menu's hash comes from the seed number, mixed (splitmix64) so nearby numbers look different.
-        let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        let display_seed = ((z ^ (z >> 31)) & 0xFFFF_FFFF) as usize;
-        let max_attempts = if max_attempts == 0 { 10000 } else { max_attempts as usize };
-        let per_map = if settings.start_location_settings.mode == StartLocationMode::Random { 10 } else { 1 };
-        let mut batch = vec![];
-        let mut attempt = 0;
-        let mut found = None;
-        'maps: for _ in 0..max_attempts.div_ceil(per_map) {
-            let map_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
-            let door_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
-            if batch.is_empty() {
-                batch = st.maps.get_map_batch(map_seed, &settings, gd)?;
-            }
-            let mut map = batch.pop().context("Empty map batch")?;
-            if !assign_map_areas(&mut map, &settings, map_seed, gd) {
-                continue;
-            }
-            let objectives = get_objectives(&settings, Some(&map), gd, &mut rng);
-            let doors = randomize_doors(gd, &map, &settings, &objectives, door_seed);
-            let r = Randomizer::new(&map, &doors, objectives, &settings, &tiers, gd, &gd.base_links_data, &mut rng);
-            for _ in 0..per_map {
-                attempt += 1;
-                ATTEMPTS.store(attempt as u32, Ordering::Relaxed);
-                let item_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
-                if let Ok((randomization, _spoiler)) = r.randomize(attempt, item_seed, display_seed, true) {
-                    found = Some(randomization);
-                    break 'maps;
-                }
+/// A seed found from settings and a seed number, with what rebuilds its randomizer: the attempt and item seed that made it.
+struct Found {
+    settings: RandomizerSettings,
+    randomization: Randomization,
+    attempt: usize,
+    item_seed: usize,
+}
+
+fn find(st: &State, json: &str, seed: u64, max_attempts: u32) -> Result<Found> {
+    let gd = &st.game_data;
+    let settings = settings_of(st, json)?;
+    let tiers = tiers_of(st, &settings);
+    let mut rs = [0u8; 32];
+    rs[..8].copy_from_slice(&seed.to_le_bytes());
+    let mut rng = rand::rngs::StdRng::from_seed(rs);
+    // The menu's hash comes from the seed number, mixed (splitmix64) so nearby numbers look different.
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    let display_seed = ((z ^ (z >> 31)) & 0xFFFF_FFFF) as usize;
+    let max_attempts = if max_attempts == 0 { 10000 } else { max_attempts as usize };
+    let per_map = if settings.start_location_settings.mode == StartLocationMode::Random { 10 } else { 1 };
+    let mut batch = vec![];
+    let mut attempt = 0;
+    for _ in 0..max_attempts.div_ceil(per_map) {
+        let map_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
+        let door_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
+        if batch.is_empty() {
+            batch = st.maps.get_map_batch(map_seed, &settings, gd)?;
+        }
+        let mut map = batch.pop().context("Empty map batch")?;
+        if !assign_map_areas(&mut map, &settings, map_seed, gd) {
+            continue;
+        }
+        let objectives = get_objectives(&settings, Some(&map), gd, &mut rng);
+        let doors = randomize_doors(gd, &map, &settings, &objectives, door_seed);
+        let r = Randomizer::new(&map, &doors, objectives, &settings, &tiers, gd, &gd.base_links_data, &mut rng);
+        for _ in 0..per_map {
+            attempt += 1;
+            ATTEMPTS.store(attempt as u32, Ordering::Relaxed);
+            let item_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
+            if let Ok((mut randomization, _spoiler)) = r.randomize(attempt, item_seed, display_seed, true) {
+                // Upstream names a seed from the clock (its storage key); here the name follows the seed so every host agrees.
+                randomization.seed_name = format!("smz{:x}", seed & 0xFFFF_FFFF_FFFF);
+                return Ok(Found { settings, randomization, attempt, item_seed });
             }
         }
-        let Some(mut randomization) = found else { bail!("No seed after {attempt} attempts") };
-        // Upstream names a seed from the clock (its storage key); here the name follows the seed so every host agrees.
-        randomization.seed_name = format!("smz{:x}", seed & 0xFFFF_FFFF_FFFF);
+    }
+    bail!("No seed after {attempt} attempts")
+}
+
+fn tiers_of(st: &State, settings: &RandomizerSettings) -> Vec<maprando::randomize::DifficultyConfig> {
+    get_difficulty_tiers(
+        settings,
+        &st.preset_data.difficulty_tiers,
+        &st.game_data,
+        &st.preset_data.tech_by_difficulty["Implicit"],
+        &st.preset_data.notables_by_difficulty["Implicit"],
+    )
+}
+
+fn generate(st: &State, json: &str, seed: u64, max_attempts: u32, rom: &[u8]) -> Result<(Vec<u8>, String)> {
+    in_dir(&st.dir, || {
+        let f = find(st, json, seed, max_attempts)?;
         // A copier header (512 bytes) is dropped; the ROM grows to the 4 MB Map Rando writes into.
         let body = if rom.len() % 0x8000 == 0x200 { &rom[0x200..] } else { rom };
         let mut input = Rom::new(body.to_vec());
         input.data.resize(0x400000, 0);
-        let out = make_rom(&input, &settings, &customize(), &randomization, gd, &[], &[])?;
+        let out = make_rom(&input, &f.settings, &customize(), &f.randomization, &st.game_data, &[], &[])?;
         let info = serde_json::json!({
-            "seedName": randomization.seed_name,
-            "displaySeed": randomization.display_seed,
-            "hash": seed_hash(randomization.display_seed),
-            "attempts": attempt,
+            "seedName": f.randomization.seed_name,
+            "displaySeed": f.randomization.display_seed,
+            "hash": seed_hash(f.randomization.display_seed),
+            "attempts": f.attempt,
         });
         Ok((out.data, info.to_string()))
     })
+}
+
+/// What a proof check keeps of a seed between finishes: the placement and the hub its logic starts from.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CheckCache {
+    randomization: Randomization,
+    hub: (usize, usize),
+}
+
+/// The hub randomize() chose: its start location step replayed with the item seed's generator, which it draws from first.
+fn hub_of(r: &Randomizer, attempt: usize, item_seed: usize) -> Result<(usize, usize)> {
+    let mut rs = [0u8; 32];
+    rs[..8].copy_from_slice(&item_seed.to_le_bytes());
+    let mut rng = rand::rngs::StdRng::from_seed(rs);
+    let (global, local) = r.get_initial_states();
+    let n = r.game_data.vertex_isv.keys.len();
+    let mut tp = TraverserPair {
+        forward: Traverser::new(n, false, local, &global),
+        reverse: Traverser::new(n, true, local, &global),
+    };
+    let mode = r.settings.start_location_settings.mode;
+    let tries = if r.game_data.start_locations.len() > 1 && mode != StartLocationMode::Custom { 10 } else { 1 };
+    let d = r.determine_start_location(attempt, tries, &mut rng, &mut tp)?;
+    Ok((d.hub_location.room_id, d.hub_location.node_id))
+}
+
+/// Sets the flags and opens the locked doors the traversal reached, as the randomizer's steps do, until nothing changes.
+fn settle(r: &Randomizer, state: &mut RandomizationState, tp: &mut TraverserPair) {
+    loop {
+        let mut any = false;
+        for (i, &flag_id) in r.game_data.flag_ids.iter().enumerate() {
+            let fs = &state.flag_location_state[i];
+            let reached = if flag_id == r.game_data.mother_brain_defeated_flag_id {
+                fs.reachable_traversal.is_some()
+            } else {
+                fs.bireachable_traversal.is_some()
+            };
+            if !state.global_state.flags[flag_id] && reached {
+                state.global_state.flags[flag_id] = true;
+                any = true;
+            }
+        }
+        for i in 0..r.locked_door_data.locked_doors.len() {
+            if !state.global_state.doors_unlocked[i] && state.door_state[i].bireachable_traversal.is_some() {
+                state.global_state.doors_unlocked[i] = true;
+                any = true;
+            }
+        }
+        if !any {
+            return;
+        }
+        state.step_num += 1;
+        r.update_reachability(state, tp);
+    }
+}
+
+/// Which of the checks, in the order the run cleared them (their item bits, as the tracker reads them at $7E:D870), the
+/// seed's logic reached with the items found before them. A check is in logic once one way there is.
+fn check(st: &State, json: &str, seed: u64, bits: &[u32], rom: &[u8], cache: &Path) -> Result<Vec<bool>> {
+    in_dir(&st.dir, || {
+        let gd = &st.game_data;
+        let settings = settings_of(st, json)?;
+        let tiers = tiers_of(st, &settings);
+        let cached: Option<CheckCache> = std::fs::read(cache).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        let (c, fresh) = match cached {
+            Some(c) => (c, None),
+            None => {
+                let f = find(st, json, seed, 0)?;
+                (CheckCache { randomization: f.randomization, hub: (0, 0) }, Some((f.attempt, f.item_seed)))
+            }
+        };
+        let ra = &c.randomization;
+        let doors = make_locked_door_data(ra.locked_doors.clone(), gd);
+        let mut rng = rand::rngs::StdRng::from_seed([0; 32]);
+        let r = Randomizer::new(&ra.map, &doors, ra.objectives.clone(), &settings, &tiers, gd, &gd.base_links_data, &mut rng);
+        let hub = match fresh {
+            Some((attempt, item_seed)) => {
+                let hub = hub_of(&r, attempt, item_seed)?;
+                let keep = CheckCache { randomization: serde_json::from_value(serde_json::to_value(ra)?)?, hub };
+                std::fs::write(cache, serde_json::to_vec(&keep)?)?;
+                hub
+            }
+            None => c.hub,
+        };
+
+        let body = if rom.len() % 0x8000 == 0x200 { &rom[0x200..] } else { rom };
+        let bit_of = |k: usize| -> Option<u32> {
+            let p = *gd.node_ptr_map.get(&gd.item_locations[k])?;
+            Some(u16::from_le_bytes([*body.get(p + 4)?, *body.get(p + 5)?]) as u32)
+        };
+        let loc_of: std::collections::HashMap<u32, usize> =
+            (0..gd.item_locations.len()).filter_map(|k| bit_of(k).map(|b| (b, k))).collect();
+
+        let (global, local) = r.get_initial_states();
+        let n = gd.vertex_isv.keys.len();
+        let mut tp = TraverserPair {
+            forward: Traverser::new(n, false, local, &global),
+            reverse: Traverser::new(n, true, local, &global),
+        };
+        let hub_v = gd.vertex_isv.index_by_key[&VertexKey { room_id: hub.0, node_id: hub.1, obstacle_mask: 0, actions: vec![] }];
+        tp.forward.add_origin(local, &global.inventory, hub_v);
+        tp.forward.finish_step(1);
+        tp.reverse.add_origin(LocalState::full(true), &global.inventory, hub_v);
+        tp.reverse.finish_step(1);
+        let item_state = ItemLocationState {
+            placed_item: None,
+            placed_tier: None,
+            collected: false,
+            reachable_traversal: None,
+            bireachable_traversal: None,
+            bireachable_vertex_id: None,
+            difficulty_tier: None,
+        };
+        let flag_state = FlagLocationState {
+            reachable_traversal: None,
+            reachable_vertex_id: None,
+            bireachable_traversal: None,
+            bireachable_vertex_id: None,
+        };
+        let mut state = RandomizationState {
+            step_num: 1,
+            start_location: ra.start_location.clone(),
+            hub_location: HubLocation { room_id: hub.0, node_id: hub.1, vertex_id: hub_v },
+            item_precedence: vec![],
+            save_location_state: vec![SaveLocationState { bireachable_traversal: None }; gd.save_locations.len()],
+            item_location_state: vec![item_state; gd.item_locations.len()],
+            flag_location_state: vec![flag_state; gd.flag_ids.len()],
+            door_state: vec![DoorState { bireachable_traversal: None, bireachable_vertex_id: None }; doors.locked_doors.len()],
+            items_remaining: r.initial_items_remaining.clone(),
+            global_state: global,
+            starting_local_state: local,
+            last_key_areas: vec![],
+        };
+        r.update_reachability(&mut state, &mut tp);
+        settle(&r, &mut state, &mut tp);
+
+        let ips = &settings.item_progression_settings;
+        let mut stale = false;
+        let mut out = Vec::with_capacity(bits.len());
+        for &b in bits {
+            let Some(&k) = loc_of.get(&b) else {
+                out.push(false);
+                continue;
+            };
+            // Reachability only grows with items, so the traversal reruns only for a check not reached yet.
+            if state.item_location_state[k].reachable_traversal.is_none() && stale {
+                state.step_num += 1;
+                r.update_reachability(&mut state, &mut tp);
+                settle(&r, &mut state, &mut tp);
+                stale = false;
+            }
+            out.push(state.item_location_state[k].reachable_traversal.is_some());
+            let item = ra.item_placement[k];
+            if item != Item::Nothing {
+                state.global_state.collect(
+                    item,
+                    gd,
+                    ips.ammo_collect_fraction,
+                    ips.missile_size,
+                    ips.super_size,
+                    ips.powerbomb_size,
+                    ips.etank_size,
+                    ips.reserve_size,
+                    &tiers[0].tech,
+                );
+                stale = true;
+            }
+        }
+        Ok(out)
+    })
+}
+
+/// Loads the data folder and checks a run's cleared checks against its seed (see `check`), the randomization kept in
+/// `cache` for the next finish of the same seed.
+pub fn check_with(data_dir: &Path, settings_json: &str, seed: u64, bits: &[u32], rom: &[u8], cache: &Path) -> Result<Vec<bool>> {
+    let st = load(data_dir)?;
+    check(&st, settings_json, seed, bits, rom, cache)
 }
 
 /// The four enemy names the main menu shows (maprando-web's get_seed_hash, matching seed_hash_display.asm).

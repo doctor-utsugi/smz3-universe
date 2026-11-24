@@ -145,14 +145,37 @@ function proofSettings(game, kind, period, seed, preset) {
 }
 
 function verifyProof(game, kind, period, b, timeMs, done, preset) {
+  const settings = proofSettings(game, kind, period, b.seed, preset);
   const child = execFile(CHECKER, [String(timeMs)], { timeout: 60000, maxBuffer: 1 << 16 }, (err, out) => {
     let v;
     try { v = JSON.parse(out); } catch (e) { return done('proof check failed'); }
     if (!v.ok) return done('proof refused: ' + v.reason);
-    done(null, { suspect: !!v.suspect, reason: v.reason });
+    const verdict = { suspect: !!v.suspect, reason: v.reason };
+    if (typeof v.smBits === 'string') return mapRandoLogic(settings, v.smBits, verdict, done);
+    done(null, verdict);
   });
   child.stdin.on('error', () => {});
-  child.stdin.end(proofSettings(game, kind, period, b.seed, preset) + '\n' + b.proof);
+  child.stdin.end(settings + '\n' + b.proof);
+}
+
+// Map Rando's own logic (maprando.js) holds a run with over 1 in 10 checks out of logic. A finish waits MR_WAIT_MS (clients
+// give up after 8 s); a later answer holds the stored run through verdict.onLate. A failed check leaves the time and rate rules.
+const MR_WAIT_MS = 6000;
+function mapRandoLogic(settings, bits, verdict, done) {
+  let sent = false;
+  const timer = setTimeout(() => { sent = true; verdict.late = true; done(null, verdict); }, MR_WAIT_MS);
+  mapRandoRoutes.check(settings, bits, (err, inLogic) => {
+    clearTimeout(timer);
+    let hold = null;
+    if (err) console.log('map rando logic check failed:', err.message);
+    else {
+      const out = inLogic.filter(x => !x).length;
+      if (out * 10 > inLogic.length) hold = out + ' of ' + inLogic.length + ' checks out of logic';
+    }
+    if (hold) Object.assign(verdict, { suspect: true, reason: hold });
+    if (!sent) return done(null, verdict);
+    if (hold && verdict.onLate) verdict.onLate(hold);
+  });
 }
 
 function send(res, code, body, type = 'application/json') {
@@ -281,6 +304,7 @@ http.createServer((req, res) => {
         else if (db.runs[mine].timeMs > timeMs) db.runs[mine] = entry;      // one entry per install and ladder: its best
         else { db.runs[mine].player = entry.player; db.runs[mine].country = entry.country; }
         save();
+        if (verdict.late) verdict.onLate = reason => { if (db.runs.includes(entry) && !entry.hold) { entry.hold = reason; save(); } };
         const rank = verdict.suspect ? 0 : ladder(game, kind, month, preset).findIndex(r => r.timeMs === timeMs) + 1;
         send(res, 200, { ok: true, rank, held: verdict.suspect ? true : undefined });
       }, preset);

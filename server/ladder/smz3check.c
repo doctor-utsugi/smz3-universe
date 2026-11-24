@@ -1,9 +1,11 @@
-/* Reads a run's settings JSON (first line) and its proof of run (the rest) on stdin; prints the verdict as one JSON line. */
+/* Reads a run's settings JSON (first line) and its proof of run (the rest) on stdin; prints the verdict as one JSON line. A Map
+ * Rando run's verdict also lists smBits, the item bit ($7E:D870) of each check in proof order, for its logic check (maprando.js). */
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "smz3_proof.h"
+#include "smz3_state.h"
 
 static char *text;
 static long long time_ms;
@@ -36,6 +38,15 @@ int main(int argc, char **argv)
     if (pthread_create(&th, &at, work, NULL)) return 2;
     pthread_join(th, NULL);
     for (char *c = verdict.reason; *c; c++) if (*c == '"' || *c == '\\') *c = ' ';
-    printf("{\"ok\":%d,\"suspect\":%d,\"checks\":%d,\"outOfLogic\":%d,\"reason\":\"%s\"}\n", verdict.ok, verdict.suspect, verdict.checks, verdict.out_of_logic, verdict.reason);
+    printf("{\"ok\":%d,\"suspect\":%d,\"checks\":%d,\"outOfLogic\":%d,\"reason\":\"%s\"", verdict.ok, verdict.suspect, verdict.checks, verdict.out_of_logic, verdict.reason);
+    if (verdict.ok && strstr(text, "\"generator\":\"maprando\"")) {
+        printf(",\"smBits\":\"");
+        for (int i = 0; i < proof.n; i++) {
+            const smz3_location *l = &smz3_locations[proof.loc[i]];
+            printf("%s%u", i ? " " : "", l->addr * 8 + (unsigned)__builtin_ctz(l->flag));
+        }
+        printf("\"");
+    }
+    printf("}\n");
     return 0;
 }
