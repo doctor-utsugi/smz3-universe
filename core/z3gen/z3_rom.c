@@ -1,8 +1,7 @@
 /* Port of World::writeToRom, setEscapeFills, writePrizePacksToRom and the Rom.php setters they call
-   (alttp_php_randomizer, sporchia, MIT), for Open/Standard, No Glitches, no enemizer, retro, timer or multiworld.
+   (alttp_php_randomizer, sporchia, MIT): every world state and logic, no enemizer, timer or multiworld.
    Texts and credits: World::$texts/$credits (z3_texts_randomize) plus what the special locations' writeItem sets,
-   written by Rom::writeCredits/writeText (z3_text.c). The vanilla key/map/compass swaps of Location::writeItem are
-   off without glitched logic. */
+   written by Rom::writeCredits/writeText (z3_text.c). */
 #include <string.h>
 #include "z3_rom.h"
 #include "z3_romdata_gen.h"
@@ -16,13 +15,14 @@ typedef struct {
     int cape[3], powder_fairy, fill_health, fill_magic, stun_items;
     bool byrna_invuln, catch_fairies, catch_bees, silvers_only_ganon, no_fairy_drops;
     bool map_on_pickup, dungeon_count_pickup;
+    bool vanilla_keys, vanilla_big_keys, vanilla_maps, vanilla_compasses;   /* rom.vanilla*: glitched logic */
     int free_item_text, free_item_menu;
 } RomCfg;
 
 static void rom_cfg(const Z3Cfg *c, RomCfg *o)
 {
     *o = (RomCfg){ 4, 3, 2, 4, 2, 10, 24, { 0x04, 0x08, 0x10 }, 0xE3, 0xA0, 0x80, 0x03,
-                   true, true, true, false, false, false, false, 0, 0 };
+                   true, true, true, false, false, false, false, false, false, false, false, 0, 0 };
     switch (c->dungeonItems) {   /* falls through like the PHP switch */
     case Z3_DUNGEONITEMS_FULL: o->free_item_text |= 0x18; o->free_item_menu |= 0x02; /* fall through */
     case Z3_DUNGEONITEMS_MCS: o->free_item_text |= 0x11; o->free_item_menu |= 0x01; /* fall through */
@@ -34,7 +34,13 @@ static void rom_cfg(const Z3Cfg *c, RomCfg *o)
     }
     if (c->logic == Z3_LOGIC_HYBRIDMAJORGLITCHES || c->logic == Z3_LOGIC_MAJORGLITCHES || c->logic == Z3_LOGIC_NOLOGIC
         || c->canOneFrameClipUW)
+    {
         o->free_item_menu |= 0x10;
+        o->vanilla_keys = !c->region_wildKeys;
+        o->vanilla_big_keys = !c->region_wildBigKeys;
+        o->vanilla_maps = !c->region_wildMaps;
+        o->vanilla_compasses = !c->region_wildCompasses;
+    }
     switch (c->item_pool) {
     case Z3_ITEM_POOL_SUPEREXPERT: o->of_sword = 2; o->of_armor = 0; o->of_shield = 0; o->of_bow = 1; o->of_bossheart = 0; o->of_poh = 0; break;
     case Z3_ITEM_POOL_EXPERT: o->of_sword = 2; o->of_armor = 0; o->of_shield = 1; o->of_bow = 1; o->of_bossheart = 2; o->of_poh = 8; break;
@@ -75,7 +81,7 @@ static void wbytes(uint8_t *rom, int32_t at, const uint8_t *b, size_t n) { memcp
 static bool is_prize(int loc) { return strncmp(Z3_LOCS[loc].kind, "Prize", 5) == 0; }
 
 /* The texts the special locations' writeItem sets (Rom::setCredit/setText), by the item's target. */
-static void write_item_text(Z3Seed *s, int loc, int item)
+static void write_item_text(Z3Seed *s, int loc, int item, bool generic)
 {
     static const struct { const char *kind; int text, credit, credit_lt; } special[] = {
         { "Pedestal", Z3_TXT_mastersword_pedestal_translated, Z3_CREDIT_pedestal, Z3_LT_PEDESTAL_CREDITS },
@@ -92,7 +98,8 @@ static void write_item_text(Z3Seed *s, int loc, int item)
         if (strcmp(Z3_LOCS[loc].kind, special[i].kind)) continue;
         const char *t;
         if (special[i].credit >= 0 && (t = Z3_LOC_TEXT[special[i].credit_lt][item])) z3_texts_credit(&s->tx, special[i].credit, t);
-        if (special[i].text >= 0 && (t = Z3_LOC_TEXT[text_lt[i]][item])) z3_texts_set(&s->tx, special[i].text, t);
+        if (special[i].text >= 0 && (t = Z3_LOC_TEXT[text_lt[i]][generic ? Z3_ITEM_KeyGK : item]))   /* not the credits */
+            z3_texts_set(&s->tx, special[i].text, t);
     }
 }
 
@@ -101,7 +108,18 @@ static void write_item(uint8_t *rom, Z3Seed *s, const RomCfg *rc, Z3Rng *r, int 
 {
     int item = s->w.item_at[loc];
     int bytes_of = item == Z3_ITEM_UncleSword && s->uncle_target != Z3_ITEM_NONE ? s->uncle_target : item;
-    write_item_text(s, loc, bytes_of);
+    bool generic = s->w.cfg.rom_genericKeys && Z3_ITEMS[item].cls == Z3_IC_Key;   /* every key writes as KeyGK */
+    write_item_text(s, loc, bytes_of, generic);
+    /* glitched logic: a dungeon's own items write as the vanilla Key, BigKey, Map, Compass */
+    int ic = Z3_ITEMS[item].cls, reg = Z3_LOCS[loc].region;
+    bool escape_spot = loc == Z3_LOC_Secret_Passage || loc == Z3_LOC_Links_Uncle;
+    if (rc->vanilla_keys && ic == Z3_IC_Key && z3_region_item(reg, item) && (!escape_spot || item != Z3_ITEM_KeyH2))
+        bytes_of = Z3_ITEM_Key;
+    if (rc->vanilla_big_keys && ic == Z3_IC_BigKey && z3_region_item(reg, item)) bytes_of = Z3_ITEM_BigKey;
+    if (rc->vanilla_maps && ic == Z3_IC_Map && z3_region_item(reg, item) && (!escape_spot || item != Z3_ITEM_MapH2))
+        bytes_of = Z3_ITEM_Map;
+    if (rc->vanilla_compasses && ic == Z3_IC_Compass && z3_region_item(reg, item)) bytes_of = Z3_ITEM_Compass;
+    if (generic) bytes_of = Z3_ITEM_KeyGK;
     if (loc == s->bow_alt_loc) bytes_of = Z3_ITEM_ProgressiveBowAlternate;   /* new Item\Bow('ProgressiveBow', [0x65]) */
     const Z3ItemRom *ib = &Z3_ITEM_ROM[bytes_of];
     const Z3LocRom *lr = &Z3_LOC_ROM[loc];
@@ -206,6 +224,17 @@ static void write_prize_packs(uint8_t *rom, const Z3Seed *s, const RomCfg *rc, Z
             if (drops[i] == 0xE0) drops[i] = 0xDF;
             if (drops[i] == 0xE3) drops[i] = 0xD8;
         }
+    if (s->w.cfg.rom_rupeeBow) {   /* arrows drop as rupees, and setOverworldDigPrizes */
+        for (int i = 0; i < 63; i++) {
+            if (drops[i] == 0xE1) drops[i] = 0xDA;
+            if (drops[i] == 0xE2) drops[i] = 0xDB;
+        }
+        static const uint8_t dig[] = { 0xB2, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD9, 0xD9, 0xD9, 0xD9, 0xD9,
+            0xDA, 0xDA, 0xDA, 0xDA, 0xDA, 0xDB, 0xDB, 0xDB, 0xDB, 0xDB, 0xDC, 0xDC, 0xDC, 0xDC, 0xDC, 0xDD, 0xDD, 0xDD,
+            0xDD, 0xDD, 0xDE, 0xDE, 0xDE, 0xDE, 0xDE, 0xDF, 0xDF, 0xDF, 0xDF, 0xDF, 0xE0, 0xE0, 0xE0, 0xE0, 0xE0, 0xDA,
+            0xDA, 0xDA, 0xDA, 0xDA, 0xDB, 0xDB, 0xDB, 0xDB, 0xDB, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3 };
+        wbytes(rom, 0x180100, dig, sizeof dig);
+    }
     wbytes(rom, 0x37A78, drops, 56);
     w8(rom, 0xEFBD4, drops[56]); w8(rom, 0xEFBD5, drops[57]); w8(rom, 0xEFBD6, drops[58]);   /* setPullTreePrizes */
     w8(rom, 0x329C8, drops[59]); w8(rom, 0x329C4, drops[60]);                               /* setRupeeCrabPrizes */
@@ -227,7 +256,7 @@ static void setup_shops(uint8_t *rom, const Z3World *w)
         for (int k = 0; k < 3; k++) inv += w->shop[s].item[k] != Z3_ITEM_NONE;
         if (sr->write_addr >= 0) w8(rom, sr->write_addr, sr->write_val);   /* writeExtraData */
         uint8_t b[8] = { (uint8_t)sid, (uint8_t)sr->room, (uint8_t)(sr->room >> 8), sr->door, 0x00,
-                         (uint8_t)((sr->config & 0xFC) + inv), sr->keeper, (uint8_t)sram };
+                         (uint8_t)((sr->config & 0xFC) + inv), w->shop[s].keeper, (uint8_t)sram };
         memcpy(shop_data + ns, b, 8);
         ns += 8;
         sram += sr->kind == Z3_SHOP_KIND_TAKEANY ? 1 : inv;   /* PHP throws past 36; never reached here */
@@ -339,13 +368,15 @@ int z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
     w8(rom, 0x18019A, c->crystals_tower < 0 ? 0 : c->crystals_tower > 7 ? 7 : c->crystals_tower);
     w8(rom, 0x1801A6, c->crystals_ganon < 0 ? 0 : c->crystals_ganon > 7 ? 7 : c->crystals_ganon);
 
-    w8(rom, 0x180172, 0x00);                     /* setGenericKeys(false) */
+    w8(rom, 0x180172, c->rom_genericKeys ? 0x01 : 0x00);   /* setGenericKeys */
     setup_shops(rom, &s->w);
-    /* setRupeeArrow(false) */
-    w8(rom, 0x30052, 0xE2); w8(rom, 0x301FC, 0xE1);
-    WB(0xECB4E, 0xAF, 0x77, 0xF3, 0x7E); WB(0xF0D96, 0xAF, 0x77, 0xF3, 0x7E);
-    w8(rom, 0x180175, 0x00); w16(rom, 0x180176, 0); w16(rom, 0x180178, 0);
-    WB(0xEDA5, 0x43, 0x44);
+    bool rb = c->rom_rupeeBow;                   /* setRupeeArrow */
+    w8(rom, 0x30052, rb ? 0xDB : 0xE2); w8(rom, 0x301FC, rb ? 0xDA : 0xE1);
+    if (rb) { WB(0xECB4E, 0xA9, 0x00, 0xEA, 0xEA); WB(0xF0D96, 0xA9, 0x00, 0xEA, 0xEA); }
+    else { WB(0xECB4E, 0xAF, 0x77, 0xF3, 0x7E); WB(0xF0D96, 0xAF, 0x77, 0xF3, 0x7E); }
+    w8(rom, 0x180175, rb ? 0x01 : 0x00); w16(rom, 0x180176, rb ? 0x0A : 0); w16(rom, 0x180178, rb ? 0x32 : 0);
+    if (rb) WB(0xEDA5, 0x35, 0x41);
+    else WB(0xEDA5, 0x43, 0x44);
     set_wishing_well_chests(rom);
     w8(rom, 0x348DB, 0x2A); w8(rom, 0x348EB, 0x05);       /* setWishingWellUpgrade(false) */
     WB(0x01F810, 0x1A, 0x1E, 0x01, 0x1A, 0x1E, 0x01);     /* setHyliaFairyShop(true) */
@@ -358,7 +389,7 @@ int z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
     w8(rom, 0x180182, 0x01);                              /* setSilversEquip('collection') */
     {
         const uint8_t sub[] = { 0x12, 0x01, 0x35, 0xFF, 0x51, 0x06, 0x52, 0xFF, 0x53, 0x06, 0x54, 0xFF,
-                                0x58, 0x01, 0x43, 0xFF, 0x3E, (uint8_t)rc.of_bossheart, TWENTY_RUPEES2, 0xFF,
+                                0x58, 0x01, (uint8_t)(rb ? 0x36 : 0x43), 0xFF, 0x3E, (uint8_t)rc.of_bossheart, TWENTY_RUPEES2, 0xFF,
                                 0x17, (uint8_t)rc.of_poh, TWENTY_RUPEES2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
         wbytes(rom, 0x184000, sub, sizeof sub);           /* setSubstitutions */
     }
@@ -400,12 +431,19 @@ int z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
     w8(rom, 0x180174, 0x00);                              /* setGameState: setFixFakeWorld(false) */
     if (c->mode_state == Z3_MODE_STATE_STANDARD) {
         w8(rom, 0x180038, 0x01);                          /* setSewersLampCone(true); progress values 0 OR nothing */
-    } else {
+    } else {                                              /* setOpenMode (Inverted's starts with it) */
         w8(rom, 0x180038, 0x00);
         z3_sram_open_castle_gate(&sram);
         z3_sram_progress_indicator(&sram, 0x02);
         z3_sram_progress_flags(&sram, 0x14);
         z3_sram_starting_entrance(&sram, 0x01);
+    }
+    if (c->mode_state == Z3_MODE_STATE_INVERTED) {        /* setInvertedMode */
+        for (int i = 0; i < Z3_INV_WRITES_LEN; i++)
+            wbytes(rom, Z3_INV_WRITES[i].addr, Z3_INV_DATA + Z3_INV_WRITES[i].off, Z3_INV_WRITES[i].n);
+        w8(rom, 0x180174, 0x01);                          /* setFixFakeWorld(true) */
+        for (int i = 0; i < Z3_INV_TEXTS_LEN; i++)        /* after World::$texts, so these win */
+            z3_texts_set_pause(&s->tx, Z3_INV_TEXTS[i].key, Z3_INV_TEXTS[i].s, Z3_INV_TEXTS[i].pause);
     }
     bool swordless = c->mode_weapons == Z3_MODE_WEAPONS_SWORDLESS;   /* setSwordlessMode */
     w8(rom, 0x18003F, swordless);
@@ -413,7 +451,8 @@ int z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
     w8(rom, 0x180044, swordless);                         /* setHammerTablet */
     w8(rom, 0x18005D, 0x00);                              /* setHammerBarrier(false) */
     if (swordless) z3_sram_swordless_curtains(&sram);
-    w8(rom, 0x180169, c->logic == Z3_LOGIC_NOGLITCHES);   /* setLockAgahnimDoorInEscape (not inverted) */
+    if (c->mode_state != Z3_MODE_STATE_INVERTED)          /* setLockAgahnimDoorInEscape; Inverted wrote 0x02 */
+        w8(rom, 0x180169, c->logic == Z3_LOGIC_NOGLITCHES);
 
     int uncle = s->w.item_at[Z3_LOC_Links_Uncle];
     if (Z3_ITEMS[uncle].cls != Z3_IC_Sword) remove_uncles_sword(rom);   /* the UncleSword alias is no Item\Sword */
@@ -428,11 +467,24 @@ int z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
     w32(rom, 0x180208, 0);                                /* setGreenClock(0) */
     z3_sram_starting_timer(&sram, 0);
 
-    w8(rom, 0x180042, 0x01);                              /* No Glitches: setSaveAndQuitFromBossRoom(true) */
-    w8(rom, 0x1800A3, 0x01);                              /* setWorldOnAgahnimDeath(true) */
-    w8(rom, 0x180358, 0x00);                              /* setAllowAccidentalMajorGlitch(false) */
-    w8(rom, 0x1800A4, 0x01);                              /* setSQEGFix(true) */
-    w8(rom, 0x159A8, 0x04);                               /* setZeldaMirrorFix(true) */
+    bool major = c->logic == Z3_LOGIC_HYBRIDMAJORGLITCHES || c->logic == Z3_LOGIC_MAJORGLITCHES || c->logic == Z3_LOGIC_NOLOGIC;
+    if (major || c->logic == Z3_LOGIC_OVERWORLDGLITCHES) {
+        if (major) w8(rom, 0x1800A1, 0x00);               /* setSwampWaterLevel(false) */
+        w8(rom, 0x1800A2, 0x00);                          /* setPreAgahnimDarkWorldDeathInDungeon(false) */
+        w8(rom, 0x180042, 0x01);                          /* setSaveAndQuitFromBossRoom(true) */
+        w8(rom, 0x1800A3, 0x00);                          /* setWorldOnAgahnimDeath(false) */
+        w8(rom, 0x180210, major ? 0x01 : 0x02);           /* setRandomizerSeedType */
+        w8(rom, 0x180212, major ? 0x60 : 0x40);           /* setWarningFlags */
+        w8(rom, 0x180358, 0x01);                          /* setAllowAccidentalMajorGlitch(true) */
+        w8(rom, 0x1800A4, 0x00);                          /* setSQEGFix(false) */
+        w8(rom, 0x159A8, 0x02);                           /* setZeldaMirrorFix(false) */
+    } else {
+        w8(rom, 0x180042, 0x01);                          /* No Glitches: setSaveAndQuitFromBossRoom(true) */
+        w8(rom, 0x1800A3, 0x01);                          /* setWorldOnAgahnimDeath(true) */
+        w8(rom, 0x180358, 0x00);                          /* setAllowAccidentalMajorGlitch(false) */
+        w8(rom, 0x1800A4, 0x01);                          /* setSQEGFix(true) */
+        w8(rom, 0x159A8, 0x04);                           /* setZeldaMirrorFix(true) */
+    }
 
     bool triforce_hud = c->goal == Z3_GOAL_TRIFORCE_HUNT || c->goal == Z3_GOAL_GANONHUNT || c->item_Goal_Required > 0;
     w8(rom, 0x180039, triforce_hud ? 0 : c->goal == Z3_GOAL_COMPLETIONIST);   /* enableHudItemCounter */

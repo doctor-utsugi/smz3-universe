@@ -1,4 +1,4 @@
-/* alttpr's ROM writer: World::writeToRom and the Rom.php setters it calls, for the first-release options. */
+/* alttpr's ROM writer: World::writeToRom and the Rom.php setters it calls. */
 #ifndef Z3_ROM_H
 #define Z3_ROM_H
 

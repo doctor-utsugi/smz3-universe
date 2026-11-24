@@ -42,6 +42,7 @@ int z3_option_set(Z3GenSettings *s, const char *key, const char *value)
             else if (!strcmp(key, "item_pool")) s->item_pool = v;
             else if (!strcmp(key, "item_functionality")) s->item_functionality = v;
             else if (!strcmp(key, "hints")) s->hints = v == 0;
+            else if (!strcmp(key, "glitches_required")) s->logic = v;
             else if (!strcmp(key, "heart_beep")) s->heart_beep = v;
             else if (!strcmp(key, "menu_speed")) s->menu_speed = v;
             else return -1;
@@ -99,7 +100,7 @@ int z3_generate_rng(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len
     Z3Cfg c;
     z3_cfg_defaults(&c);
     c.mode_state = s->mode_state;
-    c.logic = Z3_LOGIC_NOGLITCHES;
+    c.logic = s->logic;
     c.itemPlacement = s->item_placement;
     c.dungeonItems = s->dungeon_items;
     c.accessibility = s->accessibility;

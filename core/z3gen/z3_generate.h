@@ -14,11 +14,11 @@
 extern const uint8_t Z3_BASE_IPS[];
 extern const size_t Z3_BASE_IPS_LEN;
 
-/* RandomizerController::prepSeed's request, first-release options. Enum values are z3_world_gen.h's
+/* RandomizerController::prepSeed's request. Enum values are z3_world_gen.h's
    (Z3_MODE_STATE_*, Z3_GOAL_*, ...); crystals -1 means "random". Cosmetics at -1 leave the base ROM's value. */
 typedef struct {
-    int mode_state;          /* world_state: Z3_MODE_STATE_OPEN or _STANDARD */
-    int goal;                /* Z3_GOAL_GANON, _FAST_GANON, _DUNGEONS, _PEDESTAL */
+    int mode_state;          /* world_state: Z3_MODE_STATE_STANDARD, _OPEN, _INVERTED, _RETRO */
+    int goal;                /* Z3_GOAL_*: every goal of alttpr's table */
     int crystals_tower;      /* tower_open: 0..7, -1 random */
     int crystals_ganon;      /* ganon_open: 0..7, -1 random */
     int dungeon_items;       /* Z3_DUNGEONITEMS_* */
@@ -32,6 +32,7 @@ typedef struct {
     int heart_beep;          /* Rom::setHeartBeepSpeed: 0 off, 1 double, 2 normal, 3 half, 4 quarter; -1 keep */
     int menu_speed;          /* Rom::setMenuSpeed: 0 slow, 1 normal, 2 fast, 3 instant; -1 keep */
     int quickswap;           /* Rom::setQuickSwap: 0/1; -1 keep */
+    int logic;               /* glitches_required: Z3_LOGIC_NOGLITCHES (0, the default) ... _NOLOGIC */
 } Z3GenSettings;
 
 /* Option table in alttpr's own keys and values (config/alttp.php randomizer.item), made by tools/z3/gen_z3_options.py. */
@@ -43,7 +44,7 @@ extern const int Z3_OPTION_COUNT;
 /* alttpr.com's default preset (Original rules). */
 void z3_settings_default(Z3GenSettings *s);
 /* Sets one option by alttpr's key and value ("world_state" "standard", "tower_open" "random", "tournament" "true").
-   0 on success, -1 for an unknown key or a value the first release does not have. */
+   0 on success, -1 for an unknown key or a value the table does not have. */
 int z3_option_set(Z3GenSettings *s, const char *key, const char *value);
 
 /* jp_rom holds the JP 1.0 ROM (jp_len Z3_JP_SIZE); out_rom gets Z3_ROM_SIZE bytes. hash_out, when not NULL, gets

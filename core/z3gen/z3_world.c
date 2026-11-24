@@ -8,6 +8,8 @@
 
 void z3_cfg_derive(Z3Cfg *c)
 {
+    if (c->mode_state == Z3_MODE_STATE_RETRO)   /* World\Retro forces these before World::__construct */
+        c->rom_rupeeBow = c->rom_genericKeys = c->region_takeAnys = c->region_wildKeys = 1;
     switch (c->dungeonItems) {   /* falls through like the PHP switch */
     case Z3_DUNGEONITEMS_FULL: c->region_wildBigKeys = 1; /* fall through */
     case Z3_DUNGEONITEMS_MCS: c->region_wildKeys = 1; /* fall through */
@@ -40,13 +42,21 @@ void z3_world_init(Z3World *w, const Z3Cfg *cfg)
     memset(w, 0, sizeof *w);
     w->cfg = *cfg;
     z3_world_defaults(w);
-    for (int s = 0; s < Z3_SHOP_COUNT; s++)   /* the region constructors' default inventories */
+    for (int s = 0; s < Z3_SHOP_COUNT; s++) {   /* the region constructors' default inventories */
+        w->shop[s].keeper = Z3_SHOP_ROM[s].keeper;
         for (int k = 0; k < 3; k++) {
             const Z3ShopSlot *d = &Z3_SHOP_ROM[s].inv[k];
             w->shop[s].item[k] = d->item;
             w->shop[s].max[k] = d->max;
             w->shop[s].price[k] = d->price;
         }
+    }
+    if (cfg->mode_state == Z3_MODE_STATE_INVERTED) {   /* Region\Inverted\DarkWorld\South's constructor */
+        static const uint8_t item[3] = { Z3_ITEM_BluePotion, Z3_ITEM_BlueShield, Z3_ITEM_TenBombs };
+        static const uint16_t price[3] = { 160, 50, 50 };
+        Z3ShopState *h = &w->shop[Z3_SHOP_Dark_World_Lake_Hylia_Shop];
+        for (int k = 0; k < 3; k++) h->item[k] = item[k], h->price[k] = price[k], h->max[k] = 0;
+    }
 }
 
 bool z3_has(const Z3Items *it, int item, int at_least)
@@ -238,7 +248,7 @@ static void sweep(const Z3World *w, Z3Items *have, Z3Items *found, Z3Collected *
         for (int s = 0; s < Z3_SHOP_COUNT; s++)
             for (int k = 0; k < 3; k++) {
                 int item = w->shop[s].item[k];
-                if (col->shop[s][k] || item == Z3_ITEM_NONE || !z3_shop_access(w, &before, s)) continue;
+                if (col->shop[s][k] || item == Z3_ITEM_NONE || !z3_shop_exists(w, s) || !z3_shop_access(w, &before, s)) continue;
                 col->shop[s][k] = true;
                 col->count++;
                 z3_items_add(have, item, 1);

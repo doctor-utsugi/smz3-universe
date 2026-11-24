@@ -12,6 +12,7 @@ void z3_texts_init(Z3Texts *t)
 {
     memset(t->text, 0xFF, sizeof t->text);
     memset(t->credit, 0xFF, sizeof t->credit);
+    memset(t->nopause, 0, sizeof t->nopause);
     t->used = 0;
 }
 
@@ -24,13 +25,16 @@ static int16_t store(Z3Texts *t, const char *s)
     return (int16_t)(t->used - (int)n);
 }
 
-bool z3_texts_set(Z3Texts *t, int key, const char *s)
+bool z3_texts_set_pause(Z3Texts *t, int key, const char *s, bool pause)
 {
     int16_t o = store(t, s);
     if (o < 0) return false;
     t->text[key] = o;
+    t->nopause[key] = !pause;
     return true;
 }
+
+bool z3_texts_set(Z3Texts *t, int key, const char *s) { return z3_texts_set_pause(t, key, s, true); }
 
 bool z3_texts_credit(Z3Texts *t, int scene, const char *s)
 {
@@ -446,7 +450,7 @@ int z3_text_table(const Z3Texts *t, uint8_t *out)
         const uint8_t *b = Z3_TEXT_DATA + Z3_TEXT_OFF[k];
         int n = Z3_TEXT_OFF[k + 1] - Z3_TEXT_OFF[k];
         if (t->text[k] >= 0) {
-            n = z3_dialog_encode(t->pool + t->text[k], true, enc);
+            n = z3_dialog_encode(t->pool + t->text[k], !t->nopause[k], enc);
             b = enc;
         }
         if (len + n > Z3_TEXT_MAX) return -1;
@@ -756,6 +760,7 @@ static bool get_hint(const Z3Seed *s, Z3Rng *r, int loc, char *out, size_t cap)
 {
     int item = s->w.item_at[loc];
     if (item == Z3_ITEM_NONE) return false;
+    if (s->w.cfg.rom_genericKeys && Z3_ITEMS[item].cls == Z3_IC_Key) item = Z3_ITEM_KeyGK;
     const char *iname = pick_name(r, &Z3_HINT_ITEM[target_of(s, item)]);
     const char *lname = pick_name(r, &Z3_HINT_LOC[loc]);
     snprintf(out, cap, "%s %s", iname, lname);

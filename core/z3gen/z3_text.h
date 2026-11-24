@@ -20,14 +20,17 @@ enum {
 /* World::setText / setCredit values (UTF-8), last one wins per key; offsets into pool, -1 = unchanged. */
 typedef struct {
     int16_t text[Z3_TXT_COUNT];
+    bool nopause[Z3_TXT_COUNT];  /* set with Text::setString($id, $value, false) */
     int16_t credit[Z3_CREDIT_COUNT];
-    char pool[12288];
+    char pool[16384];
     int used;
 } Z3Texts;
 
 void z3_texts_init(Z3Texts *t);
 /* false when the pool is full (the text is then left as it was). */
 bool z3_texts_set(Z3Texts *t, int key, const char *s);
+/* The same with convertDialogCompressed's $pause given (Rom::setInvertedMode passes false for some). */
+bool z3_texts_set_pause(Z3Texts *t, int key, const char *s, bool pause);
 bool z3_texts_credit(Z3Texts *t, int scene, const char *s);
 
 /* Dialog::convertDialogCompressed($s, $pause) with max_bytes 2046 and wrap 19; out holds Z3_DIALOG_MAX bytes. */

@@ -1612,233 +1612,238 @@ static const char *const HL5[] = { "is with the witch", "requires the mushroom" 
 static const char *const HL6[] = { "is in plain sight" };
 static const char *const HL7[] = { "awaits in the waterfall", "is with a great fairy", "is under water" };
 static const char *const HL8[] = { "awaits in the waterfall", "is with a great fairy", "is under water" };
-static const char *const HL9[] = { "requires three pendants", "is in the lost woods" };
-static const char *const HL10[] = { "sleeps in the Tomb", "requires the boots" };
-static const char *const HL11[] = { "is in Kakariko Tavern" };
-static const char *const HL12[] = { "is with the Chickens", "requires a bomb" };
-static const char *const HL13[] = { "is in Kakariko Well", "requires a bomb" };
-static const char *const HL14[] = { "is in Kakariko Well" };
+static const char *const HL9[] = { "Ganon" };
+static const char *const HL10[] = { "requires three pendants", "is in the lost woods" };
+static const char *const HL11[] = { "sleeps in the Tomb", "requires the boots" };
+static const char *const HL12[] = { "is in Kakariko Tavern" };
+static const char *const HL13[] = { "is with the Chickens", "requires a bomb" };
+static const char *const HL14[] = { "is in Kakariko Well", "requires a bomb" };
 static const char *const HL15[] = { "is in Kakariko Well" };
 static const char *const HL16[] = { "is in Kakariko Well" };
 static const char *const HL17[] = { "is in Kakariko Well" };
-static const char *const HL18[] = { "is in Blind's Hideout", "requires a bomb" };
-static const char *const HL19[] = { "is in Blind's Hideout" };
+static const char *const HL18[] = { "is in Kakariko Well" };
+static const char *const HL19[] = { "is in Blind's Hideout", "requires a bomb" };
 static const char *const HL20[] = { "is in Blind's Hideout" };
 static const char *const HL21[] = { "is in Blind's Hideout" };
 static const char *const HL22[] = { "is in Blind's Hideout" };
-static const char *const HL23[] = { "is under some Rocks", "requires the boots" };
-static const char *const HL24[] = { "can be bought", "held by someone friendly" };
-static const char *const HL25[] = { "is with Magic Bat", "held by someone friendly" };
-static const char *const HL26[] = { "is with Sick Kid", "requires a bottle", "held by someone friendly" };
-static const char *const HL27[] = { "is in the Lost Woods" };
-static const char *const HL28[] = { "is in plain sight", "requires the boots" };
-static const char *const HL29[] = { "is above the poes", "requires a bomb" };
-static const char *const HL30[] = { "is in the Lost Woods", "is in plain sight" };
-static const char *const HL31[] = { "is near a water switch" };
-static const char *const HL32[] = { "is in your House, numpty" };
-static const char *const HL33[] = { "is with a hermit", "requires a bomb" };
-static const char *const HL34[] = { "is in Mini Moldorm Cave", "requires a bomb" };
+static const char *const HL23[] = { "is in Blind's Hideout" };
+static const char *const HL24[] = { "is under some Rocks", "requires the boots" };
+static const char *const HL25[] = { "can be bought", "held by someone friendly" };
+static const char *const HL26[] = { "is with Magic Bat", "held by someone friendly" };
+static const char *const HL27[] = { "is with Sick Kid", "requires a bottle", "held by someone friendly" };
+static const char *const HL28[] = { "is in the Lost Woods" };
+static const char *const HL29[] = { "is in plain sight", "requires the boots" };
+static const char *const HL30[] = { "is above the poes", "requires a bomb" };
+static const char *const HL31[] = { "is in the Lost Woods", "is in plain sight" };
+static const char *const HL32[] = { "is near a water switch" };
+static const char *const HL33[] = { "is in your House, numpty" };
+static const char *const HL34[] = { "is with a hermit", "requires a bomb" };
 static const char *const HL35[] = { "is in Mini Moldorm Cave", "requires a bomb" };
 static const char *const HL36[] = { "is in Mini Moldorm Cave", "requires a bomb" };
 static const char *const HL37[] = { "is in Mini Moldorm Cave", "requires a bomb" };
-static const char *const HL38[] = { "is in a cold Cave", "requires a bomb" };
-static const char *const HL39[] = { "is under a bridge", "held by someone friendly" };
-static const char *const HL40[] = { "is on a Tablet", "requires the book" };
-static const char *const HL41[] = { "is near the haunted grove" };
-static const char *const HL42[] = { "is under a rock in the desert", "requires a glove" };
-static const char *const HL43[] = { "is in Mini Moldorm Cave", "requires a bomb", "held by someone friendly" };
-static const char *const HL44[] = { "is in plain sight", "requires the boots" };
-static const char *const HL45[] = { "is in plain sight" };
+static const char *const HL38[] = { "is in Mini Moldorm Cave", "requires a bomb" };
+static const char *const HL39[] = { "is in a cold Cave", "requires a bomb" };
+static const char *const HL40[] = { "is under a bridge", "held by someone friendly" };
+static const char *const HL41[] = { "is on a Tablet", "requires the book" };
+static const char *const HL42[] = { "is near the haunted grove" };
+static const char *const HL43[] = { "is under a rock in the desert", "requires a glove" };
+static const char *const HL44[] = { "is in Mini Moldorm Cave", "requires a bomb", "held by someone friendly" };
+static const char *const HL45[] = { "is in plain sight", "requires the boots" };
 static const char *const HL46[] = { "is in plain sight" };
 static const char *const HL47[] = { "is in plain sight" };
-static const char *const HL48[] = { "is under water" };
-static const char *const HL49[] = { "can be dug up", "requires the shovel" };
-static const char *const HL50[] = { "is in the Sanctuary" };
-static const char *const HL51[] = { "is in the Sewers" };
-static const char *const HL52[] = { "is in the Sewers" };
+static const char *const HL48[] = { "is in plain sight" };
+static const char *const HL49[] = { "is under water" };
+static const char *const HL50[] = { "can be dug up", "requires the shovel" };
+static const char *const HL51[] = { "hint.location.Bomb Merchant" };
+static const char *const HL52[] = { "is in the Sanctuary" };
 static const char *const HL53[] = { "is in the Sewers" };
-static const char *const HL54[] = { "is in the Sewers", "is in the dark" };
-static const char *const HL55[] = { "is in the Castle" };
-static const char *const HL56[] = { "is in the Castle" };
+static const char *const HL54[] = { "is in the Sewers" };
+static const char *const HL55[] = { "is in the Sewers" };
+static const char *const HL56[] = { "is in the Sewers", "is in the dark" };
 static const char *const HL57[] = { "is in the Castle" };
-static const char *const HL58[] = { "is on your Uncle", "held by someone friendly" };
-static const char *const HL59[] = { "is near your Uncle" };
-static const char *const HL60[] = { "Zelda" };
-static const char *const HL61[] = { "is in Eastern Palace" };
-static const char *const HL62[] = { "is in Eastern Palace" };
+static const char *const HL58[] = { "is in the Castle" };
+static const char *const HL59[] = { "is in the Castle" };
+static const char *const HL60[] = { "is on your Uncle", "held by someone friendly" };
+static const char *const HL61[] = { "is near your Uncle" };
+static const char *const HL62[] = { "Zelda" };
 static const char *const HL63[] = { "is in Eastern Palace" };
 static const char *const HL64[] = { "is in Eastern Palace" };
 static const char *const HL65[] = { "is in Eastern Palace" };
-static const char *const HL66[] = { "is in Eastern Palace", "is on a boss" };
+static const char *const HL66[] = { "is in Eastern Palace" };
 static const char *const HL67[] = { "is in Eastern Palace" };
-static const char *const HL68[] = { "is in Desert Palace" };
-static const char *const HL69[] = { "is in Desert Palace" };
-static const char *const HL70[] = { "is in Desert Palace", "is in plain sight", "requires the boots" };
+static const char *const HL68[] = { "is in Eastern Palace", "is on a boss" };
+static const char *const HL69[] = { "is in Eastern Palace" };
+static const char *const HL70[] = { "is in Desert Palace" };
 static const char *const HL71[] = { "is in Desert Palace" };
-static const char *const HL72[] = { "is in Desert Palace" };
-static const char *const HL73[] = { "is in Desert Palace", "is on a boss" };
+static const char *const HL72[] = { "is in Desert Palace", "is in plain sight", "requires the boots" };
+static const char *const HL73[] = { "is in Desert Palace" };
 static const char *const HL74[] = { "is in Desert Palace" };
-static const char *const HL75[] = { "is held by an Old Man", "is in the dark", "held by someone friendly" };
-static const char *const HL76[] = { "is in Spectacle Rock", "is in plain sight" };
-static const char *const HL77[] = { "is on a Tablet", "requires the book" };
-static const char *const HL78[] = { "is on Spectacle Rock", "is in plain sight" };
-static const char *const HL79[] = { "is in Spiral Cave" };
-static const char *const HL80[] = { "is in Mimic Cave", "requires the hammer" };
-static const char *const HL81[] = { "is in Paradox Cave" };
-static const char *const HL82[] = { "is in Paradox Cave" };
+static const char *const HL75[] = { "is in Desert Palace", "is on a boss" };
+static const char *const HL76[] = { "is in Desert Palace" };
+static const char *const HL77[] = { "is held by an Old Man", "is in the dark", "held by someone friendly" };
+static const char *const HL78[] = { "is in Spectacle Rock", "is in plain sight" };
+static const char *const HL79[] = { "is on a Tablet", "requires the book" };
+static const char *const HL80[] = { "is on Spectacle Rock", "is in plain sight" };
+static const char *const HL81[] = { "is in Spiral Cave" };
+static const char *const HL82[] = { "is in Mimic Cave", "requires the hammer" };
 static const char *const HL83[] = { "is in Paradox Cave" };
 static const char *const HL84[] = { "is in Paradox Cave" };
 static const char *const HL85[] = { "is in Paradox Cave" };
-static const char *const HL86[] = { "is in Paradox Cave", "requires a bomb" };
-static const char *const HL87[] = { "is in Paradox Cave", "requires a bomb" };
-static const char *const HL88[] = { "is on Floating Island", "is in plain sight" };
-static const char *const HL89[] = { "is in Tower of Hera", "needs fire in Tower of Hera" };
-static const char *const HL90[] = { "is in Tower of Hera", "is in plain sight" };
-static const char *const HL91[] = { "is in Tower of Hera" };
-static const char *const HL92[] = { "is in Tower of Hera" };
-static const char *const HL93[] = { "is in Tower of Hera" };
-static const char *const HL94[] = { "is in Tower of Hera", "is on a boss" };
+static const char *const HL86[] = { "is in Paradox Cave" };
+static const char *const HL87[] = { "is in Paradox Cave" };
+static const char *const HL88[] = { "is in Paradox Cave", "requires a bomb" };
+static const char *const HL89[] = { "is in Paradox Cave", "requires a bomb" };
+static const char *const HL90[] = { "is on Floating Island", "is in plain sight" };
+static const char *const HL91[] = { "is on a Tablet", "requires the book" };
+static const char *const HL92[] = { "is on Spectacle Rock", "is in plain sight" };
+static const char *const HL93[] = { "is in Tower of Hera", "needs fire in Tower of Hera" };
+static const char *const HL94[] = { "is in Tower of Hera", "is in plain sight" };
 static const char *const HL95[] = { "is in Tower of Hera" };
-static const char *const HL96[] = { "is in Castle Tower" };
-static const char *const HL97[] = { "is in Castle Tower", "is in the dark" };
-static const char *const HL98[] = { "Agahnim" };
-static const char *const HL99[] = { "is in Superbunny Cave" };
-static const char *const HL100[] = { "is in Superbunny Cave" };
-static const char *const HL101[] = { "is in Hookshot Cave", "requires the hookshot", "requires a glove" };
-static const char *const HL102[] = { "is in Hookshot Cave", "requires the hookshot", "requires a glove" };
-static const char *const HL103[] = { "is in Hookshot Cave", "requires the hookshot", "requires a glove" };
-static const char *const HL104[] = { "is in Hookshot Cave", "requires a glove" };
-static const char *const HL105[] = { "is in the Spike Cave", "requires the hammer", "requires a glove" };
-static const char *const HL106[] = { "is held with a grumpy fish", "is under water", "is held with the fishes", "held by someone friendly" };
-static const char *const HL107[] = { "is in plain sight" };
-static const char *const HL108[] = { "requires a big red bomb", "is with a great fairy" };
-static const char *const HL109[] = { "requires a big red bomb", "is with a great fairy" };
-static const char *const HL110[] = { "Ganon" };
-static const char *const HL111[] = { "requires a big red bomb", "is with a great fairy" };
+static const char *const HL96[] = { "is in Tower of Hera" };
+static const char *const HL97[] = { "is in Tower of Hera" };
+static const char *const HL98[] = { "is in Tower of Hera", "is on a boss" };
+static const char *const HL99[] = { "is in Tower of Hera" };
+static const char *const HL100[] = { "is in Castle Tower" };
+static const char *const HL101[] = { "is in Castle Tower", "is in the dark" };
+static const char *const HL102[] = { "Agahnim" };
+static const char *const HL103[] = { "is in Superbunny Cave" };
+static const char *const HL104[] = { "is in Superbunny Cave" };
+static const char *const HL105[] = { "is in Hookshot Cave", "requires the hookshot", "requires a glove" };
+static const char *const HL106[] = { "is in Hookshot Cave", "requires the hookshot", "requires a glove" };
+static const char *const HL107[] = { "is in Hookshot Cave", "requires the hookshot", "requires a glove" };
+static const char *const HL108[] = { "is in Hookshot Cave", "requires a glove" };
+static const char *const HL109[] = { "is in the Spike Cave", "requires the hammer", "requires a glove" };
+static const char *const HL110[] = { "is held with a grumpy fish", "is under water", "is held with the fishes", "held by someone friendly" };
+static const char *const HL111[] = { "is in plain sight" };
 static const char *const HL112[] = { "requires a big red bomb", "is with a great fairy" };
-static const char *const HL113[] = { "is in the dark village", "requires a bomb" };
-static const char *const HL114[] = { "is in the dark village" };
-static const char *const HL115[] = { "is in the dark village" };
-static const char *const HL116[] = { "is under a stump", "requires the Hammer" };
-static const char *const HL117[] = { "requires the cape", "is in plain sight" };
-static const char *const HL118[] = { "can be forged", "held by someone friendly" };
-static const char *const HL119[] = { "in a chest requiring a specialist to unlock" };
-static const char *const HL120[] = { "is in the Hype cave", "requires a bomb" };
-static const char *const HL121[] = { "is in the Hype cave", "requires a bomb" };
-static const char *const HL122[] = { "is in the Hype cave", "requires a bomb" };
-static const char *const HL123[] = { "is in the Hype cave", "requires a bomb" };
-static const char *const HL124[] = { "can be found on a stump", "held by someone friendly" };
-static const char *const HL125[] = { "is in the Hype cave", "requires a bomb", "held by someone friendly" };
-static const char *const HL126[] = { "can be dug up" };
-static const char *const HL127[] = { "is near Misery Mire" };
-static const char *const HL128[] = { "is near Misery Mire" };
-static const char *const HL129[] = { "is in Palace of Darkness" };
-static const char *const HL130[] = { "is in Palace of Darkness" };
-static const char *const HL131[] = { "is in Palace of Darkness" };
-static const char *const HL132[] = { "is in Palace of Darkness" };
-static const char *const HL133[] = { "is in Palace of Darkness" };
+static const char *const HL113[] = { "requires a big red bomb", "is with a great fairy" };
+static const char *const HL114[] = { "Ganon" };
+static const char *const HL115[] = { "requires a big red bomb", "is with a great fairy" };
+static const char *const HL116[] = { "requires a big red bomb", "is with a great fairy" };
+static const char *const HL117[] = { "is in the dark village", "requires a bomb" };
+static const char *const HL118[] = { "is in the dark village" };
+static const char *const HL119[] = { "is in the dark village" };
+static const char *const HL120[] = { "is under a stump", "requires the Hammer" };
+static const char *const HL121[] = { "requires the cape", "is in plain sight" };
+static const char *const HL122[] = { "can be forged", "held by someone friendly" };
+static const char *const HL123[] = { "in a chest requiring a specialist to unlock" };
+static const char *const HL124[] = { "is in the Hype cave", "requires a bomb" };
+static const char *const HL125[] = { "is in the Hype cave", "requires a bomb" };
+static const char *const HL126[] = { "is in the Hype cave", "requires a bomb" };
+static const char *const HL127[] = { "is in the Hype cave", "requires a bomb" };
+static const char *const HL128[] = { "can be found on a stump", "held by someone friendly" };
+static const char *const HL129[] = { "is in the Hype cave", "requires a bomb", "held by someone friendly" };
+static const char *const HL130[] = { "can be dug up" };
+static const char *const HL131[] = { "is in your House, numpty" };
+static const char *const HL132[] = { "is near Misery Mire" };
+static const char *const HL133[] = { "is near Misery Mire" };
 static const char *const HL134[] = { "is in Palace of Darkness" };
 static const char *const HL135[] = { "is in Palace of Darkness" };
 static const char *const HL136[] = { "is in Palace of Darkness" };
 static const char *const HL137[] = { "is in Palace of Darkness" };
-static const char *const HL138[] = { "is in Palace of Darkness", "is in the dark" };
-static const char *const HL139[] = { "is in Palace of Darkness", "is in the dark" };
-static const char *const HL140[] = { "is in Palace of Darkness", "is in the dark" };
-static const char *const HL141[] = { "is in Palace of Darkness", "is in the dark" };
-static const char *const HL142[] = { "is in Palace of Darkness", "requires the Hammer", "requires the bow", "is on a boss" };
-static const char *const HL143[] = { "is in Palace of Darkness" };
-static const char *const HL144[] = { "is in Swamp Palace" };
-static const char *const HL145[] = { "is in Swamp Palace", "is in the Big Chest Swamp Palace", "requires the Hammer" };
-static const char *const HL146[] = { "is in Swamp Palace", "is in western wing of Swamp Palace", "requires the Hammer" };
-static const char *const HL147[] = { "is in Swamp Palace", "requires a bomb" };
-static const char *const HL148[] = { "is in Swamp Palace", "is in western wing of Swamp Palace", "requires the Hammer" };
-static const char *const HL149[] = { "is in Swamp Palace", "requires the Hammer" };
-static const char *const HL150[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer", "is under water" };
-static const char *const HL151[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer", "is under water" };
-static const char *const HL152[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer" };
-static const char *const HL153[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer", "is on a boss" };
-static const char *const HL154[] = { "is in Swamp Palace" };
-static const char *const HL155[] = { "is in Skull Woods" };
-static const char *const HL156[] = { "is in Skull Woods" };
-static const char *const HL157[] = { "is in Skull Woods" };
-static const char *const HL158[] = { "is in Skull Woods" };
-static const char *const HL159[] = { "is in Skull Woods" };
+static const char *const HL138[] = { "is in Palace of Darkness" };
+static const char *const HL139[] = { "is in Palace of Darkness" };
+static const char *const HL140[] = { "is in Palace of Darkness" };
+static const char *const HL141[] = { "is in Palace of Darkness" };
+static const char *const HL142[] = { "is in Palace of Darkness" };
+static const char *const HL143[] = { "is in Palace of Darkness", "is in the dark" };
+static const char *const HL144[] = { "is in Palace of Darkness", "is in the dark" };
+static const char *const HL145[] = { "is in Palace of Darkness", "is in the dark" };
+static const char *const HL146[] = { "is in Palace of Darkness", "is in the dark" };
+static const char *const HL147[] = { "is in Palace of Darkness", "requires the Hammer", "requires the bow", "is on a boss" };
+static const char *const HL148[] = { "is in Palace of Darkness" };
+static const char *const HL149[] = { "is in Swamp Palace" };
+static const char *const HL150[] = { "is in Swamp Palace", "is in the Big Chest Swamp Palace", "requires the Hammer" };
+static const char *const HL151[] = { "is in Swamp Palace", "is in western wing of Swamp Palace", "requires the Hammer" };
+static const char *const HL152[] = { "is in Swamp Palace", "requires a bomb" };
+static const char *const HL153[] = { "is in Swamp Palace", "is in western wing of Swamp Palace", "requires the Hammer" };
+static const char *const HL154[] = { "is in Swamp Palace", "requires the Hammer" };
+static const char *const HL155[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer", "is under water" };
+static const char *const HL156[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer", "is under water" };
+static const char *const HL157[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer" };
+static const char *const HL158[] = { "is in Swamp Palace", "requires the hookshot", "requires the Hammer", "is on a boss" };
+static const char *const HL159[] = { "is in Swamp Palace" };
 static const char *const HL160[] = { "is in Skull Woods" };
 static const char *const HL161[] = { "is in Skull Woods" };
-static const char *const HL162[] = { "is in Skull Woods", "is on a boss" };
+static const char *const HL162[] = { "is in Skull Woods" };
 static const char *const HL163[] = { "is in Skull Woods" };
-static const char *const HL164[] = { "is in Thieves' Town" };
-static const char *const HL165[] = { "is in Thieves' Town" };
-static const char *const HL166[] = { "is in Thieves' Town" };
-static const char *const HL167[] = { "is in Thieves' Town" };
-static const char *const HL168[] = { "is in Thieves' Town" };
-static const char *const HL169[] = { "is in Thieves' Town", "requires the Hammer" };
+static const char *const HL164[] = { "is in Skull Woods" };
+static const char *const HL165[] = { "is in Skull Woods" };
+static const char *const HL166[] = { "is in Skull Woods" };
+static const char *const HL167[] = { "is in Skull Woods", "is on a boss" };
+static const char *const HL168[] = { "is in Skull Woods" };
+static const char *const HL169[] = { "is in Thieves' Town" };
 static const char *const HL170[] = { "is in Thieves' Town" };
-static const char *const HL171[] = { "is in Thieves' Town", "is on a boss" };
+static const char *const HL171[] = { "is in Thieves' Town" };
 static const char *const HL172[] = { "is in Thieves' Town" };
-static const char *const HL173[] = { "is in Ice Palace", "requires the Hammer", "requires a glove", "requires a bomb" };
-static const char *const HL174[] = { "is in Ice Palace" };
-static const char *const HL175[] = { "is in Ice Palace", "requires the Hammer", "requires a glove", "requires a bomb" };
-static const char *const HL176[] = { "is in Ice Palace", "requires a bomb" };
-static const char *const HL177[] = { "is in Ice Palace", "requires a bomb" };
-static const char *const HL178[] = { "is in Ice Palace", "requires a bomb" };
-static const char *const HL179[] = { "is in Ice Palace", "requires a bomb" };
-static const char *const HL180[] = { "is in Ice Palace", "requires the Hammer", "is on a boss", "requires a glove", "requires a bomb" };
-static const char *const HL181[] = { "is in Ice Palace" };
-static const char *const HL182[] = { "is in Misery Mire" };
-static const char *const HL183[] = { "is in Misery Mire" };
-static const char *const HL184[] = { "is in Misery Mire", "is fire locked in Misery Mire" };
-static const char *const HL185[] = { "is in Misery Mire", "is fire locked in Misery Mire" };
-static const char *const HL186[] = { "is in Misery Mire" };
+static const char *const HL173[] = { "is in Thieves' Town" };
+static const char *const HL174[] = { "is in Thieves' Town", "requires the Hammer" };
+static const char *const HL175[] = { "is in Thieves' Town" };
+static const char *const HL176[] = { "is in Thieves' Town", "is on a boss" };
+static const char *const HL177[] = { "is in Thieves' Town" };
+static const char *const HL178[] = { "is in Ice Palace", "requires the Hammer", "requires a glove", "requires a bomb" };
+static const char *const HL179[] = { "is in Ice Palace" };
+static const char *const HL180[] = { "is in Ice Palace", "requires the Hammer", "requires a glove", "requires a bomb" };
+static const char *const HL181[] = { "is in Ice Palace", "requires a bomb" };
+static const char *const HL182[] = { "is in Ice Palace", "requires a bomb" };
+static const char *const HL183[] = { "is in Ice Palace", "requires a bomb" };
+static const char *const HL184[] = { "is in Ice Palace", "requires a bomb" };
+static const char *const HL185[] = { "is in Ice Palace", "requires the Hammer", "is on a boss", "requires a glove", "requires a bomb" };
+static const char *const HL186[] = { "is in Ice Palace" };
 static const char *const HL187[] = { "is in Misery Mire" };
 static const char *const HL188[] = { "is in Misery Mire" };
-static const char *const HL189[] = { "is in Misery Mire", "requires the cane of somaria", "is on a boss" };
-static const char *const HL190[] = { "is in Misery Mire" };
-static const char *const HL191[] = { "is in Turtle Rock" };
-static const char *const HL192[] = { "is in Turtle Rock", "requires the cane of somaria" };
-static const char *const HL193[] = { "is in Turtle Rock", "requires the cane of somaria" };
-static const char *const HL194[] = { "is in Turtle Rock", "requires the cane of somaria" };
-static const char *const HL195[] = { "is in Turtle Rock" };
+static const char *const HL189[] = { "is in Misery Mire", "is fire locked in Misery Mire" };
+static const char *const HL190[] = { "is in Misery Mire", "is fire locked in Misery Mire" };
+static const char *const HL191[] = { "is in Misery Mire" };
+static const char *const HL192[] = { "is in Misery Mire" };
+static const char *const HL193[] = { "is in Misery Mire" };
+static const char *const HL194[] = { "is in Misery Mire", "requires the cane of somaria", "is on a boss" };
+static const char *const HL195[] = { "is in Misery Mire" };
 static const char *const HL196[] = { "is in Turtle Rock" };
-static const char *const HL197[] = { "is in Turtle Rock" };
-static const char *const HL198[] = { "is in Turtle Rock" };
-static const char *const HL199[] = { "is in Turtle Rock" };
+static const char *const HL197[] = { "is in Turtle Rock", "requires the cane of somaria" };
+static const char *const HL198[] = { "is in Turtle Rock", "requires the cane of somaria" };
+static const char *const HL199[] = { "is in Turtle Rock", "requires the cane of somaria" };
 static const char *const HL200[] = { "is in Turtle Rock" };
 static const char *const HL201[] = { "is in Turtle Rock" };
-static const char *const HL202[] = { "is in Turtle Rock", "requires the cane of somaria", "is on a boss" };
+static const char *const HL202[] = { "is in Turtle Rock" };
 static const char *const HL203[] = { "is in Turtle Rock" };
-static const char *const HL204[] = { "is in Ganon's Tower", "is in plain sight", "requires the boots" };
-static const char *const HL205[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
-static const char *const HL206[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
-static const char *const HL207[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
-static const char *const HL208[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
-static const char *const HL209[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
-static const char *const HL210[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
-static const char *const HL211[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
-static const char *const HL212[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
+static const char *const HL204[] = { "is in Turtle Rock" };
+static const char *const HL205[] = { "is in Turtle Rock" };
+static const char *const HL206[] = { "is in Turtle Rock" };
+static const char *const HL207[] = { "is in Turtle Rock", "requires the cane of somaria", "is on a boss" };
+static const char *const HL208[] = { "is in Turtle Rock" };
+static const char *const HL209[] = { "is in Ganon's Tower", "is in plain sight", "requires the boots" };
+static const char *const HL210[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
+static const char *const HL211[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
+static const char *const HL212[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
 static const char *const HL213[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
-static const char *const HL214[] = { "is in Ganon's Tower", "requires the hammer" };
-static const char *const HL215[] = { "is in Ganon's Tower" };
-static const char *const HL216[] = { "is in Ganon's Tower" };
-static const char *const HL217[] = { "is in Ganon's Tower" };
-static const char *const HL218[] = { "is in Ganon's Tower" };
-static const char *const HL219[] = { "is in Ganon's Tower", "requires the cane of somaria" };
-static const char *const HL220[] = { "is in Ganon's Tower", "requires the cane of somaria" };
-static const char *const HL221[] = { "is in Ganon's Tower", "requires the cane of somaria" };
-static const char *const HL222[] = { "is in Ganon's Tower", "requires the cane of somaria" };
-static const char *const HL223[] = { "is in Ganon's Tower", "requires the cane of somaria" };
-static const char *const HL224[] = { "is in Ganon's Tower", "requires a bomb" };
-static const char *const HL225[] = { "is in Ganon's Tower", "requires a bomb" };
-static const char *const HL226[] = { "is in Ganon's Tower", "requires a bomb" };
-static const char *const HL227[] = { "is in Ganon's Tower" };
-static const char *const HL228[] = { "is in Ganon's Tower" };
-static const char *const HL229[] = { "is in Ganon's Tower" };
-static const char *const HL230[] = { "is in Ganon's Tower", "requires the hookshot" };
-static const char *const HL231[] = { "Agahnim 2" };
-static const char *const HL232[] = { "is required to enter Turtle Rock", "am enters Turtle Rock" };
-static const char *const HL233[] = { "is required to enter Misery Mire" };
-static const char *const HL234[] = { "Waterfall Bottle" };
-static const char *const HL235[] = { "Pyramid Bottle" };
+static const char *const HL214[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
+static const char *const HL215[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
+static const char *const HL216[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
+static const char *const HL217[] = { "is in Ganon's Tower", "requires the hammer", "requires a bomb", "requires the hookshot" };
+static const char *const HL218[] = { "is in Ganon's Tower", "requires the hammer", "requires the hookshot" };
+static const char *const HL219[] = { "is in Ganon's Tower", "requires the hammer" };
+static const char *const HL220[] = { "is in Ganon's Tower" };
+static const char *const HL221[] = { "is in Ganon's Tower" };
+static const char *const HL222[] = { "is in Ganon's Tower" };
+static const char *const HL223[] = { "is in Ganon's Tower" };
+static const char *const HL224[] = { "is in Ganon's Tower", "requires the cane of somaria" };
+static const char *const HL225[] = { "is in Ganon's Tower", "requires the cane of somaria" };
+static const char *const HL226[] = { "is in Ganon's Tower", "requires the cane of somaria" };
+static const char *const HL227[] = { "is in Ganon's Tower", "requires the cane of somaria" };
+static const char *const HL228[] = { "is in Ganon's Tower", "requires the cane of somaria" };
+static const char *const HL229[] = { "is in Ganon's Tower", "requires a bomb" };
+static const char *const HL230[] = { "is in Ganon's Tower", "requires a bomb" };
+static const char *const HL231[] = { "is in Ganon's Tower", "requires a bomb" };
+static const char *const HL232[] = { "is in Ganon's Tower" };
+static const char *const HL233[] = { "is in Ganon's Tower" };
+static const char *const HL234[] = { "is in Ganon's Tower" };
+static const char *const HL235[] = { "is in Ganon's Tower", "requires the hookshot" };
+static const char *const HL236[] = { "Agahnim 2" };
+static const char *const HL237[] = { "is required to enter Turtle Rock", "am enters Turtle Rock" };
+static const char *const HL238[] = { "is required to enter Misery Mire" };
+static const char *const HL239[] = { "Waterfall Bottle" };
+static const char *const HL240[] = { "Pyramid Bottle" };
 
 const Z3HintName Z3_HINT_LOC[Z3_LOC_COUNT] = {
     { HL0, 1, 0 },
@@ -1850,31 +1855,31 @@ const Z3HintName Z3_HINT_LOC[Z3_LOC_COUNT] = {
     { HL6, 1, 0 },
     { HL7, 3, 1 },
     { HL8, 3, 1 },
-    { HL9, 2, 1 },
+    { HL9, 1, 0 },
     { HL10, 2, 1 },
-    { HL11, 1, 0 },
-    { HL12, 2, 1 },
+    { HL11, 2, 1 },
+    { HL12, 1, 0 },
     { HL13, 2, 1 },
-    { HL14, 1, 0 },
+    { HL14, 2, 1 },
     { HL15, 1, 0 },
     { HL16, 1, 0 },
     { HL17, 1, 0 },
-    { HL18, 2, 1 },
-    { HL19, 1, 0 },
+    { HL18, 1, 0 },
+    { HL19, 2, 1 },
     { HL20, 1, 0 },
     { HL21, 1, 0 },
     { HL22, 1, 0 },
-    { HL23, 2, 1 },
+    { HL23, 1, 0 },
     { HL24, 2, 1 },
     { HL25, 2, 1 },
-    { HL26, 3, 1 },
-    { HL27, 1, 0 },
-    { HL28, 2, 1 },
+    { HL26, 2, 1 },
+    { HL27, 3, 1 },
+    { HL28, 1, 0 },
     { HL29, 2, 1 },
     { HL30, 2, 1 },
-    { HL31, 1, 0 },
+    { HL31, 2, 1 },
     { HL32, 1, 0 },
-    { HL33, 2, 1 },
+    { HL33, 1, 0 },
     { HL34, 2, 1 },
     { HL35, 2, 1 },
     { HL36, 2, 1 },
@@ -1882,95 +1887,95 @@ const Z3HintName Z3_HINT_LOC[Z3_LOC_COUNT] = {
     { HL38, 2, 1 },
     { HL39, 2, 1 },
     { HL40, 2, 1 },
-    { HL41, 1, 0 },
-    { HL42, 2, 1 },
-    { HL43, 3, 1 },
-    { HL44, 2, 1 },
-    { HL45, 1, 0 },
+    { HL41, 2, 1 },
+    { HL42, 1, 0 },
+    { HL43, 2, 1 },
+    { HL44, 3, 1 },
+    { HL45, 2, 1 },
     { HL46, 1, 0 },
     { HL47, 1, 0 },
     { HL48, 1, 0 },
-    { HL49, 2, 1 },
-    { HL50, 1, 0 },
+    { HL49, 1, 0 },
+    { HL50, 2, 1 },
     { HL51, 1, 0 },
     { HL52, 1, 0 },
     { HL53, 1, 0 },
-    { HL54, 2, 1 },
+    { HL54, 1, 0 },
     { HL55, 1, 0 },
-    { HL56, 1, 0 },
+    { HL56, 2, 1 },
     { HL57, 1, 0 },
-    { HL58, 2, 1 },
+    { HL58, 1, 0 },
     { HL59, 1, 0 },
-    { HL60, 1, 0 },
+    { HL60, 2, 1 },
     { HL61, 1, 0 },
     { HL62, 1, 0 },
     { HL63, 1, 0 },
     { HL64, 1, 0 },
     { HL65, 1, 0 },
-    { HL66, 2, 1 },
+    { HL66, 1, 0 },
     { HL67, 1, 0 },
-    { HL68, 1, 0 },
+    { HL68, 2, 1 },
     { HL69, 1, 0 },
-    { HL70, 3, 1 },
+    { HL70, 1, 0 },
     { HL71, 1, 0 },
-    { HL72, 1, 0 },
-    { HL73, 2, 1 },
+    { HL72, 3, 1 },
+    { HL73, 1, 0 },
     { HL74, 1, 0 },
-    { HL75, 3, 1 },
-    { HL76, 2, 1 },
-    { HL77, 2, 1 },
+    { HL75, 2, 1 },
+    { HL76, 1, 0 },
+    { HL77, 3, 1 },
     { HL78, 2, 1 },
-    { HL79, 1, 0 },
+    { HL79, 2, 1 },
     { HL80, 2, 1 },
     { HL81, 1, 0 },
-    { HL82, 1, 0 },
+    { HL82, 2, 1 },
     { HL83, 1, 0 },
     { HL84, 1, 0 },
     { HL85, 1, 0 },
-    { HL86, 2, 1 },
-    { HL87, 2, 1 },
+    { HL86, 1, 0 },
+    { HL87, 1, 0 },
     { HL88, 2, 1 },
     { HL89, 2, 1 },
     { HL90, 2, 1 },
-    { HL91, 1, 0 },
-    { HL92, 1, 0 },
-    { HL93, 1, 0 },
+    { HL91, 2, 1 },
+    { HL92, 2, 1 },
+    { HL93, 2, 1 },
     { HL94, 2, 1 },
     { HL95, 1, 0 },
     { HL96, 1, 0 },
-    { HL97, 2, 1 },
-    { HL98, 1, 0 },
+    { HL97, 1, 0 },
+    { HL98, 2, 1 },
     { HL99, 1, 0 },
     { HL100, 1, 0 },
-    { HL101, 3, 1 },
-    { HL102, 3, 1 },
-    { HL103, 3, 1 },
-    { HL104, 2, 1 },
+    { HL101, 2, 1 },
+    { HL102, 1, 0 },
+    { HL103, 1, 0 },
+    { HL104, 1, 0 },
     { HL105, 3, 1 },
-    { HL106, 4, 1 },
-    { HL107, 1, 0 },
+    { HL106, 3, 1 },
+    { HL107, 3, 1 },
     { HL108, 2, 1 },
-    { HL109, 2, 1 },
-    { HL110, 1, 0 },
-    { HL111, 2, 1 },
+    { HL109, 3, 1 },
+    { HL110, 4, 1 },
+    { HL111, 1, 0 },
     { HL112, 2, 1 },
     { HL113, 2, 1 },
     { HL114, 1, 0 },
-    { HL115, 1, 0 },
+    { HL115, 2, 1 },
     { HL116, 2, 1 },
     { HL117, 2, 1 },
-    { HL118, 2, 1 },
+    { HL118, 1, 0 },
     { HL119, 1, 0 },
     { HL120, 2, 1 },
     { HL121, 2, 1 },
     { HL122, 2, 1 },
-    { HL123, 2, 1 },
+    { HL123, 1, 0 },
     { HL124, 2, 1 },
-    { HL125, 3, 1 },
-    { HL126, 1, 0 },
-    { HL127, 1, 0 },
-    { HL128, 1, 0 },
-    { HL129, 1, 0 },
+    { HL125, 2, 1 },
+    { HL126, 2, 1 },
+    { HL127, 2, 1 },
+    { HL128, 2, 1 },
+    { HL129, 3, 1 },
     { HL130, 1, 0 },
     { HL131, 1, 0 },
     { HL132, 1, 0 },
@@ -1979,104 +1984,109 @@ const Z3HintName Z3_HINT_LOC[Z3_LOC_COUNT] = {
     { HL135, 1, 0 },
     { HL136, 1, 0 },
     { HL137, 1, 0 },
-    { HL138, 2, 1 },
-    { HL139, 2, 1 },
-    { HL140, 2, 1 },
-    { HL141, 2, 1 },
-    { HL142, 4, 1 },
-    { HL143, 1, 0 },
-    { HL144, 1, 0 },
-    { HL145, 3, 1 },
-    { HL146, 3, 1 },
-    { HL147, 2, 1 },
-    { HL148, 3, 1 },
-    { HL149, 2, 1 },
-    { HL150, 4, 1 },
-    { HL151, 4, 1 },
-    { HL152, 3, 1 },
-    { HL153, 4, 1 },
-    { HL154, 1, 0 },
-    { HL155, 1, 0 },
-    { HL156, 1, 0 },
-    { HL157, 1, 0 },
-    { HL158, 1, 0 },
+    { HL138, 1, 0 },
+    { HL139, 1, 0 },
+    { HL140, 1, 0 },
+    { HL141, 1, 0 },
+    { HL142, 1, 0 },
+    { HL143, 2, 1 },
+    { HL144, 2, 1 },
+    { HL145, 2, 1 },
+    { HL146, 2, 1 },
+    { HL147, 4, 1 },
+    { HL148, 1, 0 },
+    { HL149, 1, 0 },
+    { HL150, 3, 1 },
+    { HL151, 3, 1 },
+    { HL152, 2, 1 },
+    { HL153, 3, 1 },
+    { HL154, 2, 1 },
+    { HL155, 4, 1 },
+    { HL156, 4, 1 },
+    { HL157, 3, 1 },
+    { HL158, 4, 1 },
     { HL159, 1, 0 },
     { HL160, 1, 0 },
     { HL161, 1, 0 },
-    { HL162, 2, 1 },
+    { HL162, 1, 0 },
     { HL163, 1, 0 },
     { HL164, 1, 0 },
     { HL165, 1, 0 },
     { HL166, 1, 0 },
-    { HL167, 1, 0 },
+    { HL167, 2, 1 },
     { HL168, 1, 0 },
-    { HL169, 2, 1 },
+    { HL169, 1, 0 },
     { HL170, 1, 0 },
-    { HL171, 2, 1 },
+    { HL171, 1, 0 },
     { HL172, 1, 0 },
-    { HL173, 4, 1 },
-    { HL174, 1, 0 },
-    { HL175, 4, 1 },
+    { HL173, 1, 0 },
+    { HL174, 2, 1 },
+    { HL175, 1, 0 },
     { HL176, 2, 1 },
-    { HL177, 2, 1 },
-    { HL178, 2, 1 },
-    { HL179, 2, 1 },
-    { HL180, 5, 1 },
-    { HL181, 1, 0 },
-    { HL182, 1, 0 },
-    { HL183, 1, 0 },
+    { HL177, 1, 0 },
+    { HL178, 4, 1 },
+    { HL179, 1, 0 },
+    { HL180, 4, 1 },
+    { HL181, 2, 1 },
+    { HL182, 2, 1 },
+    { HL183, 2, 1 },
     { HL184, 2, 1 },
-    { HL185, 2, 1 },
+    { HL185, 5, 1 },
     { HL186, 1, 0 },
     { HL187, 1, 0 },
     { HL188, 1, 0 },
-    { HL189, 3, 1 },
-    { HL190, 1, 0 },
+    { HL189, 2, 1 },
+    { HL190, 2, 1 },
     { HL191, 1, 0 },
-    { HL192, 2, 1 },
-    { HL193, 2, 1 },
-    { HL194, 2, 1 },
+    { HL192, 1, 0 },
+    { HL193, 1, 0 },
+    { HL194, 3, 1 },
     { HL195, 1, 0 },
     { HL196, 1, 0 },
-    { HL197, 1, 0 },
-    { HL198, 1, 0 },
-    { HL199, 1, 0 },
+    { HL197, 2, 1 },
+    { HL198, 2, 1 },
+    { HL199, 2, 1 },
     { HL200, 1, 0 },
     { HL201, 1, 0 },
-    { HL202, 3, 1 },
+    { HL202, 1, 0 },
     { HL203, 1, 0 },
-    { HL204, 3, 1 },
-    { HL205, 3, 1 },
-    { HL206, 3, 1 },
+    { HL204, 1, 0 },
+    { HL205, 1, 0 },
+    { HL206, 1, 0 },
     { HL207, 3, 1 },
-    { HL208, 3, 1 },
-    { HL209, 4, 1 },
-    { HL210, 4, 1 },
-    { HL211, 4, 1 },
-    { HL212, 4, 1 },
+    { HL208, 1, 0 },
+    { HL209, 3, 1 },
+    { HL210, 3, 1 },
+    { HL211, 3, 1 },
+    { HL212, 3, 1 },
     { HL213, 3, 1 },
-    { HL214, 2, 1 },
-    { HL215, 1, 0 },
-    { HL216, 1, 0 },
-    { HL217, 1, 0 },
-    { HL218, 1, 0 },
+    { HL214, 4, 1 },
+    { HL215, 4, 1 },
+    { HL216, 4, 1 },
+    { HL217, 4, 1 },
+    { HL218, 3, 1 },
     { HL219, 2, 1 },
-    { HL220, 2, 1 },
-    { HL221, 2, 1 },
-    { HL222, 2, 1 },
-    { HL223, 2, 1 },
+    { HL220, 1, 0 },
+    { HL221, 1, 0 },
+    { HL222, 1, 0 },
+    { HL223, 1, 0 },
     { HL224, 2, 1 },
     { HL225, 2, 1 },
     { HL226, 2, 1 },
-    { HL227, 1, 0 },
-    { HL228, 1, 0 },
-    { HL229, 1, 0 },
+    { HL227, 2, 1 },
+    { HL228, 2, 1 },
+    { HL229, 2, 1 },
     { HL230, 2, 1 },
-    { HL231, 1, 0 },
-    { HL232, 2, 1 },
+    { HL231, 2, 1 },
+    { HL232, 1, 0 },
     { HL233, 1, 0 },
     { HL234, 1, 0 },
-    { HL235, 1, 0 },
+    { HL235, 2, 1 },
+    { HL236, 1, 0 },
+    { HL237, 2, 1 },
+    { HL238, 1, 0 },
+    { HL239, 1, 0 },
+    { HL240, 1, 0 },
 };
 
 static const char LT0[] = "and nothing";

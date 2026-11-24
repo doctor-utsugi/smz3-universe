@@ -193,6 +193,7 @@ const Z3LocDef Z3_LOCS[Z3_LOC_COUNT] = {
     { "Zora's Ledge", "Standing", Z3_REG_North_East_Light_World, 0x180149 },
     { "Waterfall Fairy - Left", "Chest", Z3_REG_North_East_Light_World, 0xe9b0 },
     { "Waterfall Fairy - Right", "Chest", Z3_REG_North_East_Light_World, 0xe9d1 },
+    { "Ganon", "Prize_Event", Z3_REG_North_East_Light_World, -1 },
     { "Master Sword Pedestal", "Pedestal", Z3_REG_North_West_Light_World, 0x289b0 },
     { "King's Tomb", "Chest", Z3_REG_North_West_Light_World, 0xe97a },
     { "Kakariko Tavern", "Chest", Z3_REG_North_West_Light_World, 0xe9ce },
@@ -234,6 +235,7 @@ const Z3LocDef Z3_LOCS[Z3_LOC_COUNT] = {
     { "Lake Hylia Island", "Standing", Z3_REG_South_Light_World, 0x180144 },
     { "Sunken Treasure", "Standing", Z3_REG_South_Light_World, 0x180145 },
     { "Flute Spot", "Dig_HauntedGrove", Z3_REG_South_Light_World, 0x18014a },
+    { "Bomb Merchant", "Prize_Event", Z3_REG_South_Light_World, -1 },
     { "Sanctuary", "Chest", Z3_REG_Escape, 0xea79 },
     { "Sewers - Secret Room - Left", "Chest", Z3_REG_Escape, 0xeb5d },
     { "Sewers - Secret Room - Middle", "Chest", Z3_REG_Escape, 0xeb60 },
@@ -273,6 +275,8 @@ const Z3LocDef Z3_LOCS[Z3_LOC_COUNT] = {
     { "Paradox Cave Upper - Left", "Chest", Z3_REG_East_Death_Mountain, 0xeb39 },
     { "Paradox Cave Upper - Right", "Chest", Z3_REG_East_Death_Mountain, 0xeb3c },
     { "Floating Island", "Standing", Z3_REG_East_Death_Mountain, 0x180141 },
+    { "Ether Tablet", "Drop_Ether", Z3_REG_East_Death_Mountain, 0x180016 },
+    { "Spectacle Rock", "Standing", Z3_REG_East_Death_Mountain, 0x180140 },
     { "Tower of Hera - Big Key Chest", "Chest", Z3_REG_Tower_of_Hera, 0xe9e6 },
     { "Tower of Hera - Basement Cage", "Standing_HeraBasement", Z3_REG_Tower_of_Hera, 0x180162 },
     { "Tower of Hera - Map Chest", "Chest", Z3_REG_Tower_of_Hera, 0xe9ad },
@@ -311,6 +315,7 @@ const Z3LocDef Z3_LOCS[Z3_LOC_COUNT] = {
     { "Stumpy", "Npc", Z3_REG_South_Dark_World, 0x330c7 },
     { "Hype Cave - NPC", "Npc", Z3_REG_South_Dark_World, 0x180011 },
     { "Digging Game", "Dig", Z3_REG_South_Dark_World, 0x180148 },
+    { "Link's House", "Chest", Z3_REG_South_Dark_World, 0xe9bc },
     { "Mire Shed - Left", "Chest", Z3_REG_Mire, 0xea73 },
     { "Mire Shed - Right", "Chest", Z3_REG_Mire, 0xea76 },
     { "Palace of Darkness - Shooter Room", "Chest", Z3_REG_Palace_of_Darkness, 0xea5b },
@@ -514,9 +519,11 @@ void z3_cfg_defaults(Z3Cfg *c)
     c->canSuperSpeed = 0;
     c->canTransitionWrapped = 0;
     c->canWaterWalk = 0;
+    c->cantTakeDamage = 0;
     c->crystals_ganon = 7;
     c->crystals_tower = 7;
     c->dungeonItems = Z3_DUNGEONITEMS_STANDARD;
+    c->enemizer_bossShuffle = Z3_ENEMIZER_BOSSSHUFFLE_NONE;
     c->enemizer_enemyHealth = Z3_ENEMIZER_ENEMYHEALTH_DEFAULT;
     c->goal = Z3_GOAL_GANON;
     c->ignoreCanKillEscapeThings = 0;
@@ -535,13 +542,16 @@ void z3_cfg_defaults(Z3Cfg *c)
     c->region_requireBetterBow = 0;
     c->region_requireBetterSword = 0;
     c->region_swordsInPool = 1;
+    c->region_takeAnys = 0;
     c->region_wildBigKeys = 0;
     c->region_wildCompasses = 0;
     c->region_wildKeys = 0;
     c->region_wildMaps = 0;
     c->rom_BottleFill_Magic = 128;
     c->rom_CatchableFairies = 1;
+    c->rom_genericKeys = 0;
     c->rom_rupeeBow = 0;
+    c->turtlerock_wastekey = 0;
 }
 
 void z3_cfg_logic(Z3Cfg *c)
@@ -583,6 +593,59 @@ void z3_cfg_logic(Z3Cfg *c)
     default:
         break;
     }
+}
+
+static int Inverted_TurtleRock_m_accountForWastingKeyOnTrinexDoor(const Z3World *w, const Z3Items *it, int withoutWaste, int withWaste);
+static int Inverted_TurtleRock_m_canReachBottom(const Z3World *w, const Z3Items *it);
+static int Inverted_TurtleRock_m_canReachMiddle(const Z3World *w, const Z3Items *it);
+static int Inverted_TurtleRock_m_canReachTop(const Z3World *w, const Z3Items *it);
+static int Inverted_TurtleRock_m_enterBottom(const Z3World *w, const Z3Items *it);
+static int Inverted_TurtleRock_m_enterMiddle(const Z3World *w, const Z3Items *it);
+static int Inverted_TurtleRock_m_enterTop(const Z3World *w, const Z3Items *it);
+
+static int Inverted_TurtleRock_m_accountForWastingKeyOnTrinexDoor(const Z3World *w, const Z3Items *it, int withoutWaste, int withWaste)
+{
+    (void)w; (void)it;
+    if (w->cfg.turtlerock_wastekey) {
+        return withoutWaste;
+    }
+    return withWaste;
+}
+
+static int Inverted_TurtleRock_m_canReachBottom(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (Inverted_TurtleRock_m_enterBottom(w, it) || (((((Inverted_TurtleRock_m_enterTop(w, it) || Inverted_TurtleRock_m_enterMiddle(w, it)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && z3_has(it, Z3_ITEM_BigKeyD7, 1)) && z3_has(it, Z3_ITEM_KeyD7, 3)));
+}
+
+static int Inverted_TurtleRock_m_canReachMiddle(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((Inverted_TurtleRock_m_enterMiddle(w, it) || (Inverted_TurtleRock_m_enterTop(w, it) && z3_has(it, Z3_ITEM_KeyD7, Inverted_TurtleRock_m_accountForWastingKeyOnTrinexDoor(w, it, 2, 3)))) || ((Inverted_TurtleRock_m_enterBottom(w, it) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)));
+}
+
+static int Inverted_TurtleRock_m_canReachTop(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (z3_has(it, Z3_ITEM_CaneOfSomaria, 1) && ((Inverted_TurtleRock_m_enterTop(w, it) || (Inverted_TurtleRock_m_enterMiddle(w, it) && z3_has(it, Z3_ITEM_KeyD7, 4))) || ((Inverted_TurtleRock_m_enterBottom(w, it) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) && z3_has(it, Z3_ITEM_KeyD7, 4))));
+}
+
+static int Inverted_TurtleRock_m_enterBottom(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_region_enter(w, it, Z3_REG_East_Death_Mountain));
+}
+
+static int Inverted_TurtleRock_m_enterMiddle(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((z3_region_enter(w, it, Z3_REG_East_Death_Mountain) && z3_has(it, Z3_ITEM_MagicMirror, 1)) || ((z3_region_enter(w, it, Z3_REG_East_Dark_World_Death_Mountain) && w->cfg.canSuperSpeed) && z3_canSpinSpeed(w, it)));
+}
+
+static int Inverted_TurtleRock_m_enterTop(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((((w->item_at[Z3_LOC_Turtle_Rock_Medallion] == Z3_ITEM_Bombos) && z3_has(it, Z3_ITEM_Bombos, 1)) || ((w->item_at[Z3_LOC_Turtle_Rock_Medallion] == Z3_ITEM_Ether) && z3_has(it, Z3_ITEM_Ether, 1))) || ((w->item_at[Z3_LOC_Turtle_Rock_Medallion] == Z3_ITEM_Quake) && z3_has(it, Z3_ITEM_Quake, 1))) && ((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1))) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && z3_region_enter(w, it, Z3_REG_East_Dark_World_Death_Mountain));
 }
 
 static bool enter_Standard_LightWorld_NorthEast(const Z3World *w, const Z3Items *it)
@@ -1630,6 +1693,940 @@ static bool fill_Open_HyruleCastleEscape(const Z3World *w, const Z3Items *it, in
     }
 }
 
+static bool enter_Inverted_LightWorld_NorthEast(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((z3_has(it, Z3_ITEM_DefeatAgahnim, 1) || (z3_has(it, Z3_ITEM_MoonPearl, 1) && ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canLiftRocks(w, it)) || z3_canLiftDarkRocks(w, it)))) || (z3_canFly(w, it) && z3_canLiftDarkRocks(w, it))) || (w->cfg.canOWYBA && (z3_hasABottle(w, it) || (z3_hasABottle(w, it) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp))))) || ((z3_region_enter(w, it, Z3_REG_West_Death_Mountain) && (z3_has(it, Z3_ITEM_MoonPearl, 1) || z3_has(it, Z3_ITEM_MagicMirror, 1))) && ((w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))))) || w->cfg.canOneFrameClipOW);
+}
+
+static bool req_Inverted_LightWorld_NorthEast(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Sahasrahlas_Hut_Left: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) || ((w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_PegasusBoots, 1)) && (z3_has(it, Z3_ITEM_MagicMirror, 1) || !w->cfg.region_cantTakeDamage)));
+    case Z3_LOC_Sahasrahlas_Hut_Middle: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) || ((w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_PegasusBoots, 1)) && (z3_has(it, Z3_ITEM_MagicMirror, 1) || !w->cfg.region_cantTakeDamage)));
+    case Z3_LOC_Sahasrahlas_Hut_Right: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) || ((w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_PegasusBoots, 1)) && (z3_has(it, Z3_ITEM_MagicMirror, 1) || !w->cfg.region_cantTakeDamage)));
+    case Z3_LOC_Sahasrahla: return z3_has(it, Z3_ITEM_PendantOfCourage, 1);
+    case Z3_LOC_King_Zora: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && (((z3_canLiftRocks(w, it) || (w->cfg.canFakeFlipper || z3_has(it, Z3_ITEM_Flippers, 1))) || ((w->cfg.canBootsClip || w->cfg.canWaterWalk) && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || ((w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)) && z3_region_enter(w, it, Z3_REG_East_Death_Mountain)))) || w->cfg.canOneFrameClipOW);
+    case Z3_LOC_Potion_Shop: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || w->cfg.canOneFrameClipOW) && z3_has(it, Z3_ITEM_Mushroom, 1));
+    case Z3_LOC_Zoras_Ledge: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && (z3_has(it, Z3_ITEM_Flippers, 1) || (w->cfg.canWaterWalk && ((((w->cfg.canFakeFlipper && w->cfg.canWaterWalk) && z3_has(it, Z3_ITEM_MoonPearl, 1)) && w->cfg.canOneFrameClipOW) || (((w->cfg.canBootsClip || w->cfg.canOneFrameClipOW) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) && z3_has(it, Z3_ITEM_PegasusBoots, 1))))));
+    case Z3_LOC_Waterfall_Fairy_Left: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && (((w->cfg.canFakeFlipper || (w->cfg.canWaterWalk && (z3_has(it, Z3_ITEM_PegasusBoots, 1) || z3_has(it, Z3_ITEM_MoonPearl, 1)))) || z3_has(it, Z3_ITEM_Flippers, 1)) || (z3_region_enter(w, it, Z3_REG_East_Death_Mountain) && (((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || w->cfg.canOneFrameClipOW))));
+    case Z3_LOC_Waterfall_Fairy_Right: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && (((w->cfg.canFakeFlipper || (w->cfg.canWaterWalk && (z3_has(it, Z3_ITEM_PegasusBoots, 1) || z3_has(it, Z3_ITEM_MoonPearl, 1)))) || z3_has(it, Z3_ITEM_Flippers, 1)) || (z3_region_enter(w, it, Z3_REG_East_Death_Mountain) && (((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || w->cfg.canOneFrameClipOW))));
+    case Z3_LOC_Ganon_Inverted: {
+        if (((w->cfg.goal == Z3_GOAL_DUNGEONS) && (((((((((((!z3_has(it, Z3_ITEM_PendantOfCourage, 1) || !z3_has(it, Z3_ITEM_PendantOfWisdom, 1)) || !z3_has(it, Z3_ITEM_PendantOfPower, 1)) || !z3_has(it, Z3_ITEM_DefeatAgahnim, 1)) || !z3_has(it, Z3_ITEM_Crystal1, 1)) || !z3_has(it, Z3_ITEM_Crystal2, 1)) || !z3_has(it, Z3_ITEM_Crystal3, 1)) || !z3_has(it, Z3_ITEM_Crystal4, 1)) || !z3_has(it, Z3_ITEM_Crystal5, 1)) || !z3_has(it, Z3_ITEM_Crystal6, 1)) || !z3_has(it, Z3_ITEM_Crystal7, 1)) || !z3_has(it, Z3_ITEM_DefeatAgahnim2, 1)))) {
+            return 0;
+        }
+        if (((w->cfg.goal == Z3_GOAL_GANON || w->cfg.goal == Z3_GOAL_FAST_GANON) && (((((((z3_has(it, Z3_ITEM_Crystal1, 1) + z3_has(it, Z3_ITEM_Crystal2, 1)) + z3_has(it, Z3_ITEM_Crystal3, 1)) + z3_has(it, Z3_ITEM_Crystal4, 1)) + z3_has(it, Z3_ITEM_Crystal5, 1)) + z3_has(it, Z3_ITEM_Crystal6, 1)) + z3_has(it, Z3_ITEM_Crystal7, 1)) < w->cfg.crystals_ganon))) {
+            return 0;
+        }
+        return ((((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (((((w->cfg.canSuperBunny && w->cfg.canDungeonRevive) && z3_region_enter(w, it, Z3_REG_Ganons_Tower)) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && z3_has(it, Z3_ITEM_MagicMirror, 1)) && z3_hasABottle(w, it))) && (z3_has(it, Z3_ITEM_DefeatAgahnim2, 1) || (w->cfg.goal == Z3_GOAL_FAST_GANON))) && (!w->cfg.region_requireBetterBow || z3_canShootArrows(w, it, 2))) && (((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) && z3_has(it, Z3_ITEM_Hammer, 1)) && (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || (z3_has(it, Z3_ITEM_FireRod, 1) && ((z3_canExtendMagic(w, it, 2) && z3_has(it, Z3_ITEM_MoonPearl, 1)) || z3_canExtendMagic(w, it, 3))))) || ((!w->cfg.region_requireBetterSword && z3_hasSword(w, it, 2)) && (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || (z3_has(it, Z3_ITEM_FireRod, 1) && ((z3_canExtendMagic(w, it, 3) && z3_has(it, Z3_ITEM_MoonPearl, 1)) || z3_canExtendMagic(w, it, 4)))))) || (z3_hasSword(w, it, 3) && (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || (z3_has(it, Z3_ITEM_FireRod, 1) && ((z3_canExtendMagic(w, it, 2) && z3_has(it, Z3_ITEM_MoonPearl, 1)) || z3_canExtendMagic(w, it, 3)))))));
+    }
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_LightWorld_NorthWest(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return z3_region_enter(w, it, Z3_REG_North_East_Light_World);
+}
+
+static bool shop_Inverted_LightWorld_NorthWest(const Z3World *w, const Z3Items *it, int shop)
+{
+    (void)w; (void)it;
+    switch (shop) {
+    case Z3_SHOP_Bush_Covered_House: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)));
+    case Z3_SHOP_Bomb_Hut: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && z3_canBombThings(w, it)));
+    default: return 1;
+    }
+}
+
+static bool req_Inverted_LightWorld_NorthWest(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Master_Sword_Pedestal: return ((z3_has(it, Z3_ITEM_PendantOfPower, 1) && z3_has(it, Z3_ITEM_PendantOfWisdom, 1)) && z3_has(it, Z3_ITEM_PendantOfCourage, 1));
+    case Z3_LOC_Kings_Tomb: return ((z3_has(it, Z3_ITEM_PegasusBoots, 1) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))) && (z3_canLiftDarkRocks(w, it) || (((((w->cfg.canMirrorClip && z3_has(it, Z3_ITEM_MagicMirror, 1)) && z3_has(it, Z3_ITEM_MoonPearl, 1)) && (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || (z3_region_enter(w, it, Z3_REG_East_Death_Mountain) && ((w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)) && (z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))))));
+    case Z3_LOC_Kakariko_Tavern: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && (z3_has(it, Z3_ITEM_MagicMirror, 1) || !w->cfg.cantTakeDamage))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Chicken_House: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Kakariko_Well_Top: return (z3_canBombThings(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))));
+    case Z3_LOC_Kakariko_Well_Left: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canSuperBunny) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Kakariko_Well_Middle: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canSuperBunny) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Kakariko_Well_Right: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canSuperBunny) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Kakariko_Well_Bottom: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canSuperBunny) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Blinds_Hideout_Top: return (z3_canBombThings(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))));
+    case Z3_LOC_Blinds_Hideout_Left: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Blinds_Hideout_Right: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Blinds_Hideout_Far_Left: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Blinds_Hideout_Far_Right: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Pegasus_Rocks: return (z3_has(it, Z3_ITEM_PegasusBoots, 1) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))));
+    case Z3_LOC_Magic_Bat: return ((z3_has(it, Z3_ITEM_Powder, 1) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)))) && (z3_has(it, Z3_ITEM_Hammer, 1) || (((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW) && (w->cfg.canFakeFlipper || z3_has(it, Z3_ITEM_Flippers, 1)))));
+    case Z3_LOC_Sick_Kid: return z3_hasABottle(w, it);
+    case Z3_LOC_Lumberjack_Tree: return (z3_has(it, Z3_ITEM_DefeatAgahnim, 1) && (((z3_has(it, Z3_ITEM_PegasusBoots, 1) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))) || w->cfg.canOneFrameClipOW) || (w->cfg.canMirrorWrap && z3_has(it, Z3_ITEM_MagicMirror, 1))));
+    case Z3_LOC_Graveyard_Ledge: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it));
+    case Z3_LOC_Mushroom: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)));
+    case Z3_LOC_Lost_Woods_Hideout: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)));
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_LightWorld_South(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return z3_region_enter(w, it, Z3_REG_North_East_Light_World);
+}
+
+static bool shop_Inverted_LightWorld_South(const Z3World *w, const Z3Items *it, int shop)
+{
+    (void)w; (void)it;
+    switch (shop) {
+    case Z3_SHOP_20_Rupee_Cave: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canLiftRocks(w, it));
+    case Z3_SHOP_50_Rupee_Cave: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canLiftRocks(w, it));
+    case Z3_SHOP_Bonk_Fairy_Light: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_has(it, Z3_ITEM_PegasusBoots, 1));
+    case Z3_SHOP_Light_Hype_Fairy: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it));
+    case Z3_SHOP_Capacity_Upgrade: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && ((w->cfg.canFakeFlipper || z3_has(it, Z3_ITEM_Flippers, 1)) || (w->cfg.canWaterWalk && z3_has(it, Z3_ITEM_PegasusBoots, 1)))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    default: return 1;
+    }
+}
+
+static bool req_Inverted_LightWorld_South(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Floodgate_Chest: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)));
+    case Z3_LOC_Bomb_Merchant: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canSuperBunny) && z3_has(it, Z3_ITEM_Crystal5, 1)) && z3_has(it, Z3_ITEM_Crystal6, 1));
+    case Z3_LOC_Aginahs_Cave: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) && z3_canBombThings(w, it));
+    case Z3_LOC_Mini_Moldorm_Cave_Far_Left: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) && z3_canKillMostThings(w, it, 5));
+    case Z3_LOC_Mini_Moldorm_Cave_Left: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) && z3_canKillMostThings(w, it, 5));
+    case Z3_LOC_Mini_Moldorm_Cave_Right: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) && z3_canKillMostThings(w, it, 5));
+    case Z3_LOC_Mini_Moldorm_Cave_Far_Right: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) && z3_canKillMostThings(w, it, 5));
+    case Z3_LOC_Ice_Rod_Cave: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) || ((z3_has(it, Z3_ITEM_BigRedBomb, 1) && w->cfg.canSuperBunny) && z3_has(it, Z3_ITEM_MagicMirror, 1)));
+    case Z3_LOC_Hobo: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && ((w->cfg.canFakeFlipper || z3_has(it, Z3_ITEM_Flippers, 1)) || (w->cfg.canWaterWalk && z3_has(it, Z3_ITEM_PegasusBoots, 1))));
+    case Z3_LOC_Bombos_Tablet: return (z3_has(it, Z3_ITEM_BookOfMudora, 1) && (z3_hasSword(w, it, 2) || ((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) && z3_has(it, Z3_ITEM_Hammer, 1))));
+    case Z3_LOC_Cave_45: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)));
+    case Z3_LOC_Checkerboard_Cave: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canLiftRocks(w, it));
+    case Z3_LOC_Mini_Moldorm_Cave_NPC: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_canBombThings(w, it)) && z3_canKillMostThings(w, it, 5));
+    case Z3_LOC_Library: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) && z3_has(it, Z3_ITEM_PegasusBoots, 1));
+    case Z3_LOC_Maze_Race: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) && (z3_has(it, Z3_ITEM_PegasusBoots, 1) || z3_canBombThings(w, it))) || w->cfg.canOneFrameClipOW);
+    case Z3_LOC_Desert_Ledge: return ((((((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && z3_region_enter(w, it, Z3_REG_Desert_Palace)) || w->cfg.canOneFrameClipOW) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)));
+    case Z3_LOC_Lake_Hylia_Island: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && ((z3_has(it, Z3_ITEM_Flippers, 1) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)))) || w->cfg.canOneFrameClipOW);
+    case Z3_LOC_Sunken_Treasure: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)));
+    case Z3_LOC_Flute_Spot: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) && z3_has(it, Z3_ITEM_Shovel, 1));
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_HyruleCastleEscape(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((w->cfg.canDungeonRevive || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_region_enter(w, it, Z3_REG_North_East_Light_World));
+}
+
+static bool req_Inverted_HyruleCastleEscape(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Sewers_Secret_Room_Left: return ((z3_canLiftRocks(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))) || ((z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && z3_has(it, Z3_ITEM_KeyH2, 1)) && ((((w->cfg.canDungeonRevive || z3_hasSword(w, it, 1)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1))));
+    case Z3_LOC_Sewers_Secret_Room_Middle: return ((z3_canLiftRocks(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))) || ((z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && z3_has(it, Z3_ITEM_KeyH2, 1)) && ((((w->cfg.canDungeonRevive || z3_hasSword(w, it, 1)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1))));
+    case Z3_LOC_Sewers_Secret_Room_Right: return ((z3_canLiftRocks(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))) || ((z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && z3_has(it, Z3_ITEM_KeyH2, 1)) && ((((w->cfg.canDungeonRevive || z3_hasSword(w, it, 1)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1))));
+    case Z3_LOC_Sewers_Dark_Cross: return (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || ((w->cfg.itemPlacement == Z3_ITEMPLACEMENT_ADVANCED) && z3_has(it, Z3_ITEM_FireRod, 1)));
+    case Z3_LOC_Hyrule_Castle_Boomerang_Chest: return (z3_has(it, Z3_ITEM_KeyH2, 1) && ((((w->cfg.canDungeonRevive || z3_hasSword(w, it, 1)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)));
+    case Z3_LOC_Hyrule_Castle_Zeldas_Cell: return (z3_has(it, Z3_ITEM_KeyH2, 1) && ((((w->cfg.canDungeonRevive || z3_hasSword(w, it, 1)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)));
+    case Z3_LOC_Sanctuary: return ((z3_has(it, Z3_ITEM_KeyH2, 1) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) && z3_region_enter(w, it, Z3_REG_North_West_Light_World)));
+    case Z3_LOC_Secret_Passage: return ((((((((w->cfg.canMirrorClip && w->cfg.canSuperBunny) && z3_has(it, Z3_ITEM_MagicMirror, 1)) && (((w->cfg.canBootsClip && 0) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || w->cfg.canOneFrameClipOW)) && z3_region_enter(w, it, Z3_REG_West_Death_Mountain)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_region_enter(w, it, Z3_REG_North_East_Light_World));
+    case Z3_LOC_Links_Uncle: return (((((((w->cfg.canMirrorClip && z3_has(it, Z3_ITEM_MagicMirror, 1)) && (((w->cfg.canBootsClip && 0) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || w->cfg.canOneFrameClipOW)) && z3_region_enter(w, it, Z3_REG_West_Death_Mountain)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_region_enter(w, it, Z3_REG_North_East_Light_World));
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_HyruleCastleEscape(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Secret_Passage: return !((((!w->cfg.region_wildKeys && (Z3_ITEMS[item].cls == Z3_IC_Key)) || (!w->cfg.region_wildBigKeys && (Z3_ITEMS[item].cls == Z3_IC_BigKey))) || (!w->cfg.region_wildMaps && (Z3_ITEMS[item].cls == Z3_IC_Map))) || (!w->cfg.region_wildCompasses && (Z3_ITEMS[item].cls == Z3_IC_Compass)));
+    case Z3_LOC_Links_Uncle: return (z3_loc_access_collected(w, Z3_LOC_Sanctuary) && !((((!w->cfg.region_wildKeys && (Z3_ITEMS[item].cls == Z3_IC_Key)) || (!w->cfg.region_wildBigKeys && (Z3_ITEMS[item].cls == Z3_IC_BigKey))) || (!w->cfg.region_wildMaps && (Z3_ITEMS[item].cls == Z3_IC_Map))) || (!w->cfg.region_wildCompasses && (Z3_ITEMS[item].cls == Z3_IC_Compass))));
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_EasternPalace(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((w->cfg.canDungeonRevive || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_region_enter(w, it, Z3_REG_North_East_Light_World));
+}
+
+static bool req_Inverted_EasternPalace(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Eastern_Palace_Big_Chest: return (((((z3_hasSword(w, it, 1) || w->cfg.canDungeonRevive) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_has(it, Z3_ITEM_BigKeyP1, 1));
+    case Z3_LOC_Eastern_Palace_Big_Key_Chest: return (((((z3_hasSword(w, it, 1) || w->cfg.canDungeonRevive) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp));
+    case Z3_LOC_Eastern_Palace_Boss: return ((((((z3_canShootArrows(w, it, 1) && (((w->cfg.canDungeonRevive || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1))) && (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || ((w->cfg.itemPlacement == Z3_ITEMPLACEMENT_ADVANCED) && z3_has(it, Z3_ITEM_FireRod, 1)))) && z3_has(it, Z3_ITEM_BigKeyP1, 1)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Eastern_Palace])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassP1, 1)) || (w->item_at[Z3_LOC_Eastern_Palace_Boss] == Z3_ITEM_CompassP1))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapP1, 1)) || (w->item_at[Z3_LOC_Eastern_Palace_Boss] == Z3_ITEM_MapP1)));
+    case Z3_LOC_Eastern_Palace_Prize: return z3_region_complete(w, it, Z3_REG_Eastern_Palace);
+    case Z3_LOC_Eastern_Palace_Compass_Chest: return ((((z3_hasSword(w, it, 1) || w->cfg.canDungeonRevive) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1));
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_EasternPalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Eastern_Palace_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_EasternPalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Eastern_Palace_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassP1) || (item == Z3_ITEM_MapP1)));
+    default: return 0;
+    }
+}
+
+static bool Inverted_DesertPalace_main(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (z3_has(it, Z3_ITEM_BookOfMudora, 1) && z3_region_enter(w, it, Z3_REG_South_Light_World));
+}
+
+static bool Inverted_DesertPalace_side(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (w->cfg.canOneFrameClipOW || ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) && (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && z3_region_enter(w, it, Z3_REG_South_Light_World)));
+}
+
+static bool Inverted_DesertPalace_thieves(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((z3_region_enter(w, it, Z3_REG_Thieves_Town) && z3_has(it, Z3_ITEM_KeyD4, 1)) && z3_has(it, Z3_ITEM_BigKeyD4, 1)) && w->cfg.canOneFrameClipUW);
+}
+
+static bool enter_Inverted_DesertPalace(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((w->cfg.canDungeonRevive || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) && ((Inverted_DesertPalace_main(w, it) || Inverted_DesertPalace_side(w, it)) || Inverted_DesertPalace_thieves(w, it)));
+}
+
+static bool req_Inverted_DesertPalace(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Desert_Palace_Big_Chest: return z3_has(it, Z3_ITEM_BigKeyP2, 1);
+    case Z3_LOC_Desert_Palace_Big_Key_Chest: return ((z3_has(it, Z3_ITEM_KeyP2, 1) && z3_canKillMostThings(w, it, 5)) && ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || z3_hasSword(w, it, 1)));
+    case Z3_LOC_Desert_Palace_Compass_Chest: return z3_has(it, Z3_ITEM_KeyP2, 1);
+    case Z3_LOC_Desert_Palace_Torch: return z3_has(it, Z3_ITEM_PegasusBoots, 1);
+    case Z3_LOC_Desert_Palace_Boss: return ((((((((z3_region_enter(w, it, Z3_REG_Desert_Palace) && (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canOneFrameClipOW && w->cfg.canDungeonRevive))) && ((z3_canLiftRocks(w, it) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW)) && z3_canLightTorches(w, it)) && z3_has(it, Z3_ITEM_BigKeyP2, 1)) && z3_has(it, Z3_ITEM_KeyP2, 1)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Desert_Palace])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassP2, 1)) || (w->item_at[Z3_LOC_Desert_Palace_Boss] == Z3_ITEM_CompassP2))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapP2, 1)) || (w->item_at[Z3_LOC_Desert_Palace_Boss] == Z3_ITEM_MapP2)));
+    case Z3_LOC_Desert_Palace_Prize: return z3_region_complete(w, it, Z3_REG_Desert_Palace);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_DesertPalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Desert_Palace_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return !(item == Z3_ITEM_KeyP2 || item == Z3_ITEM_BigKeyP2);
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_DesertPalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Desert_Palace_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassP2) || (item == Z3_ITEM_MapP2)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_LightWorld_DeathMountain_West(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((((z3_canFly(w, it) || (z3_canLiftRocks(w, it) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || (w->cfg.canOWYBA && z3_hasABottle(w, it)));
+}
+
+static bool req_Inverted_LightWorld_DeathMountain_West(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Old_Man: return z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp);
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_LightWorld_DeathMountain_East(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((z3_canLiftDarkRocks(w, it) && z3_region_enter(w, it, Z3_REG_East_Dark_World_Death_Mountain)) || (z3_region_enter(w, it, Z3_REG_West_Death_Mountain) && ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && ((z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)))) || (w->cfg.canMirrorWrap && z3_has(it, Z3_ITEM_MagicMirror, 1))) || w->cfg.canOneFrameClipOW)));
+}
+
+static bool shop_Inverted_LightWorld_DeathMountain_East(const Z3World *w, const Z3Items *it, int shop)
+{
+    (void)w; (void)it;
+    switch (shop) {
+    case Z3_SHOP_Light_World_Death_Mountain_Shop: return ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW))) && z3_canBombThings(w, it));
+    default: return 1;
+    }
+}
+
+static bool req_Inverted_LightWorld_DeathMountain_East(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Spiral_Cave: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1)) && z3_hasSword(w, it, 1))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW)));
+    case Z3_LOC_Mimic_Cave: return (z3_has(it, Z3_ITEM_Hammer, 1) && (z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW))));
+    case Z3_LOC_Paradox_Cave_Lower_Far_Left: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW)));
+    case Z3_LOC_Paradox_Cave_Lower_Left: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW)));
+    case Z3_LOC_Paradox_Cave_Lower_Right: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW)));
+    case Z3_LOC_Paradox_Cave_Lower_Far_Right: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW)));
+    case Z3_LOC_Paradox_Cave_Lower_Middle: return ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW)));
+    case Z3_LOC_Paradox_Cave_Upper_Left: return (z3_canBombThings(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW))));
+    case Z3_LOC_Paradox_Cave_Upper_Right: return (z3_canBombThings(w, it) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))))) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW))));
+    case Z3_LOC_Ether_Tablet_Inverted: return ((z3_has(it, Z3_ITEM_BookOfMudora, 1) && (((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) && z3_has(it, Z3_ITEM_Hammer, 1)) || z3_hasSword(w, it, 2))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) && (((z3_has(it, Z3_ITEM_Hammer, 1) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || (((w->cfg.canOWYBA && z3_hasABottle(w, it)) && w->cfg.canBootsClip) && z3_has(it, Z3_ITEM_PegasusBoots, 1)))) || w->cfg.canOneFrameClipOW));
+    case Z3_LOC_Spectacle_Rock_Inverted: return (((z3_has(it, Z3_ITEM_MoonPearl, 1) && ((z3_has(it, Z3_ITEM_Hammer, 1) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)))) || (((w->cfg.canOWYBA && z3_hasABottle(w, it)) && w->cfg.canBootsClip) && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW);
+    default: return 1;
+    }
+}
+
+static bool Inverted_TowerOfHera_main(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((z3_region_enter(w, it, Z3_REG_East_Death_Mountain) && z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_has(it, Z3_ITEM_Hammer, 1)) || (z3_region_enter(w, it, Z3_REG_West_Death_Mountain) && ((((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasBottle(w, it, 2))) || (((w->cfg.canOWYBA && z3_hasABottle(w, it)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW))) && ((w->cfg.canOneFrameClipOW || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)))) || (((w->cfg.canOneFrameClipOW && z3_hasSword(w, it, 1)) && w->cfg.canSuperBunny) && z3_has(it, Z3_ITEM_MagicMirror, 1)))));
+}
+
+static bool Inverted_TowerOfHera_mire(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((w->cfg.canOneFrameClipUW && (((((w->item_at[Z3_LOC_Misery_Mire_Compass_Chest] == Z3_ITEM_BigKeyD6) + (w->item_at[Z3_LOC_Misery_Mire_Big_Key_Chest] == Z3_ITEM_BigKeyD6)) >= 1) && z3_has(it, Z3_ITEM_KeyD6, 2)) || z3_has(it, Z3_ITEM_KeyD6, 3))) && z3_region_enter(w, it, Z3_REG_Misery_Mire));
+}
+
+static bool enter_Inverted_TowerOfHera(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (Inverted_TowerOfHera_main(w, it) || Inverted_TowerOfHera_mire(w, it));
+}
+
+static bool req_Inverted_TowerOfHera(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Tower_of_Hera_Big_Key_Chest: return (z3_canLightTorches(w, it) && ((z3_has(it, Z3_ITEM_KeyP3, 1) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)))) || Inverted_TowerOfHera_mire(w, it)));
+    case Z3_LOC_Tower_of_Hera_Compass_Chest: return ((Inverted_TowerOfHera_main(w, it) && z3_has(it, Z3_ITEM_BigKeyP3, 1)) || Inverted_TowerOfHera_mire(w, it));
+    case Z3_LOC_Tower_of_Hera_Big_Chest: return ((Inverted_TowerOfHera_main(w, it) && z3_has(it, Z3_ITEM_BigKeyP3, 1)) || (Inverted_TowerOfHera_mire(w, it) && (z3_has(it, Z3_ITEM_BigKeyP3, 1) || z3_has(it, Z3_ITEM_BigKeyD6, 1))));
+    case Z3_LOC_Tower_of_Hera_Boss: return ((((Inverted_TowerOfHera_main(w, it) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Tower_of_Hera])) && (z3_has(it, Z3_ITEM_BigKeyP3, 1) || (Inverted_TowerOfHera_mire(w, it) && z3_has(it, Z3_ITEM_BigKeyD6, 1)))) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassP3, 1)) || (w->item_at[Z3_LOC_Tower_of_Hera_Boss] == Z3_ITEM_CompassP3))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapP3, 1)) || (w->item_at[Z3_LOC_Tower_of_Hera_Boss] == Z3_ITEM_MapP3)));
+    case Z3_LOC_Tower_of_Hera_Prize: return z3_region_complete(w, it, Z3_REG_Tower_of_Hera);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_TowerOfHera(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Tower_of_Hera_Big_Key_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_KeyP3));
+    case Z3_LOC_Tower_of_Hera_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_TowerOfHera(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Tower_of_Hera_Big_Key_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_KeyP3));
+    case Z3_LOC_Tower_of_Hera_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassP3) || (item == Z3_ITEM_MapP3)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_HyruleCastleTower(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (z3_canKillMostThings(w, it, 8) && z3_region_enter(w, it, Z3_REG_West_Dark_World_Death_Mountain));
+}
+
+static bool req_Inverted_HyruleCastleTower(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Castle_Tower_Dark_Maze: return (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && z3_has(it, Z3_ITEM_KeyA1, 1));
+    case Z3_LOC_Agahnim: return z3_region_complete(w, it, Z3_REG_Hyrule_Castle_Tower);
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_DarkWorld_DeathMountain_East(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((z3_region_enter(w, it, Z3_REG_West_Dark_World_Death_Mountain) && ((((!w->cfg.region_cantTakeDamage || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || z3_has(it, Z3_ITEM_Cape, 1)) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW)) || (((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_has(it, Z3_ITEM_Hookshot, 1)) && z3_region_enter(w, it, Z3_REG_West_Death_Mountain)));
+}
+
+static bool req_Inverted_DarkWorld_DeathMountain_East(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Hookshot_Cave_Top_Right: return (z3_has(it, Z3_ITEM_Hookshot, 1) && (((z3_canLiftRocks(w, it) || ((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_canBombThings(w, it)) && z3_region_enter(w, it, Z3_REG_East_Death_Mountain))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW));
+    case Z3_LOC_Hookshot_Cave_Top_Left: return (z3_has(it, Z3_ITEM_Hookshot, 1) && (((z3_canLiftRocks(w, it) || ((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_canBombThings(w, it)) && z3_region_enter(w, it, Z3_REG_East_Death_Mountain))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW));
+    case Z3_LOC_Hookshot_Cave_Bottom_Left: return (z3_has(it, Z3_ITEM_Hookshot, 1) && (((z3_canLiftRocks(w, it) || ((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_canBombThings(w, it)) && z3_region_enter(w, it, Z3_REG_East_Death_Mountain))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW));
+    case Z3_LOC_Hookshot_Cave_Bottom_Right: return ((z3_has(it, Z3_ITEM_Hookshot, 1) || z3_has(it, Z3_ITEM_PegasusBoots, 1)) && (((z3_canLiftRocks(w, it) || ((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_canBombThings(w, it)) && z3_region_enter(w, it, Z3_REG_East_Death_Mountain))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW));
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_DarkWorld_DeathMountain_West(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((((z3_canFly(w, it) || (z3_canLiftRocks(w, it) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || w->cfg.canOneFrameClipOW);
+}
+
+static bool req_Inverted_DarkWorld_DeathMountain_West(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Spike_Cave: return ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canLiftRocks(w, it)) && ((z3_canExtendMagic(NULL, it, 2) && z3_has(it, Z3_ITEM_Cape, 1)) || ((!w->cfg.region_cantTakeDamage || z3_canExtendMagic(NULL, it, 2)) && z3_has(it, Z3_ITEM_CaneOfByrna, 1))));
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_DarkWorld_NorthEast(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((((((((((z3_canFly(w, it) || z3_has(it, Z3_ITEM_Hammer, 1)) || z3_has(it, Z3_ITEM_Flippers, 1)) || (z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_region_enter(w, it, Z3_REG_North_East_Light_World))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canWaterWalk && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || (!w->cfg.region_cantTakeDamage && w->cfg.canFakeFlipper)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || w->cfg.canOneFrameClipOW);
+}
+
+static bool shop_Inverted_DarkWorld_NorthEast(const Z3World *w, const Z3Items *it, int shop)
+{
+    (void)w; (void)it;
+    switch (shop) {
+    case Z3_SHOP_Dark_World_Potion_Shop: return ((((((((z3_canFly(w, it) || z3_has(it, Z3_ITEM_Hammer, 1)) || z3_has(it, Z3_ITEM_Flippers, 1)) || ((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_region_enter(w, it, Z3_REG_North_East_Light_World)) && z3_has(it, Z3_ITEM_MoonPearl, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || ((w->cfg.canOneFrameClipOW || (!w->cfg.region_cantTakeDamage && w->cfg.canFakeFlipper)) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)))) || (w->cfg.canWaterWalk && z3_has(it, Z3_ITEM_PegasusBoots, 1)));
+    default: return 1;
+    }
+}
+
+static bool req_Inverted_DarkWorld_NorthEast(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Catfish: return (((z3_canLiftRocks(w, it) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || (((z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_region_enter(w, it, Z3_REG_South_Light_World)) && (z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))) && ((z3_has(it, Z3_ITEM_Flippers, 1) || w->cfg.canFakeFlipper) || (w->cfg.canWaterWalk && z3_has(it, Z3_ITEM_PegasusBoots, 1)))));
+    case Z3_LOC_Pyramid_Fairy_Sword: return ((z3_hasSword(w, it, 1) && z3_has(it, Z3_ITEM_BigRedBomb, 1)) && z3_has(it, Z3_ITEM_MagicMirror, 1));
+    case Z3_LOC_Pyramid_Fairy_Bow: return ((z3_canShootArrows(w, it, 1) && z3_has(it, Z3_ITEM_BigRedBomb, 1)) && z3_has(it, Z3_ITEM_MagicMirror, 1));
+    case Z3_LOC_Pyramid_Fairy_Left: return (z3_has(it, Z3_ITEM_BigRedBomb, 1) && z3_has(it, Z3_ITEM_MagicMirror, 1));
+    case Z3_LOC_Pyramid_Fairy_Right: return (z3_has(it, Z3_ITEM_BigRedBomb, 1) && z3_has(it, Z3_ITEM_MagicMirror, 1));
+    default: return 1;
+    }
+}
+
+static bool shop_Inverted_DarkWorld_NorthWest(const Z3World *w, const Z3Items *it, int shop)
+{
+    (void)w; (void)it;
+    switch (shop) {
+    case Z3_SHOP_Dark_World_Outcasts_Shop: return z3_has(it, Z3_ITEM_Hammer, 1);
+    default: return 1;
+    }
+}
+
+static bool req_Inverted_DarkWorld_NorthWest(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Brewery: return z3_canBombThings(w, it);
+    case Z3_LOC_Hammer_Pegs: return (z3_has(it, Z3_ITEM_Hammer, 1) && (((z3_canLiftDarkRocks(w, it) || (z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_region_enter(w, it, Z3_REG_North_West_Light_World))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || ((w->cfg.canFakeFlipper || z3_has(it, Z3_ITEM_Flippers, 1)) && ((w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it)) || w->cfg.canOneFrameClipOW))));
+    case Z3_LOC_Bumper_Cave: return ((((((z3_canLiftRocks(w, it) && z3_has(it, Z3_ITEM_Cape, 1)) && z3_has(it, Z3_ITEM_MoonPearl, 1)) && z3_has(it, Z3_ITEM_MagicMirror, 1)) && z3_region_enter(w, it, Z3_REG_North_West_Light_World)) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW);
+    case Z3_LOC_Blacksmith: return ((z3_canLiftDarkRocks(w, it) || (z3_has(it, Z3_ITEM_MagicMirror, 1) || ((w->cfg.canOWYBA && z3_hasABottle(w, it)) && (w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)))))) && z3_region_enter(w, it, Z3_REG_North_West_Light_World));
+    case Z3_LOC_Purple_Chest: return ((z3_canLiftDarkRocks(w, it) || (z3_has(it, Z3_ITEM_MagicMirror, 1) || (((w->cfg.canOWYBA && z3_hasABottle(w, it)) && ((w->cfg.canFakeFlipper || z3_has(it, Z3_ITEM_Flippers, 1)) && ((w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1)) || w->cfg.canOneFrameClipOW))) && z3_region_enter(w, it, Z3_REG_North_West_Light_World)))) && z3_region_enter(w, it, Z3_REG_South_Light_World));
+    default: return 1;
+    }
+}
+
+static bool shop_Inverted_DarkWorld_South(const Z3World *w, const Z3Items *it, int shop)
+{
+    (void)w; (void)it;
+    switch (shop) {
+    case Z3_SHOP_Bonk_Fairy_Dark: return z3_has(it, Z3_ITEM_PegasusBoots, 1);
+    case Z3_SHOP_Dark_Lake_Hylia_Ledge_Fairy: return (z3_canBombThings(w, it) && (((((z3_has(it, Z3_ITEM_Flippers, 1) || z3_canFly(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || ((w->cfg.canBootsClip || w->cfg.canWaterWalk) && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || ((w->cfg.canFakeFlipper && ((z3_region_enter(w, it, Z3_REG_North_East_Dark_World) && (z3_has(it, Z3_ITEM_Hammer, 1) || z3_canLiftRocks(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)))) || (z3_region_enter(w, it, Z3_REG_North_West_Dark_World) && w->cfg.region_cantTakeDamage))));
+    case Z3_SHOP_Dark_Lake_Hylia_Ledge_Hint: return (z3_canLiftRocks(w, it) && (((((z3_has(it, Z3_ITEM_Flippers, 1) || z3_canFly(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || ((w->cfg.canBootsClip || w->cfg.canWaterWalk) && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || ((w->cfg.canFakeFlipper && ((z3_region_enter(w, it, Z3_REG_North_East_Dark_World) && (z3_has(it, Z3_ITEM_Hammer, 1) || z3_canLiftRocks(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)))) || (z3_region_enter(w, it, Z3_REG_North_West_Dark_World) && w->cfg.region_cantTakeDamage))));
+    case Z3_SHOP_Dark_Lake_Hylia_Ledge_Spike_Cave: return (z3_canLiftRocks(w, it) && (((((z3_has(it, Z3_ITEM_Flippers, 1) || z3_canFly(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || ((w->cfg.canBootsClip || w->cfg.canWaterWalk) && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || ((w->cfg.canFakeFlipper && ((z3_region_enter(w, it, Z3_REG_North_East_Dark_World) && (z3_has(it, Z3_ITEM_Hammer, 1) || z3_canLiftRocks(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)))) || (z3_region_enter(w, it, Z3_REG_North_West_Dark_World) && w->cfg.region_cantTakeDamage))));
+    default: return 1;
+    }
+}
+
+static bool req_Inverted_DarkWorld_South(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Hype_Cave_Top: return z3_canBombThings(w, it);
+    case Z3_LOC_Hype_Cave_Middle_Right: return z3_canBombThings(w, it);
+    case Z3_LOC_Hype_Cave_Middle_Left: return z3_canBombThings(w, it);
+    case Z3_LOC_Hype_Cave_Bottom: return z3_canBombThings(w, it);
+    case Z3_LOC_Hype_Cave_NPC: return z3_canBombThings(w, it);
+    default: return 1;
+    }
+}
+
+static bool enter_Inverted_DarkWorld_Mire(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((((z3_canFly(w, it) || (z3_has(it, Z3_ITEM_MagicMirror, 1) && z3_region_enter(w, it, Z3_REG_South_Light_World))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || w->cfg.canOneFrameClipOW);
+}
+
+static bool enter_Inverted_PalaceOfDarkness(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1)) && z3_hasHealth(w, it, 7)) && z3_hasABottle(w, it))) && (z3_region_enter(w, it, Z3_REG_North_East_Dark_World) || (w->cfg.canOneFrameClipOW && 1)));
+}
+
+static bool req_Inverted_PalaceOfDarkness(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Palace_of_Darkness_The_Arena_Ledge: return z3_canShootArrows(w, it, 1);
+    case Z3_LOC_Palace_of_Darkness_Big_Key_Chest: {
+        if ((w->item_at[Z3_LOC_Palace_of_Darkness_Big_Key_Chest] == Z3_ITEM_KeyD1)) {
+            return z3_has(it, Z3_ITEM_KeyD1, 1);
+        }
+        return ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 6) : z3_has(it, Z3_ITEM_KeyD1, 5));
+    }
+    case Z3_LOC_Palace_of_Darkness_The_Arena_Bridge: return (z3_has(it, Z3_ITEM_KeyD1, 1) || (z3_canShootArrows(w, it, 1) && z3_has(it, Z3_ITEM_Hammer, 1)));
+    case Z3_LOC_Palace_of_Darkness_Big_Chest: return ((z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && z3_has(it, Z3_ITEM_BigKeyD1, 1)) && (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 6) : z3_has(it, Z3_ITEM_KeyD1, 5)));
+    case Z3_LOC_Palace_of_Darkness_Compass_Chest: return ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 4) : z3_has(it, Z3_ITEM_KeyD1, 3));
+    case Z3_LOC_Palace_of_Darkness_Harmless_Hellway: {
+        if ((w->item_at[Z3_LOC_Palace_of_Darkness_Harmless_Hellway] == Z3_ITEM_KeyD1)) {
+            return ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 4) : z3_has(it, Z3_ITEM_KeyD1, 3));
+        }
+        return ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 6) : z3_has(it, Z3_ITEM_KeyD1, 5));
+    }
+    case Z3_LOC_Palace_of_Darkness_Stalfos_Basement: return (z3_has(it, Z3_ITEM_KeyD1, 1) || (z3_canShootArrows(w, it, 1) && z3_has(it, Z3_ITEM_Hammer, 1)));
+    case Z3_LOC_Palace_of_Darkness_Dark_Basement_Left: return ((z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || ((w->cfg.itemPlacement == Z3_ITEMPLACEMENT_ADVANCED) && z3_has(it, Z3_ITEM_FireRod, 1))) && ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 4) : z3_has(it, Z3_ITEM_KeyD1, 3)));
+    case Z3_LOC_Palace_of_Darkness_Dark_Basement_Right: return ((z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) || ((w->cfg.itemPlacement == Z3_ITEMPLACEMENT_ADVANCED) && z3_has(it, Z3_ITEM_FireRod, 1))) && ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 4) : z3_has(it, Z3_ITEM_KeyD1, 3)));
+    case Z3_LOC_Palace_of_Darkness_Map_Chest: return z3_canShootArrows(w, it, 1);
+    case Z3_LOC_Palace_of_Darkness_Dark_Maze_Top: return (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 6) : z3_has(it, Z3_ITEM_KeyD1, 5)));
+    case Z3_LOC_Palace_of_Darkness_Dark_Maze_Bottom: return (z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp) && (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canShootArrows(w, it, 1)) || w->cfg.region_wildKeys) ? z3_has(it, Z3_ITEM_KeyD1, 6) : z3_has(it, Z3_ITEM_KeyD1, 5)));
+    case Z3_LOC_Palace_of_Darkness_Boss: return ((((((((z3_region_enter(w, it, Z3_REG_Palace_of_Darkness) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Palace_of_Darkness])) && z3_has(it, Z3_ITEM_Hammer, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) && z3_canShootArrows(w, it, 1)) && z3_has(it, Z3_ITEM_BigKeyD1, 1)) && z3_has(it, Z3_ITEM_KeyD1, 6)) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD1, 1)) || (w->item_at[Z3_LOC_Palace_of_Darkness_Boss] == Z3_ITEM_CompassD1))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD1, 1)) || (w->item_at[Z3_LOC_Palace_of_Darkness_Boss] == Z3_ITEM_MapD1)));
+    case Z3_LOC_Palace_of_Darkness_Prize: return z3_region_complete(w, it, Z3_REG_Palace_of_Darkness);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_PalaceOfDarkness(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Palace_of_Darkness_Big_Key_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_KeyD1));
+    case Z3_LOC_Palace_of_Darkness_Big_Chest: return (item != Z3_ITEM_KeyD1);
+    case Z3_LOC_Palace_of_Darkness_Harmless_Hellway: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_KeyD1));
+    case Z3_LOC_Palace_of_Darkness_Dark_Maze_Top: return (item != Z3_ITEM_KeyD1);
+    case Z3_LOC_Palace_of_Darkness_Dark_Maze_Bottom: return (item != Z3_ITEM_KeyD1);
+    case Z3_LOC_Palace_of_Darkness_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_PalaceOfDarkness(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Palace_of_Darkness_Big_Key_Chest: return (((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_KeyD1)) && z3_has(it, Z3_ITEM_KeyD1, 5));
+    case Z3_LOC_Palace_of_Darkness_Harmless_Hellway: return (((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_KeyD1)) && z3_has(it, Z3_ITEM_KeyD1, 5));
+    case Z3_LOC_Palace_of_Darkness_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD1) || (item == Z3_ITEM_MapD1)));
+    default: return 0;
+    }
+}
+
+static bool Inverted_SwampPalace_mire(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((w->cfg.canOneFrameClipUW && (((((w->item_at[Z3_LOC_Misery_Mire_Compass_Chest] == Z3_ITEM_BigKeyD6) + (w->item_at[Z3_LOC_Misery_Mire_Big_Key_Chest] == Z3_ITEM_BigKeyD6)) >= 1) && z3_has(it, Z3_ITEM_KeyD6, 2)) || z3_has(it, Z3_ITEM_KeyD6, 3))) && z3_region_enter(w, it, Z3_REG_Misery_Mire));
+}
+
+static bool Inverted_SwampPalace_hera(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((w->cfg.canOneFrameClipUW && z3_region_enter(w, it, Z3_REG_Tower_of_Hera)) && (z3_has(it, Z3_ITEM_BigKeyP3, 1) || (Inverted_SwampPalace_mire(w, it) && z3_has(it, Z3_ITEM_BigKeyD6, 1))));
+}
+
+static bool enter_Inverted_SwampPalace(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((((z3_has(it, Z3_ITEM_Flippers, 1) && ((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1)) && z3_hasHealth(w, it, 7)) && z3_hasBottle(w, it, 1)))) && (((z3_has(it, Z3_ITEM_MoonPearl, 1) || (w->cfg.canOWYBA && z3_hasABottle(w, it))) || (w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it))) || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1)))) && (z3_has(it, Z3_ITEM_MagicMirror, 1) || (((((w->cfg.canOneFrameClipUW && z3_has(it, Z3_ITEM_MoonPearl, 1)) && (z3_has(it, Z3_ITEM_BigKeyP3, 1) || z3_has(it, Z3_ITEM_BigKeyD6, 1))) && Inverted_SwampPalace_mire(w, it)) && z3_loc_access(w, it, Z3_LOC_Old_Man)) && (((z3_has(it, Z3_ITEM_PegasusBoots, 1) && w->cfg.canBootsClip) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))) || w->cfg.canOneFrameClipOW)))) && z3_region_enter(w, it, Z3_REG_South_Light_World));
+}
+
+static bool req_Inverted_SwampPalace(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Swamp_Palace_Big_Chest: return (((z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it)) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it))) && ((z3_has(it, Z3_ITEM_BigKeyD2, 1) || (Inverted_SwampPalace_mire(w, it) && z3_has(it, Z3_ITEM_BigKeyD6, 1))) || (Inverted_SwampPalace_hera(w, it) && z3_has(it, Z3_ITEM_BigKeyP3, 1))));
+    case Z3_LOC_Swamp_Palace_Big_Key_Chest: return ((z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it)) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it)));
+    case Z3_LOC_Swamp_Palace_Map_Chest: return (z3_canBombThings(w, it) && (z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it)));
+    case Z3_LOC_Swamp_Palace_West_Chest: return ((z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it)) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it)));
+    case Z3_LOC_Swamp_Palace_Compass_Chest: return ((z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it)) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it)));
+    case Z3_LOC_Swamp_Palace_Flooded_Room_Left: return ((z3_has(it, Z3_ITEM_Hookshot, 1) && (z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it))) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it)));
+    case Z3_LOC_Swamp_Palace_Flooded_Room_Right: return ((z3_has(it, Z3_ITEM_Hookshot, 1) && (z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it))) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it)));
+    case Z3_LOC_Swamp_Palace_Waterfall_Room: return ((z3_has(it, Z3_ITEM_Hookshot, 1) && (z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it))) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it)));
+    case Z3_LOC_Swamp_Palace_Boss: return (((((z3_has(it, Z3_ITEM_Hookshot, 1) && (z3_has(it, Z3_ITEM_KeyD2, 1) || Inverted_SwampPalace_mire(w, it))) && ((z3_has(it, Z3_ITEM_Hammer, 1) || Inverted_SwampPalace_mire(w, it)) || Inverted_SwampPalace_hera(w, it))) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Swamp_Palace])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD2, 1)) || (w->item_at[Z3_LOC_Swamp_Palace_Boss] == Z3_ITEM_CompassD2))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD2, 1)) || (w->item_at[Z3_LOC_Swamp_Palace_Boss] == Z3_ITEM_MapD2)));
+    case Z3_LOC_Swamp_Palace_Prize: return z3_region_complete(w, it, Z3_REG_Swamp_Palace);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_SwampPalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Swamp_Palace_Entrance: return ((w->cfg.region_wildKeys || (item == Z3_ITEM_KeyD2)) || Inverted_SwampPalace_mire(w, it));
+    case Z3_LOC_Swamp_Palace_Big_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_BigKeyD2));
+    case Z3_LOC_Swamp_Palace_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_SwampPalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Swamp_Palace_Big_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_BigKeyD2));
+    case Z3_LOC_Swamp_Palace_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD2) || (item == Z3_ITEM_MapD2)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_SkullWoods(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1)) && z3_hasHealth(w, it, 7)) && z3_hasABottle(w, it))) && z3_region_enter(w, it, Z3_REG_North_West_Dark_World));
+}
+
+static bool req_Inverted_SkullWoods(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Skull_Woods_Big_Chest: return z3_has(it, Z3_ITEM_BigKeyD3, 1);
+    case Z3_LOC_Skull_Woods_Bridge_Room: return z3_has(it, Z3_ITEM_FireRod, 1);
+    case Z3_LOC_Skull_Woods_Boss: return ((((((z3_region_enter(w, it, Z3_REG_Skull_Woods) && z3_has(it, Z3_ITEM_FireRod, 1)) && ((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1))) && z3_has(it, Z3_ITEM_KeyD3, 3)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Skull_Woods])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD3, 1)) || (w->item_at[Z3_LOC_Skull_Woods_Boss] == Z3_ITEM_CompassD3))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD3, 1)) || (w->item_at[Z3_LOC_Skull_Woods_Boss] == Z3_ITEM_MapD3)));
+    case Z3_LOC_Skull_Woods_Prize: return z3_region_complete(w, it, Z3_REG_Skull_Woods);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_SkullWoods(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Skull_Woods_Pinball_Room: return (!w->cfg.region_forceSkullWoodsKey || (item == Z3_ITEM_KeyD3));
+    case Z3_LOC_Skull_Woods_Big_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_BigKeyD3));
+    case Z3_LOC_Skull_Woods_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_SkullWoods(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Skull_Woods_Big_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_BigKeyD3));
+    case Z3_LOC_Skull_Woods_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD3) || (item == Z3_ITEM_MapD3)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_ThievesTown(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1)) && z3_hasHealth(w, it, 7)) && z3_hasABottle(w, it))) && z3_region_enter(w, it, Z3_REG_North_West_Dark_World));
+}
+
+static bool req_Inverted_ThievesTown(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Thieves_Town_Attic: return (z3_has(it, Z3_ITEM_KeyD4, 1) && z3_has(it, Z3_ITEM_BigKeyD4, 1));
+    case Z3_LOC_Thieves_Town_Big_Chest: {
+        if ((w->item_at[Z3_LOC_Thieves_Town_Big_Chest] == Z3_ITEM_KeyD4)) {
+            return (z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_BigKeyD4, 1));
+        }
+        return ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_KeyD4, 1)) && z3_has(it, Z3_ITEM_BigKeyD4, 1));
+    }
+    case Z3_LOC_Thieves_Town_Blinds_Cell: return z3_has(it, Z3_ITEM_BigKeyD4, 1);
+    case Z3_LOC_Thieves_Town_Boss: return (((((z3_region_enter(w, it, Z3_REG_Thieves_Town) && z3_has(it, Z3_ITEM_KeyD4, 1)) && z3_has(it, Z3_ITEM_BigKeyD4, 1)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Thieves_Town])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD4, 1)) || (w->item_at[Z3_LOC_Thieves_Town_Boss] == Z3_ITEM_CompassD4))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD4, 1)) || (w->item_at[Z3_LOC_Thieves_Town_Boss] == Z3_ITEM_MapD4)));
+    case Z3_LOC_Thieves_Town_Prize: return z3_region_complete(w, it, Z3_REG_Thieves_Town);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_ThievesTown(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Thieves_Town_Big_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_KeyD4));
+    case Z3_LOC_Thieves_Town_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_ThievesTown(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Thieves_Town_Big_Chest: return (((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_KeyD4)) && z3_has(it, Z3_ITEM_Hammer, 1));
+    case Z3_LOC_Thieves_Town_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD4) || (item == Z3_ITEM_MapD4)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_IcePalace(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 2)) && z3_hasHealth(w, it, 12)) && (z3_hasBottle(w, it, 2) || z3_hasArmor(w, it, 1)))) && (z3_canMeltThings(w, it) || w->cfg.canOneFrameClipUW)) && ((((z3_has(it, Z3_ITEM_Flippers, 1) || (w->cfg.canFakeFlipper && (((w->cfg.canBunnyRevive || (!w->cfg.region_cantTakeDamage && z3_region_enter(w, it, Z3_REG_North_West_Dark_World))) || z3_canFly(w, it)) || (z3_region_enter(w, it, Z3_REG_North_West_Dark_World) && (z3_has(it, Z3_ITEM_Hammer, 1) || z3_canLiftRocks(w, it)))))) || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) || w->cfg.canOneFrameClipOW) || (w->cfg.canSuperSpeed && z3_canSpinSpeed(w, it))));
+}
+
+static bool req_Inverted_IcePalace(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Ice_Palace_Big_Key_Chest: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canLiftRocks(w, it)) && (((!w->cfg.region_cantTakeDamage || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_Hookshot, 1))) && z3_loc_access(w, it, Z3_LOC_Ice_Palace_Spike_Room));
+    case Z3_LOC_Ice_Palace_Map_Chest: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_canLiftRocks(w, it)) && (((!w->cfg.region_cantTakeDamage || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_Hookshot, 1))) && z3_loc_access(w, it, Z3_LOC_Ice_Palace_Spike_Room));
+    case Z3_LOC_Ice_Palace_Spike_Room: return ((((!w->cfg.region_cantTakeDamage || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_Hookshot, 1)) && ((z3_has(it, Z3_ITEM_Hookshot, 1) || z3_has(it, Z3_ITEM_ShopKey, 1)) || (z3_has(it, Z3_ITEM_KeyD5, 1) && (((w->item_at[Z3_LOC_Ice_Palace_Spike_Room] == Z3_ITEM_BigKeyD5) + (w->item_at[Z3_LOC_Ice_Palace_Big_Key_Chest] == Z3_ITEM_BigKeyD5) + (w->item_at[Z3_LOC_Ice_Palace_Map_Chest] == Z3_ITEM_BigKeyD5)) >= 1))));
+    case Z3_LOC_Ice_Palace_Freezor_Chest: return z3_canMeltThings(w, it);
+    case Z3_LOC_Ice_Palace_Big_Chest: return z3_has(it, Z3_ITEM_BigKeyD5, 1);
+    case Z3_LOC_Ice_Palace_Boss: return (((((((z3_region_enter(w, it, Z3_REG_Ice_Palace) && z3_has(it, Z3_ITEM_Hammer, 1)) && z3_canLiftRocks(w, it)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Ice_Palace])) && z3_has(it, Z3_ITEM_BigKeyD5, 1)) && (((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) && ((z3_has(it, Z3_ITEM_CaneOfSomaria, 1) && z3_has(it, Z3_ITEM_KeyD5, 1)) || z3_has(it, Z3_ITEM_KeyD5, 2))) || ((w->cfg.itemPlacement == Z3_ITEMPLACEMENT_BASIC) && z3_has(it, Z3_ITEM_KeyD5, 2)))) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD5, 1)) || (w->item_at[Z3_LOC_Ice_Palace_Boss] == Z3_ITEM_CompassD5))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD5, 1)) || (w->item_at[Z3_LOC_Ice_Palace_Boss] == Z3_ITEM_MapD5)));
+    case Z3_LOC_Ice_Palace_Prize: return z3_region_complete(w, it, Z3_REG_Ice_Palace);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_IcePalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Ice_Palace_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_IcePalace(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Ice_Palace_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD5) || (item == Z3_ITEM_MapD5)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_MiseryMire(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 2)) && z3_hasHealth(w, it, 12)) && (z3_hasBottle(w, it, 2) || z3_hasArmor(w, it, 1)))) && ((((w->item_at[Z3_LOC_Misery_Mire_Medallion] == Z3_ITEM_Bombos) && z3_has(it, Z3_ITEM_Bombos, 1)) || ((w->item_at[Z3_LOC_Misery_Mire_Medallion] == Z3_ITEM_Ether) && z3_has(it, Z3_ITEM_Ether, 1))) || ((w->item_at[Z3_LOC_Misery_Mire_Medallion] == Z3_ITEM_Quake) && z3_has(it, Z3_ITEM_Quake, 1)))) && ((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 1))) && (z3_has(it, Z3_ITEM_PegasusBoots, 1) || z3_has(it, Z3_ITEM_Hookshot, 1))) && z3_canKillMostThings(w, it, 8)) && z3_region_enter(w, it, Z3_REG_Mire));
+}
+
+static bool req_Inverted_MiseryMire(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Misery_Mire_Big_Chest: return z3_has(it, Z3_ITEM_BigKeyD6, 1);
+    case Z3_LOC_Misery_Mire_Spike_Chest: return ((!w->cfg.region_cantTakeDamage || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || z3_has(it, Z3_ITEM_Cape, 1));
+    case Z3_LOC_Misery_Mire_Main_Lobby: return (z3_has(it, Z3_ITEM_KeyD6, 1) || z3_has(it, Z3_ITEM_BigKeyD6, 1));
+    case Z3_LOC_Misery_Mire_Map_Chest: return (z3_has(it, Z3_ITEM_KeyD6, 1) || z3_has(it, Z3_ITEM_BigKeyD6, 1));
+    case Z3_LOC_Misery_Mire_Big_Key_Chest: return (z3_canLightTorches(w, it) && ((((w->item_at[Z3_LOC_Misery_Mire_Compass_Chest] == Z3_ITEM_BigKeyD6) || (w->item_at[Z3_LOC_Misery_Mire_Big_Key_Chest] == Z3_ITEM_BigKeyD6)) && z3_has(it, Z3_ITEM_KeyD6, 2)) || z3_has(it, Z3_ITEM_KeyD6, 3)));
+    case Z3_LOC_Misery_Mire_Compass_Chest: return (z3_canLightTorches(w, it) && ((((w->item_at[Z3_LOC_Misery_Mire_Big_Key_Chest] == Z3_ITEM_BigKeyD6) || (w->item_at[Z3_LOC_Misery_Mire_Compass_Chest] == Z3_ITEM_BigKeyD6)) && z3_has(it, Z3_ITEM_KeyD6, 2)) || z3_has(it, Z3_ITEM_KeyD6, 3)));
+    case Z3_LOC_Misery_Mire_Boss: return ((((((z3_region_enter(w, it, Z3_REG_Misery_Mire) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) && z3_has(it, Z3_ITEM_BigKeyD6, 1)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Misery_Mire])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD6, 1)) || (w->item_at[Z3_LOC_Misery_Mire_Boss] == Z3_ITEM_CompassD6))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD6, 1)) || (w->item_at[Z3_LOC_Misery_Mire_Boss] == Z3_ITEM_MapD6)));
+    case Z3_LOC_Misery_Mire_Prize: return z3_region_complete(w, it, Z3_REG_Misery_Mire);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_MiseryMire(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Misery_Mire_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_MiseryMire(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Misery_Mire_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD6) || (item == Z3_ITEM_MapD6)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_TurtleRock(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 2)) && z3_hasHealth(w, it, 12)) && (z3_hasBottle(w, it, 2) || z3_hasArmor(w, it, 1)))) && ((Inverted_TurtleRock_m_enterTop(w, it) || Inverted_TurtleRock_m_enterMiddle(w, it)) || Inverted_TurtleRock_m_enterBottom(w, it)));
+}
+
+static bool complete_Inverted_TurtleRock(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return z3_loc_access(w, it, Z3_LOC_Turtle_Rock_Boss);
+}
+
+static bool req_Inverted_TurtleRock(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Turtle_Rock_Chain_Chomps: return (((Inverted_TurtleRock_m_enterTop(w, it) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && z3_has(it, Z3_ITEM_KeyD7, Inverted_TurtleRock_m_accountForWastingKeyOnTrinexDoor(w, it, 1, 2))) || Inverted_TurtleRock_m_enterMiddle(w, it));
+    case Z3_LOC_Turtle_Rock_Roller_Room_Left: return (z3_has(it, Z3_ITEM_FireRod, 1) && Inverted_TurtleRock_m_canReachTop(w, it));
+    case Z3_LOC_Turtle_Rock_Roller_Room_Right: return (z3_has(it, Z3_ITEM_FireRod, 1) && Inverted_TurtleRock_m_canReachTop(w, it));
+    case Z3_LOC_Turtle_Rock_Compass_Chest: return Inverted_TurtleRock_m_canReachTop(w, it);
+    case Z3_LOC_Turtle_Rock_Big_Chest: return ((z3_has(it, Z3_ITEM_BigKeyD7, 1) && Inverted_TurtleRock_m_canReachMiddle(w, it)) && (z3_has(it, Z3_ITEM_Hookshot, 1) || z3_has(it, Z3_ITEM_CaneOfSomaria, 1)));
+    case Z3_LOC_Turtle_Rock_Big_Key_Chest: return (Inverted_TurtleRock_m_canReachMiddle(w, it) && (z3_has(it, Z3_ITEM_KeyD7, 4) || (w->item_at[Z3_LOC_Turtle_Rock_Big_Key_Chest] == Z3_ITEM_KeyD7)));
+    case Z3_LOC_Turtle_Rock_Crystaroller_Room: return ((z3_has(it, Z3_ITEM_BigKeyD7, 1) && Inverted_TurtleRock_m_canReachMiddle(w, it)) || ((Inverted_TurtleRock_m_enterBottom(w, it) && z3_has(it, Z3_ITEM_Lamp, w->cfg.item_require_Lamp)) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)));
+    case Z3_LOC_Turtle_Rock_Eye_Bridge_Bottom_Left: return (Inverted_TurtleRock_m_canReachBottom(w, it) && ((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || ((w->cfg.item_overflow_count_Shield >= 3) && z3_canBlockLasers(w, it))));
+    case Z3_LOC_Turtle_Rock_Eye_Bridge_Bottom_Right: return (Inverted_TurtleRock_m_canReachBottom(w, it) && ((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || ((w->cfg.item_overflow_count_Shield >= 3) && z3_canBlockLasers(w, it))));
+    case Z3_LOC_Turtle_Rock_Eye_Bridge_Top_Left: return (Inverted_TurtleRock_m_canReachBottom(w, it) && ((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || ((w->cfg.item_overflow_count_Shield >= 3) && z3_canBlockLasers(w, it))));
+    case Z3_LOC_Turtle_Rock_Eye_Bridge_Top_Right: return (Inverted_TurtleRock_m_canReachBottom(w, it) && ((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || z3_has(it, Z3_ITEM_Cape, 1)) || z3_has(it, Z3_ITEM_CaneOfByrna, 1)) || ((w->cfg.item_overflow_count_Shield >= 3) && z3_canBlockLasers(w, it))));
+    case Z3_LOC_Turtle_Rock_Boss: return ((((((Inverted_TurtleRock_m_canReachBottom(w, it) && z3_has(it, Z3_ITEM_KeyD7, 4)) && z3_has(it, Z3_ITEM_BigKeyD7, 1)) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Turtle_Rock])) && ((!w->cfg.region_wildCompasses || z3_has(it, Z3_ITEM_CompassD7, 1)) || (w->item_at[Z3_LOC_Turtle_Rock_Boss] == Z3_ITEM_CompassD7))) && ((!w->cfg.region_wildMaps || z3_has(it, Z3_ITEM_MapD7, 1)) || (w->item_at[Z3_LOC_Turtle_Rock_Boss] == Z3_ITEM_MapD7)));
+    case Z3_LOC_Turtle_Rock_Prize: return z3_region_complete(w, it, Z3_REG_Turtle_Rock);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_TurtleRock(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Turtle_Rock_Big_Chest: return (item != Z3_ITEM_BigKeyD7);
+    case Z3_LOC_Turtle_Rock_Big_Key_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_KeyD7));
+    case Z3_LOC_Turtle_Rock_Boss: {
+        if ((!w->cfg.region_bossNormalLocation && ((((Z3_ITEMS[item].cls == Z3_IC_Key) || (Z3_ITEMS[item].cls == Z3_IC_BigKey)) || (Z3_ITEMS[item].cls == Z3_IC_Map)) || (Z3_ITEMS[item].cls == Z3_IC_Compass)))) {
+            return 0;
+        }
+        return 1;
+    }
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_TurtleRock(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Turtle_Rock_Big_Key_Chest: return (item == Z3_ITEM_KeyD7);
+    case Z3_LOC_Turtle_Rock_Boss: return (w->cfg.region_bossNormalLocation && ((item == Z3_ITEM_CompassD7) || (item == Z3_ITEM_MapD7)));
+    default: return 0;
+    }
+}
+
+static bool enter_Inverted_GanonsTower(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return (((((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) || ((((w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS) || z3_hasSword(w, it, 2)) && z3_hasHealth(w, it, 12)) && (z3_hasBottle(w, it, 2) || z3_hasArmor(w, it, 1)))) && (((w->cfg.canDungeonRevive || (w->cfg.canSuperBunny && z3_has(it, Z3_ITEM_MagicMirror, 1))) || z3_has(it, Z3_ITEM_MoonPearl, 1)) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it)))))) && (((((((z3_has(it, Z3_ITEM_Crystal1, 1) + z3_has(it, Z3_ITEM_Crystal2, 1)) + z3_has(it, Z3_ITEM_Crystal3, 1)) + z3_has(it, Z3_ITEM_Crystal4, 1)) + z3_has(it, Z3_ITEM_Crystal5, 1)) + z3_has(it, Z3_ITEM_Crystal6, 1)) + z3_has(it, Z3_ITEM_Crystal7, 1)) >= w->cfg.crystals_tower)) && z3_region_enter(w, it, Z3_REG_North_East_Light_World));
+}
+
+static bool complete_Inverted_GanonsTower(const Z3World *w, const Z3Items *it)
+{
+    (void)w; (void)it;
+    return ((z3_region_enter(w, it, Z3_REG_Ganons_Tower) && z3_loc_access(w, it, Z3_LOC_Ganons_Tower_Moldorm_Chest)) && z3_boss_beat(w, it, w->boss_of[Z3_REG_Ganons_Tower]));
+}
+
+static bool req_Inverted_GanonsTower(const Z3World *w, const Z3Items *it, int loc)
+{
+    (void)w; (void)it;
+    switch (loc) {
+    case Z3_LOC_Ganons_Tower_Bobs_Torch: return z3_has(it, Z3_ITEM_PegasusBoots, 1);
+    case Z3_LOC_Ganons_Tower_DMs_Room_Top_Left: return ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_DMs_Room_Top_Right: return ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_DMs_Room_Bottom_Left: return ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_DMs_Room_Bottom_Right: return ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Left: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Right: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Left: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Right: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Left] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Firesnake_Room: return (((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) && ((((((w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Randomizer_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) || (w->item_at[Z3_LOC_Ganons_Tower_Firesnake_Room] == Z3_ITEM_KeyA2)) && z3_has(it, Z3_ITEM_KeyA2, 2)) || z3_has(it, Z3_ITEM_KeyA2, 3))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Map_Chest: return (((z3_has(it, Z3_ITEM_Hammer, 1) && (z3_has(it, Z3_ITEM_Hookshot, 1) || ((w->cfg.itemPlacement != Z3_ITEMPLACEMENT_BASIC) && z3_has(it, Z3_ITEM_PegasusBoots, 1)))) && ((w->item_at[Z3_LOC_Ganons_Tower_Map_Chest] == Z3_ITEM_BigKeyA2 || w->item_at[Z3_LOC_Ganons_Tower_Map_Chest] == Z3_ITEM_KeyA2) ? z3_has(it, Z3_ITEM_KeyA2, 3) : z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Big_Chest: return (((z3_has(it, Z3_ITEM_BigKeyA2, 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) && ((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) || (z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Bobs_Chest: return ((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) || (z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1))) && z3_has(it, Z3_ITEM_KeyA2, 3)) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Tile_Room: return (z3_has(it, Z3_ITEM_CaneOfSomaria, 1) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Compass_Room_Top_Left: return (((z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Compass_Room_Top_Right: return (((z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Left: return (((z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Right] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Right: return (((z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1)) && (((((w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Top_Right] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Top_Left] == Z3_ITEM_BigKeyA2) + (w->item_at[Z3_LOC_Ganons_Tower_Compass_Room_Bottom_Left] == Z3_ITEM_BigKeyA2)) >= 1) && z3_has(it, Z3_ITEM_KeyA2, 3)) || z3_has(it, Z3_ITEM_KeyA2, 4))) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Big_Key_Chest: return (((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) || (z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1))) && z3_has(it, Z3_ITEM_KeyA2, 3)) && z3_boss_beat(w, it, w->gt_boss[2])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Big_Key_Room_Left: return (((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) || (z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1))) && z3_has(it, Z3_ITEM_KeyA2, 3)) && z3_boss_beat(w, it, w->gt_boss[2])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Big_Key_Room_Right: return (((((z3_has(it, Z3_ITEM_Hammer, 1) && z3_has(it, Z3_ITEM_Hookshot, 1)) || (z3_has(it, Z3_ITEM_FireRod, 1) && z3_has(it, Z3_ITEM_CaneOfSomaria, 1))) && z3_has(it, Z3_ITEM_KeyA2, 3)) && z3_boss_beat(w, it, w->gt_boss[2])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Mini_Helmasaur_Room_Left: return (((((z3_canShootArrows(w, it, 1) && z3_canLightTorches(w, it)) && z3_has(it, Z3_ITEM_BigKeyA2, 1)) && z3_has(it, Z3_ITEM_KeyA2, 3)) && z3_boss_beat(w, it, w->gt_boss[1])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Mini_Helmasaur_Room_Right: return (((((z3_canShootArrows(w, it, 1) && z3_canLightTorches(w, it)) && z3_has(it, Z3_ITEM_BigKeyA2, 1)) && z3_has(it, Z3_ITEM_KeyA2, 3)) && z3_boss_beat(w, it, w->gt_boss[1])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Pre_Moldorm_Chest: return (((((z3_canShootArrows(w, it, 1) && z3_canLightTorches(w, it)) && z3_has(it, Z3_ITEM_BigKeyA2, 1)) && z3_has(it, Z3_ITEM_KeyA2, 3)) && z3_boss_beat(w, it, w->gt_boss[1])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Ganons_Tower_Moldorm_Chest: return (((((((z3_has(it, Z3_ITEM_Hookshot, 1) && z3_canShootArrows(w, it, 1)) && z3_canLightTorches(w, it)) && z3_has(it, Z3_ITEM_BigKeyA2, 1)) && z3_has(it, Z3_ITEM_KeyA2, 4)) && z3_boss_beat(w, it, w->gt_boss[1])) && z3_boss_beat(w, it, w->gt_boss[0])) && ((z3_has(it, Z3_ITEM_MoonPearl, 1) || w->cfg.canDungeonRevive) || ((w->cfg.canOneFrameClipOW || (w->cfg.canBootsClip && z3_has(it, Z3_ITEM_PegasusBoots, 1))) && ((w->cfg.canBunnyRevive && z3_canBunnyRevive(w, it)) || (w->cfg.canOWYBA && z3_hasABottle(w, it))))));
+    case Z3_LOC_Agahnim_2: return z3_region_complete(w, it, Z3_REG_Ganons_Tower);
+    default: return 1;
+    }
+}
+
+static bool fill_Inverted_GanonsTower(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Ganons_Tower_Map_Chest: return ((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) || (item != Z3_ITEM_KeyA2));
+    case Z3_LOC_Ganons_Tower_Big_Chest: return (item != Z3_ITEM_BigKeyA2);
+    case Z3_LOC_Ganons_Tower_Mini_Helmasaur_Room_Left: return (item != Z3_ITEM_BigKeyA2);
+    case Z3_LOC_Ganons_Tower_Mini_Helmasaur_Room_Right: return (item != Z3_ITEM_BigKeyA2);
+    case Z3_LOC_Ganons_Tower_Pre_Moldorm_Chest: return (item != Z3_ITEM_BigKeyA2);
+    case Z3_LOC_Ganons_Tower_Moldorm_Chest: return ((item != Z3_ITEM_KeyA2) && (item != Z3_ITEM_BigKeyA2));
+    default: return 1;
+    }
+}
+
+static bool always_Inverted_GanonsTower(const Z3World *w, const Z3Items *it, int loc, int item)
+{
+    (void)w; (void)it; (void)item;
+    switch (loc) {
+    case Z3_LOC_Ganons_Tower_Map_Chest: return (((w->cfg.accessibility != Z3_ACCESSIBILITY_LOCATIONS) && (item == Z3_ITEM_KeyA2)) && z3_has(it, Z3_ITEM_KeyA2, 3));
+    default: return 0;
+    }
+}
+
 bool z3_boss_beat(const Z3World *w, const Z3Items *it, int boss)
 {
     switch (boss) {
@@ -1652,30 +2649,32 @@ bool z3_boss_beat(const Z3World *w, const Z3Items *it, int boss)
 bool z3_region_enter(const Z3World *w, const Z3Items *it, int reg)
 {
     (void)w; (void)it;
+    if (w->cfg.logic == Z3_LOGIC_NOLOGIC) return true;   /* World::__construct skips initalize() */
     switch (reg) {
-    case Z3_REG_North_East_Light_World: return enter_Standard_LightWorld_NorthEast(w, it);
-    case Z3_REG_North_West_Light_World: return enter_Standard_LightWorld_NorthWest(w, it);
-    case Z3_REG_South_Light_World: return enter_Standard_LightWorld_South(w, it);
-    case Z3_REG_Eastern_Palace: return enter_Standard_EasternPalace(w, it);
-    case Z3_REG_Desert_Palace: return enter_Standard_DesertPalace(w, it);
-    case Z3_REG_West_Death_Mountain: return enter_Standard_LightWorld_DeathMountain_West(w, it);
-    case Z3_REG_East_Death_Mountain: return enter_Standard_LightWorld_DeathMountain_East(w, it);
-    case Z3_REG_Tower_of_Hera: return enter_Standard_TowerOfHera(w, it);
-    case Z3_REG_Hyrule_Castle_Tower: return enter_Standard_HyruleCastleTower(w, it);
-    case Z3_REG_East_Dark_World_Death_Mountain: return enter_Standard_DarkWorld_DeathMountain_East(w, it);
-    case Z3_REG_West_Dark_World_Death_Mountain: return enter_Standard_DarkWorld_DeathMountain_West(w, it);
-    case Z3_REG_North_East_Dark_World: return enter_Standard_DarkWorld_NorthEast(w, it);
-    case Z3_REG_North_West_Dark_World: return enter_Standard_DarkWorld_NorthWest(w, it);
-    case Z3_REG_South_Dark_World: return enter_Standard_DarkWorld_South(w, it);
-    case Z3_REG_Mire: return enter_Standard_DarkWorld_Mire(w, it);
-    case Z3_REG_Palace_of_Darkness: return enter_Standard_PalaceOfDarkness(w, it);
-    case Z3_REG_Swamp_Palace: return enter_Standard_SwampPalace(w, it);
-    case Z3_REG_Skull_Woods: return enter_Standard_SkullWoods(w, it);
-    case Z3_REG_Thieves_Town: return enter_Standard_ThievesTown(w, it);
-    case Z3_REG_Ice_Palace: return enter_Standard_IcePalace(w, it);
-    case Z3_REG_Misery_Mire: return enter_Standard_MiseryMire(w, it);
-    case Z3_REG_Turtle_Rock: return enter_Standard_TurtleRock(w, it);
-    case Z3_REG_Ganons_Tower: return enter_Standard_GanonsTower(w, it);
+    case Z3_REG_North_East_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_LightWorld_NorthEast(w, it) : enter_Standard_LightWorld_NorthEast(w, it);
+    case Z3_REG_North_West_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_LightWorld_NorthWest(w, it) : enter_Standard_LightWorld_NorthWest(w, it);
+    case Z3_REG_South_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_LightWorld_South(w, it) : enter_Standard_LightWorld_South(w, it);
+    case Z3_REG_Escape: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_HyruleCastleEscape(w, it) : true;
+    case Z3_REG_Eastern_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_EasternPalace(w, it) : enter_Standard_EasternPalace(w, it);
+    case Z3_REG_Desert_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_DesertPalace(w, it) : enter_Standard_DesertPalace(w, it);
+    case Z3_REG_West_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_LightWorld_DeathMountain_West(w, it) : enter_Standard_LightWorld_DeathMountain_West(w, it);
+    case Z3_REG_East_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_LightWorld_DeathMountain_East(w, it) : enter_Standard_LightWorld_DeathMountain_East(w, it);
+    case Z3_REG_Tower_of_Hera: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_TowerOfHera(w, it) : enter_Standard_TowerOfHera(w, it);
+    case Z3_REG_Hyrule_Castle_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_HyruleCastleTower(w, it) : enter_Standard_HyruleCastleTower(w, it);
+    case Z3_REG_East_Dark_World_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_DarkWorld_DeathMountain_East(w, it) : enter_Standard_DarkWorld_DeathMountain_East(w, it);
+    case Z3_REG_West_Dark_World_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_DarkWorld_DeathMountain_West(w, it) : enter_Standard_DarkWorld_DeathMountain_West(w, it);
+    case Z3_REG_North_East_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_DarkWorld_NorthEast(w, it) : enter_Standard_DarkWorld_NorthEast(w, it);
+    case Z3_REG_North_West_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? true : enter_Standard_DarkWorld_NorthWest(w, it);
+    case Z3_REG_South_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? true : enter_Standard_DarkWorld_South(w, it);
+    case Z3_REG_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_DarkWorld_Mire(w, it) : enter_Standard_DarkWorld_Mire(w, it);
+    case Z3_REG_Palace_of_Darkness: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_PalaceOfDarkness(w, it) : enter_Standard_PalaceOfDarkness(w, it);
+    case Z3_REG_Swamp_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_SwampPalace(w, it) : enter_Standard_SwampPalace(w, it);
+    case Z3_REG_Skull_Woods: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_SkullWoods(w, it) : enter_Standard_SkullWoods(w, it);
+    case Z3_REG_Thieves_Town: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_ThievesTown(w, it) : enter_Standard_ThievesTown(w, it);
+    case Z3_REG_Ice_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_IcePalace(w, it) : enter_Standard_IcePalace(w, it);
+    case Z3_REG_Misery_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_MiseryMire(w, it) : enter_Standard_MiseryMire(w, it);
+    case Z3_REG_Turtle_Rock: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_TurtleRock(w, it) : enter_Standard_TurtleRock(w, it);
+    case Z3_REG_Ganons_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? enter_Inverted_GanonsTower(w, it) : enter_Standard_GanonsTower(w, it);
     default: return true;
     }
 }
@@ -1683,8 +2682,9 @@ bool z3_region_enter(const Z3World *w, const Z3Items *it, int reg)
 bool z3_region_complete(const Z3World *w, const Z3Items *it, int reg)
 {
     (void)w; (void)it;
+    if (w->cfg.logic == Z3_LOGIC_NOLOGIC) return true;   /* World::__construct skips initalize() */
     switch (reg) {
-    case Z3_REG_Escape: return w->cfg.mode_state == Z3_MODE_STATE_OPEN ? true : complete_Standard_HyruleCastleEscape(w, it);
+    case Z3_REG_Escape: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? true : (w->cfg.mode_state == Z3_MODE_STATE_OPEN || w->cfg.mode_state == Z3_MODE_STATE_RETRO) ? true : complete_Standard_HyruleCastleEscape(w, it);
     case Z3_REG_Eastern_Palace: return complete_Standard_EasternPalace(w, it);
     case Z3_REG_Desert_Palace: return complete_Standard_DesertPalace(w, it);
     case Z3_REG_Tower_of_Hera: return complete_Standard_TowerOfHera(w, it);
@@ -1695,8 +2695,8 @@ bool z3_region_complete(const Z3World *w, const Z3Items *it, int reg)
     case Z3_REG_Thieves_Town: return complete_Standard_ThievesTown(w, it);
     case Z3_REG_Ice_Palace: return complete_Standard_IcePalace(w, it);
     case Z3_REG_Misery_Mire: return complete_Standard_MiseryMire(w, it);
-    case Z3_REG_Turtle_Rock: return complete_Standard_TurtleRock(w, it);
-    case Z3_REG_Ganons_Tower: return complete_Standard_GanonsTower(w, it);
+    case Z3_REG_Turtle_Rock: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? complete_Inverted_TurtleRock(w, it) : complete_Standard_TurtleRock(w, it);
+    case Z3_REG_Ganons_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? complete_Inverted_GanonsTower(w, it) : complete_Standard_GanonsTower(w, it);
     default: return true;
     }
 }
@@ -1704,31 +2704,32 @@ bool z3_region_complete(const Z3World *w, const Z3Items *it, int reg)
 bool z3_loc_req(const Z3World *w, const Z3Items *it, int loc)
 {
     (void)w; (void)it;
+    if (w->cfg.logic == Z3_LOGIC_NOLOGIC) return true;   /* World::__construct skips initalize() */
     switch (Z3_LOCS[loc].region) {
-    case Z3_REG_North_East_Light_World: return req_Standard_LightWorld_NorthEast(w, it, loc);
-    case Z3_REG_North_West_Light_World: return req_Standard_LightWorld_NorthWest(w, it, loc);
-    case Z3_REG_South_Light_World: return req_Standard_LightWorld_South(w, it, loc);
-    case Z3_REG_Escape: return w->cfg.mode_state == Z3_MODE_STATE_OPEN ? req_Open_HyruleCastleEscape(w, it, loc) : req_Standard_HyruleCastleEscape(w, it, loc);
-    case Z3_REG_Eastern_Palace: return req_Standard_EasternPalace(w, it, loc);
-    case Z3_REG_Desert_Palace: return req_Standard_DesertPalace(w, it, loc);
-    case Z3_REG_West_Death_Mountain: return req_Standard_LightWorld_DeathMountain_West(w, it, loc);
-    case Z3_REG_East_Death_Mountain: return req_Standard_LightWorld_DeathMountain_East(w, it, loc);
-    case Z3_REG_Tower_of_Hera: return req_Standard_TowerOfHera(w, it, loc);
-    case Z3_REG_Hyrule_Castle_Tower: return req_Standard_HyruleCastleTower(w, it, loc);
-    case Z3_REG_East_Dark_World_Death_Mountain: return req_Standard_DarkWorld_DeathMountain_East(w, it, loc);
-    case Z3_REG_West_Dark_World_Death_Mountain: return req_Standard_DarkWorld_DeathMountain_West(w, it, loc);
-    case Z3_REG_North_East_Dark_World: return req_Standard_DarkWorld_NorthEast(w, it, loc);
-    case Z3_REG_North_West_Dark_World: return req_Standard_DarkWorld_NorthWest(w, it, loc);
-    case Z3_REG_South_Dark_World: return req_Standard_DarkWorld_South(w, it, loc);
-    case Z3_REG_Mire: return req_Standard_DarkWorld_Mire(w, it, loc);
-    case Z3_REG_Palace_of_Darkness: return req_Standard_PalaceOfDarkness(w, it, loc);
-    case Z3_REG_Swamp_Palace: return req_Standard_SwampPalace(w, it, loc);
-    case Z3_REG_Skull_Woods: return req_Standard_SkullWoods(w, it, loc);
-    case Z3_REG_Thieves_Town: return req_Standard_ThievesTown(w, it, loc);
-    case Z3_REG_Ice_Palace: return req_Standard_IcePalace(w, it, loc);
-    case Z3_REG_Misery_Mire: return req_Standard_MiseryMire(w, it, loc);
-    case Z3_REG_Turtle_Rock: return req_Standard_TurtleRock(w, it, loc);
-    case Z3_REG_Ganons_Tower: return req_Standard_GanonsTower(w, it, loc);
+    case Z3_REG_North_East_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_LightWorld_NorthEast(w, it, loc) : req_Standard_LightWorld_NorthEast(w, it, loc);
+    case Z3_REG_North_West_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_LightWorld_NorthWest(w, it, loc) : req_Standard_LightWorld_NorthWest(w, it, loc);
+    case Z3_REG_South_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_LightWorld_South(w, it, loc) : req_Standard_LightWorld_South(w, it, loc);
+    case Z3_REG_Escape: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_HyruleCastleEscape(w, it, loc) : (w->cfg.mode_state == Z3_MODE_STATE_OPEN || w->cfg.mode_state == Z3_MODE_STATE_RETRO) ? req_Open_HyruleCastleEscape(w, it, loc) : req_Standard_HyruleCastleEscape(w, it, loc);
+    case Z3_REG_Eastern_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_EasternPalace(w, it, loc) : req_Standard_EasternPalace(w, it, loc);
+    case Z3_REG_Desert_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_DesertPalace(w, it, loc) : req_Standard_DesertPalace(w, it, loc);
+    case Z3_REG_West_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_LightWorld_DeathMountain_West(w, it, loc) : req_Standard_LightWorld_DeathMountain_West(w, it, loc);
+    case Z3_REG_East_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_LightWorld_DeathMountain_East(w, it, loc) : req_Standard_LightWorld_DeathMountain_East(w, it, loc);
+    case Z3_REG_Tower_of_Hera: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_TowerOfHera(w, it, loc) : req_Standard_TowerOfHera(w, it, loc);
+    case Z3_REG_Hyrule_Castle_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_HyruleCastleTower(w, it, loc) : req_Standard_HyruleCastleTower(w, it, loc);
+    case Z3_REG_East_Dark_World_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_DarkWorld_DeathMountain_East(w, it, loc) : req_Standard_DarkWorld_DeathMountain_East(w, it, loc);
+    case Z3_REG_West_Dark_World_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_DarkWorld_DeathMountain_West(w, it, loc) : req_Standard_DarkWorld_DeathMountain_West(w, it, loc);
+    case Z3_REG_North_East_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_DarkWorld_NorthEast(w, it, loc) : req_Standard_DarkWorld_NorthEast(w, it, loc);
+    case Z3_REG_North_West_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_DarkWorld_NorthWest(w, it, loc) : req_Standard_DarkWorld_NorthWest(w, it, loc);
+    case Z3_REG_South_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_DarkWorld_South(w, it, loc) : req_Standard_DarkWorld_South(w, it, loc);
+    case Z3_REG_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? true : req_Standard_DarkWorld_Mire(w, it, loc);
+    case Z3_REG_Palace_of_Darkness: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_PalaceOfDarkness(w, it, loc) : req_Standard_PalaceOfDarkness(w, it, loc);
+    case Z3_REG_Swamp_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_SwampPalace(w, it, loc) : req_Standard_SwampPalace(w, it, loc);
+    case Z3_REG_Skull_Woods: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_SkullWoods(w, it, loc) : req_Standard_SkullWoods(w, it, loc);
+    case Z3_REG_Thieves_Town: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_ThievesTown(w, it, loc) : req_Standard_ThievesTown(w, it, loc);
+    case Z3_REG_Ice_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_IcePalace(w, it, loc) : req_Standard_IcePalace(w, it, loc);
+    case Z3_REG_Misery_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_MiseryMire(w, it, loc) : req_Standard_MiseryMire(w, it, loc);
+    case Z3_REG_Turtle_Rock: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_TurtleRock(w, it, loc) : req_Standard_TurtleRock(w, it, loc);
+    case Z3_REG_Ganons_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? req_Inverted_GanonsTower(w, it, loc) : req_Standard_GanonsTower(w, it, loc);
     default: return true;
     }
 }
@@ -1736,15 +2737,16 @@ bool z3_loc_req(const Z3World *w, const Z3Items *it, int loc)
 bool z3_shop_req(const Z3World *w, const Z3Items *it, int shop)
 {
     (void)w; (void)it;
+    if (w->cfg.logic == Z3_LOGIC_NOLOGIC) return true;   /* World::__construct skips initalize() */
     switch (Z3_SHOPS[shop].region) {
-    case Z3_REG_North_West_Light_World: return shop_Standard_LightWorld_NorthWest(w, it, shop);
-    case Z3_REG_South_Light_World: return shop_Standard_LightWorld_South(w, it, shop);
-    case Z3_REG_East_Death_Mountain: return shop_Standard_LightWorld_DeathMountain_East(w, it, shop);
-    case Z3_REG_West_Dark_World_Death_Mountain: return shop_Standard_DarkWorld_DeathMountain_West(w, it, shop);
-    case Z3_REG_North_East_Dark_World: return shop_Standard_DarkWorld_NorthEast(w, it, shop);
-    case Z3_REG_North_West_Dark_World: return shop_Standard_DarkWorld_NorthWest(w, it, shop);
-    case Z3_REG_South_Dark_World: return shop_Standard_DarkWorld_South(w, it, shop);
-    case Z3_REG_Mire: return shop_Standard_DarkWorld_Mire(w, it, shop);
+    case Z3_REG_North_West_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? shop_Inverted_LightWorld_NorthWest(w, it, shop) : shop_Standard_LightWorld_NorthWest(w, it, shop);
+    case Z3_REG_South_Light_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? shop_Inverted_LightWorld_South(w, it, shop) : shop_Standard_LightWorld_South(w, it, shop);
+    case Z3_REG_East_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? shop_Inverted_LightWorld_DeathMountain_East(w, it, shop) : shop_Standard_LightWorld_DeathMountain_East(w, it, shop);
+    case Z3_REG_West_Dark_World_Death_Mountain: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? true : shop_Standard_DarkWorld_DeathMountain_West(w, it, shop);
+    case Z3_REG_North_East_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? shop_Inverted_DarkWorld_NorthEast(w, it, shop) : shop_Standard_DarkWorld_NorthEast(w, it, shop);
+    case Z3_REG_North_West_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? shop_Inverted_DarkWorld_NorthWest(w, it, shop) : shop_Standard_DarkWorld_NorthWest(w, it, shop);
+    case Z3_REG_South_Dark_World: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? shop_Inverted_DarkWorld_South(w, it, shop) : shop_Standard_DarkWorld_South(w, it, shop);
+    case Z3_REG_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? true : shop_Standard_DarkWorld_Mire(w, it, shop);
     default: return true;
     }
 }
@@ -1752,19 +2754,20 @@ bool z3_shop_req(const Z3World *w, const Z3Items *it, int shop)
 bool z3_loc_fill(const Z3World *w, const Z3Items *it, int loc, int item)
 {
     (void)w; (void)it; (void)item;
+    if (w->cfg.logic == Z3_LOGIC_NOLOGIC) return true;   /* World::__construct skips initalize() */
     switch (Z3_LOCS[loc].region) {
-    case Z3_REG_Escape: return w->cfg.mode_state == Z3_MODE_STATE_OPEN ? fill_Open_HyruleCastleEscape(w, it, loc, item) : fill_Standard_HyruleCastleEscape(w, it, loc, item);
-    case Z3_REG_Eastern_Palace: return fill_Standard_EasternPalace(w, it, loc, item);
-    case Z3_REG_Desert_Palace: return fill_Standard_DesertPalace(w, it, loc, item);
-    case Z3_REG_Tower_of_Hera: return fill_Standard_TowerOfHera(w, it, loc, item);
-    case Z3_REG_Palace_of_Darkness: return fill_Standard_PalaceOfDarkness(w, it, loc, item);
-    case Z3_REG_Swamp_Palace: return fill_Standard_SwampPalace(w, it, loc, item);
-    case Z3_REG_Skull_Woods: return fill_Standard_SkullWoods(w, it, loc, item);
-    case Z3_REG_Thieves_Town: return fill_Standard_ThievesTown(w, it, loc, item);
-    case Z3_REG_Ice_Palace: return fill_Standard_IcePalace(w, it, loc, item);
-    case Z3_REG_Misery_Mire: return fill_Standard_MiseryMire(w, it, loc, item);
-    case Z3_REG_Turtle_Rock: return fill_Standard_TurtleRock(w, it, loc, item);
-    case Z3_REG_Ganons_Tower: return fill_Standard_GanonsTower(w, it, loc, item);
+    case Z3_REG_Escape: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_HyruleCastleEscape(w, it, loc, item) : (w->cfg.mode_state == Z3_MODE_STATE_OPEN || w->cfg.mode_state == Z3_MODE_STATE_RETRO) ? fill_Open_HyruleCastleEscape(w, it, loc, item) : fill_Standard_HyruleCastleEscape(w, it, loc, item);
+    case Z3_REG_Eastern_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_EasternPalace(w, it, loc, item) : fill_Standard_EasternPalace(w, it, loc, item);
+    case Z3_REG_Desert_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_DesertPalace(w, it, loc, item) : fill_Standard_DesertPalace(w, it, loc, item);
+    case Z3_REG_Tower_of_Hera: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_TowerOfHera(w, it, loc, item) : fill_Standard_TowerOfHera(w, it, loc, item);
+    case Z3_REG_Palace_of_Darkness: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_PalaceOfDarkness(w, it, loc, item) : fill_Standard_PalaceOfDarkness(w, it, loc, item);
+    case Z3_REG_Swamp_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_SwampPalace(w, it, loc, item) : fill_Standard_SwampPalace(w, it, loc, item);
+    case Z3_REG_Skull_Woods: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_SkullWoods(w, it, loc, item) : fill_Standard_SkullWoods(w, it, loc, item);
+    case Z3_REG_Thieves_Town: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_ThievesTown(w, it, loc, item) : fill_Standard_ThievesTown(w, it, loc, item);
+    case Z3_REG_Ice_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_IcePalace(w, it, loc, item) : fill_Standard_IcePalace(w, it, loc, item);
+    case Z3_REG_Misery_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_MiseryMire(w, it, loc, item) : fill_Standard_MiseryMire(w, it, loc, item);
+    case Z3_REG_Turtle_Rock: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_TurtleRock(w, it, loc, item) : fill_Standard_TurtleRock(w, it, loc, item);
+    case Z3_REG_Ganons_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? fill_Inverted_GanonsTower(w, it, loc, item) : fill_Standard_GanonsTower(w, it, loc, item);
     default: return true;
     }
 }
@@ -1772,18 +2775,19 @@ bool z3_loc_fill(const Z3World *w, const Z3Items *it, int loc, int item)
 bool z3_loc_always(const Z3World *w, const Z3Items *it, int loc, int item)
 {
     (void)w; (void)it; (void)item;
+    if (w->cfg.logic == Z3_LOGIC_NOLOGIC) return false;   /* World::__construct skips initalize() */
     switch (Z3_LOCS[loc].region) {
-    case Z3_REG_Eastern_Palace: return always_Standard_EasternPalace(w, it, loc, item);
-    case Z3_REG_Desert_Palace: return always_Standard_DesertPalace(w, it, loc, item);
-    case Z3_REG_Tower_of_Hera: return always_Standard_TowerOfHera(w, it, loc, item);
-    case Z3_REG_Palace_of_Darkness: return always_Standard_PalaceOfDarkness(w, it, loc, item);
-    case Z3_REG_Swamp_Palace: return always_Standard_SwampPalace(w, it, loc, item);
-    case Z3_REG_Skull_Woods: return always_Standard_SkullWoods(w, it, loc, item);
-    case Z3_REG_Thieves_Town: return always_Standard_ThievesTown(w, it, loc, item);
-    case Z3_REG_Ice_Palace: return always_Standard_IcePalace(w, it, loc, item);
-    case Z3_REG_Misery_Mire: return always_Standard_MiseryMire(w, it, loc, item);
-    case Z3_REG_Turtle_Rock: return always_Standard_TurtleRock(w, it, loc, item);
-    case Z3_REG_Ganons_Tower: return always_Standard_GanonsTower(w, it, loc, item);
+    case Z3_REG_Eastern_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_EasternPalace(w, it, loc, item) : always_Standard_EasternPalace(w, it, loc, item);
+    case Z3_REG_Desert_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_DesertPalace(w, it, loc, item) : always_Standard_DesertPalace(w, it, loc, item);
+    case Z3_REG_Tower_of_Hera: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_TowerOfHera(w, it, loc, item) : always_Standard_TowerOfHera(w, it, loc, item);
+    case Z3_REG_Palace_of_Darkness: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_PalaceOfDarkness(w, it, loc, item) : always_Standard_PalaceOfDarkness(w, it, loc, item);
+    case Z3_REG_Swamp_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_SwampPalace(w, it, loc, item) : always_Standard_SwampPalace(w, it, loc, item);
+    case Z3_REG_Skull_Woods: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_SkullWoods(w, it, loc, item) : always_Standard_SkullWoods(w, it, loc, item);
+    case Z3_REG_Thieves_Town: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_ThievesTown(w, it, loc, item) : always_Standard_ThievesTown(w, it, loc, item);
+    case Z3_REG_Ice_Palace: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_IcePalace(w, it, loc, item) : always_Standard_IcePalace(w, it, loc, item);
+    case Z3_REG_Misery_Mire: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_MiseryMire(w, it, loc, item) : always_Standard_MiseryMire(w, it, loc, item);
+    case Z3_REG_Turtle_Rock: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_TurtleRock(w, it, loc, item) : always_Standard_TurtleRock(w, it, loc, item);
+    case Z3_REG_Ganons_Tower: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) ? always_Inverted_GanonsTower(w, it, loc, item) : always_Standard_GanonsTower(w, it, loc, item);
     default: return false;
     }
 }
@@ -1811,8 +2815,10 @@ bool z3_region_item(int reg, int item)
 void z3_world_defaults(Z3World *w)
 {
     for (int i = 0; i < Z3_LOC_COUNT; i++) w->item_at[i] = Z3_ITEM_NONE;
+    if (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) w->item_at[Z3_LOC_Ganon_Inverted] = Z3_ITEM_DefeatGanon;
     w->boss_of[Z3_REG_North_East_Light_World] = Z3_BOSS_NONE;
     w->boss_of[Z3_REG_North_West_Light_World] = Z3_BOSS_NONE;
+    if (w->cfg.mode_state == Z3_MODE_STATE_INVERTED) w->item_at[Z3_LOC_Bomb_Merchant] = Z3_ITEM_BigRedBomb;
     w->boss_of[Z3_REG_South_Light_World] = Z3_BOSS_NONE;
     w->item_at[Z3_LOC_Zelda] = Z3_ITEM_RescueZelda;
     w->boss_of[Z3_REG_Escape] = Z3_BOSS_NONE;
@@ -1827,7 +2833,7 @@ void z3_world_defaults(Z3World *w)
     w->boss_of[Z3_REG_West_Dark_World_Death_Mountain] = Z3_BOSS_NONE;
     w->item_at[Z3_LOC_Pyramid_Fairy_Sword] = Z3_ITEM_L1Sword;
     w->item_at[Z3_LOC_Pyramid_Fairy_Bow] = Z3_ITEM_Bow;
-    w->item_at[Z3_LOC_Ganon] = Z3_ITEM_DefeatGanon;
+    if (w->cfg.mode_state != Z3_MODE_STATE_INVERTED) w->item_at[Z3_LOC_Ganon] = Z3_ITEM_DefeatGanon;
     w->boss_of[Z3_REG_North_East_Dark_World] = Z3_BOSS_NONE;
     w->boss_of[Z3_REG_North_West_Dark_World] = Z3_BOSS_NONE;
     w->boss_of[Z3_REG_South_Dark_World] = Z3_BOSS_NONE;
@@ -1852,9 +2858,46 @@ bool z3_loc_exists(const Z3World *w, int loc)
 {
     (void)w;
     switch (loc) {
+    case Z3_LOC_Ganon_Inverted: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Links_House: return (w->cfg.mode_state != Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Bomb_Merchant: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Ether_Tablet: return (w->cfg.mode_state != Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Spectacle_Rock: return (w->cfg.mode_state != Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Ether_Tablet_Inverted: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Spectacle_Rock_Inverted: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED);
+    case Z3_LOC_Ganon: return (w->cfg.mode_state != Z3_MODE_STATE_INVERTED);
     case Z3_LOC_Pyramid_Fairy_Left: return w->cfg.region_swordsInPool;
     case Z3_LOC_Pyramid_Fairy_Right: return w->cfg.region_swordsInPool;
+    case Z3_LOC_Links_House_Inverted: return (w->cfg.mode_state == Z3_MODE_STATE_INVERTED);
     default: return true;
+    }
+}
+
+bool z3_shop_exists(const Z3World *w, int shop)
+{
+    (void)w;
+    switch (shop) {
+    case Z3_SHOP_Dark_Death_Mountain_Fairy: return w->cfg.mode_state != Z3_MODE_STATE_INVERTED;
+    default: return true;
+    }
+}
+
+int z3_loc_named(const Z3World *w, int loc)
+{
+    switch (loc) {
+    case Z3_LOC_Ether_Tablet:
+    case Z3_LOC_Ether_Tablet_Inverted:
+        return z3_loc_exists(w, Z3_LOC_Ether_Tablet) ? Z3_LOC_Ether_Tablet : z3_loc_exists(w, Z3_LOC_Ether_Tablet_Inverted) ? Z3_LOC_Ether_Tablet_Inverted : Z3_LOC_Ether_Tablet;
+    case Z3_LOC_Ganon_Inverted:
+    case Z3_LOC_Ganon:
+        return z3_loc_exists(w, Z3_LOC_Ganon_Inverted) ? Z3_LOC_Ganon_Inverted : z3_loc_exists(w, Z3_LOC_Ganon) ? Z3_LOC_Ganon : Z3_LOC_Ganon_Inverted;
+    case Z3_LOC_Links_House:
+    case Z3_LOC_Links_House_Inverted:
+        return z3_loc_exists(w, Z3_LOC_Links_House) ? Z3_LOC_Links_House : z3_loc_exists(w, Z3_LOC_Links_House_Inverted) ? Z3_LOC_Links_House_Inverted : Z3_LOC_Links_House;
+    case Z3_LOC_Spectacle_Rock:
+    case Z3_LOC_Spectacle_Rock_Inverted:
+        return z3_loc_exists(w, Z3_LOC_Spectacle_Rock) ? Z3_LOC_Spectacle_Rock : z3_loc_exists(w, Z3_LOC_Spectacle_Rock_Inverted) ? Z3_LOC_Spectacle_Rock_Inverted : Z3_LOC_Spectacle_Rock;
+    default: return loc;
     }
 }
 

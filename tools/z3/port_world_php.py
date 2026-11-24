@@ -3,8 +3,9 @@
 core/z3gen/z3_world_gen.{h,c}: items, locations, regions, the config the closures read, and every access closure.
 
 The PHP twin of tools/port_world.py. It parses the closures into an expression tree instead of rewriting them with
-regexes, since alttpr's closures are long nested PHP. World states: Open and Standard (World/Open.php, World/Standard.php);
-the logic is the No Glitches closures, whose glitch switches (canOWYBA, canBootsClip, ...) become config flags.
+regexes, since alttpr's closures are long nested PHP. World states: Standard, Open (also Retro's) and Inverted, whose
+region classes run parent::initalize() first and call their own helper methods; the glitch switches in the closures
+(canOWYBA, canBootsClip, ...) become config flags that config/logic.php sets per logic, and No Logic skips them all.
 What it cannot translate is listed as TODO and the script exits 1; the hand-written side is core/z3gen/z3_world.c.
 """
 import re, sys
@@ -15,7 +16,9 @@ SRC = ROOT / "vendor/alttp_php_randomizer"
 APP = SRC / "app"
 OUT_H = ROOT / "core/z3gen/z3_world_gen.h"
 OUT_C = ROOT / "core/z3gen/z3_world_gen.c"
-STATES = ["standard", "open"]
+STATES = ["standard", "open", "inverted"]
+# World::factory: Retro extends Open (same regions), so it runs the Open closures.
+STATE_VALUES = {"standard": ["standard"], "open": ["open", "retro"], "inverted": ["inverted"]}
 errors = []
 
 # String-valued config keys: the first value is the default (RandomizerController::prepSeed's, World::factory's).
@@ -30,16 +33,19 @@ ENUMS = {
     "item.pool": ["normal", "hard", "expert", "superexpert", "crowd_control"],
     "item.functionality": ["normal", "hard", "expert", "superexpert"],
     "enemizer.enemyHealth": ["default", "easy", "hard", "expert"],
+    "enemizer.bossShuffle": ["none", "simple", "full", "random"],
 }
 # Keys the hand-written ItemCollection helpers and World::__construct read, with their PHP defaults.
 EXTRA_CFG = {"crystals.ganon": 7, "crystals.tower": 7, "item.require.Lamp": 1, "item.Goal.Required": 0,
              "rom.BottleFill.Magic": 0x80, "rom.CatchableFairies": 1, "rom.rupeeBow": 0,
-             "ignoreCanKillEscapeThings": 0, "region.swordsInPool": 1, "item.overflow.count.Shield": 3}
+             "ignoreCanKillEscapeThings": 0, "region.swordsInPool": 1, "item.overflow.count.Shield": 3,
+             "rom.genericKeys": 0, "region.takeAnys": 0}
 # ItemCollection methods -> hand-written C helpers (z3_world.c); world arguments are dropped, numbers kept.
 HELPERS = {"hasABottle", "canBunnyRevive", "canSpinSpeed", "canLiftRocks", "hasSword", "canBombThings", "canShootArrows",
            "canKillMostThings", "canLiftDarkRocks", "hasHealth", "hasBottle", "canExtendMagic", "canLightTorches", "canFly",
            "canKillEscapeThings", "hasArmor", "canBlockLasers", "canMeltThings", "canGetGoodBee", "canAcquireFairy",
            "glitchedLinkInDarkWorld"}
+NO_ARGS = {"hasABottle", "canLiftRocks", "canLiftDarkRocks", "canLightTorches", "canSpinSpeed", "glitchedLinkInDarkWorld"}
 HELPER_DEFAULTS = {"hasSword": ["1"], "canShootArrows": ["1"], "hasArmor": ["1"], "hasBottle": ["1"], "canExtendMagic": ["2"],
                    "canKillMostThings": ["5"]}
 
@@ -302,12 +308,15 @@ class RegionClass:
         self.prefill = {}
         self.bosses = {}
         self.shops = []
-        self.init = None
+        self.removed = set()  # locations a subclass constructor takes out (World\Inverted moves a few)
+        self.layers = []  # (class, initalize body): parent::initalize() runs the parent's body first
+        self.methods = {}  # protected helpers the closures call as $this->name(...): name -> (class, params, body)
         if self.parent:
             par = RegionClass(self.parent)
-            self.name, self.region_items, self.locations = par.name, par.region_items, par.locations
-            self.prize, self.prefill, self.bosses, self.shops = par.prize, par.prefill, par.bosses, par.shops
-            self.init = par.init
+            self.name, self.region_items, self.locations = par.name, list(par.region_items), list(par.locations)
+            self.prize, self.prefill, self.bosses, self.shops = par.prize, dict(par.prefill), dict(par.bosses), list(par.shops)
+            self.layers = list(par.layers)
+            self.methods = dict(par.methods)
         m = re.search(r"protected \$name = '([^']*)';", self.text)
         if m:
             self.name = m.group(1)
@@ -317,12 +326,21 @@ class RegionClass:
         ctor = find_method(self.toks, "__construct")
         if ctor is not None:
             self.read_ctor(Parser(self.toks, ctor).block(), None)
+        for mname in re.findall(r"(?:protected|public|private) function (\w+)\(", self.text):
+            if mname in ("__construct", "initalize", "canPlaceBoss"):
+                continue
+            i = next(j for j in range(len(self.toks) - 1) if self.toks[j] == ("id", "function") and self.toks[j + 1] == ("id", mname))
+            self.methods[mname] = (self, i + 2)   # parsed when a closure calls it
         init = find_method(self.toks, "initalize")
         if init is not None:
             body = Parser(self.toks, init).block()
-            if any(s[0] == "expr" and s[1][0] == "scall" and s[1][2] == "initalize" for s in body):
-                errors.append(f"{self.cid}: parent::initalize() not supported yet")
-            self.init = body
+            calls_parent = [i for i, s in enumerate(body) if s[0] == "expr" and s[1][0] == "scall" and s[1][2] == "initalize"]
+            if calls_parent:
+                if calls_parent != [0]:
+                    errors.append(f"{self.cid}: parent::initalize() is not the first statement")
+                self.layers.append((self, body[1:]))
+            else:
+                self.layers = [(self, body)]
 
     def read_ctor(self, stmts, cond):
         for s in stmts:
@@ -339,6 +357,13 @@ class RegionClass:
                 self.prize = s[2][2][1]
             elif s[0] == "expr" and s[1][0] == "mcall" and s[1][2] == "addItem" and s[1][3][0][0] == "new":
                 self.add_loc(s[1][3][0], cond)
+            elif s[0] == "expr" and s[1][0] == "mcall" and s[1][2] == "removeItem" and s[1][1] == ("prop", ("var", "$this"), "locations"):
+                name = s[1][3][0][1]
+                self.locations = [l for l in self.locations if l[0] != name]
+                self.prefill.pop(name, None)
+                self.removed.add(name)
+            elif s[0] == "expr" and s[1][0] == "mcall" and s[1][2] == "removeItem" and s[1][1] == ("prop", ("var", "$this"), "shops"):
+                self.shops = [x for x in self.shops if x != s[1][3][0][1]]
             elif s[0] == "expr" and s[1][0] == "mcall" and s[1][2] == "setItem":
                 tgt, item = s[1][1], s[1][3][0][3][0][1]
                 name = self.prize if tgt == ("prop", ("var", "$this"), "prize_location") else tgt[2][1]
@@ -364,20 +389,44 @@ for s in STATES:
     for k, c in CLASS_OF[s].items():
         if c not in CLASSES:
             CLASSES[c] = RegionClass(c)
-for k in REGION_KEYS:
-    a = [CLASSES[CLASS_OF[s][k]].locations for s in STATES]
-    assert all(x == a[0] for x in a), f"{k}: locations differ between world states"
+assert all(CLASSES[CLASS_OF["standard"][k]].locations == CLASSES[CLASS_OF["open"][k]].locations for k in REGION_KEYS)
 
-LOCS = []  # (name, kind, addr, region key, exists)
+# Locations of every world state, region by region. Inverted moves a few (Ganon, Link's House, Ether Tablet, Spectacle
+# Rock) to another region and adds some: each world's own list is a subsequence of this one (removals keep the order,
+# additions come last), so walking it and skipping what z3_loc_exists() rules out gives PHP's getLocations() order.
+LOCS = []  # (name, kind, addr, region key, exists cfg key, states it is in)
 for k in REGION_KEYS:
-    for name, kind, addr, ex in CLASSES[CLASS_OF["open"][k]].locations:
-        LOCS.append((name, kind, addr, k, ex))
-LOC_ID = {l[0]: i for i, l in enumerate(LOCS)}
+    seen = {}
+    for st in ("open", "inverted"):
+        for name, kind, addr, ex in CLASSES[CLASS_OF[st][k]].locations:
+            if name in seen:
+                assert LOCS[seen[name]][1:3] == (kind, addr) and LOCS[seen[name]][4] == ex, f"{k}/{name} differs"
+                LOCS[seen[name]][5].add(st)
+            else:
+                seen[name] = len(LOCS)
+                LOCS.append((name, kind, addr, k, ex, {st}))
+for st in ("open", "inverted"):   # the subsequence claim
+    mine = [(k, l[0]) for k in REGION_KEYS for l in CLASSES[CLASS_OF[st][k]].locations]
+    assert mine == [(l[3], l[0]) for l in LOCS if st in l[5]], f"{st}: location order"
+LOC_STATES = [frozenset(s for s in STATES if (s if s != "standard" else "open") in l[5]) for l in LOCS]
+LOC_ID = {}  # name -> id of the location as Open/Standard have it (or the only one)
+LOC_ENUM_I = []
+for i, l in enumerate(LOCS):
+    ident = "Z3_LOC_" + c_ident(l[0])
+    if "open" not in l[5] and any(m[0] == l[0] and "open" in m[5] for m in LOCS):
+        ident += "_Inverted"   # Inverted's copy of a location that sits elsewhere in the other worlds
+    LOC_ENUM_I.append(ident)
+    if l[0] not in LOC_ID or "open" in l[5]:
+        LOC_ID[l[0]] = i
+LOC_AT = {(l[3], l[0]): LOC_ENUM_I[i] for i, l in enumerate(LOCS)}  # (region key, name) -> enum
+MOVED = {l[0] for l in LOCS if sum(m[0] == l[0] for m in LOCS) > 1}
+LOC_ENUM = {n: LOC_ENUM_I[i] for n, i in LOC_ID.items()}
+assert len(set(LOC_ENUM_I)) == len(LOCS)
 SHOPS = [(n, k) for k in REGION_KEYS for n in CLASSES[CLASS_OF["open"][k]].shops]
+SHOP_STATES = {n: frozenset(s for s in STATES if n in CLASSES[CLASS_OF[s][k]].shops) for n, k in SHOPS}
+assert all(n in [x for x, _ in SHOPS] for k in REGION_KEYS for n in CLASSES[CLASS_OF["inverted"][k]].shops)
 SHOP_ENUM = {n: "Z3_SHOP_" + c_ident(n) for n, _ in SHOPS}
 assert len(set(SHOP_ENUM.values())) == len(SHOPS)
-LOC_ENUM = {l[0]: "Z3_LOC_" + c_ident(l[0]) for l in LOCS}
-assert len(set(LOC_ENUM.values())) == len(LOCS)
 
 # ---------------------------------------------------------------- config keys
 CFG = {}  # key -> default (int) or enum list
@@ -418,8 +467,13 @@ for key in ENUMS:
 
 # ---------------------------------------------------------------- closure -> C
 class Ctx:
-    def __init__(self, rc, key, where, kind, locals_=()):
+    def __init__(self, rc, key, where, kind, locals_=(), obj=None, params=()):
         self.rc, self.key, self.where, self.kind, self.locals = rc, key, where, kind, set(locals_)
+        self.obj = obj or rc  # the region object $this is at run time (its methods win over a parent layer's)
+        self.params = set(params)  # a region method's own arguments (not $locations/$items)
+
+
+METHODS_USED = {}  # C name -> (defining class, params, body, key, runtime class)
 
 
 def is_world(n):
@@ -430,12 +484,21 @@ def is_cfg(n):
     return n[0] == "mcall" and is_world(n[1]) and n[2] == "config"
 
 
-def loc_of(n, ctx):
-    """$this->locations["X"] / $locations["X"] -> location name."""
+def world_loc(name):
+    """A location read through the world's collection: the same one in every world state."""
+    if name not in LOC_ID:
+        raise KeyError(f"unknown location {name}")
+    if name in MOVED:
+        raise KeyError(f"location {name} read by name, but it moves between world states")
+    return LOC_ENUM[name]
+
+
+def loc_of(n, key):
+    """$this->locations["X"] (the region's own, `key`) / $locations["X"] (the world's) -> location enum."""
     if n[0] == "idx" and n[2][0] == "str" and (n[1] == ("var", "$locations") or n[1] == ("prop", ("var", "$this"), "locations")):
-        if n[2][1] not in LOC_ID:
-            raise KeyError(f"unknown location {n[2][1]}")
-        return n[2][1]
+        if n[1] != ("var", "$locations") and (key, n[2][1]) in LOC_AT:
+            return LOC_AT[(key, n[2][1])]
+        return world_loc(n[2][1])
     return None
 
 
@@ -480,8 +543,12 @@ def cx(n, ctx):
         return f"(Z3_ITEMS[item].cls == Z3_IC_{n[2].replace('Item' + chr(92), '').replace(chr(92), '_')})"
     if t == "var" and n[1] == "$item":
         return "item"
+    if t == "var" and n[1][1:] in ctx.params:
+        return n[1][1:]
     if t == "fcall" and n[1] == "is_a" and n[2][0] == ("var", "$item") and n[2][1][0] == "sconst":
         return f"(Z3_ITEMS[item].cls == Z3_IC_{n[2][1][1].replace('Item' + chr(92), '').replace(chr(92), '_')})"
+    if t == "mcall" and is_world(n[1]) and n[2] == "getRegion":
+        return "1"   # a Region object where a bool is read (Inverted Palace of Darkness): always true
     if t == "fcall" and n[1] == "in_array":
         x, arr = n[2][0], n[2][1]
         if arr[0] != "arr":
@@ -503,13 +570,17 @@ def cx(n, ctx):
             if name == "has":
                 item = args[0][1]
                 if item not in ITEM_ID:
-                    raise KeyError(f"unknown item {item}")
+                    if item.startswith("Key"):
+                        raise KeyError(f"unknown item {item}")
+                    return "0"   # a misspelt name (Inverted Escape's 'PegasusBoot'): ItemCollection::has finds no count
                 cnt = cx(args[1], ctx) if len(args) > 1 else "1"
                 return f"z3_has(it, Z3_ITEM_{item}, {cnt})"
             if name in HELPERS:
                 # the world is optional for these three; without it PHP skips the config checks
                 wa = "NULL" if name in ("canExtendMagic", "canBunnyRevive", "canAcquireFairy") and not (args and is_world(args[0])) else "w"
                 rest = [cx(a, ctx) for a in args if not is_world(a) and a != ("id", "null")]
+                if name in NO_ARGS:
+                    rest = []   # PHP drops extra arguments (Inverted calls hasABottle(2))
                 rest += HELPER_DEFAULTS.get(name, [])[len(rest):]
                 return f"z3_{name}({wa}, it" + "".join(", " + r for r in rest) + ")"
             raise ValueError(f"$items->{name}")
@@ -517,6 +588,15 @@ def cx(n, ctx):
             key = args[0][1]
             note_cfg(key, args[1][1] if len(args) > 1 else None, ctx.where)
             return f"w->cfg.{cfg_field(key)}"
+        if obj == ("var", "$this") and name in ctx.obj.methods:
+            dcls, at = ctx.obj.methods[name]
+            p = Parser(dcls.toks, at)
+            params = [x[1:] for x in p.params() if x not in ("$locations", "$items")]
+            mbody = p.block()
+            fname = f"{dcls.cid}_m_{name}"
+            METHODS_USED.setdefault(fname, (dcls, params, mbody, ctx.key, ctx.obj))
+            rest = [cx(a, ctx) for a in args if a not in (("var", "$locations"), ("var", "$items"))]
+            return f"{fname}(w, it" + "".join(", " + r for r in rest) + ")"
         if obj[0] == "mcall" and is_world(obj[1]) and obj[2] == "getRegion":
             k = obj[3][0][1]
             fn = {"canEnter": "z3_region_enter", "canComplete": "z3_region_complete"}[name]
@@ -531,10 +611,10 @@ def cx(n, ctx):
         if obj == ("var", "$locations") and name == "itemInLocations":
             item = item_of(args[0])
             cnt = cx(args[2], ctx) if len(args) > 2 else "1"
-            return "((" + " + ".join(f"(w->item_at[{LOC_ENUM[x[1]]}] == {item})" for x in args[1][1]) + f") >= {cnt})"
-        loc = loc_of(obj, ctx)
+            return "((" + " + ".join(f"(w->item_at[{world_loc(x[1])}] == {item})" for x in args[1][1]) + f") >= {cnt})"
+        loc = loc_of(obj, ctx.key)
         if loc:
-            L = LOC_ENUM[loc]
+            L = loc
             if name == "canAccess":
                 a = args[0]
                 if a == ("var", "$items"):
@@ -579,10 +659,20 @@ def closure_c(node, ctx):
 
 # ---------------------------------------------------------------- walk initalize() of every class
 class Logic:
+    """What one region class's initalize() leaves set, layer by layer (parent::initalize() first). Every closure is
+    kept with the layer (class) that wrote it, since its local closures and names belong to that class."""
+
     def __init__(self, rc, key):
         self.rc, self.key = rc, key
-        self.locals, self.enter, self.complete = {}, None, None
-        self.req, self.fill, self.always, self.shop = {}, {}, {}, {}
+        self.locals = {}  # (layer cid, name) -> closure
+        self.enter = self.complete = None  # (closure, layer)
+        self.req, self.fill, self.always, self.shop = {}, {}, {}, {}  # enum -> (closure, layer) or ("complete", layer)
+        for layer, body in rc.layers:
+            self.layer = layer
+            self.walk(body)
+
+    def layer_locals(self, layer):
+        return {n for c, n in self.locals if c == layer.cid}
 
     def walk(self, stmts):
         for s in stmts:
@@ -597,7 +687,7 @@ class Logic:
         return n, calls[::-1]
 
     def stmt(self, s):
-        where = f"{self.rc.cid}"
+        where = f"{self.layer.cid}"
         if s[0] == "ret":
             return
         if s[0] == "if":
@@ -607,28 +697,37 @@ class Logic:
             self.walk(s[2])
             return
         if s[0] == "assign" and s[1][0] == "var" and s[2][0] == "closure":
-            self.locals[s[1][1][1:]] = s[2]
+            self.locals[(self.layer.cid, s[1][1][1:])] = s[2]
             return
         if s[0] == "assign" and s[1] == ("prop", ("var", "$this"), "can_enter"):
-            self.enter = s[2]
+            self.enter = (s[2], self.layer)
             return
         if s[0] == "assign" and s[1] == ("prop", ("var", "$this"), "can_complete"):
-            self.complete = s[2]
+            self.complete = (s[2], self.layer)
             return
         if s[0] == "expr":
             tgt, calls = self.chain(s[1])
             if tgt[0] == "idx" and tgt[1] == ("prop", ("var", "$this"), "shops") and [c[0] for c in calls] == ["setRequirements"]:
-                self.shop[tgt[2][1]] = calls[0][1]
+                self.shop[SHOP_ENUM[tgt[2][1]]] = (calls[0][1], self.layer)
                 return
             if tgt == ("prop", ("var", "$this"), "prize_location"):
                 name = self.rc.prize
+            elif tgt[0] == "idx" and tgt[2][0] == "str":
+                name = tgt[2][1]
             else:
-                name = loc_of(tgt, None) if tgt[0] == "idx" else None
+                name = None
             if name and calls:
+                if (self.key, name) not in LOC_AT:
+                    if name not in self.rc.removed:
+                        errors.append(f"{where}: {name} is not in {self.key}")
+                    return   # a location the constructor took out keeps its closures, unread
+                loc = LOC_AT[(self.key, name)]
                 for meth, arg in calls:
                     if arg == ("prop", ("var", "$this"), "can_complete"):
-                        arg = ("complete",)
-                    {"setRequirements": self.req, "setFillRules": self.fill, "setAlwaysAllow": self.always}[meth][name] = arg
+                        val = ("complete", self.complete[1] if self.complete else None)
+                    else:
+                        val = (arg, self.layer)
+                    {"setRequirements": self.req, "setFillRules": self.fill, "setAlwaysAllow": self.always}[meth][loc] = val
                 return
         errors.append(f"{where}: statement not understood: {str(s)[:100]}")
 
@@ -638,9 +737,7 @@ for s in STATES:
     for k in REGION_KEYS:
         c = CLASS_OF[s][k]
         if c not in LOGIC:
-            lg = Logic(CLASSES[c], k)
-            lg.walk(CLASSES[c].init or [])
-            LOGIC[c] = lg
+            LOGIC[c] = Logic(CLASSES[c], k)
 
 
 # ---------------------------------------------------------------- emit
@@ -665,7 +762,7 @@ enum("items", [f"Z3_ITEM_{n}" for n, _, _ in ITEMS], [f"Z3_ITEM_COUNT = {len(ITE
 enum("item classes", [f"Z3_IC_{c}" for c in ITEM_CLASSES], [f"Z3_IC_COUNT = {len(ITEM_CLASSES)}"])
 enum("bosses", [f"Z3_BOSS_{c_ident(n)}" for n, _ in BOSSES], [f"Z3_BOSS_COUNT = {len(BOSSES)}", "Z3_BOSS_NONE = 0xFF"])
 enum("regions", [f"Z3_REG_{c_ident(k)}" for k in REGION_KEYS], [f"Z3_REG_COUNT = {len(REGION_KEYS)}"])
-enum("locations", [LOC_ENUM[l[0]] for l in LOCS], [f"Z3_LOC_COUNT = {len(LOCS)}"])
+enum("locations", LOC_ENUM_I, [f"Z3_LOC_COUNT = {len(LOCS)}"])
 enum("shops", [SHOP_ENUM[n] for n, _ in SHOPS], [f"Z3_SHOP_COUNT = {len(SHOPS)}"])
 H += ["typedef struct { const char *name; int cls, byte; } Z3ItemDef;",
       "typedef struct { const char *name, *kind; int region; int32_t addr; } Z3LocDef;",
@@ -679,7 +776,7 @@ for n, c, b in ITEMS:
     C.append(f'    {{ "{n}", Z3_IC_{c}, {b} }},')
 C.append("};\n")
 C.append("const Z3LocDef Z3_LOCS[Z3_LOC_COUNT] = {")
-for name, kind, addr, k, _ in LOCS:
+for name, kind, addr, k, _, _ in LOCS:
     C.append(f'    {{ "{name}", "{kind}", Z3_REG_{c_ident(k)}, {addr if addr < 0 else hex(addr)} }},')
 C.append("};\n")
 C.append("const Z3RegionDef Z3_REGIONS[Z3_REG_COUNT] = {")
@@ -696,39 +793,68 @@ C.append("const char *const Z3_BOSS_NAMES[Z3_BOSS_COUNT] = {" + ", ".join(f'"{n}
 
 # closures first, so the config keys are known before the struct is written
 body = []
+emitted = set()  # static functions already written (a parent layer's closures serve every subclass)
+
+
+def emit_fn(fname, node, ctx):
+    if fname in emitted:
+        return
+    emitted.add(fname)
+    body.append(f"static bool {fname}(const Z3World *w, const Z3Items *it)\n{{\n    (void)w; (void)it;")
+    body.extend(closure_c(node, ctx) + ["}", ""])
+
+
 for c, lg in LOGIC.items():
     rc, key = lg.rc, lg.key
-    for name, node in lg.locals.items():
-        ctx = Ctx(rc, key, f"{rc.cid}.${name}", "req", lg.locals)
-        body.append(f"static bool {rc.cid}_{name}(const Z3World *w, const Z3Items *it)\n{{\n    (void)w; (void)it;")
-        body += closure_c(node, ctx) + ["}", ""]
-    for what, node in (("enter", lg.enter), ("complete", lg.complete)):
-        if node is None:
-            continue
-        ctx = Ctx(rc, key, f"{rc.cid}.can_{what}", "req", lg.locals)
-        body.append(f"static bool {what}_{rc.cid}(const Z3World *w, const Z3Items *it)\n{{\n    (void)w; (void)it;")
-        body += closure_c(node, ctx) + ["}", ""]
+    for (lcid, name), node in lg.locals.items():
+        layer = CLASSES.get(lcid) or next(l for l, _ in rc.layers if l.cid == lcid)
+        emit_fn(f"{lcid}_{name}", node, Ctx(layer, key, f"{lcid}.${name}", "req", lg.layer_locals(layer)))
+    for what in ("enter", "complete"):
+        v = getattr(lg, what)
+        if v is not None:
+            emit_fn(f"{what}_{v[1].cid}", v[0], Ctx(v[1], key, f"{v[1].cid}.can_{what}", "req", lg.layer_locals(v[1])))
     for what, table, sig, dflt in (("shop", lg.shop, "int shop", "1"), ("req", lg.req, "int loc", "1"), ("fill", lg.fill, "int loc, int item", "1"),
                                    ("always", lg.always, "int loc, int item", "0")):
         if not table:
             continue
         body.append(f"static bool {what}_{rc.cid}(const Z3World *w, const Z3Items *it, {sig})\n{{")
         body.append("    (void)w; (void)it;" + (" (void)item;" if "item" in sig else ""))
-        E = SHOP_ENUM if what == "shop" else LOC_ENUM
         body.append(f"    switch ({sig.split()[1].rstrip(',')}) {{")
-        for loc, node in table.items():
-            if node == ("complete",):
-                body.append(f"    case {E[loc]}: return z3_region_complete(w, it, Z3_REG_{c_ident(key)});")
+        for loc, (node, layer) in table.items():
+            if node == "complete":
+                if lg.complete and layer is lg.complete[1]:
+                    body.append(f"    case {loc}: return z3_region_complete(w, it, Z3_REG_{c_ident(key)});")
+                elif layer is None:
+                    body.append(f"    case {loc}: return 1;")
+                else:   # setRequirements($this->can_complete) took the closure a later layer replaced
+                    body.append(f"    case {loc}: return complete_{layer.cid}(w, it);")
                 continue
-            ctx = Ctx(rc, key, f"{rc.cid}[{loc}].{what}", what, lg.locals)
+            ctx = Ctx(layer, key, f"{layer.cid}[{loc}].{what}", what, lg.layer_locals(layer))
             lines = closure_c(node, ctx)
             if len(lines) == 1 and lines[0].startswith("    return "):
-                body.append(f"    case {E[loc]}: {lines[0].strip()}")
+                body.append(f"    case {loc}: {lines[0].strip()}")
             else:
-                body.append(f"    case {E[loc]}: {{")
+                body.append(f"    case {loc}: {{")
                 body += ["    " + x for x in lines]
                 body.append("    }")
         body.append(f"    default: return {dflt};\n    }}\n}}\n")
+
+# region methods the closures called; each may call more, and C wants them declared first
+done, protos, mbody = set(), [], []
+while set(METHODS_USED) - done:
+    for fname in sorted(set(METHODS_USED) - done):
+        done.add(fname)
+        dcls, params, stmts, key, obj = METHODS_USED[fname]
+        sig = "const Z3World *w, const Z3Items *it" + "".join(f", int {x}" for x in params)
+        protos.append(f"static int {fname}({sig});")
+        ctx = Ctx(dcls, key, f"{dcls.cid}::{fname}", "req", (), obj, params)
+        try:
+            lines = body_c(stmts, ctx)
+        except (ValueError, KeyError, IndexError, TypeError) as e:
+            errors.append(f"{ctx.where}: {e}")
+            lines = ["    return 0; /* TODO */"]
+        mbody += [f"static int {fname}({sig})\n{{\n    (void)w; (void)it;"] + lines + ["}", ""]
+body[:0] = protos + [""] + mbody
 
 # bosses
 body.append("bool z3_boss_beat(const Z3World *w, const Z3Items *it, int boss)\n{\n    switch (boss) {")
@@ -739,21 +865,36 @@ for n, node in BOSSES:
 body.append("    default: return false;\n    }\n}\n")
 
 
+def state_test(states):
+    vals = [v for st in states for v in STATE_VALUES[st]]
+    rest = [v for v in ENUMS["mode.state"] if v not in vals]
+    if len(rest) == 1:
+        return f"w->cfg.mode_state != {cfg_enum('mode.state', rest[0])}"
+    return " || ".join(f"w->cfg.mode_state == {cfg_enum('mode.state', v)}" for v in vals)
+
+
 def dispatch(fn, what, sig, call, dflt):
     out = [f"bool {fn}(const Z3World *w, const Z3Items *it, {sig})\n{{"]
     out.append("    (void)w; (void)it;" + (" (void)item;" if "item" in sig else ""))
+    out.append(f"    if (w->cfg.logic == {cfg_enum('logic', 'NoLogic')}) return {dflt};   /* World::__construct skips initalize() */")
     out.append(f"    switch ({'Z3_LOCS[loc].region' if 'loc' in sig else 'Z3_SHOPS[shop].region' if 'shop' in sig else 'reg'}) {{")
     for k in REGION_KEYS:
-        cls = {s: CLASS_OF[s][k] for s in STATES}
-        has = {s: (getattr(LOGIC[c], what) if what in ("enter", "complete") else bool(getattr(LOGIC[c], what))) for s, c in cls.items()}
-        target = {s: (f"{what}_{CLASSES[c].cid}({call})" if has[s] else dflt) for s, c in cls.items()}
+        target = {}
+        for s in STATES:
+            lg = LOGIC[CLASS_OF[s][k]]
+            if what in ("enter", "complete"):
+                v = getattr(lg, what)
+                target[s] = f"{what}_{v[1].cid}({call})" if v else dflt
+            else:
+                target[s] = f"{what}_{lg.rc.cid}({call})" if getattr(lg, what) else dflt
         if len(set(target.values())) == 1:
             if target[STATES[0]] != dflt:
                 out.append(f"    case Z3_REG_{c_ident(k)}: return {target[STATES[0]]};")
         else:
             expr = target[STATES[0]]
             for s in STATES[1:]:
-                expr = f"w->cfg.mode_state == {cfg_enum('mode.state', s)} ? {target[s]} : {expr}"
+                if target[s] != target[STATES[0]]:
+                    expr = f"({state_test([s])}) ? {target[s]} : {expr}"
             out.append(f"    case Z3_REG_{c_ident(k)}: return {expr};")
     out.append(f"    default: return {dflt};\n    }}\n}}\n")
     return out
@@ -776,9 +917,15 @@ body.append("    default: return false;\n    }\n}\n")
 body.append("void z3_world_defaults(Z3World *w)\n{")
 body.append("    for (int i = 0; i < Z3_LOC_COUNT; i++) w->item_at[i] = Z3_ITEM_NONE;")
 for k in REGION_KEYS:
+    pre = {}
+    for st in STATES:
+        for loc, item in CLASSES[CLASS_OF[st][k]].prefill.items():
+            pre.setdefault((LOC_AT[(k, loc)], item), set()).add(st)
+    for (L, item), sts in pre.items():
+        cond = "" if len(sts) == len(STATES) else f"if ({state_test(sorted(sts))}) "
+        body.append(f"    {cond}w->item_at[{L}] = Z3_ITEM_{item};")
     rc = CLASSES[CLASS_OF["open"][k]]
-    for loc, item in rc.prefill.items():
-        body.append(f"    w->item_at[{LOC_ENUM[loc]}] = Z3_ITEM_{item};")
+    assert all(CLASSES[CLASS_OF[st][k]].bosses == rc.bosses for st in STATES)
     b = rc.bosses.get("boss")
     body.append(f"    w->boss_of[Z3_REG_{c_ident(k)}] = {'Z3_BOSS_' + c_ident(b) if b else 'Z3_BOSS_NONE'};")
     for i, lvl in enumerate(("boss_top", "boss_middle", "boss_bottom")):
@@ -786,11 +933,31 @@ for k in REGION_KEYS:
             body.append(f"    w->gt_boss[{i}] = Z3_BOSS_{c_ident(rc.bosses[lvl])};")
 body.append("}\n")
 body.append("bool z3_loc_exists(const Z3World *w, int loc)\n{\n    (void)w;\n    switch (loc) {")
-for name, _, _, _, ex in LOCS:
+for i, (name, _, _, _, ex, _) in enumerate(LOCS):
+    conds = []
+    if len(LOC_STATES[i]) != len(STATES):
+        conds.append(f"({state_test(sorted(LOC_STATES[i]))})")
     if ex:
         note_cfg(ex, None, name)
-        body.append(f"    case {LOC_ENUM[name]}: return w->cfg.{cfg_field(ex)};")
+        conds.append(f"w->cfg.{cfg_field(ex)}")
+    if conds:
+        body.append(f"    case {LOC_ENUM_I[i]}: return {' && '.join(conds)};")
 body.append("    default: return true;\n    }\n}\n")
+body.append("bool z3_shop_exists(const Z3World *w, int shop)\n{\n    (void)w;\n    switch (shop) {")
+for n, _ in SHOPS:
+    if len(SHOP_STATES[n]) != len(STATES):
+        body.append(f"    case {SHOP_ENUM[n]}: return {state_test(sorted(SHOP_STATES[n]))};")
+body.append("    default: return true;\n    }\n}\n")
+body.append("int z3_loc_named(const Z3World *w, int loc)\n{\n    switch (loc) {")
+for n in sorted(MOVED):
+    ids = [i for i, l in enumerate(LOCS) if l[0] == n]
+    expr = LOC_ENUM_I[ids[0]]
+    for i in ids[1:]:
+        expr = f"z3_loc_exists(w, {LOC_ENUM_I[i]}) ? {LOC_ENUM_I[i]} : {expr}"
+    for i in ids:
+        body.append(f"    case {LOC_ENUM_I[i]}:")
+    body.append(f"        return z3_loc_exists(w, {LOC_ENUM_I[ids[0]]}) ? {LOC_ENUM_I[ids[0]]} : {expr};")
+body.append("    default: return loc;\n    }\n}\n")
 
 # config struct, defaults and logic presets (config/logic.php)
 for key in sorted(CFG):
@@ -828,6 +995,8 @@ H += ["void z3_cfg_defaults(Z3Cfg *c);", "void z3_cfg_logic(Z3Cfg *c);", "void z
       "bool z3_loc_fill(const Z3World *w, const Z3Items *it, int loc, int item);",
       "bool z3_loc_always(const Z3World *w, const Z3Items *it, int loc, int item);",
       "bool z3_loc_exists(const Z3World *w, int loc);",
+      "/* World::getLocation(name) for a location Inverted moves: the copy this world has. Others come back as given. */",
+      "int z3_loc_named(const Z3World *w, int loc);", "bool z3_shop_exists(const Z3World *w, int shop);",
       "bool z3_shop_req(const Z3World *w, const Z3Items *it, int shop);",
       "bool z3_boss_beat(const Z3World *w, const Z3Items *it, int boss);",
       "bool z3_region_item(int reg, int item);", "", "#endif"]

@@ -3,6 +3,7 @@
 // Verbs mirror tools/gen-cli; everything a C test compares is printed by name (items, locations, regions, bosses).
 //   php z3oracle.php schema <out.json>
 //   php z3oracle.php vectors <count> <seed> <out.txt>          ItemCollection helpers and Boss::canBeat on random inventories
+//                                                             (Z3_PROFILE=next: draw the step 8 options too)
 //   php z3oracle.php worldvectors <count> <seed> <out.txt>     Location::canAccess, Region::canEnter/canComplete per case
 //   php z3oracle.php placementbatch <cases.jsonl> <out.txt>    one {"seed":n, ...settings} per line, full Randomizer run
 //   php z3oracle.php checkplacement <cases.jsonl> <out.txt>    {"settings":{..},"placement":{loc:item}}: winnable + reachable
@@ -72,7 +73,7 @@ function make_world(array $s): World
         'logic' => $logic,
         'item.pool' => $s['item_pool'] ?? 'normal',
         'item.functionality' => $s['item_functionality'] ?? 'normal',
-        'enemizer.bossShuffle' => 'none',
+        'enemizer.bossShuffle' => $s['boss_shuffle'] ?? 'none',
         'enemizer.enemyShuffle' => 'none',
         'enemizer.enemyDamage' => 'default',
         'enemizer.enemyHealth' => 'default',
@@ -118,9 +119,27 @@ function items_line(ItemCollection $items): string
     return 'items' . implode('', array_map(fn ($n, $c) => " $n:$c", array_keys($counts), $counts));
 }
 
+// The first release's settings; with $GLOBALS['Z3_PROFILE'] = 'next' also Inverted and Retro, the hunt goals,
+// glitched logic and boss shuffle (step 8). Draws stay the same for the first release's profile.
 function random_settings(): array
 {
     $pick = fn (array $a) => $a[mt_rand(0, count($a) - 1)];
+    if (($GLOBALS['Z3_PROFILE'] ?? '') === 'next') {
+        return [
+            'mode' => $pick(['open', 'standard', 'inverted', 'retro']),
+            'item_placement' => $pick(['basic', 'advanced']),
+            'dungeon_items' => $pick(['standard', 'mc', 'mcs', 'full']),
+            'accessibility' => $pick(['items', 'locations', 'none']),
+            'goal' => $pick(['ganon', 'fast_ganon', 'dungeons', 'pedestal', 'triforce-hunt', 'ganonhunt', 'completionist']),
+            'crystals_ganon' => (string) mt_rand(0, 7),
+            'crystals_tower' => (string) mt_rand(0, 7),
+            'weapons' => $pick(['randomized', 'assured', 'vanilla', 'swordless']),
+            'item_pool' => $pick(['normal', 'hard', 'expert']),
+            'item_functionality' => $pick(['normal', 'hard', 'expert']),
+            'glitches' => $pick(['none', 'none', 'overworld_glitches', 'major_glitches', 'no_logic']),
+            'boss_shuffle' => $pick(['none', 'none', 'simple', 'full', 'random']),
+        ];
+    }
     return [
         'mode' => $pick(['open', 'standard']),
         'item_placement' => $pick(['basic', 'advanced']),
@@ -242,6 +261,9 @@ function placement_text(World $w): string
     }
     foreach ($w->getRegions() as $key => $region) {
         $out .= "boss\t$key\t" . ($region->getBoss('top') ? $region->getBoss('top')->getName() : '-') . "\n";
+    }
+    foreach (['top', 'middle', 'bottom'] as $level) {
+        $out .= "gtboss\t$level\t" . $w->getRegion('Ganons Tower')->getBoss($level)->getName() . "\n";
     }
     return $out;
 }
@@ -448,6 +470,7 @@ function cmd_schema(string $path): void
 }
 
 $a = array_slice($argv, 1);
+$GLOBALS['Z3_PROFILE'] = getenv('Z3_PROFILE') ?: '';
 switch ($a[0] ?? '') {
     case 'schema': cmd_schema(wp($a[1])); break;
     case 'textdata': cmd_textdata(wp($a[1])); break;

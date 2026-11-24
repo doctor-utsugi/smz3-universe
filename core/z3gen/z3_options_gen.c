@@ -4,12 +4,17 @@
 static const Z3OptValue z3_opt_world_state_values[] = {
     { "standard", "Standard" },
     { "open", "Open" },
+    { "inverted", "Inverted" },
+    { "retro", "Retro" },
 };
 static const Z3OptValue z3_opt_goals_values[] = {
     { "ganon", "Defeat Ganon" },
     { "fast_ganon", "Fast Ganon" },
     { "dungeons", "All Dungeons" },
     { "pedestal", "Master Sword Pedestal" },
+    { "triforce-hunt", "Triforce Pieces" },
+    { "ganonhunt", "Ganonhunt" },
+    { "completionist", "Completionist" },
 };
 static const Z3OptValue z3_opt_tower_open_values[] = {
     { "0", "none" },
@@ -68,6 +73,13 @@ static const Z3OptValue z3_opt_hints_values[] = {
     { "on", "On" },
     { "off", "Off" },
 };
+static const Z3OptValue z3_opt_glitches_required_values[] = {
+    { "none", "None" },
+    { "overworld_glitches", "Overworld Glitches" },
+    { "hybrid_major_glitches", "Hybrid Major Glitches" },
+    { "major_glitches", "Major Glitches" },
+    { "no_logic", "No Logic" },
+};
 static const Z3OptValue z3_opt_heart_beep_values[] = {
     { "off", "Off" },
     { "double", "Double" },
@@ -83,8 +95,8 @@ static const Z3OptValue z3_opt_menu_speed_values[] = {
 };
 
 const Z3Option Z3_OPTIONS[] = {
-    { "world_state", "World State", "dropdown", z3_opt_world_state_values, 2, "open" },
-    { "goals", "Goal", "dropdown", z3_opt_goals_values, 4, "ganon" },
+    { "world_state", "World State", "dropdown", z3_opt_world_state_values, 4, "open" },
+    { "goals", "Goal", "dropdown", z3_opt_goals_values, 7, "ganon" },
     { "tower_open", "Open Tower", "dropdown", z3_opt_tower_open_values, 9, "7" },
     { "ganon_open", "Ganon Vulnerable", "dropdown", z3_opt_ganon_open_values, 9, "7" },
     { "dungeon_items", "Dungeon Items", "dropdown", z3_opt_dungeon_items_values, 4, "standard" },
@@ -94,9 +106,10 @@ const Z3Option Z3_OPTIONS[] = {
     { "item_pool", "Item Pool", "dropdown", z3_opt_item_pool_values, 3, "normal" },
     { "item_functionality", "Item Functionality", "dropdown", z3_opt_item_functionality_values, 3, "normal" },
     { "hints", "Hints", "dropdown", z3_opt_hints_values, 2, "on" },
+    { "glitches_required", "Glitches Required", "dropdown", z3_opt_glitches_required_values, 5, "none" },
     { "tournament", "Tournament (no spoiler)", "checkbox", 0, 0, "false" },
     { "heart_beep", "Heart Beep", "dropdown", z3_opt_heart_beep_values, 5, "normal" },
     { "menu_speed", "Menu Speed", "dropdown", z3_opt_menu_speed_values, 4, "normal" },
     { "quickswap", "Item Quickswap", "checkbox", 0, 0, "true" },
 };
-const int Z3_OPTION_COUNT = 15;
+const int Z3_OPTION_COUNT = 16;

@@ -2,6 +2,7 @@
 #ifndef Z3_ROMDATA_GEN_H
 #define Z3_ROMDATA_GEN_H
 
+#include <stdbool.h>
 #include "z3_world_gen.h"
 
 /* Location::$address: addr[k] for key k (-1 = null), ext[] the medallion 't0'..'t2' or 'm0'..'m2' addresses. */
@@ -29,5 +30,14 @@ extern const Z3PoolEntry Z3_POOL_NICE[Z3_POOL_NICE_LEN];
 extern const Z3PoolEntry Z3_POOL_JUNK[Z3_POOL_JUNK_LEN];
 #define Z3_POOL_DUNGEON_LEN 52
 extern const Z3PoolEntry Z3_POOL_DUNGEON[Z3_POOL_DUNGEON_LEN];
+
+/* Rom::setInvertedMode: its writes in call order (Z3_INV_DATA[off .. off + n)) and the texts it sets. */
+typedef struct { int32_t addr; uint16_t off, n; } Z3RomWrite;
+#define Z3_INV_WRITES_LEN 192
+extern const Z3RomWrite Z3_INV_WRITES[Z3_INV_WRITES_LEN];
+extern const uint8_t Z3_INV_DATA[];
+typedef struct { int key; const char *s; bool pause; } Z3RomText;
+#define Z3_INV_TEXTS_LEN 11
+extern const Z3RomText Z3_INV_TEXTS[Z3_INV_TEXTS_LEN];
 
 #endif

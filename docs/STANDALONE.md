@@ -324,6 +324,9 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 6. **Z3 generator** for the first-release options (stages 3-6).
 7. **Z3 on the hosts** and **Z3 online**, as steps 3 and 4.
 8. **Z3 next options**, then glitched logic.
+   Generator done (`core/z3gen`, see Z3.md): Inverted, Retro, Triforce Hunt, Ganonhunt, Completionist and the five
+   logics, byte-identical to alttpr; offered in `Z3_OPTIONS`, not yet on the hosts. Boss shuffle places bosses but
+   waits for the Enemizer (step 9) to write them; the customizer is not started.
 9. **Map Rando** on every host but the old 3DS; then the Enemizer boss shuffle.
 10. **Map Rando on the old 3DS**, after everything else; the server and BPS patch only if it cannot fit.
 

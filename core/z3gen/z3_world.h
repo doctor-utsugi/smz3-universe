@@ -17,6 +17,7 @@ typedef struct {
     uint8_t max[3];
     uint16_t price[3];
     bool active;
+    uint8_t keeper;                  /* Shop::$shopkeeper (setShopkeeper('old_man') for the take-any caves) */
 } Z3ShopState;
 
 /* World::$collected_locations: what collectItems/collectOtherItems already swept since the last reset. */

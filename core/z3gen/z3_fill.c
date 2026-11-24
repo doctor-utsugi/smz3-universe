@@ -67,6 +67,13 @@ static void pool(const Z3World *w, Z3Rng *r, const Z3PoolEntry *e, int n, List *
         int count = e[i].count;
         if (e[i].item == Z3_ITEM_TriforcePiece && w->cfg.goal == Z3_GOAL_TRIFORCE_HUNT) count = 30;
         if (e[i].item == Z3_ITEM_TriforcePiece && w->cfg.goal == Z3_GOAL_GANONHUNT) count = 50;
+        if (w->cfg.mode_state == Z3_MODE_STATE_RETRO) {   /* World\Retro's item.count overrides */
+            bool harder = w->cfg.item_pool == Z3_ITEM_POOL_HARD || w->cfg.item_pool == Z3_ITEM_POOL_EXPERT;
+            bool any = harder || w->cfg.item_pool == Z3_ITEM_POOL_NORMAL || w->cfg.item_pool == Z3_ITEM_POOL_CROWD_CONTROL;
+            if (any && (e[i].item == Z3_ITEM_KeyD1 || e[i].item == Z3_ITEM_KeyA2)) count = 0;
+            if (harder && (e[i].item == Z3_ITEM_KeyD7 || e[i].item == Z3_ITEM_KeyD2)) count = 0;
+            if (any && e[i].item == Z3_ITEM_TwentyRupees2) count = harder ? 15 : 10;
+        }
         for (int k = 0; k < count && k < 216; k++)
             push(out, e[i].item == Z3_ITEM_NONE ? z3_get_bottle(w, r, false) : e[i].item);
     }
@@ -86,25 +93,147 @@ void z3_seed_init(Z3Seed *s, const Z3Cfg *cfg)
     z3_items_add(&s->w.pre, Z3_ITEM_ArrowUpgrade10, 3);
 }
 
-/* Randomizer::setShops without retro, generic keys and take-anys (which return before the rest). */
-static void set_shops(Z3World *w)
+static void shop_put(Z3ShopState *sh, int slot, int item, int price, int max)   /* Shop::addInventory */
 {
+    sh->item[slot] = (uint8_t)item;
+    sh->price[slot] = (uint16_t)price;
+    sh->max[slot] = (uint8_t)max;
+}
+
+/* Randomizer::setShops. A slot array keeps PHP's inventory order: every shop's slots are filled from 0 up. */
+static void set_shops(Z3World *w, Z3Rng *r)
+{
+    const Z3Cfg *c = &w->cfg;
     for (int i = 0; i < Z3_SHOP_COUNT; i++)
-        if (Z3_SHOP_ROM[i].kind != Z3_SHOP_KIND_TAKEANY) w->shop[i].active = true;
-    int pool = w->cfg.item_pool;
-    if (pool == Z3_ITEM_POOL_HARD || pool == Z3_ITEM_POOL_EXPERT || pool == Z3_ITEM_POOL_SUPEREXPERT)   /* shops.HardMode */
-        memset(w->shop[Z3_SHOP_Capacity_Upgrade].item, Z3_ITEM_NONE, 3);
+        if (Z3_SHOP_ROM[i].kind != Z3_SHOP_KIND_TAKEANY && z3_shop_exists(w, i)) w->shop[i].active = true;
+    int pool = c->item_pool;
+    bool hard = pool == Z3_ITEM_POOL_HARD || pool == Z3_ITEM_POOL_EXPERT || pool == Z3_ITEM_POOL_SUPEREXPERT;   /* shops.HardMode */
+    if (hard) memset(w->shop[Z3_SHOP_Capacity_Upgrade].item, Z3_ITEM_NONE, 3);
     static const uint8_t dw[] = { Z3_SHOP_Dark_World_Potion_Shop, Z3_SHOP_Dark_World_Lumberjack_Hut_Shop,
                                   Z3_SHOP_Dark_World_Outcasts_Shop, Z3_SHOP_Dark_World_Lake_Hylia_Shop };
-    if (w->cfg.item_overflow_count_Shield < 2) {
-        Z3ShopState *f = &w->shop[Z3_SHOP_Dark_World_Forest_Shop];
-        f->item[0] = Z3_ITEM_TwentyRupees2, f->price[0] = 500, f->max[0] = 0;
-    }
-    if (w->cfg.item_overflow_count_Shield < 1)
-        for (int i = 0; i < 4; i++) {
-            Z3ShopState *f = &w->shop[dw[i]];
-            f->item[1] = Z3_ITEM_TwentyRupees2, f->price[1] = 50, f->max[1] = 0;
+    if (c->item_overflow_count_Shield < 2) shop_put(&w->shop[Z3_SHOP_Dark_World_Forest_Shop], 0, Z3_ITEM_TwentyRupees2, 500, 0);
+    if (c->item_overflow_count_Shield < 1)
+        for (int i = 0; i < 4; i++) shop_put(&w->shop[dw[i]], 1, Z3_ITEM_TwentyRupees2, 50, 0);
+    if (!c->rom_genericKeys && !c->rom_rupeeBow && !c->region_takeAnys) return;
+
+    List l = { .n = 0 }, pick;
+    if (c->region_takeAnys) {
+        for (int i = 0; i < Z3_SHOP_COUNT; i++)
+            if (Z3_SHOP_ROM[i].kind == Z3_SHOP_KIND_TAKEANY && z3_shop_exists(w, i)) push(&l, i);
+        random_collection(&l, 4, &pick, r);
+        for (int k = 0; k < pick.n; k++) {
+            Z3ShopState *sh = &w->shop[pick.v[k]];
+            sh->active = true;
+            sh->keeper = 0xE2;   /* old_man */
+            shop_put(sh, 0, Z3_ITEM_BluePotion, 0, 0);
+            shop_put(sh, 1, Z3_ITEM_BossHeartContainer, 0, 0);
         }
+        List idle = { .n = 0 };
+        for (int k = 0; k < l.n; k++)
+            if (!w->shop[l.v[k]].active) push(&idle, l.v[k]);
+        Z3ShopState *sh = &w->shop[idle.v[z3_rng_int(r, 0, idle.n - 1)]];   /* Collection::random */
+        sh->active = true;
+        sh->keeper = 0xE2;
+        bool no_sword = c->mode_weapons == Z3_MODE_WEAPONS_SWORDLESS || c->mode_weapons == Z3_MODE_WEAPONS_VANILLA;
+        shop_put(sh, 0, no_sword ? Z3_ITEM_ThreeHundredRupees : Z3_ITEM_ProgressiveSword, 0, 0);
+    }
+    l.n = 0;
+    for (int i = 0; i < Z3_SHOP_COUNT; i++)
+        if (Z3_SHOP_ROM[i].kind == Z3_SHOP_KIND_SHOP && z3_shop_exists(w, i)
+            && (c->mode_state != Z3_MODE_STATE_INVERTED || i != Z3_SHOP_Dark_World_Lake_Hylia_Shop))
+            push(&l, i);
+    random_collection(&l, 5, &pick, r);
+    for (int k = 0; k < pick.n; k++) {
+        Z3ShopState *sh = &w->shop[pick.v[k]];
+        sh->active = true;
+        if (c->rom_rupeeBow) shop_put(sh, 0, Z3_ITEM_ShopArrow, 80, 0);
+        if (c->rom_genericKeys) shop_put(sh, 1, Z3_ITEM_ShopKey, 100, 0);
+        shop_put(sh, 2, Z3_ITEM_TenBombs, 50, 0);
+    }
+    if (c->rom_rupeeBow) {
+        Z3ShopState *f = &w->shop[Z3_SHOP_Dark_World_Forest_Shop];
+        f->active = true;
+        for (int k = 0; k < 3; k++)
+            if (f->item[k] != Z3_ITEM_NONE && Z3_ITEMS[f->item[k]].cls == Z3_IC_Arrow) shop_put(f, k, Z3_ITEM_ShopArrow, 80, 0);
+        Z3ShopState *u = &w->shop[Z3_SHOP_Capacity_Upgrade];
+        memset(u->item, Z3_ITEM_NONE, 3);
+        if (!hard) shop_put(u, 0, Z3_ITEM_BombUpgrade5, 100, 7);
+    }
+}
+
+/* Region::canPlaceBoss with the Tower of Hera, Skull Woods and Ganon's Tower overrides; level -1 is '', 0..2 are
+   Ganon's Tower top, middle and bottom. */
+static bool can_place_boss(const Z3World *w, int reg, int level, int b)
+{
+    if (reg != Z3_REG_Ice_Palace && w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS && b == Z3_BOSS_Kholdstare) return false;
+    if (b == Z3_BOSS_Agahnim || b == Z3_BOSS_Agahnim2) return false;
+    bool top = reg == Z3_REG_Tower_of_Hera || (reg == Z3_REG_Ganons_Tower && level == 0);
+    if (top) return b != Z3_BOSS_Armos_Knights && b != Z3_BOSS_Arrghus && b != Z3_BOSS_Blind && b != Z3_BOSS_Lanmolas
+        && b != Z3_BOSS_Trinexx;
+    if (reg == Z3_REG_Ganons_Tower && level == 1) return b != Z3_BOSS_Blind;
+    if (reg == Z3_REG_Skull_Woods) return b != Z3_BOSS_Trinexx;
+    return true;
+}
+
+static void set_boss(Z3World *w, int reg, int level, int b)
+{
+    if (level < 0) w->boss_of[reg] = (uint8_t)b;
+    else w->gt_boss[level] = (uint8_t)b;
+}
+
+/* Randomizer::placeBosses (enemizer.bossShuffle); with none, z3_world_defaults already holds alttpr's bosses. */
+static void place_bosses(Z3World *w, Z3Rng *r)
+{
+    static const int8_t spots[13][2] = {   /* most restrictive first */
+        { Z3_REG_Ganons_Tower, 0 }, { Z3_REG_Ganons_Tower, 1 }, { Z3_REG_Tower_of_Hera, -1 }, { Z3_REG_Skull_Woods, -1 },
+        { Z3_REG_Eastern_Palace, -1 }, { Z3_REG_Desert_Palace, -1 }, { Z3_REG_Palace_of_Darkness, -1 },
+        { Z3_REG_Swamp_Palace, -1 }, { Z3_REG_Thieves_Town, -1 }, { Z3_REG_Ice_Palace, -1 }, { Z3_REG_Misery_Mire, -1 },
+        { Z3_REG_Turtle_Rock, -1 }, { Z3_REG_Ganons_Tower, 2 },
+    };
+    bool swordless = w->cfg.mode_weapons == Z3_MODE_WEAPONS_SWORDLESS;
+    int order[13], n = 0;
+    for (int i = 0; i < 13; i++)
+        if (!swordless || i != 9) order[n++] = i;   /* array_splice: Ice Palace keeps Kholdstare */
+    if (swordless) w->boss_of[Z3_REG_Ice_Palace] = Z3_BOSS_Kholdstare;
+    List placeable = { .n = 0 }, bosses, extra;
+    for (int b = 0; b < Z3_BOSS_COUNT; b++)
+        if (!(swordless && b == Z3_BOSS_Kholdstare) && b != Z3_BOSS_Agahnim && b != Z3_BOSS_Agahnim2) push(&placeable, b);
+    switch (w->cfg.enemizer_bossShuffle) {
+    case Z3_ENEMIZER_BOSSSHUFFLE_RANDOM:
+        for (int i = 0; i < n; i++) {
+            int reg = spots[order[i]][0], lvl = spots[order[i]][1], b;
+            do b = z3_rng_int(r, 0, Z3_BOSS_COUNT - 1);   /* Boss::all()->random() */
+            while (!can_place_boss(w, reg, lvl, b));
+            set_boss(w, reg, lvl, b);
+        }
+        break;
+    case Z3_ENEMIZER_BOSSSHUFFLE_FULL:     /* one of each and three more */
+    case Z3_ENEMIZER_BOSSSHUFFLE_SIMPLE:   /* one of each, the three that are in two places twice */
+        bosses = placeable;
+        if (w->cfg.enemizer_bossShuffle == Z3_ENEMIZER_BOSSSHUFFLE_FULL) {
+            random_collection(&placeable, 3, &extra, r);
+        } else {
+            extra.n = 0;
+            push(&extra, Z3_BOSS_Armos_Knights);
+            push(&extra, Z3_BOSS_Lanmolas);
+            push(&extra, Z3_BOSS_Moldorm);
+        }
+        append(&bosses, &extra);
+        shuffle(&bosses, r);
+        for (int i = 0; i < n; i++) {
+            int reg = spots[order[i]][0], lvl = spots[order[i]][1], b = bosses.v[0];
+            del(&bosses, 0);
+            while (!can_place_boss(w, reg, lvl, b)) {   /* to the back of the line */
+                push(&bosses, b);
+                b = bosses.v[0];
+                del(&bosses, 0);
+            }
+            set_boss(w, reg, lvl, b);
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 static void set_medallions(Z3World *w, Z3Rng *r)
@@ -197,7 +326,7 @@ static int fill_prizes(Z3Seed *s, Z3Rng *r, int attempts)
         Z3_ITEM_PendantOfWisdom };
     List prize_locs = { .n = 0 }, order, crystal = { .n = 0 }, pendant = { .n = 0 }, remaining = { .n = 0 };
     for (int l = 0; l < Z3_LOC_COUNT; l++)
-        if (strncmp(Z3_LOCS[l].kind, "Prize", 5) == 0) push(&prize_locs, l);   /* Prize\Event is a Prize too */
+        if (strncmp(Z3_LOCS[l].kind, "Prize", 5) == 0 && z3_loc_exists(&s->w, l)) push(&prize_locs, l);   /* Prize\Event is a Prize too */
     random_collection(&prize_locs, 15, &order, r);
     bool placed[Z3_ITEM_COUNT] = { false };
     for (int i = 0; i < order.n; i++) {
@@ -252,7 +381,7 @@ static int prepare_world(Z3Seed *s, Z3Rng *r, List *dungeon, List *adv, List *ni
     const Z3Cfg *c = &w->cfg;
     if (c->goal == Z3_GOAL_COMPLETIONIST) w->cfg.accessibility = Z3_ACCESSIBILITY_LOCATIONS;
     if (c->goal == Z3_GOAL_PEDESTAL) w->item_at[Z3_LOC_Master_Sword_Pedestal] = Z3_ITEM_Triforce;
-    else if (c->goal != Z3_GOAL_TRIFORCE_HUNT) w->item_at[Z3_LOC_Ganon] = Z3_ITEM_Triforce;
+    else if (c->goal != Z3_GOAL_TRIFORCE_HUNT) w->item_at[z3_loc_named(w, Z3_LOC_Ganon)] = Z3_ITEM_Triforce;
 
     POOL(w, r, DUNGEON, dungeon);
     POOL(w, r, ADVANCEMENT, adv);
@@ -270,9 +399,9 @@ static int prepare_world(Z3Seed *s, Z3Rng *r, List *dungeon, List *adv, List *ni
     }
     if (c->mode_state != Z3_MODE_STATE_STANDARD) z3_items_add(&w->pre, Z3_ITEM_RescueZelda, 1);
 
-    set_shops(w);
+    set_shops(w, r);
     set_medallions(w, r);
-    /* placeBosses with bossShuffle none: z3_world_defaults holds the dungeon bosses; it ends with these two. */
+    place_bosses(w, r);
     w->boss_of[Z3_REG_Hyrule_Castle_Tower] = Z3_BOSS_Agahnim;
     w->boss_of[Z3_REG_Ganons_Tower] = Z3_BOSS_Agahnim2;
     if (fill_prizes(s, r, 5)) return -1;
@@ -344,11 +473,24 @@ static int prepare_world(Z3Seed *s, Z3Rng *r, List *dungeon, List *adv, List *ni
         }
         if (swords.n) push(adv, pop(&swords));   /* the Master Sword */
         if (c->region_requireBetterSword && swords.n) push(adv, pop(&swords));
+        if (swords.n && c->region_takeAnys) {   /* the old man's cave gives one */
+            pop(&swords);
+            push(trash, Z3_ITEM_TwentyRupees);
+        }
         append(nice, &swords);
     }
     if (bottles.n) push(adv, pop(&bottles));
     append(nice, &bottles);
 
+    if (c->rom_rupeeBow) {   /* arrows become five rupees, appended after the rest */
+        int n = 0;
+        for (int i = 0; i < trash->n;) {
+            int ic = cls(trash->v[i]);
+            if (ic == Z3_IC_Arrow || ic == Z3_IC_Upgrade_Arrow) { del(trash, i); n++; }
+            else i++;
+        }
+        while (n--) push(trash, Z3_ITEM_FiveRupees);
+    }
     if (c->region_forceSkullWoodsKey)
         for (int i = 0; i < dungeon->n; i++)
             if (dungeon->v[i] == Z3_ITEM_KeyD3) {
