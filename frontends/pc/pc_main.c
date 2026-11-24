@@ -797,6 +797,7 @@ static int g_week_seed, g_week_ready, g_week_mode;
 /* the three ladder tables are fetched in the background when the player opens them */
 static char g_ladder[3][16384];
 static int g_ladder_state[3], g_ladder_mode[3];   /* 0 idle, 1 fetching, 2 ready, 3 failed; the game they were asked for */
+static char g_ladder_preset[32];                  /* the table tab 0 is asked for (ui_ladder_preset_key) */
 static char g_goals[8192];
 static int g_goals_state;   /* as g_ladder_state */
 static void *goals_thread(void *arg)
@@ -814,7 +815,9 @@ static void *ladder_thread(void *arg)
     (void)arg;
     for (int t = 0; t < 3; t++) {
         static char buf[16384];
-        int ok = online_ladder_json(t, buf, sizeof buf);
+        char preset[32];
+        snprintf(preset, sizeof preset, "%s", g_ladder_preset);
+        int ok = online_ladder_json(t, preset, buf, sizeof buf);
         if (ok) memcpy(g_ladder[t], buf, sizeof buf);
         g_ladder_mode[t] = store_get_mode();
         g_ladder_state[t] = ok ? 2 : 3;
@@ -3106,7 +3109,7 @@ static void window_main(int start_slot)
     race_paused_show();
     if (start_slot < 0) ui_home_open(&ui);   /* a run named on the command line skips the start menu */
     if (getenv("SMZ3_LADDER") || getenv("SMZ3_KEYS")) ui.screen = UI_SLOTS_SCREEN;   /* the test hooks below drive the run list */
-    if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows them from the start */
+    if (ren2) { snprintf(g_ladder_preset, sizeof g_ladder_preset, "%s", ui_ladder_preset_key(&ui)); for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows them from the start */
     if (getenv("SMZ3_LADDER")) ui_input(&ui, BTN_RIGHT);   /* test hook: open the online tables */
     if (getenv("SMZ3_SPRITES")) { ui.screen = UI_SPRITES; ui.sprite_game = atoi(getenv("SMZ3_SPRITES")); ui.sprite_cursor = 0; }   /* test hook: open a sprite picker */
     if (getenv("SMZ3_SETTINGS")) {   /* test hook: open the settings screen (main, pad or files) */
@@ -3146,7 +3149,7 @@ static void window_main(int start_slot)
                 static int asked[SMZ_MODE_COUNT];
                 if (ui.game_mode != SMZ_MODE_SMZ3 && !asked[ui.game_mode]) { asked[ui.game_mode] = 1; detach(monthly_thread, NULL); }   /* SMZ3's came at launch */
                 next_daily = 0;
-                if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows this game's tables */
+                if (ren2) { snprintf(g_ladder_preset, sizeof g_ladder_preset, "%s", ui_ladder_preset_key(&ui)); for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows this game's tables */
             }
             last_tick = now;
         }
@@ -3267,7 +3270,7 @@ static void window_main(int start_slot)
             UiAction act = ui.action;
             int slot = ui.action_slot;
             ui.action = ACT_NONE;
-            if (act == ACT_LADDER) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); if (!g_goals_state) { g_goals_state = 1; detach(goals_thread, NULL); } }
+            if (act == ACT_LADDER) { snprintf(g_ladder_preset, sizeof g_ladder_preset, "%s", ui_ladder_preset_key(&ui)); for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); if (!g_goals_state) { g_goals_state = 1; detach(goals_thread, NULL); } }
             else if (act == ACT_RACE_CREATE || act == ACT_RACE_JOIN) {
                 char who[256], f[384];
                 race_who(who, sizeof who);
@@ -3353,7 +3356,7 @@ static void window_main(int start_slot)
                         rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
                         j.run.created = j.run.last_played = (int64_t)time(NULL) * 1000;
                         if (store_write(j.run.rom_path, j.rom, smz_mode_rom_size(j.run.mode)) == 0 && store_run_save(slot + 1, &j.run) == 0) {
-                            online_mark_run(slot + 1, on, kind);
+                            online_mark_run(slot + 1, on, kind, ui_run_preset_key(&ui));
                             refill_slots();
                             pending_play = slot; pending_state_only = 0;
                         } else note("cannot write the run files");

@@ -18,14 +18,15 @@ void online_init(SmzUi *u);
 void online_save_profile(SmzUi *u);
 /* 0 offline, 1 original-rules ladder, 2 monthly seed, 3 weekly run. */
 int online_slot_kind(int slot);
-/* Records what the menu answered for the run just generated. */
-void online_mark_run(int slot, int online, int kind);   /* kind as online_slot_kind (1 when online is set and nothing else applies) */
+/* Records what the menu answered for the run just generated; preset is its race preset's key (ui_run_preset_key), "" for Original. */
+void online_mark_run(int slot, int online, int kind, const char *preset);   /* kind as online_slot_kind (1 when online is set and nothing else applies) */
 /* This month's label and seed (fetched, or the copy of the same month); 0 on none. Blocks up to a few seconds. */
 int online_monthly(char label[16], int *seed);
 int online_days_left(void);
 int online_weekly(char label[16], int *seed);
-/* The server's answer for one ladder table (tab 0 original, 1 monthly, 2 weekly): 1 with the JSON in out, 0 when it failed. */
-int online_ladder_json(int tab, char *out, size_t cap);
+/* The server's answer for one ladder table (tab 0 original, or the race preset's table when preset is not "", 1 monthly, 2 weekly):
+ * 1 with the JSON in out, 0 when it failed. */
+int online_ladder_json(int tab, const char *preset, char *out, size_t cap);
 /* The world goals of the month (/api/goals for this install). */
 int online_goals_json(char *out, size_t cap);
 /* Sends a run's world goal counters (smz_counters_text); the run is told apart by its slot and when it was made. Blocks. */

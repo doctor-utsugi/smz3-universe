@@ -194,8 +194,10 @@ int online_slot_kind(int slot)
     return k;
 }
 
-void online_mark_run(int slot, int online, int kind)
+void online_mark_run(int slot, int online, int kind, const char *preset)
 {
+    remove(store_path("runs/slot%d.preset", slot));
+    if (online && kind == 1 && preset && *preset) store_write(store_path("runs/slot%d.preset", slot), preset, strlen(preset));
     remove(store_path("runs/slot%d.token", slot));
     remove(store_path("runs/slot%d.finish", slot));
     remove(store_path("runs/slot%d.proof", slot));
@@ -258,21 +260,23 @@ int online_ensure_token(int slot)
     if (!kind) return 1;
     if (access(store_path("runs/slot%d.token", slot), F_OK) == 0) { free(kind); return 1; }
     kind[strcspn(kind, "\r\n ")] = 0;
-    char id[48], req[200], reply[1024], token[512];
+    char id[48], req[240], reply[1024], token[512], preset[40] = "";
     install_id(id);
-    snprintf(req, sizeof req, "{\"install\":\"%s\",\"kind\":\"%s\"%s}", id, kind, game_field());
+    char *pt = read_text(store_path("runs/slot%d.preset", slot));   /* a race preset's table, none for Original */
+    if (pt) { pt[strcspn(pt, "\r\n \"\\")] = 0; snprintf(preset, sizeof preset, ",\"preset\":\"%.24s\"", pt); free(pt); }
+    snprintf(req, sizeof req, "{\"install\":\"%s\",\"kind\":\"%s\"%s%s}", id, kind, game_field(), preset);
     free(kind);
     if (http("POST", "/api/start", req, reply, sizeof reply) != 200 || !json_str(reply, "token", token, sizeof token)) return 0;
     store_write(store_path("runs/slot%d.token", slot), token, strlen(token));
     return 1;
 }
 
-int online_ladder_json(int tab, char *out, size_t cap)
+int online_ladder_json(int tab, const char *preset, char *out, size_t cap)
 {
     static const char *const PATH[3] = {"/api/ladder?kind=original", "/api/ladder?kind=monthly", "/api/ladder?kind=weekly"};
-    char path[80];
+    char path[120];
     if (tab < 0 || tab > 2) return 0;
-    snprintf(path, sizeof path, "%s%s", PATH[tab], game_query('&'));
+    snprintf(path, sizeof path, "%s%s%s%.24s", PATH[tab], game_query('&'), tab == 0 && preset && *preset ? "&preset=" : "", tab == 0 && preset ? preset : "");
     return http("GET", path, NULL, out, cap) == 200;
 }
 
