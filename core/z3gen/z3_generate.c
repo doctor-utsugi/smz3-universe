@@ -20,9 +20,10 @@ void z3_settings_default(Z3GenSettings *s)
 int z3_option_set(Z3GenSettings *s, const char *key, const char *value)
 {
     bool yes = strcmp(value, "true") == 0;
-    if (strcmp(key, "tournament") == 0 || strcmp(key, "quickswap") == 0) {
+    if (strcmp(key, "tournament") == 0 || strcmp(key, "quickswap") == 0 || strcmp(key, "start_boots") == 0) {
         if (!yes && strcmp(value, "false")) return -1;
         if (key[0] == 't') s->tournament = yes;
+        else if (key[0] == 's') s->start_boots = yes;
         else s->quickswap = yes;
         return 0;
     }
@@ -116,6 +117,7 @@ int z3_generate_rng(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len
     z3_cfg_derive(&c);
 
     z3_seed_init(&z, &c);
+    z.start_boots = s->start_boots;
     if (z3_fill(&z, r)) return -3;
     z3_texts_randomize(&z, r, s->hints);
     if (z3_rom_write(out_rom, &z, s, r)) return -5;

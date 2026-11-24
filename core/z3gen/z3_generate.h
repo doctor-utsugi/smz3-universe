@@ -34,6 +34,7 @@ typedef struct {
     int quickswap;           /* Rom::setQuickSwap: 0/1; -1 keep */
     int logic;               /* glitches_required: Z3_LOGIC_NOGLITCHES (0, the default) ... _NOLOGIC */
     int boss_shuffle;        /* boss_shuffle: Z3_ENEMIZER_BOSSSHUFFLE_NONE (0, the default), _SIMPLE, _FULL, _RANDOM */
+    bool start_boots;        /* "start_boots": Pegasus Boots from the start, as SahasrahBot's casualboots customizer eq (not an alttpr option) */
 } Z3GenSettings;
 
 /* Option table in alttpr's own keys and values (config/alttp.php randomizer.item), made by tools/z3/gen_z3_options.py. */
@@ -44,7 +45,7 @@ extern const int Z3_OPTION_COUNT;
 
 /* alttpr.com's default preset (Original rules). */
 void z3_settings_default(Z3GenSettings *s);
-/* Sets one option by alttpr's key and value ("world_state" "standard", "tower_open" "random", "tournament" "true").
+/* Sets one option by alttpr's key and value ("world_state" "standard", "tower_open" "random", "tournament" "true"; also "start_boots").
    0 on success, -1 for an unknown key or a value the table does not have. */
 int z3_option_set(Z3GenSettings *s, const char *key, const char *value);
 

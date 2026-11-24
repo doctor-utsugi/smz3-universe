@@ -120,6 +120,7 @@ int smz_z3_rebuild(const Z3GenSettings *s, uint32_t seed, Z3Seed *z)
         c.enemizer_bossShuffle = s->boss_shuffle;
         z3_cfg_derive(&c);
         z3_seed_init(z, &c);
+        z->start_boots = s->start_boots;
         if (z3_fill(z, &r)) continue;
         z3_texts_randomize(z, &r, s->hints);
         if (z3_seed_winnable(z)) return 0;

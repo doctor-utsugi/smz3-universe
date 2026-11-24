@@ -17,6 +17,7 @@ typedef struct {
     int n_adv;
     int16_t bow_alt_loc;      /* setTexts' Progressive Bow that writes as ProgressiveBowAlternate (0x65), -1 none */
     Z3Texts tx;               /* World::$texts and $credits */
+    bool start_boots;         /* Z3GenSettings.start_boots, set after z3_seed_init */
 } Z3Seed;
 
 /* World::__construct and Randomizer::__construct for cfg (already through z3_cfg_derive): defaults, shops,

@@ -79,7 +79,8 @@ typedef struct {
     int value[UI_MAX_OPTS];
     char sprites[4][UI_MAX_SPRITES][32];  /* 0 Link, 1 Samus, 2 plando files, 3 music packages; index 0 is "Original" ("None" for plandos, "Original" then "Random" for music) */
     int sprite_count[4], sprite_game, sprite_cursor;
-    int mode_cursor, run_mode;   /* run_mode: 0 Chill run, 1 Original, 2 Custom, 3 Saved custom */
+    int mode_cursor, run_mode;   /* run_mode: 0 Chill run, 1 Original (or a race preset), 2 Custom, 3 Saved custom */
+    int mode_list;               /* the run mode screen lists the game's race presets (ui_ladder_presets) instead of the ways to start */
     UiSaved saved[UI_MAX_SAVED];
     int saved_count, saved_cursor, saved_scroll, saved_col, saved_confirm, saved_dirty;
     int keep_custom;             /* saving failed (list full): Custom opens with the options as they were */
@@ -105,6 +106,7 @@ typedef struct {
     int flags;                   /* the host draws "flag/<CC>" pictures; without them countries show as their code */
     int no_opts;                 /* UI_NO_* options the host ignores: their rows are hidden (0 shows them all) */
     int ladder_on, ladder_tab, ladder_scroll;   /* the host can show the online tables / the tab shown (0 original, 1 monthly, 2 weekly) / first row shown */
+    int ladder_preset;           /* the table of tab 0: 0 Original, k the game's race preset k-1 (A on that tab picks the next) */
     struct { int loaded; char label[16]; int n; struct { char name[24]; char cc[3]; int64_t ms; } row[UI_LADDER_ROWS]; } ladder[3];   /* loaded: 0 not yet, 1 ok, -1 failed */
     struct { int loaded; char month[8]; int64_t ends_at; int counted, gems_if_met, n;
              struct { char key[16], title[40], sprite[32]; int64_t target, total, min, mine; } g[UI_WORLD_GOALS]; } world;   /* the ladder's World tab (tab 3) */
@@ -179,8 +181,21 @@ void ui_player_enable(SmzUi *u, int on);
 void ui_ladder_enable(SmzUi *u, int on);
 void ui_ladder_begin(SmzUi *u, int tab, const char *label, int ok);
 void ui_ladder_add(SmzUi *u, int tab, const char *name, const char *country, int64_t ms);
-/* Fills a table from the server's /api/ladder answer ({"month"|"week":"...","runs":[{"player","country","timeMs"}]}); NULL marks it failed. */
+/* Fills a table from the server's /api/ladder answer ({"month"|"week":"...","runs":[{"player","country","timeMs"}]}); NULL marks it failed.
+ * Tab 0's answer names its preset ("preset":"<key>", none for Original); one for a table no longer picked is dropped. */
 void ui_ladder_load_json(SmzUi *u, int tab, const char *json);
+/* The races each game's community runs besides Original (docs/STANDALONE.md, Ladder presets), each with its own online table.
+ * key is the server's name for it; spec the options as a saved custom writes them, over the defaults. */
+typedef struct { const char *key, *name, *tab, *desc, *spec; } UiLadderPreset;
+int ui_ladder_presets(int mode, const UiLadderPreset **out);
+/* The table the run being set up counts on: -1 none (changed rules), 0 Original (the monthly and weekly too), k preset k-1. */
+int ui_run_preset(const SmzUi *u);
+/* That preset's key, "" for Original or none: the host keeps it with the run and sends it in /api/start. */
+const char *ui_run_preset_key(const SmzUi *u);
+/* The key of the table tab 0 shows, "" for Original: the host asks /api/ladder?kind=original&preset=<key> for it. */
+const char *ui_ladder_preset_key(const SmzUi *u);
+/* 1 when every option that changes the rules has the value in want (see ui_expected_values). */
+int ui_rules_are(const SmzUi *u, const int *want);
 /* Sets the canvas width (clamped to 320..432); the layouts follow it. */
 void ui_set_width(int w);
 void ui_set_height(int h);
@@ -193,7 +208,8 @@ int ui_player_text(const SmzUi *u, char *out, size_t cap);
 int ui_player_dirty(SmzUi *u);
 /* 1 when the run being started uploads to the online ladder (read when the host starts generating). */
 int ui_online_now(const SmzUi *u);
-/* The run's rules are the randomizer's own (looks and tracker aids aside): only such a run, or a monthly or weekly one, goes to the online ladder. */
+/* The run's rules are the randomizer's own or a race preset's (looks and tracker aids aside): only such a run, or a monthly or
+ * weekly one, goes to the online ladder. The settings JSON's "defaultRules" is this. */
 int ui_is_default(const SmzUi *u);
 /* 1 for an option that never makes a run non-default (seed, sprites, screen, map view, jingle, tracker aids ...). */
 int ui_opt_cosmetic(int opt);

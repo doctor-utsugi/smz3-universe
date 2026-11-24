@@ -221,6 +221,7 @@ static void game_switch(SmzUi *u, int mode)
     memset(&u->daily, 0, sizeof u->daily);
     u->daily_has_run = 0;
     for (int t = 0; t < 3; t++) { u->ladder[t].loaded = 0; u->ladder[t].n = 0; }
+    u->ladder_preset = 0;
 }
 
 void ui_game_enter(SmzUi *u, int mode)
@@ -538,6 +539,24 @@ static const UiPreset BUILTIN[] = {
     {"Hardcore", "", "Keysanity=1,HelpMode=2,WallJumpDifficulty=3"},
 };
 
+/* SahasrahBot's presets/alttpr casualboots, standard and adkeys (tournament and spoilers aside, which every online run sets), and
+ * Map Rando's Community Race Season 5 and Default full-settings presets as the hosts name them. SMZ3 races Original only. */
+static const UiLadderPreset Z3_PRESETS[] = {
+    {"casual_boots", "Casual Boots", "Boots", "Standard, assured sword, Pegasus Boots", "Z3WorldState=0,Z3Swords=1,Z3Hints=0,Z3StartBoots=1"},
+    {"standard", "Standard", "Standard", "Standard start, randomized swords", "Z3WorldState=0,Z3Hints=0"},
+    {"ad_keys", "AD Keys", "AD Keys", "All Dungeons, full keysanity", "Z3Goal=2,Z3DungeonItems=3,Z3Hints=0"},
+};
+static const UiLadderPreset SM_PRESETS[] = {
+    {"mr_s5", "Map Rando Season 5", "Season 5", "The community race league's settings", "SmGenerator=1,SmMrPreset=1"},
+    {"mr_beginner", "Map Rando Beginner", "Beginner", "Map Rando's default settings", "SmGenerator=1,SmMrPreset=0"},
+};
+
+int ui_ladder_presets(int mode, const UiLadderPreset **out)
+{
+    *out = mode == SMZ_MODE_Z3 ? Z3_PRESETS : SM_PRESETS;
+    return mode == SMZ_MODE_Z3 ? (int)(sizeof Z3_PRESETS / sizeof *Z3_PRESETS) : mode == SMZ_MODE_SM ? (int)(sizeof SM_PRESETS / sizeof *SM_PRESETS) : 0;
+}
+
 static int opt_by_key(const char *key, size_t len)
 {
     for (int i = 0; i < UI_OPT_COUNT; i++) if (!strncmp(UI_OPTS[i].key, key, len) && !UI_OPTS[i].key[len]) return i;
@@ -557,6 +576,35 @@ void ui_expected_values(const SmzUi *u, int *want)
 }
 
 static void reset_values(SmzUi *u) { for (int i = 0; i < UI_OPT_COUNT; i++) u->value[i] = UI_OPTS[i].def; }
+
+int ui_run_preset(const SmzUi *u)
+{
+    int want[UI_MAX_OPTS];
+    ui_expected_values(u, want);
+    if (ui_rules_are(u, want)) return 0;
+    if (u->run_mode >= 4) return -1;   /* the monthly and weekly have their own tables only */
+    const UiLadderPreset *p;
+    for (int k = 0, n = ui_ladder_presets(u->game_mode, &p); k < n; k++) {
+        for (int i = 0; i < UI_OPT_COUNT; i++) want[i] = UI_OPTS[i].def;
+        spec_values(want, p[k].spec);
+        if (ui_rules_are(u, want)) return k + 1;
+    }
+    return -1;
+}
+
+const char *ui_run_preset_key(const SmzUi *u)
+{
+    const UiLadderPreset *p;
+    int k = ui_run_preset(u);
+    return k > 0 && k <= ui_ladder_presets(u->game_mode, &p) ? p[k - 1].key : "";
+}
+
+const char *ui_ladder_preset_key(const SmzUi *u)
+{
+    const UiLadderPreset *p;
+    int k = u->ladder_preset;
+    return k > 0 && k <= ui_ladder_presets(u->game_mode, &p) ? p[k - 1].key : "";
+}
 
 static void apply_spec(SmzUi *u, const char *spec) { spec_values(u->value, spec); }
 
@@ -766,8 +814,10 @@ static int json_text(const char *from, const char *to, const char *key, char *ou
 void ui_ladder_load_json(SmzUi *u, int tab, const char *json)
 {
     if (!json || !*json) { ui_ladder_begin(u, tab, "", 0); return; }
-    char label[16] = "";
+    char label[16] = "", preset[24] = "";
     const char *runs = strstr(json, "\"runs\":");
+    if (tab == 0 && runs) json_text(json, runs, "preset", preset, sizeof preset);
+    if (tab == 0 && runs && strcmp(preset, ui_ladder_preset_key(u))) return;   /* asked for before another table was picked */
     json_text(json, runs, "month", label, sizeof label) || json_text(json, runs, "week", label, sizeof label);
     ui_ladder_begin(u, tab, label, 1);
     for (const char *p = runs ? strchr(runs, '[') : NULL; p && (p = strchr(p, '{')); ) {
@@ -1013,7 +1063,14 @@ static void ladder_input(SmzUi *u, UiButton b)
         if (u->world_cursor >= (u->world_month && u->world_prev.n ? u->world_prev.n : u->world.n)) u->world_cursor = -1;
         return;
     }
+    const UiLadderPreset *p;
+    int presets = ui_ladder_presets(u->game_mode, &p);
     if (b == BTN_B || b == BTN_SELECT) u->screen = UI_SLOTS_SCREEN;
+    else if (b == BTN_A && u->ladder_tab == 0 && presets) {
+        u->ladder_preset = (u->ladder_preset + 1) % (presets + 1);
+        u->ladder[0].loaded = 0; u->ladder[0].n = 0; u->ladder_scroll = 0;
+        u->action = ACT_LADDER;
+    }
     else if (b == BTN_LEFT || b == BTN_L) { u->ladder_tab = (u->ladder_tab + 3) % 4; u->ladder_scroll = 0; }
     else if (b == BTN_RIGHT || b == BTN_R) { u->ladder_tab = (u->ladder_tab + 1) % 4; u->ladder_scroll = 0; }
     else if (b == BTN_DOWN && u->ladder_scroll + UI_LADDER_SHOWN < n) u->ladder_scroll++;
@@ -1179,13 +1236,28 @@ void ui_preset(SmzUi *u, int mode)
 void ui_apply_spec(SmzUi *u, const char *spec) { apply_spec(u, spec); }
 
 static int maprando_row(const SmzUi *u) { return sm_mode(u) && smz_sm_maprando_state() != SMZ_MR_NONE; }
-static int mode_rows(const SmzUi *u) { return 3 + maprando_row(u) + (u->saved_count > 0 && !single_game(u)) + (online_game(u) && u->monthly_seed > 0) + (online_game(u) && u->weekly_seed > 0); }
+/* A Link to the Past's race presets have a row of their own; Super Metroid's are all Map Rando, so its row leads to them */
+static int presets_row(const SmzUi *u) { const UiLadderPreset *p; return z3_mode(u) && ui_ladder_presets(u->game_mode, &p) > 0; }
+static int mode_rows(const SmzUi *u)
+{
+    const UiLadderPreset *p;
+    if (u->mode_list) return ui_ladder_presets(u->game_mode, &p) + sm_mode(u);
+    return 3 + maprando_row(u) + presets_row(u) + (u->saved_count > 0 && !single_game(u)) + (online_game(u) && u->monthly_seed > 0) + (online_game(u) && u->weekly_seed > 0);
+}
 
-/* 0 Cozy, 1 Original, 2 Custom, 3 Saved customs, 4 Monthly seed, 5 Weekly run (the rows that apply, in this order) */
+#define MODE_PRESET 10   /* mode_kind of race preset k: MODE_PRESET + k */
+/* 0 Cozy, 1 Original, 2 Custom, 3 Saved customs, 4 Monthly seed, 5 Weekly run, 6 Map Rando, 7 Race presets (the rows that apply,
+ * in this order); in the presets list each preset, then Super Metroid's own Map Rando run */
 static int mode_kind(const SmzUi *u, int row)
 {
-    int kinds[7] = {0, 1, 2}, n = 3;
+    if (u->mode_list) {
+        const UiLadderPreset *p;
+        int n = ui_ladder_presets(u->game_mode, &p);
+        return row < n ? MODE_PRESET + row : 6;
+    }
+    int kinds[8] = {0, 1, 2}, n = 3;
     if (maprando_row(u)) kinds[n++] = 6;
+    if (presets_row(u)) kinds[n++] = 7;
     if (u->saved_count > 0 && !single_game(u)) kinds[n++] = 3;   /* saved customs carry SMZ3 options */
     if (online_game(u) && u->monthly_seed > 0) kinds[n++] = 4;   /* the server's seeds: none for an offline game */
     if (online_game(u) && u->weekly_seed > 0) kinds[n++] = 5;
@@ -1354,7 +1426,15 @@ static void mode_input(SmzUi *u, UiButton b)
     int n = mode_rows(u);
     if (b == BTN_UP) u->mode_cursor = (u->mode_cursor + n - 1) % n;
     else if (b == BTN_DOWN) u->mode_cursor = (u->mode_cursor + 1) % n;
+    else if (b == BTN_B && u->mode_list) { u->mode_list = 0; u->mode_cursor = 3; }   /* back on the row that opened it */
     else if (b == BTN_B) u->screen = UI_SLOTS_SCREEN;
+    else if (b == BTN_A && mode_kind(u, u->mode_cursor) >= MODE_PRESET) {
+        const UiLadderPreset *p;
+        ui_ladder_presets(u->game_mode, &p);
+        const UiLadderPreset *k = &p[mode_kind(u, u->mode_cursor) - MODE_PRESET];
+        begin_run(u, 1, k->name, k->spec);
+    }
+    else if (b == BTN_A && mode_kind(u, u->mode_cursor) == 7) { u->mode_list = 1; u->mode_cursor = 0; }
     else if (b == BTN_A) switch (mode_kind(u, u->mode_cursor)) {
     case 0: begin_run(u, 0, chill(u)->name, chill(u)->spec); break;
     case 1: begin_run(u, 1, original(u)->name, original(u)->spec); break;
@@ -1378,6 +1458,7 @@ static void mode_input(SmzUi *u, UiButton b)
         break;
     case 6:
         if (smz_sm_maprando_state() == SMZ_MR_OFFLINE) snprintf(u->notice, sizeof u->notice, "Map Rando needs an internet connection");
+        else if (!u->mode_list) { u->mode_list = 1; u->mode_cursor = 0; }
         else begin_run(u, 2, "Map Rando", "SmGenerator=1");
         break;
     default: u->screen = UI_SAVED; u->saved_cursor = u->saved_scroll = u->saved_col = u->saved_confirm = 0; break;
@@ -1413,7 +1494,7 @@ void ui_input(SmzUi *u, UiButton b)
         else if (b == BTN_A) {
             u->active_slot = u->slot_cursor;
             if (u->slots[u->slot_cursor].used) { u->screen = UI_SLOT_MENU; u->menu_cursor = 0; }
-            else { u->screen = UI_MODE; u->mode_cursor = 0; }
+            else { u->screen = UI_MODE; u->mode_cursor = 0; u->mode_list = 0; }
         }
         break;
     case UI_SLOT_MENU:
@@ -1514,8 +1595,9 @@ UiCue ui_cue(const SmzUi *a, const SmzUi *z, int b)
     if (z->action != ACT_NONE && a->action == ACT_NONE) return z->action == ACT_DELETE || z->action == ACT_LADDER ? UI_CUE_SELECT : UI_CUE_CONFIRM;
     if (z->screen != a->screen) return b == BTN_B || z->screen == a->back || (z->screen == UI_SLOTS_SCREEN && a->screen != UI_HOME) ? UI_CUE_BACK : UI_CUE_OPEN;
     if (z->daily_info != a->daily_info) return z->daily_info ? UI_CUE_OPEN : UI_CUE_BACK;
+    if (z->mode_list != a->mode_list) return z->mode_list ? UI_CUE_OPEN : UI_CUE_BACK;
     if (z->world_top != a->world_top) return z->world_top >= 0 ? UI_CUE_OPEN : UI_CUE_BACK;
-    if (z->level != a->level || z->ladder_tab != a->ladder_tab || z->world_month != a->world_month) return UI_CUE_TAB;
+    if (z->level != a->level || z->ladder_tab != a->ladder_tab || z->world_month != a->world_month || z->ladder_preset != a->ladder_preset) return UI_CUE_TAB;
     if (memcmp(z->value, a->value, sizeof z->value) || z->run_mode != a->run_mode || z->name_len != a->name_len || strcmp(z->name, a->name)) return UI_CUE_SELECT;
     if (z->game_cursor != a->game_cursor || z->slot_cursor != a->slot_cursor || z->menu_cursor != a->menu_cursor || z->confirm_cursor != a->confirm_cursor ||
         memcmp(z->cursor, a->cursor, sizeof z->cursor) || memcmp(z->scroll, a->scroll, sizeof z->scroll) ||
@@ -1547,7 +1629,7 @@ void ui_touch(SmzUi *u, int x, int y)
             if (u->slot_cursor >= u->slot_scroll + slots_shown(u)) u->slot_cursor = u->slot_scroll + slots_shown(u) - 1;
             break;
         case H_LADDER: if (t->idx) u->screen = UI_SLOTS_SCREEN; else ladder_open(u); break;
-        case H_LTAB: u->ladder_tab = t->idx; u->ladder_scroll = 0; break;
+        case H_LTAB: if (t->idx == 0 && u->ladder_tab == 0) ui_input(u, BTN_A); else { u->ladder_tab = t->idx; u->ladder_scroll = 0; } break;   /* the open first tab: the next table */
         case H_WMONTH: u->world_cursor = -1; if (t->idx != u->world_month) ui_input(u, BTN_A); break;
         case H_WGOAL: u->world_cursor = t->idx; if (u->world_month) ui_input(u, BTN_A); break;
         case H_CONFIRM: u->confirm_cursor = t->idx; ui_input(u, BTN_A); break;
@@ -1850,6 +1932,10 @@ static void daily_row(SmzUi *u, int x, int y, int w)
     daily_status(u, s, sizeof s);
     int sx = narrow ? tx + (left > 0 ? 44 : 70) : tx;
     int room = (x + w - 6 - sx) / 7;   /* cut to the card */
+    if ((int)strlen(s) > room && d->state != DAILY_STARTED && d->state != DAILY_DONE && d->state != DAILY_LATE && d->state != DAILY_FAILED) {
+        snprintf(s, sizeof s, "%s, ~%d min", d->difficulty[0] ? d->difficulty : "Open", d->est_min);   /* the estimate stays whole on a narrow card */
+        if ((int)strlen(s) > room) snprintf(s, sizeof s, "~%d min", d->est_min);
+    }
     if (room >= 0 && room < (int)sizeof s) s[room] = 0;
     text(u, sx, y + 28, d->state == DAILY_DONE ? C_GREEN : d->state == DAILY_FAILED || d->state == DAILY_LATE ? C_WARN : C_DIM, 0, s);
     if (!narrow && left > 0 && d->players_now >= 0 && sx + (int)strlen(s) * 7 + 80 < x + w) {
@@ -2382,16 +2468,22 @@ void ui_draw(SmzUi *u)
     case UI_RACE_SIZE: case UI_RACE_WAY: case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC:
     case UI_RACE_LIST: case UI_RACE_ROOM: case UI_RACE_READY: race_draw(u); break;
     case UI_MODE: {
-        snprintf(buf, sizeof buf, "New run  -  Slot %d", u->active_slot + 1);
+        snprintf(buf, sizeof buf, "%s  -  Slot %d", !u->mode_list ? "New run" : sm_mode(u) ? "Map Rando" : "Race presets", u->active_slot + 1);
         title(u, buf);
+        const UiLadderPreset *pre;
+        ui_ladder_presets(u->game_mode, &pre);
         int rows = mode_rows(u), pitch = rows > 5 ? 31 : rows > 4 ? 40 : 50, rh = pitch - (rows > 5 ? 3 : 6);
         int gap = rows > 5 ? 12 : 14, dy = (rh - gap - 14) / 2;   /* the name and its line centred in the row */
         for (int r = 0; r < rows; r++) {
             int y = 34 + r * pitch, k = mode_kind(u, r);
-            const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : k == 6 ? "Map Rando" : weekly(u)->name;
+            const char *name = k >= MODE_PRESET ? pre[k - MODE_PRESET].name : k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs"
+                : k == 4 ? "Monthly run" : k == 6 ? (u->mode_list ? "Custom Map Rando" : "Map Rando") : k == 7 ? "Race presets" : weekly(u)->name;
             const char *wgoal = sm_mode(u) ? "Mother Brain" : z3_mode(u) ? "Fast Ganon, 2 crystals" : "2 crystals, 1 boss";
             char desc[48];
-            if (k == 0) snprintf(desc, sizeof desc, "%s", chill(u)->desc);
+            if (k >= MODE_PRESET) snprintf(desc, sizeof desc, "%s", pre[k - MODE_PRESET].desc);
+            else if (k == 7) snprintf(desc, sizeof desc, "Casual Boots, Standard, AD Keys: own tables");
+            else if (k == 6 && u->mode_list) snprintf(desc, sizeof desc, "Pick the preset and skill yourself");
+            else if (k == 0) snprintf(desc, sizeof desc, "%s", chill(u)->desc);
             else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
             else if (k == 2) snprintf(desc, sizeof desc, "Pick every option yourself");
             else if (k == 3) snprintf(desc, sizeof desc, "%d saved", u->saved_count);
@@ -2401,7 +2493,7 @@ void ui_draw(SmzUi *u)
             else if (u->monthly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today", u->monthly_label);
             else snprintf(desc, sizeof desc, "%s: %d day%s left", u->monthly_label, u->monthly_days, u->monthly_days == 1 ? "" : "s");
             rect(u, 8, y, UI_W - 16, rh, r == u->mode_cursor ? C_SEL : C_PANEL);
-            rect(u, 8, y, 5, rh, k == 4 ? C_GREEN : k == 5 ? C_CYAN : C_ACCENT);
+            rect(u, 8, y, 5, rh, k == 4 ? C_GREEN : k == 5 ? C_CYAN : k >= MODE_PRESET ? C_GOLD : C_ACCENT);
             hit(u, H_MODE, r, 8, y, UI_W - 16, rh);
             text(u, 20, y + dy, C_TEXT, 0, name);
             text(u, 20, y + dy + gap, C_DIM, 0, desc);
@@ -2460,7 +2552,10 @@ void ui_draw(SmzUi *u)
         int idx[UI_MAX_OPTS], n = changed_opts(u, idx);
         char val[48], head[48];
         title(u, "Run rules");
-        if (!n) snprintf(head, sizeof head, "Original run - no changes");
+        const UiLadderPreset *pre;
+        int pk = ui_run_preset(u), np = ui_ladder_presets(u->game_mode, &pre);
+        if (pk > 0 && pk <= np) snprintf(head, sizeof head, "%s table", pre[pk - 1].name);
+        else if (!n) snprintf(head, sizeof head, "Original run - no changes");
         else snprintf(head, sizeof head, "Original run + %d change%s", n, n == 1 ? "" : "s");
         text(u, UI_W - 8, 8, C_DIM, 2, head);
         for (int r = 0; r < ROWS_SHOWN && u->rules_scroll + r < n; r++) {
@@ -2623,10 +2718,13 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_LADDER: {
-        static const char *const TABS[4] = {"Original", "Monthly", "Weekly", "World"};
+        const UiLadderPreset *pre;
+        int presets = ui_ladder_presets(u->game_mode, &pre), lp = u->ladder_preset > 0 && u->ladder_preset <= presets ? u->ladder_preset : 0;
+        const char *const TABS[4] = {lp ? pre[lp - 1].tab : "Original", "Monthly", "Weekly", "World"};
         const typeof(u->ladder[0]) *l = &u->ladder[u->ladder_tab < 3 ? u->ladder_tab : 0];
         if (u->ladder_tab == 3) snprintf(buf, sizeof buf, "World goals  %s", month_name(u->world_month && u->world_prev.n ? u->world_prev.month : u->world.month));
         else if (l->label[0] && u->ladder_tab) snprintf(buf, sizeof buf, "%s  %s", sm_mode(u) ? "Super Metroid ladder" : z3_mode(u) ? "ALttP ladder" : "Online ladder", l->label);
+        else if (lp) snprintf(buf, sizeof buf, "%s", pre[lp - 1].name);
         else snprintf(buf, sizeof buf, "%s", sm_mode(u) ? "Super Metroid ladder" : z3_mode(u) ? "ALttP ladder" : "Online ladder");
         title(u, buf);
         rect(u, UI_W - 84, 4, 78, 20, C_SEL);
@@ -2659,7 +2757,10 @@ void ui_draw(SmzUi *u)
             snprintf(buf, sizeof buf, "%d:%02d:%02d.%02d", (int)(s / 3600), (int)(s / 60 % 60), (int)(s % 60), (int)(l->row[i].ms % 1000 / 10));
             text(u, UI_W - 10, y + 4, C_TEXT, 2, buf);
         }
-        legend(u, "Left Right Tab  Up Down Scroll  Select Save list");
+        if (u->ladder_tab == 0 && presets) {   /* which of the game's tables: Original or a race preset, A for the next */
+            for (int k = 0, cx = 6 + (UI_W - 12) / 8 - 1; k <= presets; k++) rect(u, cx - presets * 4 + k * 8 - 2, 50, 5, 2, k == lp ? C_GOLD : C_DIM);
+            legend(u, "A Next table  Left Right Tab  Up Down Scroll");
+        } else legend(u, "Left Right Tab  Up Down Scroll  Select Save list");
         break;
     }
     case UI_DAILY: daily_screen(u); break;

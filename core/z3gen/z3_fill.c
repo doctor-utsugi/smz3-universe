@@ -388,7 +388,7 @@ static int prepare_world(Z3Seed *s, Z3Rng *r, List *dungeon, List *adv, List *ni
     POOL(w, r, NICE, nice);
     POOL(w, r, JUNK, trash);
 
-    if (c->logic != Z3_LOGIC_NOGLITCHES) {   /* glitched logic starts with the boots */
+    if (c->logic != Z3_LOGIC_NOGLITCHES || s->start_boots) {   /* glitched logic and Casual Boots start with the boots */
         z3_items_add(&w->pre, Z3_ITEM_PegasusBoots, 1);
         for (int i = 0; i < adv->n; i++)
             if (adv->v[i] == Z3_ITEM_PegasusBoots) {

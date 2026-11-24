@@ -125,14 +125,15 @@ const UiOptDef UI_OPTS[] = {
     {"Z3MenuSpeed", "Menu speed", "How fast the item menu opens.", OPT_ENUM, LEVEL_RUN, 0, 3, 1, N_Z3MENU},
     {"Z3Quickswap", "Item quickswap", "L and R change the item without the menu.", OPT_BOOL, LEVEL_RUN, 0, 1, 1, 0},
     {"Z3BossShuffle", "Boss shuffle", "Simple and Full move the dungeon bosses; Random draws each one.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3BOSS},
+    {"Z3StartBoots", "Start with boots", "Pegasus Boots from the start, as the Casual Boots races.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
 };
 const int UI_OPT_COUNT = sizeof UI_OPTS / sizeof UI_OPTS[0];
 /* after O_Z30, in Z3_OPTIONS' order; each is the Z3_OPTIONS entry of its key, whose values it lists in their order */
 enum { O_Z3STATE, O_Z3GOAL, O_Z3TOWER, O_Z3GANON, O_Z3DUNGEON, O_Z3ACCESS, O_Z3PLACE, O_Z3SWORDS, O_Z3POOL, O_Z3FUNC, O_Z3HINTS,
-       O_Z3GLITCH, O_Z3TOURN, O_Z3HEART, O_Z3MENU, O_Z3SWAP, O_Z3BOSS };
+       O_Z3GLITCH, O_Z3TOURN, O_Z3HEART, O_Z3MENU, O_Z3SWAP, O_Z3BOSS, O_Z3BOOTS };
 static const char *const Z3_KEYS[] = {"world_state", "goals", "tower_open", "ganon_open", "dungeon_items", "accessibility",
     "item_placement", "weapons", "item_pool", "item_functionality", "hints", "glitches_required", "tournament", "heart_beep",
-    "menu_speed", "quickswap", "boss_shuffle"};
+    "menu_speed", "quickswap", "boss_shuffle", "start_boots"};
 #define O_Z3N (int)(sizeof Z3_KEYS / sizeof Z3_KEYS[0])   /* the last UI_OPTS rows, one per Z3_OPTIONS entry */
 #define O_Z30 (UI_OPT_COUNT - O_Z3N)
 #define O_SM0 (O_Z30 - 6)
@@ -168,7 +169,7 @@ const char *const UI_TABS_SM[LEVEL_ITEMS][24] = {
 const char *const UI_TABS_Z3[LEVEL_ITEMS][24] = {
     {"Z3WorldState", "Z3Goal", "Z3Swords", "Z3DungeonItems", "Z3Placement", "SaveStates", "Rewind", NULL},
     {"Seed", "Z3WorldState", "Z3Goal", "Z3TowerOpen", "Z3GanonOpen", "Z3Accessibility", "Z3Placement", "Z3Tournament", "MapMode", NULL},
-    {"Z3DungeonItems", "Z3Swords", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", "Z3Glitches", "Z3BossShuffle", NULL},
+    {"Z3DungeonItems", "Z3Swords", "Z3StartBoots", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", "Z3Glitches", "Z3BossShuffle", NULL},
     {NULL},
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", "Z3HeartBeep", "Z3MenuSpeed", "Z3Quickswap", NULL},
 };
@@ -275,6 +276,7 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
         for (int o = 0; o < O_Z3N; o++) {
             const Z3Option *z = z3_opt(o);
             char pat[40];
+            if (o == O_Z3BOOTS) u->value[O_Z30 + o] = strstr(json, "\"start_boots\":\"true\"") != NULL;
             if (!z) continue;
             snprintf(pat, sizeof pat, "\"%s\":\"", z->key);
             const char *at = strstr(json, pat);
@@ -333,10 +335,8 @@ int ui_opt_hidden(const SmzUi *u, int i)
     return 0;
 }
 
-int ui_is_default(const SmzUi *u)
+int ui_rules_are(const SmzUi *u, const int *want)
 {
-    int want[UI_MAX_OPTS];
-    ui_expected_values(u, want);
     for (int i = 0; i < UI_OPT_COUNT; i++) {
         if (ui_opt_cosmetic(i) || ui_opt_hidden(u, i)) continue;
         if (UI_OPTS[i].kind == OPT_SPRITE) { if (u->value[i] != 0) return 0; continue; }
@@ -344,6 +344,8 @@ int ui_is_default(const SmzUi *u)
     }
     return 1;
 }
+
+int ui_is_default(const SmzUi *u) { return ui_run_preset(u) >= 0; }
 
 
 /* Super Metroid alone: its generator's options in "sm", then the keys the hosts read for every run (the SMZ3-only aids off). */
@@ -396,6 +398,7 @@ static int z3_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
     for (int o = 0, first = 1; o < O_Z3N && n < (int)cap; o++) {
         int i = O_Z30 + o, v = o == O_Z3TOURN ? tournament : u->value[i];
         const Z3Option *z = z3_opt(o);
+        if (o == O_Z3BOOTS && v) { n += snprintf(out + n, cap - n, "%s\"start_boots\":\"true\"", first ? "" : ","); first = 0; }   /* written only when on: Original's JSON stays as it was */
         if (!z || (ui_opt_cosmetic(i) && o != O_Z3TOURN && v == UI_OPTS[i].def)) continue;
         if (o == O_Z3HINTS) v = !v;
         const char *val = !z->values ? (v ? "true" : "false") : v < z->n_values ? z->values[v].key : z->def;
