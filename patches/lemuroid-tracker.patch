@@ -1389,10 +1389,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..caefcea
+index 0000000..8c9e7f5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1019 @@
+@@ -0,0 +1,1026 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1757,11 +1757,18 @@ index 0000000..caefcea
 +            pendingVersion.getAndSet(null)?.let { Smz3Native.uiUpdateJson(it); version++ }
 +        }
 +    }
-+    // the world goals (the run list's row, the ladder's World tab) refresh once a minute while they are shown
++    // the world goals (the run list's row, the ladder's World tab): asked as soon as they come on screen, then once a minute
 +    LaunchedEffect(Unit) {
++        var shown = false
++        var next = 0L
 +        while (true) {
-+            if (Smz3Native.uiWorldShowing()) Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
-+            kotlinx.coroutines.delay(60_000)
++            val showing = Smz3Native.uiWorldShowing()
++            if (showing && (!shown || System.currentTimeMillis() >= next)) {
++                next = System.currentTimeMillis() + 60_000
++                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
++            }
++            shown = showing
++            kotlinx.coroutines.delay(300)
 +        }
 +    }
 +
