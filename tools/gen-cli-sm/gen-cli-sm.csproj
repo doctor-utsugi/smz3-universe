@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Oracle for core/smgen: tewtal's Randomizer.SuperMetroid compiled in from vendor/tewtal-SMZ3Randomizer, so its
+       internal World/Filler/Patch classes are reachable without touching the vendored code. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>GenCliSm</RootNamespace>
+    <NoWarn>$(NoWarn);CS8632;CS0436</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\vendor\tewtal-SMZ3Randomizer\Randomizer.SuperMetroid\**\*.cs" Link="SuperMetroid\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\vendor\tewtal-SMZ3Randomizer\Randomizer.Shared\Contracts\IRandomizer.cs" Link="Shared\IRandomizer.cs" />
+  </ItemGroup>
+
+</Project>
