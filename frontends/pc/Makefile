@@ -26,6 +26,21 @@ endif
 SMZ3_VERSION ?= $(or $(filter v%,$(GITHUB_REF_NAME)),$(shell git -C $(ROOT) describe --tags --abbrev=0 2>/dev/null),dev)
 CFLAGS += -DSMZ3_VERSION='"$(SMZ3_VERSION)"'
 
+# Map Rando (core/maprando, Rust) is linked in when its sources are fetched (tools/maprando/fetch.sh) and cargo is installed
+MAPRANDO ?= $(if $(and $(wildcard $(ROOT)/vendor/maprando/rust/maprando),$(shell command -v cargo)),1,)
+ifdef MAPRANDO
+MR_TARGET := $(ROOT)/build/maprando-target
+ifdef WIN
+MR_LIB := $(MR_TARGET)/x86_64-pc-windows-gnu/release/libsmz3_maprando.a
+MR_CARGO := --target x86_64-pc-windows-gnu
+LIBS += -lws2_32 -lbcrypt -luserenv -lntdll
+else
+MR_LIB := $(MR_TARGET)/release/libsmz3_maprando.a
+LIBS += -ldl -lpthread
+endif
+CFLAGS += -DSMZ_MAPRANDO -I$(CORE)/maprando
+endif
+
 SMGEN := sm_generate sm_fill sm_world sm_world_gen sm_patch sm_options_gen
 Z3GEN := $(notdir $(basename $(wildcard $(CORE)/z3gen/*.c)))
 GEN := smz3_generate smz3_fill smz3_world smz3_world_gen smz3_rng smz3_patch smz3_rom smz3_text smz3_sprite smz3_hints smz3_itemopts smz3_plando smz3_md5 smz3_romsetup smz3_romderived smz3_dungeonmaps smz3_goalicons
@@ -86,8 +101,15 @@ $(OUT)/o/map_data.o: $(OUT)/map_data.c
 	@mkdir -p $(OUT)/o
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(OUT)/smz3$(EXE): $(OBJ) $(OUT)/libsnes9x.a
-	$(CC) $(OBJ) $(OUT)/libsnes9x.a -o $@ $(LIBS)
+$(OUT)/smz3$(EXE): $(OBJ) $(OUT)/libsnes9x.a $(MR_LIB)
+	$(CC) $(OBJ) $(OUT)/libsnes9x.a $(MR_LIB) -o $@ $(LIBS)
+
+ifdef MAPRANDO
+# cargo decides what to rebuild; the crate's rust-toolchain.toml pins the compiler, so it runs from the crate's folder
+$(MR_LIB): FORCE
+	cd $(CORE)/maprando && cargo build --release --lib $(MR_CARGO) --target-dir $(MR_TARGET)
+FORCE:
+endif
 
 -include $(OBJ:.o=.d)
 

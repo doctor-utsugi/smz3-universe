@@ -764,8 +764,10 @@ static void page_config(float top)
     settings_video_row(VIDEO_SCREENS, s, sizeof s);
     y = cfg_row(x, y, w, "Screen mode", s, wide, CF_SCREENS);
     y = wrapped(x, y + 2 * u, w, 12 * u, DIM, "Dual puts the tracker on a second screen, single puts it over the game. It changes the next time SMZ3 opens.");
-    y = cfg_head(x, y, "DUNGEON MAPS");
-    y = cfg_row(x, y, w, "Fixed keys", hints_fixed_keys() ? "Shown" : "Hidden", b, CF_FIXED);
+    if (!smz3_sm_alone()) {   /* A Link to the Past's dungeons only */
+        y = cfg_head(x, y, "DUNGEON MAPS");
+        y = cfg_row(x, y, w, "Fixed keys", hints_fixed_keys() ? "Shown" : "Hidden", b, CF_FIXED);
+    }
     y = cfg_head(x, y, "ITEM SHORTCUTS  (the row over the RUN tab's map)");
     y = cfg_row(x, y, w, "Shortcut row", sc_row_shown() ? "Shown" : "Hidden", b, CF_ROW);
     y = cfg_row(x, y, w, "Weapon row", sc_weapon_row_shown() ? "Shown" : "Hidden", b, CF_WEAPONS);

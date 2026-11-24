@@ -8,6 +8,7 @@
 #include "pc_assets.h"
 #include "pc_gfx.h"
 #include "pc_map.h"
+#include "smz3_state.h"
 
 #define MAP_W 1623.0f
 #define MAP_H 958.0f
@@ -189,6 +190,13 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     float z = v->zoom, ox = area.x + area.w / 2.0f - v->cx * z, oy = area.y + area.h / 2.0f - v->cy * z;
     SDL_RenderSetClipRect(r, &area);
     gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
+    if (smz3_maprando()) {   /* its rooms are moved: the vanilla map would point the wrong way */
+        float h = fminf(22.0f, area.w / 24.0f);
+        gfx_text(area.x + area.w / 2.0f, area.y + area.h / 2.0f - h, h, (SDL_Color){0x87, 0x93, 0xA6, 255}, 1, "Map Rando rebuilds the map:");
+        gfx_text(area.x + area.w / 2.0f, area.y + area.h / 2.0f + 4, h, (SDL_Color){0x87, 0x93, 0xA6, 255}, 1, "see the game's own map");
+        SDL_RenderSetClipRect(r, NULL);
+        return;
+    }
     if (!map_tex) { SDL_RenderSetClipRect(r, NULL); return; }
     float sx = map_w / MAP_W, hx = HALF_X, he = HALF_END;
     SDL_FRect whole = {ox + hx * z, oy, (he - hx) * z, MAP_H * z};

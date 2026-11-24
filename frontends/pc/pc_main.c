@@ -34,6 +34,7 @@
 #include "smz3_romderived.h"
 #include "pc_online.h"
 #include "pc_update.h"
+#include "pc_maprando.h"
 #include "pc_race.h"
 #include "pc_store.h"
 #include "smz3_host.h"
@@ -71,6 +72,7 @@ typedef struct {
     uint8_t *link, *samus; size_t link_len, samus_len;
     int32_t seed_if_random;
     const SmzUi *u;         /* the options to generate from; NULL: the menu's */
+    volatile int done;
 } GenJob;
 
 static uint8_t *read_sprite(const char *kind, const char *name, size_t *len)
@@ -92,7 +94,7 @@ static void *generate_thread(void *arg)
     j->rc = smz_host_generate(gu, j->seed_if_random, j->sm, j->z3, j->link, j->link_len, j->samus, j->samus_len, store_ips, NULL,
                               j->rom, json, sizeof json, seed, sizeof seed, NULL);
     if (j->rc) {
-        const char *why = gu->game_mode == SMZ_MODE_Z3 ? smz_z3_error(j->rc) : NULL;
+        const char *why = gu->game_mode == SMZ_MODE_Z3 ? smz_z3_error(j->rc) : gu->game_mode == SMZ_MODE_SM ? smz_sm_error(j->rc) : NULL;
         if (why) snprintf(j->err, sizeof j->err, "%s", why); else snprintf(j->err, sizeof j->err, "generation failed (%d)", j->rc);
         return NULL;
     }
@@ -119,9 +121,28 @@ static int run_big(void *(*fn)(void *), void *arg)
     return 0;
 }
 
+static void ui_present(void);
+
+static void *generate_done(void *arg) { GenJob *j = arg; generate_thread(j); j->done = 1; return NULL; }
+
+/* A Map Rando seed takes seconds: the window keeps drawing its progress meanwhile. */
 static void generate(GenJob *j)
 {
-    if (run_big(generate_thread, j)) { j->rc = -1; snprintf(j->err, sizeof j->err, "cannot start the generator"); }
+    pthread_attr_t at;
+    pthread_t t;
+    j->done = 0;
+    pthread_attr_init(&at);
+    pthread_attr_setstacksize(&at, 64u << 20);
+    if (pthread_create(&t, &at, generate_done, j)) { j->rc = -1; snprintf(j->err, sizeof j->err, "cannot start the generator"); return; }
+    for (Uint32 since = SDL_GetTicks(); ren && !j->done; SDL_Delay(50)) {
+        char line[64];
+        if (!maprando_progress(line, sizeof line)) continue;
+        snprintf(line + strlen(line), sizeof line - strlen(line), "  %us", (unsigned)((SDL_GetTicks() - since) / 1000));
+        SDL_PumpEvents();
+        ui_busy(&ui, line);
+        ui_present();
+    }
+    pthread_join(t, NULL);
 }
 
 typedef struct { SmzLogic *logic; const char *json; int rc; } LogicJob;
@@ -1939,7 +1960,7 @@ static void play(int slot, int game_save_only)
     int ok = emu_open(rom, rl, romp) == 0;
     free(rom);
     if (!ok) { note("the emulator could not load the ROM"); return; }
-    smz3_set_mode(run.mode);   /* the tracker reads the memory of this run's game */
+    smz3_set_mode(run.mode | (smz_sm_is_maprando(run.settings) ? SMZ3_MAPRANDO : 0));   /* the tracker reads the memory of this run's game */
 
     /* runs that send a time online (the ladders, the daily challenge) and finished runs never allow states, whatever their options */
     int states = json_flag(run.settings, "saveStates", 0) && !online_slot_kind(slot + 1) && !strstr(run.settings, "\"challenge\":true");
@@ -2998,6 +3019,18 @@ static int daily_begin(char *err, size_t cap)
     return rc;
 }
 
+/* Draws the menu's busy screen once, outside the main loop. */
+static void ui_present(void)
+{
+    float ox, oy;
+    int ww, wh;
+    fit_width(ren);
+    ui_draw(&ui);
+    SDL_GetRendererOutputSize(ren, &ww, &wh);
+    gfx_ui(&ui, ww, wh, &ox, &oy);
+    SDL_RenderPresent(ren);
+}
+
 static void menu_cue(UiCue c)
 {
     static const SfxKind S[] = {[UI_CUE_MOVE] = SFX_MOVE, [UI_CUE_TAB] = SFX_TAB, [UI_CUE_SELECT] = SFX_SELECT, [UI_CUE_OPEN] = SFX_OPEN, [UI_CUE_BACK] = SFX_BACK, [UI_CUE_CONFIRM] = SFX_CONFIRM};
@@ -3439,6 +3472,7 @@ static int dual_displays(int mode, int *top, int *bottom) { (void)mode; (void)to
 
 int main(int argc, char **argv)
 {
+    maprando_setup();
 #ifdef _WIN32
     if (argc == 1) FreeConsole();   /* started by double click: no console window */
 #endif
