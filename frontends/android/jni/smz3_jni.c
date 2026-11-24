@@ -636,19 +636,20 @@ JNIEXPORT void JNICALL NATIVE(uiLoadChoice)(JNIEnv *env, jclass cls, jint slot, 
     ui_load_choice(&g_ui, slot, saveMs, saveZ, saveM, stateMs, stateZ, stateM, zt, mt);
 }
 
-JNIEXPORT void JNICALL NATIVE(uiSetMonthly)(JNIEnv *env, jclass cls, jstring label, jint seed, jint days)
+/* One game's monthly seed (mode: SMZ_MODE_*); the menu shows the entered game's. */
+JNIEXPORT void JNICALL NATIVE(uiSetMonthly)(JNIEnv *env, jclass cls, jint mode, jstring label, jint seed, jint days)
 {
     const char *l = (*env)->GetStringUTFChars(env, label, NULL);
-    ui_set_monthly(&g_ui, l, seed, days);
+    ui_set_monthly_game(&g_ui, mode, l, seed, days);
     (*env)->ReleaseStringUTFChars(env, label, l);
 }
 
 JNIEXPORT jint JNICALL NATIVE(uiRunMonthly)(JNIEnv *env, jclass cls) { return ui_run_monthly(&g_ui); }
 
-JNIEXPORT void JNICALL NATIVE(uiSetWeekly)(JNIEnv *env, jclass cls, jstring label, jint seed, jint days)
+JNIEXPORT void JNICALL NATIVE(uiSetWeekly)(JNIEnv *env, jclass cls, jint mode, jstring label, jint seed, jint days)
 {
     const char *l = (*env)->GetStringUTFChars(env, label, NULL);
-    ui_set_weekly(&g_ui, l, seed, days);
+    ui_set_weekly_game(&g_ui, mode, l, seed, days);
     (*env)->ReleaseStringUTFChars(env, label, l);
 }
 
@@ -700,6 +701,8 @@ JNIEXPORT void JNICALL NATIVE(uiSetSlotCount)(JNIEnv *env, jclass cls, jint n) {
 JNIEXPORT jint JNICALL NATIVE(uiSlot)(JNIEnv *env, jclass cls) { return g_ui.screen == UI_SLOTS_SCREEN ? (g_ui.daily_sel ? -1 : g_ui.slot_cursor) : g_ui.screen == UI_SLOT_MENU || g_ui.screen == UI_CONFIRM ? g_ui.active_slot : -1; }
 JNIEXPORT jint JNICALL NATIVE(uiScreen)(JNIEnv *env, jclass cls) { return g_ui.screen; }
 JNIEXPORT jint JNICALL NATIVE(uiGameMode)(JNIEnv *env, jclass cls) { return g_ui.game_mode; }
+/* Back in the game a run was played from, without the carousel (the menu was made again). */
+JNIEXPORT void JNICALL NATIVE(uiGameEnter)(JNIEnv *env, jclass cls, jint mode) { ui_game_enter(&g_ui, mode); }
 JNIEXPORT void JNICALL NATIVE(uiGameState)(JNIEnv *env, jclass cls, jint mode, jint state) { ui_game_state(&g_ui, mode, state); }
 
 JNIEXPORT jstring JNICALL NATIVE(romName)(JNIEnv *env, jclass cls, jstring json, jstring seed)

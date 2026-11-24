@@ -67,6 +67,9 @@ enum { C_BG, C_PANEL, C_SEL, C_TEXT, C_DIM, C_ACCENT, C_WARN, C_GREEN, C_CYAN, C
 typedef struct { int16_t x, y, w, h; uint8_t kind; int16_t idx; } UiHit;
 enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME };
 
+/* One game's monthly and weekly seeds as the host gave them (ui_set_monthly_game, ui_set_weekly_game). */
+typedef struct { char monthly_label[16]; int monthly_seed, monthly_days; char weekly_label[16]; int weekly_seed, weekly_days; } UiGamePeriods;
+
 typedef struct {
     UiScreen screen, back;
     UiSlot slots[UI_SLOTS];
@@ -92,6 +95,7 @@ typedef struct {
     char monthly_label[16]; int monthly_seed;  /* the month's fixed seed (0 until the host knows it) and its label, e.g. 2026-10 */
     int monthly_days;                   /* days left until the month's seed changes */
     char weekly_label[16]; int weekly_seed, weekly_days;   /* the week's fixed seed, its label (e.g. 2026-W44) and the days left */
+    UiGamePeriods periods[3];    /* each game's (SMZ_MODE_*) monthly and weekly seeds; the fields above are the entered game's */
     struct { int64_t save_ms, state_ms; int save_z, save_m, state_z, state_m, zt, mt, cursor; } lc;   /* the load choice shown by UI_LOADCHOICE */
     int online_mode, online_cursor, online_gen; /* 0 ask before each run, 1 upload, 2 never; the prompt's row; 1 when the prompt came from Start */
     int rings;                   /* the host draws progress rings (kind 4): the run list shows its percent inside one */
@@ -207,6 +211,11 @@ void ui_daily_began(SmzUi *u, int64_t began_at);
 void ui_apply_run_settings(SmzUi *u, const char *settings_json);
 /* The month's fixed seed; once set, the run mode list offers "Monthly seed" (Original rules with that seed). */
 void ui_set_monthly(SmzUi *u, const char *label, int seed, int days_left);
+/* The same for a game (SMZ_MODE_*): ui_set_monthly is SMZ3's. The entered game's seeds are the ones the run modes offer; entering
+ * another game also forgets the daily and the ladder tables shown, so the host asks the server for that game's. */
+void ui_set_monthly_game(SmzUi *u, int mode, const char *label, int seed, int days_left);
+/* Enters a game (SMZ_MODE_*) without the carousel, as picking it there does (a host back from a run of that game). */
+void ui_game_enter(SmzUi *u, int mode);
 /* Asks which to load for a slot whose save state is ahead of its game save (times in play-time ms, counts of checks done);
  * the answer comes back as ACT_LOAD_SAVE or ACT_LOAD_STATE with the slot in action_slot. */
 void ui_load_choice(SmzUi *u, int slot, int64_t save_ms, int save_z, int save_m, int64_t state_ms, int state_z, int state_m, int zelda_total, int metroid_total);
@@ -216,6 +225,7 @@ void ui_preset(SmzUi *u, int mode);
 void ui_apply_spec(SmzUi *u, const char *spec);
 /* The week's fixed seed; once set, the run mode list offers the Weekly run (limited goals, own ladder). */
 void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left);
+void ui_set_weekly_game(SmzUi *u, int mode, const char *label, int seed, int days_left);
 int ui_run_weekly(const SmzUi *u);
 /* The option values a run of the current mode must keep to count as rules-unchanged (defaults, except what the weekly run limits). */
 void ui_expected_values(const SmzUi *u, int *want);

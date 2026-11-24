@@ -62,7 +62,11 @@ static int request(const char *what, const char *fields, int with_token, int fin
     if (!strcmp(what, "forget")) { pthread_mutex_lock(&mu); token[0] = 0; since = 0; progress = 0; ne = nc = 0; slow = 0; offline_since = 0; pthread_mutex_unlock(&mu); return 0; }
     int code;
     int64_t sent = online_now_ms();
-    if (find) code = online_http("GET", "/api/race/open", NULL, buf, ANS_CAP);
+    if (find) {   /* fields: the game whose rooms are listed, "" for SMZ3's */
+        char path[48];
+        snprintf(path, sizeof path, "/api/race/open%s%s", fields[0] ? "?game=" : "", fields);
+        code = online_http("GET", path, NULL, buf, ANS_CAP);
+    }
     else {
         char path[48], *body = malloc(ANS_CAP);
         snprintf(path, sizeof path, "/api/race/%s", what);
@@ -180,7 +184,7 @@ static void enqueue(const char *what, const char *fields, int with_token, int fi
 }
 
 void race_send(const char *what, const char *fields, int with_token) { enqueue(what, fields, with_token, 0); }
-void race_find(void) { enqueue("open", NULL, 0, 1); }
+void race_find(const char *game) { enqueue("open", game && game[0] ? game : NULL, 0, 1); }
 
 int race_take(char *out, size_t cap)
 {

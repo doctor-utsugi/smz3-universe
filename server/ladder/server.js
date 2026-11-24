@@ -1,5 +1,6 @@
 // SMZ3 online ladder: a tiny HTTP service with no dependencies.
 //   POST /api/start   {install, kind, game?}       -> {token, seed?}   (kind: original | monthly | weekly)
+//   Tokens: id.install.kind.period.startedAt.sig for smz3, id.install.kind.period.startedAt.game.sig for the other games.
 //   POST /api/finish  {token, timeMs, player, country, proof, seed?} -> {ok, rank}   (proof: "loc ms" lines, see below)
 //   GET  /api/ladder  ?kind=original | ?kind=monthly&month=YYYY-MM | ?kind=weekly&week=YYYY-Www
 //   GET  /api/monthly ?game=                       -> {month, seed, months:[...]}
@@ -12,7 +13,7 @@
 //   GET  /api/games                                -> {games:[...]}   the games with ladders
 //   GET  /download                                 -> 302 to the latest GitHub release page
 // A finished run is only accepted with a token the server signed when the run began, and its time
-// cannot be longer than the wall clock time since then or shorter than MIN_MS. It must also carry a proof of run, the
+// cannot be longer than the wall clock time since then or shorter than its game's MIN_MS. It must also carry a proof of run, the
 // checks it cleared with their play times; smz3check replays them against the known seed. A proof that cannot have
 // happened is refused, one that leans on far too many checks out of logic is held (hold) until admin.js approves it.
 const http = require('http');
@@ -25,7 +26,11 @@ const PORT = Number(process.env.PORT || 3360);
 const DIR = process.env.LADDER_DIR || path.join(__dirname, 'data');
 const DATA = path.join(DIR, 'ladder.json');
 const SECRET_FILE = path.join(DIR, 'secret');
-const MIN_MS = 10 * 60 * 1000;
+// The shortest ladder time per game and kind: SMZ3 runs take hours, a Super Metroid run about one (its weekly is a full run
+// too, Mother Brain being its only goal), so its floor is lower.
+const MIN_MS = { smz3: { original: 10 * 60 * 1000, monthly: 10 * 60 * 1000, weekly: 10 * 60 * 1000 },
+  sm: { original: 5 * 60 * 1000, monthly: 5 * 60 * 1000, weekly: 5 * 60 * 1000 } };
+const minMs = (game, kind) => (MIN_MS[game] || MIN_MS.smz3)[kind] || MIN_MS.smz3.original;
 const MAX_MS = 3 * 24 * 3600 * 1000;      // a token is good for this long after it was issued
 const MAX_BODY = 16384;
 const { execFile } = require('child_process');
@@ -62,8 +67,8 @@ function weekEnd(t) {
 }
 const periodNow = (kind, t) => kind === 'weekly' ? weekOf(t) : monthOf(t);
 const seedOf = month => String(parseInt(hmac('seed:' + month).slice(0, 8), 16) % 900000000 + 100000000);
-// The games whose finishes the checker can verify; z3 and sm join when their generators do.
-const GAMES = ['smz3'];
+// The games whose finishes the checker can verify; z3 joins when its generator does.
+const GAMES = ['smz3', 'sm'];
 const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES.includes(v) ? v : null;
 const gameOfRun = r => r.game || 'smz3';
 const seedFor = (game, period) => game === 'smz3' ? seedOf(period) : String(parseInt(hmac('seed:' + game + ':' + period).slice(0, 8), 16) % 900000000 + 100000000);
@@ -98,11 +103,16 @@ function ladder(game, kind, month) {
     .map(({ install, ...r }) => r);
 }
 
+// Super Metroid's Original rules (docs/STANDALONE.md): Tournament logic, Split placement, and Race (no spoiler), which every
+// online SM run sets. The monthly and weekly use them too; the weekly's only goal is Mother Brain anyway.
+const SM_RULES = { logic: 'tournament', placement: 'split', race: 'true' };
+
 // The rules a ladder fixes, as the settings the checker rebuilds the seed from.
 function proofSettings(game, kind, period, seed) {
   if (kind === 'daily') return dailyRoutes.settingsOf(period);
   if (kind === 'race') return period;   // a race hands in its own settings
-  if (kind === 'original' && !/^\d{1,9}$/.test(String(seed || ''))) return '{"nologic":1}';
+  if (kind === 'original' && !/^\d{1,9}$/.test(String(seed || ''))) return game === 'smz3' ? '{"nologic":1}' : JSON.stringify({ game, nologic: 1 });
+  if (game === 'sm') return JSON.stringify({ game, seed: kind === 'original' ? String(seed) : seedFor(game, period), sm: SM_RULES });
   const s = { seed: kind === 'original' ? String(seed) : seedFor(game, period) };
   if (game !== 'smz3') s.game = game;
   if (kind === 'weekly') Object.assign(s, { ganonCrystals: 2, ganonsTowerCrystals: 2, tourianBosses: 1 });
@@ -136,12 +146,16 @@ function readJson(req, res, then) {
   });
 }
 
+// daily.js and race.js check proofs as (kind, period, b, timeMs, done): their settings come whole (a window's challenge, a
+// room's settings) and carry their own game, so no ladder game is needed.
+const verifyChallenge = (kind, period, b, timeMs, done) => verifyProof('smz3', kind, period, b, timeMs, done);
+
 const CLOCK_SHIFT = Number(process.env.DAILY_CLOCK_SHIFT_MS || 0);   // local tests only: moves the daily challenge's clock
-const dailyRoutes = require('./daily')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof, now: CLOCK_SHIFT ? () => Date.now() + CLOCK_SHIFT : undefined });
+const dailyRoutes = require('./daily')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof: verifyChallenge, now: CLOCK_SHIFT ? () => Date.now() + CLOCK_SHIFT : undefined });
 
 const goalRoutes = require('./goals')({ DIR, send, readJson, onlyKeys, limited, clean, daily: dailyRoutes });
 
-const raceRoutes = require('./race')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof });
+const raceRoutes = require('./race')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof: verifyChallenge });
 
 // The newest release, asked of GitHub at most every 15 minutes so the apps never hit its rate limit.
 const RELEASES = 'doctor-utsugi/smz3-universe';
@@ -222,7 +236,7 @@ http.createServer((req, res) => {
       const [id, install, kind, month, startedAt] = parts, game = parts.length === 7 ? gameOf(parts[5]) : 'smz3';
       if (!game) return send(res, 400, { error: 'unknown game' });
       const timeMs = b.timeMs, elapsed = Date.now() - Number(startedAt);
-      if (!Number.isInteger(timeMs) || timeMs < MIN_MS || timeMs > MAX_MS || timeMs > elapsed || elapsed > MAX_MS) return send(res, 400, { error: 'invalid time' });
+      if (!Number.isInteger(timeMs) || timeMs < minMs(game, kind) || timeMs > MAX_MS || timeMs > elapsed || elapsed > MAX_MS) return send(res, 400, { error: 'invalid time' });
       if (used.has(id)) return send(res, 200, { ok: true, duplicate: true });
       verifyProof(game, kind, month, b, timeMs, (err, verdict) => {
         if (err) return send(res, 400, { error: err });

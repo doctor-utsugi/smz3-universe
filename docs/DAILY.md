@@ -239,6 +239,22 @@ A full prepared save (chests opened, rewards taken, another starting spot) would
 - **Texts.** The reward is called rupeergies everywhere the player reads it (the API keeps `/api/tokens`). The boss goal reads "Defeat two Super Metroid bosses".
 - **Fixes.** The progress of the game save ("Which to load") was always 0: it was counted without WRAM, and without WRAM the core took the game as not started. `smz3_summarize` with no WRAM now counts both games from the save RAM. Saves kept before the fix show their numbers after the next in-game save. On Android the recent lists now carry the run they belong to, and a new run clears the slot's map, marks and recent lists, so a new run no longer shows the items of an earlier one.
 
+## Super Metroid's daily (built, not deployed)
+
+Super Metroid has its own challenge in each window, beside SMZ3's, with its own table and the same rupeergies.
+
+- **Ids.** SMZ3's windows keep their ids (`2026-11-24-0`) and files; Super Metroid's are `sm-2026-11-24-0`. Starts,
+  results, chat, prizes and the streak work per window as before; the streak counts the days, whatever the game.
+- **Planner.** `smz3daily --sm <id>` (`server/ladder/smz3daily_sm.c`, built with `core/smgen`): a Tournament, Split, Race
+  seed, checked with the SM playthrough. Goals: a major item (35%), a boss (40%; Kraid, Phantoon, Draygon or Ridley,
+  `smboss:<n>`) or an area (25%; Wrecked Ship, outer Maridia, upper Norfair west, `smarea:<n>`). The estimate is 1.6 min
+  per check plus 2.5 min per route step, 30 to 90 minutes. `--sm-stats <prefix> <n>` prints a batch.
+- **Server.** `GET /api/daily?game=sm`, `POST /api/daily/start {..., game: "sm"}` (or a `sm-` window), `GET
+  /api/daily/table?window=sm-...`. No game means SMZ3. The proof check uses Super Metroid's logic (1 check at least).
+- **Hosts.** The Daily row of Super Metroid's run list shows its challenge; the run is made from the Super Metroid ROM
+  alone. PC and the 3DS keep the attempt in `runs/sm/`, Android in `files/runs/sm/`.
+- **Not checked yet.** The planner's batch numbers and a real attempt on each host.
+
 ## Phase 9: calibration (waiting for data)
 
 It needs real times: the first public window is 2026-10-30-2. After a week, compare each window's median (`/api/daily/table`) with its `searchMin` and adjust the costs per check, per game switch and per goal in `smz3daily.c`.

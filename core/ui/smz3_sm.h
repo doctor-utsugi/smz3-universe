@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "smz3_proof.h"
 
 #define SMZ_SM_BASE_SIZE 0x300000   /* the Super Metroid (JU) ROM the player gives */
 #define SMZ_SM_ROM_SIZE 0x400000    /* the LoROM a run plays */
@@ -20,5 +21,16 @@ int smz_sm_generate(char *json, size_t json_cap, const uint8_t *sm, const uint8_
 
 /* The seed hash of a generated ROM, the four words of its file select screen ("GEEMER RIPPER ATOMIC POWAMP"). */
 void smz_sm_hash_text(const uint8_t *rom, size_t len, char *out, size_t cap);
+
+/* The SM_LOCS index (core/smgen) of a check of smz3_locations, which the tracker and the proof of run count in Super Metroid
+ * alone as well (their item bit, $7ED870 + id / 8, is the location id): -1 for a Zelda check or an index out of range. */
+int smz_sm_loc_of(int tracker_index);
+/* The smz3_locations index of an SM_LOCS index, or -1. */
+int smz_sm_tracker_index(int sm_index);
+
+/* The proof of run of a "game":"sm" settings JSON against its seed, rebuilt with sm_fill: counts in v->out_of_logic the
+ * checks the Super Metroid logic did not reach with the items found before them (a Zelda check counts as one). 0, or -1
+ * when the seed cannot be rebuilt. */
+int smz_sm_proof_logic(const char *json, const SmzProof *p, SmzProofVerdict *v);
 
 #endif

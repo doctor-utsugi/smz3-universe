@@ -1,7 +1,9 @@
 // Daily timed challenge (docs/DAILY.md): three 4 hour windows a day in UTC, one challenge per window made by smz3daily,
 // one attempt per install, hints released on the player's own clock, tokens for finishing, rank and streaks.
-//   GET  /api/daily?install=          -> {now, current?, next, tokens}   (no seed or hints before the start)
-//   POST /api/daily/start  {install, window}            -> {now, token, seed, settings, goal, startedAt, closesAt, hints, nextHintAt}
+// Each game has its own three windows a day at the same hours: SMZ3's ids are YYYY-MM-DD-n, Super Metroid's sm-YYYY-MM-DD-n
+// (made by smz3daily --sm), each with its own challenge file and table; the rupeergies and the streak are one balance.
+//   GET  /api/daily?install=&game=    -> {now, current?, next, tokens}   (no seed or hints before the start; no game: smz3)
+//   POST /api/daily/start  {install, window, game?}     -> {now, token, seed, settings, goal, startedAt, closesAt, hints, nextHintAt}
 //   GET  /api/daily/hints?token=                         -> {now, hints, nextHintAt, closesAt, players}
 // players = {now, started, done}: attempts heard from in the last 3 minutes and not finished, attempts started, finishes.
 // Devices ask for the hints about once a minute while playing, which is what "now" counts (kept in memory only).
@@ -9,7 +11,7 @@
 //   GET  /api/daily/chat?token=&since=                   -> {now, log, players}   the window's chat and finishes, newer than since
 //   POST /api/daily/chat   {token, player, country, text} -> {ok}
 // log = [{seq, at, kind: 'chat' | 'finish', pid, name, country, text}]: the last lines of the window, kept in memory only.
-//   GET  /api/daily/table?window=                        -> {window, runs, late, started, finished, medianMs}
+//   GET  /api/daily/table?window=&game=                 -> {window, runs, late, started, finished, medianMs}
 //   GET  /api/tokens?install=                            -> {balance, streak, history}
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +22,8 @@ const HOURS = [6, 14, 22];
 const LENGTH = 4 * 3600 * 1000;
 const MIN_MS = 3 * 60 * 1000;
 const PRIZE = { finish: 10, rank: [15, 10, 5], streak: { 3: 5, 7: 15, 30: 50 } };
+const GAMES = ['smz3', 'sm'];   // the games with a daily challenge
+const PREFIX = { smz3: '', sm: 'sm-' };
 
 module.exports = function daily(ctx) {
   const { DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof } = ctx;
@@ -39,23 +43,26 @@ module.exports = function daily(ctx) {
   }
 
   const dayOf = t => new Date(t).toISOString().slice(0, 10);
-  function windowAt(dayMs, i) {
+  function windowAt(dayMs, i, game = 'smz3') {
     const opensAt = dayMs + HOURS[i] * 3600000;
-    return { id: dayOf(dayMs) + '-' + i, opensAt, closesAt: opensAt + LENGTH };
+    return { id: PREFIX[game] + dayOf(dayMs) + '-' + i, opensAt, closesAt: opensAt + LENGTH, game };
   }
-  function windowsAround(t) {
+  function windowsAround(t, game) {
     const d = new Date(t), day = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), out = [];
-    for (const off of [-1, 0, 1]) for (let i = 0; i < HOURS.length; i++) out.push(windowAt(day + off * 86400000, i));
+    for (const off of [-1, 0, 1]) for (let i = 0; i < HOURS.length; i++) out.push(windowAt(day + off * 86400000, i, game));
     return out;
   }
   function windowById(id) {
-    const m = /^(\d{4}-\d{2}-\d{2})-([0-2])$/.exec(String(id || ''));
+    const m = /^(sm-)?(\d{4}-\d{2}-\d{2})-([0-2])$/.exec(String(id || ''));
     if (!m) return null;
-    const day = Date.parse(m[1] + 'T00:00:00Z');
-    return Number.isNaN(day) ? null : windowAt(day, Number(m[2]));
+    const day = Date.parse(m[2] + 'T00:00:00Z');
+    return Number.isNaN(day) ? null : windowAt(day, Number(m[3]), m[1] ? 'sm' : 'smz3');
   }
-  const currentWindow = t => windowsAround(t).find(w => w.opensAt <= t && t < w.closesAt) || null;
-  const nextWindow = t => windowsAround(t).find(w => w.opensAt > t);
+  const gameOfWindow = id => String(id).startsWith('sm-') ? 'sm' : 'smz3';
+  const dayOfWindow = id => String(id).replace(/^sm-/, '').slice(0, 10);   // the UTC date a window belongs to, in either game
+  const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES.includes(v) ? v : null;
+  const currentWindow = (t, game) => windowsAround(t, game).find(w => w.opensAt <= t && t < w.closesAt) || null;
+  const nextWindow = (t, game) => windowsAround(t, game).find(w => w.opensAt > t);
 
   // The challenge of a window, generated once and kept in data/daily/<id>.json.
   const cache = new Map(), pending = new Map();
@@ -65,7 +72,7 @@ module.exports = function daily(ctx) {
     try { const c = JSON.parse(fs.readFileSync(file, 'utf8')); cache.set(id, c); return done(null, c); } catch (e) {}
     if (pending.has(id)) return pending.get(id).push(done);
     pending.set(id, [done]);
-    execFile(BIN, [id], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
+    execFile(BIN, gameOfWindow(id) === 'sm' ? ['--sm', id] : [id], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
       let c = null;
       try { c = JSON.parse(out); } catch (e) {}
       if (c) { fs.writeFileSync(file, JSON.stringify(c)); cache.set(id, c); }
@@ -80,7 +87,7 @@ module.exports = function daily(ctx) {
   const pidOf = install => hmac('chat.' + install).slice(0, 10);   // a stable id per player, for muting, that is not the install
   function say(w, kind, install, name, country, text) {
     let c = chats.get(w);
-    if (!c) { chats.set(w, c = { seq: 0, lines: [] }); for (const k of chats.keys()) if (k < w && chats.size > 3) chats.delete(k); }
+    if (!c) { chats.set(w, c = { seq: 0, lines: [] }); for (const k of chats.keys()) if (k < w && gameOfWindow(k) === gameOfWindow(w) && chats.size > 3 * GAMES.length) chats.delete(k); }
     c.lines.push({ seq: ++c.seq, at: clock(), kind, pid: pidOf(install), name, country, text });
     if (c.lines.length > CHAT_KEEP) c.lines.shift();
   }
@@ -88,7 +95,7 @@ module.exports = function daily(ctx) {
   const LIVE_MS = 3 * 60 * 1000;
   function heard(w, install) {
     let m = seen.get(w);
-    if (!m) { seen.set(w, m = new Map()); for (const k of seen.keys()) if (k < w && seen.size > 3) seen.delete(k); }
+    if (!m) { seen.set(w, m = new Map()); for (const k of seen.keys()) if (k < w && gameOfWindow(k) === gameOfWindow(w) && seen.size > 3 * GAMES.length) seen.delete(k); }
     m.set(install, clock());
   }
   function players(w) {
@@ -117,7 +124,7 @@ module.exports = function daily(ctx) {
   // Days in a row (UTC, by window date) with at least one window finished in time, ending on `day`.
   function streak(install, day) {
     const days = new Set();
-    for (const [w, list] of Object.entries(db.results)) if (list.some(r => r.install === install && finishedOk(r))) days.add(w.slice(0, 10));
+    for (const [w, list] of Object.entries(db.results)) if (list.some(r => r.install === install && finishedOk(r))) days.add(dayOfWindow(w));
     let n = 0;
     for (let d = Date.parse(day + 'T00:00:00Z'); days.has(dayOf(d)); d -= 86400000) n++;
     return n;
@@ -141,7 +148,7 @@ module.exports = function daily(ctx) {
   setInterval(() => {
     const now = clock();
     settle(now);
-    for (const w of [currentWindow(now), nextWindow(now)]) if (w) challenge(w.id, () => {});   // made ahead of time
+    for (const g of GAMES) for (const w of [currentWindow(now, g), nextWindow(now, g)]) if (w) challenge(w.id, () => {});   // made ahead of time
   }, 60000).unref();
 
   function tokenParts(token) {
@@ -159,7 +166,9 @@ module.exports = function daily(ctx) {
     const now = clock();
     settle(now);   /* cheap; the timer does it too */
     if (req.method === 'GET' && url.pathname === '/api/daily') {
-      const install = url.searchParams.get('install'), cur = currentWindow(now), next = nextWindow(now);
+      const game = gameOf(url.searchParams.get('game'));
+      if (!game) return send(res, 400, { error: 'unknown game' }), true;
+      const install = url.searchParams.get('install'), cur = currentWindow(now, game), next = nextWindow(now, game);
       const state = w => {
         if (!validInstall(install)) return undefined;
         const s = (db.starts[w.id] || {})[install], r = (db.results[w.id] || []).find(x => x.install === install);
@@ -177,8 +186,9 @@ module.exports = function daily(ctx) {
     if (req.method === 'POST' && url.pathname === '/api/daily/start') {
       if (limited('ds', ip, 20)) return send(res, 429, { error: 'slow down' }), true;
       readJson(req, res, b => {
-        if (!onlyKeys(b, ['install', 'window']) || !validInstall(b.install)) return send(res, 400, { error: 'invalid' });
-        const w = currentWindow(clock());
+        const game = gameOf(b.game);
+        if (!onlyKeys(b, ['install', 'window', 'game']) || !validInstall(b.install) || !game) return send(res, 400, { error: 'invalid' });
+        const w = currentWindow(clock(), game);
         if (!w || w.id !== b.window) return send(res, 409, { error: 'window not open' });
         challenge(w.id, (err, c) => {
           if (err) return send(res, 503, { error: err });
@@ -249,7 +259,7 @@ module.exports = function daily(ctx) {
           let tokens = 0;
           if (finishedOk(entry)) {
             grant(t.install, w.id, PRIZE.finish, 'finished'); tokens += PRIZE.finish;
-            const day = w.id.slice(0, 10), sameDay = Object.keys(db.results).filter(id => id !== w.id && id.startsWith(day) && db.results[id].some(r => r.install === t.install && finishedOk(r)));
+            const day = dayOfWindow(w.id), sameDay = Object.keys(db.results).filter(id => id !== w.id && dayOfWindow(id) === day && db.results[id].some(r => r.install === t.install && finishedOk(r)));
             const n = streak(t.install, day), bonus = PRIZE.streak[n] || (n > 30 && n % 30 === 0 ? PRIZE.streak[30] : 0);
             if (!sameDay.length && bonus) { grant(t.install, w.id, bonus, 'streak ' + n); tokens += bonus; }
           }
@@ -262,7 +272,8 @@ module.exports = function daily(ctx) {
       return true;
     }
     if (req.method === 'GET' && url.pathname === '/api/daily/table') {
-      const w = windowById(url.searchParams.get('window')) || currentWindow(now) || windowsAround(now).filter(x => x.closesAt <= now).pop();
+      const game = gameOf(url.searchParams.get('game')) || 'smz3';
+      const w = windowById(url.searchParams.get('window')) || currentWindow(now, game) || windowsAround(now, game).filter(x => x.closesAt <= now).pop();
       const list = db.results[w.id] || [], ok = table(w.id), times = ok.map(r => r.timeMs);
       const pub = ({ install, hold, ...r }) => r;
       send(res, 200, { window: w.id, opensAt: w.opensAt, closesAt: w.closesAt, runs: ok.slice(0, 100).map(pub), late: list.filter(r => r.late && !r.hold).map(pub),
@@ -282,7 +293,7 @@ module.exports = function daily(ctx) {
   handle.grant = (install, window, amount, why) => { grant(install, window, amount, why); save(); };
   handle.finishesIn = month => {
     const n = {};
-    for (const [id, list] of Object.entries(db.results)) if (id.startsWith(month)) for (const r of list) if (finishedOk(r)) n[r.install] = (n[r.install] || 0) + 1;
+    for (const [id, list] of Object.entries(db.results)) if (dayOfWindow(id).startsWith(month)) for (const r of list) if (finishedOk(r)) n[r.install] = (n[r.install] || 0) + 1;
     return n;
   };
   handle.nameOf = install => {   // the latest name and country an install finished a daily challenge with

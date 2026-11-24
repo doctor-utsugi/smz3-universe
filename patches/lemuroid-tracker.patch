@@ -1120,10 +1120,10 @@ index b4a1df8..3811237 100644
      SYSTEMS(MainRoute.SYSTEMS, R.string.title_systems, Icons.Filled.VideogameAsset, Icons.Outlined.VideogameAsset),
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
 new file mode 100644
-index 0000000..90cf254
+index 0000000..89f12d9
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,208 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -1153,17 +1153,18 @@ index 0000000..90cf254
 +/**
 + * The daily timed challenge (docs/DAILY.md): three windows a day, one attempt each, the real clock from the game's start, hints
 + * released by the server. The attempt's run lives in its own slot ([SLOT], never listed with the others); the attempt
-+ * itself in runs/daily.json. Server times are moved to the device clock with the answers' "now".
++ * itself in runs/daily.json. Server times are moved to the device clock with the answers' "now". Each online game has its own
++ * challenge: a game other than SMZ3 keeps it in its runs folder (runs/<game>/) and its requests carry the game's id.
 + */
 +object DailyChallenge {
 +    const val SLOT = RunStore.SLOTS
 +    private const val BASE = "https://smz3-universe.duckdns.org"
 +
-+    private fun dir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
-+    private fun attemptFile(context: Context) = File(dir(context), "daily.json")
-+    private fun finishFile(context: Context) = File(dir(context), "daily.finish")
++    private fun dir(context: Context, game: String = RunStore.mode) = RunStore.runsDir(context, game)
++    private fun attemptFile(context: Context, game: String = RunStore.mode) = File(dir(context, game), "daily.json")
++    private fun finishFile(context: Context, game: String = RunStore.mode) = File(dir(context, game), "daily.finish")
 +    private fun resultFile(context: Context) = File(dir(context), "daily.result")
-+    fun proofFile(context: Context) = File(dir(context), "slot$SLOT.proof")
++    fun proofFile(context: Context, game: String = RunStore.mode) = File(dir(context, game), "slot$SLOT.proof")
 +
 +    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one). */
 +    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
@@ -1184,11 +1185,11 @@ index 0000000..90cf254
 +        Pair(c.responseCode, text).also { c.disconnect() }
 +    }.getOrDefault(Pair(-1, ""))
 +
-+    /** The /api/daily answer for this install, null offline. Call off the main thread. */
-+    fun info(context: Context): String? = request("GET", "/api/daily?install=" + installId(context)).let { (code, text) -> if (code == 200) text else null }
++    /** The /api/daily answer for this install and the game shown, null offline. Call off the main thread. */
++    fun info(context: Context): String? = request("GET", "/api/daily?install=" + installId(context) + RunStore.gameQuery()).let { (code, text) -> if (code == 200) text else null }
 +
-+    fun attempt(context: Context): DailyAttempt? = runCatching {
-+        val j = JSONObject(attemptFile(context).readText())
++    fun attempt(context: Context, game: String = RunStore.mode): DailyAttempt? = runCatching {
++        val j = JSONObject(attemptFile(context, game).readText())
 +        val h = j.getJSONArray("hints")
 +        DailyAttempt(j.getString("window"), j.getString("token"), j.getString("goal"), j.getString("check"), j.getLong("startedAt"), j.getLong("closesAt"),
 +            j.optLong("nextHintAt"), List(h.length()) { h.getJSONArray(it).let { p -> p.getLong(0) to p.getString(1) } }, j.optLong("beganAt"))
@@ -1213,7 +1214,9 @@ index 0000000..90cf254
 +
 +    /** Starts (or resumes on the server) the attempt of [window]: the server's run settings, or the reason it failed. Call off the main thread. */
 +    fun start(context: Context, window: String): Result<Pair<DailyAttempt, String>> {
-+        val (code, text) = request("POST", "/api/daily/start", JSONObject().put("install", installId(context)).put("window", window))
++        val body = JSONObject().put("install", installId(context)).put("window", window)
++        if (RunStore.mode != "smz3") body.put("game", RunStore.mode)   // SMZ3 sends none
++        val (code, text) = request("POST", "/api/daily/start", body)
 +        if (code < 0) return Result.failure(Exception("No connection to the challenge server"))
 +        val j = runCatching { JSONObject(text) }.getOrNull() ?: return Result.failure(Exception("Cannot start the challenge ($code)"))
 +        if (code != 200) return Result.failure(Exception("Cannot start: " + j.optString("error", code.toString())))
@@ -1289,15 +1292,19 @@ index 0000000..90cf254
 +    /** What the server answered to the finish, a line for the player; null while nothing came back. */
 +    fun result(context: Context): String? = runCatching { resultFile(context).readText() }.getOrNull()
 +
-+    /** Sends the finish waiting, if any. Call off the main thread. */
++    /** Sends the finishes waiting, of every online game. Call off the main thread. */
 +    @Synchronized
 +    fun flush(context: Context) {
-+        val time = runCatching { finishFile(context).readText().trim().toLong() }.getOrNull() ?: return
-+        val a = attempt(context) ?: return
++        for (game in RunStore.ONLINE_GAMES) flush(context, game)
++    }
++
++    private fun flush(context: Context, game: String) {
++        val time = runCatching { finishFile(context, game).readText().trim().toLong() }.getOrNull() ?: return
++        val a = attempt(context, game) ?: return
 +        val (name, country) = OnlineLadder.profileFor(context)
 +        val body = JSONObject().put("token", a.token).put("timeMs", time).put("player", name)
 +        if (country.length == 2) body.put("country", country)
-+        body.put("proof", runCatching { proofFile(context).readText() }.getOrDefault(""))
++        body.put("proof", runCatching { proofFile(context, game).readText() }.getOrDefault(""))
 +        val (code, text) = request("POST", "/api/daily/finish", body)
 +        if (code != 200 && code != 400) return   // no answer: sent again later
 +        val j = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
@@ -1307,8 +1314,8 @@ index 0000000..90cf254
 +            j.optBoolean("late") -> "After the window closed: on the late list, no prize"
 +            else -> "Rank ${j.optInt("rank").takeIf { it > 0 } ?: "?"} for now  -  +${j.optInt("tokens")} rupeergies (${j.optInt("balance")})"
 +        }
-+        runCatching { resultFile(context).writeText(line) }
-+        finishFile(context).delete()
++        runCatching { File(dir(context, game), "daily.result").writeText(line) }
++        finishFile(context, game).delete()
 +    }
 +
 +    /** What the challenge shows over the game, each one can be hidden: 0 window clock, 1 own time, 2 goal and new hints, 3 next hint in. */
@@ -1382,10 +1389,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..3c18fbc
+index 0000000..caefcea
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,987 @@
+@@ -0,0 +1,1019 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1604,10 +1611,11 @@ index 0000000..3c18fbc
 +        if (launching) { kotlinx.coroutines.delay(8000); if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) { launching = false; frozen[0] = null; com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.show(context) } }
 +    }
 +    val focus = remember { FocusRequester() }
-+    val pendingMonthly = remember { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) }
++    // each online game's monthly and weekly seeds (index: SMZ_MODE_*)
++    val pendingMonthly = remember { Array(3) { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) } }
 +    val pendingLadder = remember { java.util.concurrent.atomic.AtomicReference<Array<String?>?>(null) }
 +    val pendingGoals = remember { java.util.concurrent.atomic.AtomicReference<Array<String?>?>(null) }
-+    val pendingWeekly = remember { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) }
++    val pendingWeekly = remember { Array(3) { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) } }
 +    // the daily challenge's answer (null text: offline) and the device clock when it came
 +    val pendingDaily = remember { java.util.concurrent.atomic.AtomicReference<Pair<String?, Long>?>(null) }
 +    val dailyAgain = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
@@ -1685,8 +1693,14 @@ index 0000000..3c18fbc
 +        RaceClient.paused(context).let { Smz3Native.uiRaceSetPaused(it?.code ?: "", it?.resumeAt ?: 0L) }
 +        Smz3Native.uiHomeEnable(UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
 +        if (!homeShown) { homeShown = true; Smz3Native.uiHomeOpen() }
++        else if (RunStore.mode != "smz3") Smz3Native.uiGameEnter(RunStore.modeIndex())   // the menu made again after a run: back in that run's game
 +        AppUpdate.latest?.let { Smz3Native.uiUpdateJson(it) }
-+        Thread { pendingMonthly.set(OnlineLadder.monthly(context)); pendingWeekly.set(OnlineLadder.weekly(context)) }.start()
++        Thread {
++            for (game in RunStore.ONLINE_GAMES) {
++                val m = if (game == "sm") SMZ_MODE_SM else 0
++                pendingMonthly[m].set(OnlineLadder.monthly(context, game)); pendingWeekly[m].set(OnlineLadder.weekly(context, game))
++            }
++        }.start()
 +        Thread { DailyChallenge.flush(context) }.start()   // a challenge finished offline
 +        refreshSlots()
 +        onDispose { }
@@ -1702,7 +1716,7 @@ index 0000000..3c18fbc
 +            Smz3Native.uiTick((now - last).toInt())
 +            last = now
 +            val mode = arrayOf("smz3", "z3", "sm").getOrElse(Smz3Native.uiGameMode()) { "smz3" }
-+            if (mode != RunStore.mode) { RunStore.mode = mode; refreshSlots() }   // a game entered from the carousel: its own runs
++            if (mode != RunStore.mode) { RunStore.mode = mode; refreshSlots(); dailyAgain.set(true) }   // a game entered from the carousel: its own runs and challenge
 +            if (logo || spin) version++
 +        }
 +    }
@@ -1719,7 +1733,11 @@ index 0000000..3c18fbc
 +        while (true) {
 +            if (System.currentTimeMillis() >= next || dailyAgain.getAndSet(false)) {
 +                next = System.currentTimeMillis() + 60_000
-+                Thread { pendingDaily.set(DailyChallenge.info(context) to System.currentTimeMillis()) }.start()
++                Thread {
++                    val game = RunStore.mode
++                    val json = DailyChallenge.info(context)
++                    if (game == RunStore.mode) pendingDaily.set(json to System.currentTimeMillis()) else dailyAgain.set(true)   // another game's answer
++                }.start()
 +            }
 +            pendingDaily.getAndSet(null)?.let { (json, at) ->
 +                val window = json?.let { runCatching { JSONObject(it).optJSONObject("current")?.optString("id") }.getOrNull() }.orEmpty()
@@ -1784,7 +1802,7 @@ index 0000000..3c18fbc
 +        }
 +    }
 +
-+    /** Super Metroid alone: only its ROM and its own generator, a 4 MB ROM, offline (no ladder). */
++    /** Super Metroid alone: only its ROM and its own generator, a 4 MB ROM; online like SMZ3 (its own ladder). */
 +    suspend fun generateSm(slot: Int) {
 +        val sm = RunGenerator.findSmRom(context, retrogradeDb.gameDao().selectListBySystem("snes"))
 +            ?: error(RunGenerator.wrongBaseRom ?: "Add the Super Metroid ROM first")
@@ -1811,7 +1829,7 @@ index 0000000..3c18fbc
 +                settings = settings, mapMode = json.optString("mapMode", "all"),
 +            ),
 +        )
-+        OnlineLadder.markRun(context, slot, false, "original")
++        OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original")
 +        val game = RunGenerator.registerGame(context, retrogradeDb, slot, name)
 +        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +    }
@@ -1873,6 +1891,27 @@ index 0000000..3c18fbc
 +        }
 +    }
 +
++    /** The base ROMs of the game shown: SMZ3's two, or Super Metroid's alone (an empty Zelda); null when one is missing. */
++    suspend fun onlineBases(): Pair<ByteArray, ByteArray>? {
++        val games = retrogradeDb.gameDao().selectListBySystem("snes")
++        return if (RunStore.mode == "sm") RunGenerator.findSmRom(context, games)?.let { it to ByteArray(0) } else RunGenerator.findBaseRoms(context, games)
++    }
++
++    /** A challenge's or race's game from its settings [raw]: the ROM, its seed and the settings the run keeps (Super Metroid's get the seed hash). */
++    suspend fun onlineGame(sm: ByteArray, z3: ByteArray, raw: String): Triple<ByteArray, String, String> {
++        val settings = JSONObject(raw)
++        fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
++            ?.let { spriteFile(context, game, "$it.rdc") }
++        if (RunStore.mode == "sm") {
++            val (rom, kept) = RunGenerator.generateSm(sm, raw, rdc(1, "samusSprite"))
++            Smz3Native.setMode(SMZ_MODE_SM)
++            return Triple(rom, JSONObject(kept).optString("seed"), kept)
++        }
++        val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
++        Smz3Native.setMode(0)
++        return Triple(rom, usedSeed, raw)
++    }
++
 +    /** Start or Continue on the Daily screen: makes the window's run in the daily slot unless it is there, then plays it. */
 +    fun startDaily() {
 +        val window = Smz3Native.uiDailyWindow()
@@ -1882,26 +1921,23 @@ index 0000000..3c18fbc
 +        version++
 +        scope.launch {
 +            val outcome = runCatching {
-+                val games = retrogradeDb.gameDao().selectListBySystem("snes")
-+                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
++                val (sm, z3) = onlineBases()
 +                    ?: run {
 +                        quiet[0] = false
++                        if (RunStore.mode == "sm") error(RunGenerator.wrongBaseRom ?: "Add the Super Metroid ROM first")
 +                        needRoms(RunGenerator.wrongBaseRom) { startDaily() }
 +                        return@launch
 +                    }
 +                val (attempt, server) = withContext(Dispatchers.IO) { DailyChallenge.start(context, window) }.getOrThrow()
-+                val raw = Smz3Native.dailySettingsJson(server, attempt.check).ifEmpty { error("The challenge's settings do not fit") }
++                val made = Smz3Native.dailySettingsJson(server, attempt.check).ifEmpty { error("The challenge's settings do not fit") }
 +                Smz3Native.uiSetPlando(null)
-+                val settings = JSONObject(raw)
-+                fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
-+                    ?.let { spriteFile(context, game, "$it.rdc") }
 +                Smz3Native.uiBusy("Generating the challenge ...")
 +                version++
-+                val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
++                val (rom, usedSeed, raw) = onlineGame(sm, z3, made)
++                val settings = JSONObject(raw)
 +                RunStore.delete(context, DailyChallenge.SLOT)
 +                val romFile = RunStore.newRomFile(context, usedSeed, raw)
 +                romFile.writeBytes(rom)
-+                Smz3Native.setMode(0)
 +                val totals = Smz3Native.summarize(ByteArray(0), ByteArray(0))
 +                RunStore.save(
 +                    context,
@@ -1958,9 +1994,9 @@ index 0000000..3c18fbc
 +    fun buildRace() {
 +        scope.launch {
 +            val outcome = runCatching {
-+                val games = retrogradeDb.gameDao().selectListBySystem("snes")
-+                val (sm, z3) = RunGenerator.findBaseRoms(context, games)
++                val (sm, z3) = onlineBases()
 +                    ?: run {   // the ready room stays while the picker is open: the game is built again once both ROMs are in
++                        if (RunStore.mode == "sm") error(RunGenerator.wrongBaseRom ?: "Add the Super Metroid ROM first")
 +                        val wrong = RunGenerator.wrongBaseRom
 +                        askRoms { uris ->
 +                            val message = if (uris.isEmpty()) null else RunGenerator.importRoms(context, uris)
@@ -1969,18 +2005,15 @@ index 0000000..3c18fbc
 +                        }
 +                        return@launch
 +                    }
-+                val raw = Smz3Native.raceSettingsJson().ifEmpty { error("The race's settings do not fit") }
++                val made = Smz3Native.raceSettingsJson().ifEmpty { error("The race's settings do not fit") }
 +                Smz3Native.uiSetPlando(null)
++                val (rom, usedSeed, raw) = onlineGame(sm, z3, made)
 +                val settings = JSONObject(raw)
-+                fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
-+                    ?.let { spriteFile(context, game, "$it.rdc") }
-+                val (rom, usedSeed) = RunGenerator.generate(context, sm, z3, settings, rdc(0, "linkSprite"), rdc(1, "samusSprite"))
-+                if (!Smz3Native.raceApplyStart(rom, raw)) error("The Draft's start does not fit")
++                if (RunStore.mode != "sm" && !Smz3Native.raceApplyStart(rom, raw)) error("The Draft's start does not fit")   // Drafts are SMZ3's
 +                RunStore.delete(context, RaceClient.SLOT)
 +                RunStore.goalsFile(context, RaceClient.SLOT).delete()   // a Draft's kills and rupees count from zero
 +                val romFile = RunStore.newRomFile(context, usedSeed, raw)
 +                romFile.writeBytes(rom)
-+                Smz3Native.setMode(0)
 +                val totals = Smz3Native.summarize(ByteArray(0), ByteArray(0))
 +                RunStore.save(
 +                    context,
@@ -2004,8 +2037,10 @@ index 0000000..3c18fbc
 +    }
 +
 +    fun pollActions() {
-+        pendingWeekly.getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetWeekly(label, seed, daysLeftInWeek()); version++ }
-+        pendingMonthly.getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetMonthly(label, seed, daysLeftInMonth()); version++ }
++        for (m in pendingWeekly.indices) {
++            pendingWeekly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetWeekly(m, label, seed, daysLeftInWeek()); version++ }
++            pendingMonthly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetMonthly(m, label, seed, daysLeftInMonth()); version++ }
++        }
 +        Smz3Native.uiSavedChanged()?.let { runCatching { savedCustoms.writeText(it) } }
 +        Smz3Native.uiPlayerChanged()?.let { OnlineLadder.saveProfile(context, it) }
 +        val (act, slot) = Smz3Native.uiAction().let { Act.values()[it[0]] to it[1] }
@@ -2024,7 +2059,11 @@ index 0000000..3c18fbc
 +            Act.DELETE -> { RunStore.delete(context, slot); refreshSlots() }
 +            Act.GENERATE -> generate(slot)
 +            Act.LADDER -> {
-+                Thread { pendingLadder.set(Array(3) { OnlineLadder.ladderJson(it) }) }.start()
++                Thread {
++                    val game = RunStore.mode
++                    val tables = Array(3) { OnlineLadder.ladderJson(it, game) }
++                    if (game == RunStore.mode) pendingLadder.set(tables)   // another game's tables are dropped
++                }.start()
 +                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
 +            }
 +            Act.DAILY -> startDaily()
@@ -2375,10 +2414,10 @@ index 0000000..3c18fbc
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..04194c5
+index 0000000..eb60b72
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,262 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2390,14 +2429,15 @@ index 0000000..04194c5
 +
 +/**
 + * The shared ladder at [BASE]. The server signs a token when a run starts and only accepts a time for a token it issued,
-+ * so a finished run is sent as just that token, the time and the player name. Original-rules runs only.
++ * so a finished run is sent as just that token, the time and the player name. Original-rules runs only. SMZ3 and Super Metroid
++ * each have their own tables: requests for a game other than SMZ3 carry its id.
 + */
 +object OnlineLadder {
 +    private const val BASE = "https://smz3-universe.duckdns.org"
 +
 +    private fun dir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
-+    private fun tokenFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.token")
-+    private fun finishFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.finish")
++    private fun tokenFile(context: Context, slot: Int, game: String = RunStore.mode) = File(RunStore.runsDir(context, game), "slot$slot.token")
++    private fun finishFile(context: Context, slot: Int, game: String = RunStore.mode) = File(RunStore.runsDir(context, game), "slot$slot.finish")
 +
 +    private fun installId(context: Context): String {
 +        val f = File(dir(context), "install_id")
@@ -2428,7 +2468,7 @@ index 0000000..04194c5
 +    /** Name and flag shown on the ladder, set in the start screen of a new run. */
 +    fun playerName(context: Context) = profile(context).first
 +
-+    private fun proofFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.proof")
++    private fun proofFile(context: Context, slot: Int, game: String = RunStore.mode) = File(RunStore.runsDir(context, game), "slot$slot.proof")
 +
 +    private var proofSlot = -1
 +    private val proofSeen = HashSet<Int>()
@@ -2476,11 +2516,15 @@ index 0000000..04194c5
 +        else -> 0
 +    }
 +
-+    /** This month's label and fixed seed: fetched when possible, else the copy saved for the same month. Call off the main thread. */
-+    fun monthly(context: Context): Pair<String, Int>? {
-+        val f = File(dir(context), "monthly.json")
++    /** A file kept in runs/ for each online game: SMZ3's keeps its old name, the others get "_<game>" before the extension. */
++    private fun gameFile(context: Context, name: String, game: String) =
++        File(dir(context), if (game == "smz3") name else name.substringBeforeLast('.') + "_" + game + "." + name.substringAfterLast('.'))
++
++    /** This month's label and fixed seed for [game]: fetched when possible, else the copy saved for the same month. Call off the main thread. */
++    fun monthly(context: Context, game: String = RunStore.mode): Pair<String, Int>? {
++        val f = gameFile(context, "monthly.json", game)
 +        runCatching {
-+            val c = URL("$BASE/api/monthly").openConnection() as HttpURLConnection
++            val c = URL("$BASE/api/monthly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
 +            c.connectTimeout = 8000
 +            c.readTimeout = 8000
 +            val text = c.inputStream.bufferedReader().use { it.readText() }
@@ -2496,11 +2540,11 @@ index 0000000..04194c5
 +        }.getOrNull()
 +    }
 +
-+    /** This week's label (e.g. 2026-W44) and fixed seed: fetched when possible, else the copy saved for the same week. Call off the main thread. */
-+    fun weekly(context: Context): Pair<String, Int>? {
-+        val f = File(dir(context), "weekly.json")
++    /** This week's label (e.g. 2026-W44) and fixed seed for [game]: fetched when possible, else the copy saved for the same week. Call off the main thread. */
++    fun weekly(context: Context, game: String = RunStore.mode): Pair<String, Int>? {
++        val f = gameFile(context, "weekly.json", game)
 +        runCatching {
-+            val c = URL("$BASE/api/weekly").openConnection() as HttpURLConnection
++            val c = URL("$BASE/api/weekly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
 +            c.connectTimeout = 8000
 +            c.readTimeout = 8000
 +            val text = c.inputStream.bufferedReader().use { it.readText() }
@@ -2521,7 +2565,9 @@ index 0000000..04194c5
 +    fun ensureToken(context: Context, slot: Int): Boolean {
 +        if (!onlineFile(context, slot).exists() || tokenFile(context, slot).exists()) return true
 +        val kind = runCatching { onlineFile(context, slot).readText().trim() }.getOrNull() ?: return false
-+        val r = call("/api/start", JSONObject().put("install", installId(context)).put("kind", kind)) ?: return false
++        val body = JSONObject().put("install", installId(context)).put("kind", kind)
++        if (RunStore.mode != "smz3") body.put("game", RunStore.mode)   // SMZ3 sends none
++        val r = call("/api/start", body) ?: return false
 +        val token = r.optString("token").takeIf { it.isNotEmpty() } ?: return false
 +        tokenFile(context, slot).writeText(token)
 +        return true
@@ -2534,24 +2580,28 @@ index 0000000..04194c5
 +        finishFile(context, slot).writeText("$timeMs $seed")
 +    }
 +
-+    /** Sends every finished run waiting; the server's refusals drop the run, network failures retry later. Call off the main thread. */
++    /** Sends every finished run waiting, of every online game; the server's refusals drop the run, network failures retry later. Call off the main thread. */
 +    @Synchronized
 +    fun flush(context: Context) {
++        for (game in RunStore.ONLINE_GAMES) flush(context, game)
++    }
++
++    private fun flush(context: Context, game: String) {
 +        for (slot in 0 until RunStore.SLOTS) {
-+            val fields = runCatching { finishFile(context, slot).readText().trim().split(' ') }.getOrNull() ?: continue
++            val fields = runCatching { finishFile(context, slot, game).readText().trim().split(' ') }.getOrNull() ?: continue
 +            val time = fields[0].toLongOrNull() ?: continue
-+            val token = runCatching { tokenFile(context, slot).readText().trim() }.getOrNull() ?: continue
++            val token = runCatching { tokenFile(context, slot, game).readText().trim() }.getOrNull() ?: continue
 +            val (name, country) = profile(context)
 +            val body = JSONObject().put("token", token).put("timeMs", time).put("player", name)
 +            if (country.length == 2) body.put("country", country)
 +            fields.getOrNull(1)?.takeIf { it.length in 1..9 && it.all { c -> c.isDigit() } }?.let { body.put("seed", it) }
-+            body.put("proof", runCatching { proofFile(context, slot).readText() }.getOrDefault(""))
++            body.put("proof", runCatching { proofFile(context, slot, game).readText() }.getOrDefault(""))
 +            val (code, reply) = post("/api/finish", body)
 +            if (code == 400) runCatching { File(dir(context), "last_online_error.txt").writeText("slot ${slot + 1}: $reply") }
 +            if (code == 200 || code == 400) {
-+                finishFile(context, slot).delete()
-+                tokenFile(context, slot).delete()
-+                proofFile(context, slot).delete()
++                finishFile(context, slot, game).delete()
++                tokenFile(context, slot, game).delete()
++                proofFile(context, slot, game).delete()
 +            }
 +        }
 +    }
@@ -2574,9 +2624,10 @@ index 0000000..04194c5
 +    private fun flag(code: String) =
 +        if (code.length == 2) code.map { String(Character.toChars(0x1F1E6 + it.code - 'A'.code)) }.joinToString("") + " " else ""
 +
-+    private fun cacheFile(context: Context, tab: Int) = File(dir(context), arrayOf("online_ladder.json", "online_ladder_monthly.json", "online_ladder_weekly.json")[tab])
++    private fun cacheFile(context: Context, tab: Int, game: String = RunStore.mode) =
++        gameFile(context, arrayOf("online_ladder.json", "online_ladder_monthly.json", "online_ladder_weekly.json")[tab], game)
 +
-+    /** Last ladder fetched for a table (0 original, 1 monthly of this month, 2 weekly of this week), empty until the first fetch succeeds. */
++    /** Last ladder fetched for a table of the game shown (0 original, 1 monthly of this month, 2 weekly of this week), empty until the first fetch succeeds. */
 +    fun cached(context: Context, tab: Int = 0): List<LeaderboardEntry> = runCatching {
 +        val a = JSONObject(cacheFile(context, tab).readText()).getJSONArray("runs")
 +        List(a.length()) { i ->
@@ -2584,9 +2635,9 @@ index 0000000..04194c5
 +        }
 +    }.getOrDefault(emptyList())
 +
-+    /** The server's answer for one table (0 original, 1 monthly, 2 weekly), null when it cannot be reached. Call off the main thread. */
-+    fun ladderJson(tab: Int): String? = runCatching {
-+        val c = URL("$BASE/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab]).openConnection() as HttpURLConnection
++    /** The server's answer for one table of [game] (0 original, 1 monthly, 2 weekly), null when it cannot be reached. Call off the main thread. */
++    fun ladderJson(tab: Int, game: String = RunStore.mode): String? = runCatching {
++        val c = URL("$BASE/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game)).openConnection() as HttpURLConnection
 +        c.connectTimeout = 8000
 +        c.readTimeout = 8000
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
@@ -2609,19 +2660,20 @@ index 0000000..04194c5
 +        }
 +        if (counts.length() == 0) return
 +        val (name, country) = profile(context)   // the name and flag last month's top 10 shows
-+        val body = JSONObject().put("install", installId(context)).put("run", "s$slot-$createdAt").put("online", online).put("counts", counts).put("player", name)
++        val body = JSONObject().put("install", installId(context)).put("run", (if (RunStore.mode == "sm") "m" else "s") + "$slot-$createdAt")   // the games' slots apart.put("online", online).put("counts", counts).put("player", name)
 +        if (country.length == 2) body.put("country", country)
 +        post("/api/goals/report", body)
 +    }
 +
-+    /** Downloads the three ladders into the cache; true when the original one worked. Call off the main thread. */
++    /** Downloads the three ladders of the game shown into the cache; true when the original one worked. Call off the main thread. */
 +    fun refresh(context: Context): Boolean {
++        val game = RunStore.mode
 +        var original = false
 +        for (tab in 0..2) {
 +            val ok = runCatching {
-+                val text = ladderJson(tab) ?: error("offline")
++                val text = ladderJson(tab, game) ?: error("offline")
 +                JSONObject(text).getJSONArray("runs")
-+                cacheFile(context, tab).writeText(text)
++                cacheFile(context, tab, game).writeText(text)
 +            }.isSuccess
 +            if (tab == 0) original = ok
 +        }
@@ -3081,10 +3133,10 @@ index 0000000..91f0bba
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 new file mode 100644
-index 0000000..ca50ef4
+index 0000000..de4a770
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,161 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -3132,7 +3184,16 @@ index 0000000..ca50ef4
 +    /** [mode] as the core's SMZ_MODE_* (0 SMZ3, 1 ALttP, 2 Super Metroid). */
 +    fun modeIndex() = when (mode) { "z3" -> 1; "sm" -> 2; else -> 0 }
 +
-+    fun runsDir(context: Context) = File(context.filesDir, if (mode == "smz3") "runs" else "runs/$mode").apply { mkdirs() }
++    fun runsDir(context: Context) = runsDir(context, mode)
++
++    /** The folder of [game]'s runs, whichever game the menu shows now (sending what another game left waiting). */
++    fun runsDir(context: Context, game: String) = File(context.filesDir, if (game == "smz3") "runs" else "runs/$game").apply { mkdirs() }
++
++    /** The games with an online ladder, daily challenge and races. */
++    val ONLINE_GAMES = listOf("smz3", "sm")
++
++    /** "&game=<id>" (or "?game=" with [first]) for a game other than SMZ3; SMZ3's requests stay as they were. */
++    fun gameQuery(game: String = mode, first: Boolean = false) = if (game == "smz3") "" else (if (first) "?" else "&") + "game=" + game
 +
 +    /** Slot of the run being played; the tracker (which runs in the game process) writes its progress into it. */
 +    fun setActiveSlot(context: Context, slot: Int?) {
@@ -7099,10 +7160,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..f93c635
+index 0000000..551c7a6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,163 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7201,10 +7262,10 @@ index 0000000..f93c635
 +    @JvmStatic external fun uiPlayerChanged(): String?
 +    @JvmStatic external fun uiOnline(): Int
 +    @JvmStatic external fun uiSetSlotOnline(i: Int, kind: Int)
-+    @JvmStatic external fun uiSetMonthly(label: String, seed: Int, days: Int)
++    @JvmStatic external fun uiSetMonthly(mode: Int, label: String, seed: Int, days: Int)
 +    @JvmStatic external fun uiLoadChoice(slot: Int, saveMs: Long, saveZ: Int, saveM: Int, stateMs: Long, stateZ: Int, stateM: Int, zt: Int, mt: Int)
 +    @JvmStatic external fun uiRunMonthly(): Int
-+    @JvmStatic external fun uiSetWeekly(label: String, seed: Int, days: Int)
++    @JvmStatic external fun uiSetWeekly(mode: Int, label: String, seed: Int, days: Int)
 +    @JvmStatic external fun uiRunWeekly(): Int
 +    @JvmStatic external fun uiLadderEnable(on: Boolean)
 +    @JvmStatic external fun uiLadderJson(tab: Int, json: String?)
@@ -7228,6 +7289,7 @@ index 0000000..f93c635
 +    @JvmStatic external fun uiOption(opt: Int): Int
 +    @JvmStatic external fun uiScreen(): Int
 +    @JvmStatic external fun uiGameMode(): Int
++    @JvmStatic external fun uiGameEnter(mode: Int)
 +    /** The carousel's state of a game: 0 ready, 1 ROM missing, 2 coming soon. */
 +    @JvmStatic external fun uiGameState(mode: Int, state: Int)
 +    @JvmStatic external fun uiSetSlotCount(n: Int)
@@ -9136,7 +9198,7 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..e194d8d
+index 0000000..5cb83c5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 @@ -0,0 +1,474 @@
@@ -9254,7 +9316,7 @@ index 0000000..e194d8d
 +
 +    /** Sends the run's world goal counters in the background (every few minutes, at the end and when the game closes). */
 +    fun reportGoals(context: Context, slot: Int, createdAt: Long) {
-+        if (RunStore.mode != "smz3") return   // only SMZ3 is online for now
++        if (RunStore.mode !in RunStore.ONLINE_GAMES) return   // ALttP alone has no online play yet
 +        val text = Smz3Native.countersText()
 +        val online = OnlineLadder.slotKind(context, slot) != 0
 +        Thread { OnlineLadder.reportGoals(context, slot, createdAt, online, text) }.start()
@@ -12301,10 +12363,10 @@ index c3c69c7..13cb599 100644
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
 new file mode 100644
-index 0000000..964e2cf
+index 0000000..6742946
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,209 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -12348,7 +12410,7 @@ index 0000000..964e2cf
 +    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one), as for the daily challenge. */
 +    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
 +
-+    fun proofFile(context: Context) = File(File(context.filesDir, "runs"), "slot$SLOT.proof")
++    fun proofFile(context: Context) = File(RunStore.runsDir(context), "slot$SLOT.proof")   // where OnlineLadder.noteChecks writes it
 +
 +    fun init(context: Context) {
 +        synchronized(lock) {
@@ -12392,14 +12454,16 @@ index 0000000..964e2cf
 +    /** The player as the requests carry it. */
 +    fun who(context: Context): JSONObject {
 +        val (name, country) = OnlineLadder.profileFor(context)
-+        return JSONObject().put("install", OnlineLadder.installIdFor(context)).put("player", name).put("country", country).put("version", Smz3Native.version())
++        val j = JSONObject().put("install", OnlineLadder.installIdFor(context)).put("player", name).put("country", country).put("version", Smz3Native.version())
++        if (RunStore.mode != "smz3") j.put("game", RunStore.mode)   // SMZ3 sends none
++        return j
 +    }
 +
 +    /** Queues a POST to /api/race/<what>; with [withToken] the room's token goes along. */
 +    fun send(what: String, fields: JSONObject?, withToken: Boolean) = synchronized(lock) { queue.addLast(Req(what, fields, withToken)) }
 +
-+    /** Queues the request for the open public rooms. */
-+    fun find() = send("open", null, false)
++    /** Queues the request for the open public rooms of the game shown. */
++    fun find() = send("open", JSONObject().put("game", RunStore.mode), false)
 +
 +    /** Stops polling and forgets the room, once the requests queued before it are sent. */
 +    fun forget() = send("forget", null, false)
@@ -12458,7 +12522,7 @@ index 0000000..964e2cf
 +            "handover" -> { synchronized(lock) { token = ""; since = 0; progress = 0; events.clear(); chats.clear() }; return true }
 +        }
 +        val sent = System.currentTimeMillis()
-+        val (code0, text) = if (r.what == "open") http("GET", "/api/race/open", null) else {
++        val (code0, text) = if (r.what == "open") http("GET", "/api/race/open" + RunStore.gameQuery(r.fields?.optString("game") ?: "smz3", true), null) else {
 +            val body = JSONObject(r.fields?.toString() ?: "{}")
 +            if (r.withToken) body.put("token", synchronized(lock) { token })
 +            http("POST", "/api/race/${r.what}", body.toString())

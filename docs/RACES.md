@@ -7,6 +7,14 @@ and the Thor, 3DS.
 This file is the plan to iterate on. Open questions are at the end; each answer moves into Decisions. The mockups are
 published as an artifact, and no interface gets built until they are approved.
 
+## Super Metroid rooms (built, not deployed)
+
+A room carries its game: `POST /api/race/create` and `/join` take `game` (none means SMZ3), a player from another game
+gets `409 other game`, and `GET /api/race/open?game=` lists only that game's rooms. Super Metroid has Championship Full
+only (Tournament, Split, Race, to Mother Brain); its ladder is `sm-full`. Records carry `game` for Super Metroid only.
+The hosts send the game of the carousel, so each game's lobby shows its own rooms; Draft and the formats screen are
+SMZ3's for now.
+
 ## Decisions
 
 | Topic | Decision |

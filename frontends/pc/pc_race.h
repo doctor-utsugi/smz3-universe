@@ -11,7 +11,7 @@ enum { RACE_ANS_ROOM, RACE_ANS_ROOMS, RACE_ANS_ERROR };
 /* Queues a POST to /api/race/<what>; fields is the JSON body without braces. With_token adds the room's token. */
 void race_send(const char *what, const char *fields, int with_token);
 /* Queues the request for the open public rooms. */
-void race_find(void);
+void race_find(const char *game);   /* the open rooms of a game ("" or NULL: SMZ3's) */
 /* The next answer: its kind (RACE_ANS_*) with the JSON (or the error text) in out; -1 when none is waiting. */
 int race_take(char *out, size_t cap);
 /* Stops polling and forgets the room, once the requests queued before it are sent. */

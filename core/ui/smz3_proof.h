@@ -8,6 +8,7 @@
 
 #define SMZ_PROOF_MAX 512
 #define SMZ_PROOF_MIN 12            /* fewest checks a finished run can show */
+#define SMZ_PROOF_MIN_SM 10         /* the same in Super Metroid alone, whose runs clear fewer checks (100 in the game) */
 
 typedef struct {
     int n;
@@ -29,7 +30,8 @@ typedef struct {
     char reason[160];
 } SmzProofVerdict;
 
-/* Checks a proof against the seed of settings_json (stack of at least 32 MB needed). time_ms is the time the client claims. */
+/* Checks a proof against the seed of settings_json (stack of at least 32 MB needed). time_ms is the time the client claims.
+ * The settings' "game" picks the logic: SMZ3's (core/gen), or Super Metroid alone's (core/smgen, smz3_sm.c). */
 void smz_proof_check(const char *settings_json, const SmzProof *p, int64_t time_ms, SmzProofVerdict *v);
 
 #endif

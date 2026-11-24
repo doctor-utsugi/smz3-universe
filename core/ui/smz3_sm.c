@@ -4,6 +4,7 @@
 #include "smz3_sm.h"
 #include "smz3_run.h"
 #include "sm_generate.h"
+#include "smz3_state.h"
 
 size_t smz_mode_rom_size(int mode) { return mode == SMZ_MODE_SM ? SMZ_SM_ROM_SIZE : 0x600000; }
 
@@ -140,6 +141,38 @@ int smz_sm_generate(char *json, size_t json_cap, const uint8_t *sm, const uint8_
         insert(json, json_cap, (size_t)(diff - json) + 8, add);
         snprintf(add, sizeof add, "\"hash\":\"%s\",", words);
         insert(json, json_cap, (size_t)(diff - json), add);
+    }
+    return 0;
+}
+
+int smz_sm_loc_of(int tracker_index)
+{
+    if (tracker_index < 0 || tracker_index >= (int)smz3_location_count) return -1;
+    const smz3_location *l = &smz3_locations[tracker_index];
+    if (l->game == SMZ3_GAME_ZELDA || !l->flag) return -1;
+    int bit = 0;
+    while (!(l->flag >> bit & 1)) bit++;
+    return sm_loc_index((int)l->addr * 8 + bit);
+}
+
+int smz_sm_tracker_index(int sm_index)
+{
+    for (int j = 0; j < (int)smz3_location_count; j++) if (smz_sm_loc_of(j) == sm_index && sm_index >= 0) return j;
+    return -1;
+}
+
+int smz_sm_proof_logic(const char *json, const SmzProof *p, SmzProofVerdict *v)
+{
+    static SmSeed seed;
+    SmGenSettings s;
+    if (sm_settings(json, &s) || sm_fill(&seed, &s)) return -1;
+    SmProg prog;
+    memset(&prog, 0, sizeof prog);
+    for (int i = 0; i < p->n; i++) {
+        int idx = smz_sm_loc_of(p->loc[i]);
+        if (idx < 0) { v->out_of_logic++; continue; }
+        if (!sm_loc_available(idx, s.logic, &prog)) v->out_of_logic++;
+        if (seed.item_at[idx].type < SM_ITEM_SLOTS) prog.n[seed.item_at[idx].type]++;
     }
     return 0;
 }

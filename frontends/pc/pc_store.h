@@ -14,6 +14,10 @@ const char *store_exe_dir(void);
 const char *store_path(const char *fmt, ...);
 /* The game (SMZ_MODE_*) whose runs store_path's "runs/..." paths reach. */
 void store_set_mode(int mode);
+/* Binds the calling thread to one game's runs whatever store_set_mode says later (-1 follows it again); store_get_mode
+ * answers the thread's game. The online requests started from the menu keep the game they were started in. Returns the
+ * thread's binding before. */
+int store_thread_mode(int mode);
 int store_get_mode(void);
 
 /* Paths of the two base ROMs, kept in config.txt. */

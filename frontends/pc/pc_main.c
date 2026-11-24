@@ -741,14 +741,14 @@ static void present(void)
 
 static int g_quit;
 
-/* the monthly seed is fetched in the background; the menu takes it when it arrives */
+/* the monthly seed is fetched in the background; the menu takes it when it arrives (for the game it was asked for) */
 static char g_month[16];
-static int g_month_seed, g_month_ready;
+static int g_month_seed, g_month_ready, g_month_mode;
 static char g_week[16];
-static int g_week_seed, g_week_ready;
+static int g_week_seed, g_week_ready, g_week_mode;
 /* the three ladder tables are fetched in the background when the player opens them */
 static char g_ladder[3][16384];
-static int g_ladder_state[3];   /* 0 idle, 1 fetching, 2 ready, 3 failed */
+static int g_ladder_state[3], g_ladder_mode[3];   /* 0 idle, 1 fetching, 2 ready, 3 failed; the game they were asked for */
 static char g_goals[8192];
 static int g_goals_state;   /* as g_ladder_state */
 static void *goals_thread(void *arg)
@@ -768,13 +768,14 @@ static void *ladder_thread(void *arg)
         static char buf[16384];
         int ok = online_ladder_json(t, buf, sizeof buf);
         if (ok) memcpy(g_ladder[t], buf, sizeof buf);
+        g_ladder_mode[t] = store_get_mode();
         g_ladder_state[t] = ok ? 2 : 3;
     }
     return NULL;
 }
 
-static void *monthly_thread(void *arg) { (void)arg; char l[16]; int s; if (online_monthly(l, &s)) { snprintf(g_month, sizeof g_month, "%s", l); g_month_seed = s; g_month_ready = 1; }
-    if (online_weekly(l, &s)) { snprintf(g_week, sizeof g_week, "%s", l); g_week_seed = s; g_week_ready = 1; } return NULL; }
+static void *monthly_thread(void *arg) { (void)arg; char l[16]; int s; if (online_monthly(l, &s)) { snprintf(g_month, sizeof g_month, "%s", l); g_month_seed = s; g_month_mode = store_get_mode(); g_month_ready = 1; }
+    if (online_weekly(l, &s)) { snprintf(g_week, sizeof g_week, "%s", l); g_week_seed = s; g_week_mode = store_get_mode(); g_week_ready = 1; } return NULL; }
 static void save_proof(int slot, const SmzProof *p)
 {
     static char text[SMZ_PROOF_MAX * 24];
@@ -785,8 +786,8 @@ static void save_proof(int slot, const SmzProof *p)
 static void *flush_thread(void *arg) { (void)arg; online_flush(); return NULL; }
 /* the daily challenge's state, fetched in the background for the menu */
 static SmzDailyInfo g_daily;
-static volatile int g_daily_ready;
-static void *daily_thread(void *arg) { (void)arg; SmzDailyInfo d; online_daily_info(&d); g_daily = d; g_daily_ready = 1; return NULL; }
+static volatile int g_daily_ready, g_daily_mode;
+static void *daily_thread(void *arg) { (void)arg; SmzDailyInfo d; online_daily_info(&d); g_daily = d; g_daily_mode = store_get_mode(); g_daily_ready = 1; return NULL; }
 /* the hints of the attempt being played, asked for in the background: 0 idle, 1 asking, 2 answered */
 static SmzDailyRun g_hint_run;
 static volatile int g_hint_state;
@@ -804,7 +805,18 @@ static volatile int g_version_ready, g_update_state, g_restart;
 static void *version_thread(void *arg) { (void)arg; char a[512]; if (online_http("GET", "/api/version", NULL, a, sizeof a) == 200) { memcpy(g_version_ans, a, sizeof a); g_version_ready = 1; } return NULL; }
 static void *update_thread(void *arg) { (void)arg; g_update_state = update_install(g_version_ans, g_update_err, sizeof g_update_err) ? 3 : 2; return NULL; }
 static void *token_thread(void *arg) { online_ensure_token((int)(intptr_t)arg); return NULL; }
-static void detach(void *(*fn)(void *), void *arg) { pthread_t t; if (!pthread_create(&t, NULL, fn, arg)) pthread_detach(t); }
+/* A background thread keeps the game it was started in (store_thread_mode), so entering another game meanwhile cannot send
+ * its requests or files to the wrong game. */
+typedef struct { void *(*fn)(void *); void *arg; int mode; } Detached;
+static void *detached(void *p) { Detached d = *(Detached *)p; free(p); store_thread_mode(d.mode); return d.fn(d.arg); }
+static void detach(void *(*fn)(void *), void *arg)
+{
+    Detached *d = malloc(sizeof *d);
+    pthread_t t;
+    if (!d) return;
+    d->fn = fn; d->arg = arg; d->mode = store_get_mode();
+    if (!pthread_create(&t, NULL, detached, d)) pthread_detach(t); else free(d);
+}
 static void refill_slots(void) { store_fill_slots(&ui); for (int i = 0; i < UI_SLOTS; i++) ui_set_slot_online(&ui, i, online_slot_kind(i + 1)); }
 static char g_note[200];
 static Uint32 g_note_until;
@@ -828,7 +840,7 @@ static void *goals_report_thread(void *arg)
 
 static void goals_report(int slot, const SmzRun *run)
 {
-    if (run->mode != SMZ_MODE_SMZ3) return;   /* the world goals are online, SMZ3 only for now */
+    if (run->mode != SMZ_MODE_SMZ3 && run->mode != SMZ_MODE_SM) return;   /* the world goals: the games the server takes */
     GoalReport *g = calloc(1, sizeof *g);
     if (!g) return;
     g->slot = slot; g->created = run->created; g->online = online_slot_kind(slot) > 0;
@@ -1043,18 +1055,20 @@ static void panel_right(const SmzTracker *t, float x, float w, float h, const Mi
 {
     float u = fminf(h / 720.0f, w / 230.0f), pad = 18 * u, y = 40 * u;
     if (w < 90) return;
-    gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Crystals");
-    y += 28 * u;
     float cell = (w - 2 * pad - 6 * 4 * u) / 7;
     if (cell > 30 * u) cell = 30 * u;
-    for (int i = 0; i < 7; i++) {
-        float cx = x + pad + i * (cell + 4 * u);
-        int has = (t->crystal_mask >> i) & 1;
-        gfx_rect(cx, y, cell, cell, has ? C(0x4F, 0xC3, 0xF7) : C(0x1D, 0x24, 0x30));
-        char d[2] = {(char)('1' + i), 0};
-        gfx_text(cx + cell / 2, y + 4 * u, 22 * u, has ? C(0x10, 0x14, 0x1C) : C(0x87, 0x93, 0xA6), 1, d);
+    if (!smz3_sm_alone()) {   /* Super Metroid alone has no crystals */
+        gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Crystals");
+        y += 28 * u;
+        for (int i = 0; i < 7; i++) {
+            float cx = x + pad + i * (cell + 4 * u);
+            int has = (t->crystal_mask >> i) & 1;
+            gfx_rect(cx, y, cell, cell, has ? C(0x4F, 0xC3, 0xF7) : C(0x1D, 0x24, 0x30));
+            char d[2] = {(char)('1' + i), 0};
+            gfx_text(cx + cell / 2, y + 4 * u, 22 * u, has ? C(0x10, 0x14, 0x1C) : C(0x87, 0x93, 0xA6), 1, d);
+        }
+        y += cell + 26 * u;
     }
-    y += cell + 26 * u;
     gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Bosses");
     y += 28 * u;
     static const char *const B = "KPDR";
@@ -2802,20 +2816,28 @@ static const char *welcome_setup(const char *path)
 }
 /* one place for a menu button, whichever screen has the focus */
 /* 1 when the daily slot holds the attempt of this window */
-/* "install", "player", "country" and "version" of a create or join request. */
+/* "install", "player", "country" and "version" of a create or join request, and the game when it is not SMZ3. */
 static void race_who(char *out, size_t cap)
 {
     char id[48], name[64];
     online_install_id(id);
     smz_race_quote(ui.player, name, sizeof name);
-    snprintf(out, cap, "\"install\":\"%s\",\"player\":%s,\"country\":\"%s\",\"version\":\"%s\"", id, name, ui.country, SMZ3_VERSION);
+    int n = snprintf(out, cap, "\"install\":\"%s\",\"player\":%s,\"country\":\"%s\",\"version\":\"%s\"", id, name, ui.country, SMZ3_VERSION);
+    if (ui.game_mode != SMZ_MODE_SMZ3 && n > 0 && (size_t)n < cap) snprintf(out + n, cap - n, ",\"game\":\"%s\"", smz_mode_id(ui.game_mode));   /* SMZ3 sends none */
 }
 
 /* Builds the race's game in its slot from the room's settings with the Link and Samus picked; 0 when it is ready. */
+/* The base ROMs a run of the entered game is made from: Super Metroid alone needs only its own (z3 stays NULL). */
+static int load_bases(uint8_t **sm, uint8_t **z3, char *err, size_t cap)
+{
+    *z3 = NULL;
+    return ui.game_mode == SMZ_MODE_SM ? store_load_sm(sm, err, cap) : store_load_base(sm, z3, err, cap);
+}
+
 static int race_build(char *err, size_t cap)
 {
     uint8_t *sm, *z3;
-    if (store_load_base(&sm, &z3, err, cap)) return -1;
+    if (load_bases(&sm, &z3, err, cap)) return -1;
     static SmzUi gu;
     static GenJob j;
     char perr[64];
@@ -2841,7 +2863,7 @@ static int race_build(char *err, size_t cap)
         for (int i = 0; i < 4; i++) remove(store_path("runs/slot%d.%s", RACE_SLOT, OLD[i]));
         rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
         j.run.created = j.run.last_played = (int64_t)time(NULL) * 1000;
-        if (store_write(j.run.rom_path, j.rom, SMZ_HOST_ROM_SIZE) || store_run_save(RACE_SLOT, &j.run)) snprintf(err, cap, "cannot write the run files");
+        if (store_write(j.run.rom_path, j.rom, smz_mode_rom_size(j.run.mode)) || store_run_save(RACE_SLOT, &j.run)) snprintf(err, cap, "cannot write the run files");
         else rc = 0;
     }
 done:
@@ -2884,7 +2906,7 @@ static int daily_begin(char *err, size_t cap)
 {
     if (daily_kept(ui.daily.window)) return 0;
     uint8_t *sm, *z3;
-    if (store_load_base(&sm, &z3, err, cap)) return -1;
+    if (load_bases(&sm, &z3, err, cap)) return -1;
     ui_busy(&ui, "Starting the challenge...");
     fit_width(ren);
     ui_draw(&ui);
@@ -2921,7 +2943,7 @@ static int daily_begin(char *err, size_t cap)
             remove(store_path("runs/daily.result"));
             rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
             j.run.created = j.run.last_played = (int64_t)time(NULL) * 1000;
-            if (store_write(j.run.rom_path, j.rom, SMZ_HOST_ROM_SIZE) || store_run_save(DAILY_SLOT, &j.run)) snprintf(err, cap, "cannot write the run files");
+            if (store_write(j.run.rom_path, j.rom, smz_mode_rom_size(j.run.mode)) || store_run_save(DAILY_SLOT, &j.run)) snprintf(err, cap, "cannot write the run files");
             else { online_daily_save(&r); rc = 0; }
         }
         gen_free(&j);
@@ -3041,7 +3063,13 @@ static void window_main(int start_slot)
         {
             Uint32 now = SDL_GetTicks();
             if (!welcome_active()) ui_tick(&ui, (int)(now - last_tick));   /* the logo's time runs once the ROM files are in */
-            if (ui.game_mode != store_get_mode()) { store_set_mode(ui.game_mode); refill_slots(); }   /* a game entered from the carousel: its own runs */
+            if (ui.game_mode != store_get_mode()) {   /* a game entered from the carousel: its own runs, daily and seeds */
+                store_set_mode(ui.game_mode); refill_slots();
+                static int asked[SMZ_MODE_COUNT];
+                if (ui.game_mode != SMZ_MODE_SMZ3 && !asked[ui.game_mode]) { asked[ui.game_mode] = 1; detach(monthly_thread, NULL); }   /* SMZ3's came at launch */
+                next_daily = 0;
+                if (ren2) { for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); }   /* the second screen shows this game's tables */
+            }
             last_tick = now;
         }
         race_answers();
@@ -3063,6 +3091,7 @@ static void window_main(int start_slot)
         if (g_version_ready) { g_version_ready = 0; ui_update_load_json(&ui, g_version_ans, SMZ3_VERSION, update_can_install()); }
         if (g_update_state == 2) { g_restart = 1; break; }   /* main starts the new release */
         if (g_update_state == 3) { g_update_state = 0; ui_idle(&ui); ui.screen = UI_OPTIONS; note(g_update_err); }
+        if (g_daily_ready && g_daily_mode != ui.game_mode) { g_daily_ready = 0; next_daily = 0; }   /* asked for the game left meanwhile */
         if (g_daily_ready) {
             g_daily_ready = 0;
             ui_daily_set(&ui, &g_daily, daily_kept(g_daily.window));
@@ -3142,15 +3171,15 @@ static void window_main(int start_slot)
                 if (!launch_at && (fire & DIR[i].bit)) menu_button(DIR[i].b);
         }
 
-        if (g_month_ready) { g_month_ready = 0; ui_set_monthly(&ui, g_month, g_month_seed, online_days_left()); }
+        if (g_month_ready) { g_month_ready = 0; ui_set_monthly_game(&ui, g_month_mode, g_month, g_month_seed, online_days_left()); }
         for (int t = 0; t < 3; t++)
-            if (g_ladder_state[t] >= 2) { ui_ladder_load_json(&ui, t, g_ladder_state[t] == 2 ? g_ladder[t] : NULL); g_ladder_state[t] = 0; }
+            if (g_ladder_state[t] >= 2) { if (g_ladder_mode[t] == ui.game_mode) ui_ladder_load_json(&ui, t, g_ladder_state[t] == 2 ? g_ladder[t] : NULL); g_ladder_state[t] = 0; }
         if (g_goals_state >= 2) { ui_world_load_json(&ui, g_goals_state == 2 ? g_goals : NULL); g_goals_state = 0; }
         {
             static Uint32 next_world;   /* the World tab refreshes once a minute while it is shown */
             if (ui_world_showing(&ui) && !g_goals_state && SDL_GetTicks() >= next_world) { next_world = SDL_GetTicks() + 60000; g_goals_state = 1; detach(goals_thread, NULL); }
         }
-        if (g_week_ready) { g_week_ready = 0; ui_set_weekly(&ui, g_week, g_week_seed, online_weekly_days_left()); }
+        if (g_week_ready) { g_week_ready = 0; ui_set_weekly_game(&ui, g_week_mode, g_week, g_week_seed, online_weekly_days_left()); }
         online_save_profile(&ui);
         if (ui_saved_dirty(&ui)) {
             char text[8192];
@@ -3169,7 +3198,7 @@ static void window_main(int start_slot)
                 race_forget();
                 race_send(act == ACT_RACE_CREATE ? "create" : "join", f, 0);
             }
-            else if (act == ACT_RACE_FIND) race_find();
+            else if (act == ACT_RACE_FIND) race_find(ui.game_mode == SMZ_MODE_SMZ3 ? "" : smz_mode_id(ui.game_mode));
             else if (act == ACT_RACE_CLOSE) race_send("close", "", 1);
             else if (act == ACT_RACE_KICK && slot >= 0 && slot < ui.race.room.n) { char f[48]; snprintf(f, sizeof f, "\"pid\":\"%s\"", ui.race.room.p[slot].pid); race_send("kick", f, 1); }
             else if (act == ACT_RACE_LEAVE) race_send("leave", "", 1);

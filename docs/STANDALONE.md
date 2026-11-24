@@ -314,6 +314,8 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 2. **SM generator** (stages 1-5 above).
 3. **SM on the hosts:** the game carousel and per-game run lists, single ROM, tracker half map, end of run, hash, sprites. Offline only.
 4. **SM online:** ladders, presets, monthly, weekly, proof checker, web switch. Then the SM daily, races and goals.
+   Built, not deployed: Original only (Map Rando tables wait for step 9); weekly a Split seed, monthly Original; proof
+   minimum 10 checks and 5 minutes; daily ids `sm-<date>-<n>`; races Championship Full only (see DAILY.md, RACES.md).
 5. **Z3 base patch and oracle** (stages 1-2 above).
 6. **Z3 generator** for the first-release options (stages 3-6).
 7. **Z3 on the hosts** and **Z3 online**, as steps 3 and 4.

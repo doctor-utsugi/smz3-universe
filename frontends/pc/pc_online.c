@@ -96,6 +96,26 @@ static int http(const char *method, const char *path, const char *body, char *ou
 
 #endif
 
+/* The game of the runs this thread reaches (store_get_mode): SMZ3 sends no game, so its requests stay as they always were.
+ * game_query gives "" or "<sep>game=sm" for a path, game_field "" or ",\"game\":\"sm\"" for a JSON body. */
+static const char *game_query(char sep)
+{
+    static _Thread_local char q[24];
+    int mode = store_get_mode();
+    if (mode == SMZ_MODE_SMZ3) return "";
+    snprintf(q, sizeof q, "%cgame=%s", sep, smz_mode_id(mode));
+    return q;
+}
+
+static const char *game_field(void)
+{
+    static _Thread_local char f[24];
+    int mode = store_get_mode();
+    if (mode == SMZ_MODE_SMZ3) return "";
+    snprintf(f, sizeof f, ",\"game\":\"%s\"", smz_mode_id(mode));
+    return f;
+}
+
 /* The string value of "key":"..." (no escapes expected from the server), 0 when absent. */
 static int json_str(const char *json, const char *key, char *out, size_t cap)
 {
@@ -200,8 +220,9 @@ int online_days_left(void)
 /* The fixed seed of this period: fetched, or the copy saved for the same period. */
 static int fetch_period(const char *path, const char *file, const char *key, int weekly, char label[16], int *seed)
 {
-    char body[512], s[32], m[16];
-    int code = http("GET", path, NULL, body, sizeof body);
+    char body[512], s[32], m[16], url[64];
+    snprintf(url, sizeof url, "%s%s", path, game_query('?'));
+    int code = http("GET", url, NULL, body, sizeof body);
     if (code == 200 && json_str(body, "seed", s, sizeof s) && json_str(body, key, m, sizeof m) && atoi(s) > 0)
         store_write(store_path("runs/%s", file), body, strlen(body));
     char *t = read_text(store_path("runs/%s", file));
@@ -239,7 +260,7 @@ int online_ensure_token(int slot)
     kind[strcspn(kind, "\r\n ")] = 0;
     char id[48], req[200], reply[1024], token[512];
     install_id(id);
-    snprintf(req, sizeof req, "{\"install\":\"%s\",\"kind\":\"%s\"}", id, kind);
+    snprintf(req, sizeof req, "{\"install\":\"%s\",\"kind\":\"%s\"%s}", id, kind, game_field());
     free(kind);
     if (http("POST", "/api/start", req, reply, sizeof reply) != 200 || !json_str(reply, "token", token, sizeof token)) return 0;
     store_write(store_path("runs/slot%d.token", slot), token, strlen(token));
@@ -249,7 +270,10 @@ int online_ensure_token(int slot)
 int online_ladder_json(int tab, char *out, size_t cap)
 {
     static const char *const PATH[3] = {"/api/ladder?kind=original", "/api/ladder?kind=monthly", "/api/ladder?kind=weekly"};
-    return tab >= 0 && tab <= 2 && http("GET", PATH[tab], NULL, out, cap) == 200;
+    char path[80];
+    if (tab < 0 || tab > 2) return 0;
+    snprintf(path, sizeof path, "%s%s", PATH[tab], game_query('&'));
+    return http("GET", path, NULL, out, cap) == 200;
 }
 
 int online_goals_json(char *out, size_t cap)
@@ -264,7 +288,7 @@ int online_goals_report(int slot, int64_t created, int online, const char *count
 {
     char id[48], run[64], body[2048], reply[256];
     install_id(id);
-    snprintf(run, sizeof run, "s%d-%lld", slot, (long long)created);
+    snprintf(run, sizeof run, "%s%d-%lld", store_get_mode() == SMZ_MODE_SM ? "m" : "s", slot, (long long)created);   /* the games' slots apart */
     int n = snprintf(body, sizeof body, "{\"install\":\"%s\",\"run\":\"%s\",\"online\":%s,\"counts\":{", id, run, online ? "true" : "false");
     for (const char *p = counters; p && *p && n < (int)sizeof body - 64;) {
         const char *eq = strchr(p, '='), *end = strchr(p, ',');
@@ -290,7 +314,20 @@ void online_queue_finish(int slot, int64_t time_ms, int seed)
 
 static void daily_flush(void);
 
+static void flush_game(void);
+
 void online_flush(void)
+{
+    int was = store_thread_mode(SMZ_MODE_SMZ3);
+    for (int m = 0; m < SMZ_MODE_COUNT; m++) {   /* each game's runs, whichever is entered */
+        if (m == SMZ_MODE_Z3) continue;   /* no ladder yet */
+        store_thread_mode(m);
+        flush_game();
+    }
+    store_thread_mode(was);
+}
+
+static void flush_game(void)
 {
     daily_flush();
     for (int slot = 1; slot <= UI_SLOTS; slot++) {
@@ -346,7 +383,7 @@ int online_daily_info(SmzDailyInfo *d)
     static char body[4096];
     char id[48], path[96];
     install_id(id);
-    snprintf(path, sizeof path, "/api/daily?install=%s", id);
+    snprintf(path, sizeof path, "/api/daily?install=%s%s", id, game_query('&'));
     if (http("GET", path, NULL, body, sizeof body) != 200) { memset(d, 0, sizeof *d); d->loaded = -1; return -1; }
     return smz_daily_parse_info(body, online_now_ms(), d);
 }
@@ -354,9 +391,9 @@ int online_daily_info(SmzDailyInfo *d)
 int online_daily_start(const char *window, SmzDailyRun *r, char *settings, size_t cap, char *err, size_t errcap)
 {
     static char body[32768];
-    char id[48], req[160];
+    char id[48], req[180];
     install_id(id);
-    snprintf(req, sizeof req, "{\"install\":\"%s\",\"window\":\"%s\"}", id, window);
+    snprintf(req, sizeof req, "{\"install\":\"%s\",\"window\":\"%s\"%s}", id, window, game_field());
     int code = http("POST", "/api/daily/start", req, body, sizeof body);
     if (code == 200 && smz_daily_parse_start(body, online_now_ms(), r, settings, cap) == 0) return 0;
     char why[64] = "";

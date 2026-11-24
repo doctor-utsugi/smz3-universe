@@ -251,13 +251,15 @@ static int sm_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
     char samus[32] = "";
     int si = u->value[O_SAMUS];
     if (si > 0 && si < u->sprite_count[1]) snprintf(samus, sizeof samus, "%s", u->sprites[1][si]);
+    /* every online run sets Race (no spoiler), as the server rebuilds its seed: the monthly, the weekly and an uploaded run */
+    int race = u->value[O_SM0 + O_SMRACE] || u->run_mode >= 4 || ui_online_now(u);
     int n = snprintf(out, cap,
         "{\"game\":\"sm\",\"seed\":\"%d\",\"sm\":{\"logic\":\"%s\",\"goal\":\"defeatmb\",\"placement\":\"%s\",\"race\":\"%s\"},"
         "\"mapMode\":\"%s\",\"saveStates\":%s,\"rewind\":%s,\"defaultRules\":%s,\"screenFilter\":\"%s\",\"screenShape\":\"%s\",\"samusSprite\":\"%s\","
         "\"linkSprite\":\"\",\"helpMode\":\"none\",\"helpCount\":0,\"plando\":\"\",\"musicPackage\":\"\",\"lightDarkRooms\":false,\"nerfedCharge\":false,"
         "\"quickMorph\":false,\"showReachable\":false,\"showFixedKeys\":false,\"diff\":[",
         u->value[O_SEED] ? u->value[O_SEED] : seed_if_random, u->value[O_SM0 + O_SMLOGIC] ? "tournament" : "casual",
-        u->value[O_SM0 + O_SMPLACE] ? "split" : "full", u->value[O_SM0 + O_SMRACE] ? "true" : "false",
+        u->value[O_SM0 + O_SMPLACE] ? "split" : "full", race ? "true" : "false",
         u->value[O_MAP] ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
         ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], samus);
     for (int i = O_SM0, first = 1; i < UI_OPT_COUNT && n < (int)cap; i++) {   /* "Label: value" for the run's info screen */

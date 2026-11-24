@@ -5,6 +5,8 @@
 #include "smz3_runlogic.h"
 #include "smz3_itemnames.h"
 #include "smz3_state.h"
+#include "smz3_run.h"
+#include "smz3_sm.h"
 
 void smz_proof_parse(SmzProof *p, const char *text)
 {
@@ -56,11 +58,13 @@ void smz_proof_check(const char *settings_json, const SmzProof *p, int64_t time_
 {
     memset(v, 0, sizeof *v);
     v->checks = p->n;
-    if (p->n < (strstr(settings_json, "\"challenge\":true") ? 1 : SMZ_PROOF_MIN)) return reject(v, "too few checks");   /* a daily challenge may need only a few */
+    int sm = smz_settings_mode(settings_json) == SMZ_MODE_SM;
+    if (p->n < (strstr(settings_json, "\"challenge\":true") ? 1 : sm ? SMZ_PROOF_MIN_SM : SMZ_PROOF_MIN)) return reject(v, "too few checks");   /* a daily challenge may need only a few */
     uint8_t used[SMZ_PROOF_MAX] = {0};
     int64_t last = 0;
     for (int i = 0; i < p->n; i++) {
         if (p->loc[i] < 0 || p->loc[i] >= (int)smz3_location_count || p->loc[i] >= SMZ_PROOF_MAX) return reject(v, "unknown check");
+        if (sm && smz_sm_loc_of(p->loc[i]) < 0) return reject(v, "unknown check");   /* Super Metroid alone has no Zelda checks */
         if (used[p->loc[i]]++) return reject(v, "check repeated");
         if (p->ms[i] < last) return reject(v, "checks out of time order");
         last = p->ms[i];
@@ -70,17 +74,20 @@ void smz_proof_check(const char *settings_json, const SmzProof *p, int64_t time_
 
     v->ok = 1;
     if (strstr(settings_json, "\"nologic\"")) return;
-    static SmzLogic logic;
-    if (smz_logic_build(&logic, settings_json) != 0) return reject(v, "seed cannot be rebuilt");
-    int items[1100], ni = 0;
-    uint8_t in_logic[512];
-    int dirty = 1;
-    for (int i = 0; i < p->n; i++) {
-        if (dirty) { smz_logic_reachable(&logic, items, ni, in_logic, 512); dirty = 0; }
-        if (!in_logic[p->loc[i]]) v->out_of_logic++;
-        int id = location_id(p->loc[i]);
-        int it = id >= 0 && id < 512 ? logic.seed.world.item_at[id] : -1;
-        if (it > 0 && ni < 1100) { items[ni++] = it; dirty = 1; }
+    if (sm) { if (smz_sm_proof_logic(settings_json, p, v)) return reject(v, "seed cannot be rebuilt"); }
+    else {
+        static SmzLogic logic;
+        if (smz_logic_build(&logic, settings_json) != 0) return reject(v, "seed cannot be rebuilt");
+        int items[1100], ni = 0;
+        uint8_t in_logic[512];
+        int dirty = 1;
+        for (int i = 0; i < p->n; i++) {
+            if (dirty) { smz_logic_reachable(&logic, items, ni, in_logic, 512); dirty = 0; }
+            if (!in_logic[p->loc[i]]) v->out_of_logic++;
+            int id = location_id(p->loc[i]);
+            int it = id >= 0 && id < 512 ? logic.seed.world.item_at[id] : -1;
+            if (it > 0 && ni < 1100) { items[ni++] = it; dirty = 1; }
+        }
     }
     if (v->out_of_logic * 10 > p->n) {
         v->suspect = 1;

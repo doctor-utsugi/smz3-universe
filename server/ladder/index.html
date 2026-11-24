@@ -71,10 +71,10 @@ async function loadGames() {
     b.onclick = () => {
       game = id;
       document.getElementById('gname').textContent = name; document.getElementById('gsub').textContent = sub;
-      document.querySelector('.daily').style.display = id === 'smz3' ? '' : 'none';   // the daily is SMZ3's until the other games get theirs
-      for (const sel of ['month', 'week']) document.getElementById(sel).innerHTML = '';
+      document.querySelector('.daily').style.display = DAILY_GAMES.includes(id) ? '' : 'none';   // each of these games has its own daily
+      for (const sel of ['month', 'week', 'dwin']) document.getElementById(sel).innerHTML = '';
       [...nav.children].forEach(x => x.className = x === b ? 'on' : '');
-      load();
+      load(); loadDaily();
     };
     nav.appendChild(b);
   }
@@ -94,12 +94,15 @@ async function load() {
 }
 // the daily windows open at 06, 14 and 22 UTC and last 4 hours
 const HOURS = [6, 14, 22], span = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return s >= 3600 ? Math.floor(s / 3600) + 'h ' + String(Math.floor(s / 60) % 60).padStart(2, '0') + 'm' : Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'; };
+const DAILY_GAMES = ['smz3', 'sm'];
 let daily = null, shift = 0;
+// a window's id: SMZ3's are the bare date and index, the other games' carry their prefix (sm-2026-11-24-0)
 function windowIds(now) {
+  const pre = game === 'smz3' ? '' : game + '-';
   const out = [], day = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
   for (let d = 0; d < 4; d++) for (let i = HOURS.length - 1; i >= 0; i--) {
     const t = day - d * 86400000, opens = t + HOURS[i] * 3600000;
-    if (opens <= now) out.push(new Date(t).toISOString().slice(0, 10) + '-' + i);
+    if (opens <= now) out.push(pre + new Date(t).toISOString().slice(0, 10) + '-' + i);
   }
   return out;
 }
@@ -111,8 +114,11 @@ function tick() {
   else el.textContent = 'next window opens in ' + span(daily.next.opensAt - now);
 }
 async function loadDaily() {
+  if (!DAILY_GAMES.includes(game)) return;
   try {
-    daily = await get('daily');
+    const asked = game;
+    daily = await get(gq('daily', 1));
+    if (asked !== game) return;   // another game was picked meanwhile
     shift = daily.now - Date.now();
     const sel = document.getElementById('dwin'), ids = windowIds(daily.now);
     if (!sel.options.length || sel.options[0].value !== ids[0]) {
@@ -122,7 +128,7 @@ async function loadDaily() {
       if (keep && ids.includes(keep)) sel.value = keep;
       sel.onchange = loadDaily;
     }
-    const t = await get('daily/table?window=' + sel.value), c = daily.current && daily.current.id === sel.value ? daily.current : null;
+    const t = await get(gq('daily/table?window=' + sel.value)), c = daily.current && daily.current.id === sel.value ? daily.current : null;
     let info = '';
     if (c) info = '<div class="goal">' + esc(c.goal) + '</div><div class="meta">' + (c.start || []).map(x => esc(x.replace(/^Start with /, ''))).join(' · ') +
       ' &nbsp;·&nbsp; ' + esc(c.difficulty) + ', about ' + c.estimateMin + ' min &nbsp;·&nbsp; <span id="dclock" class="clock"></span></div>';

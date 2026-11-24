@@ -50,8 +50,8 @@ static void flag(SmzUi *u, int x, int y, int color, const char *cc)
 /* The button legend of a screen, "A Load  B Back": every host draws it as its bar with the buttons of the device in use. */
 static void legend(SmzUi *u, const char *s) { text(u, 6, UI_H - 12, C_DIM, 0, s); }
 
-/* Only SMZ3 is online for now (the server takes no other game): Super Metroid runs have no daily, ladder or races. */
-static int online_game(const SmzUi *u) { return u->game_mode == SMZ_MODE_SMZ3; }
+/* The games the server takes: SMZ3 and Super Metroid have a daily, ladders and races; A Link to the Past not yet. */
+static int online_game(const SmzUi *u) { return u->game_mode == SMZ_MODE_SMZ3 || u->game_mode == SMZ_MODE_SM; }
 static int sm_mode(const SmzUi *u) { return u->game_mode == SMZ_MODE_SM; }
 #define DAILY_ON(u) ((u)->daily_on && online_game(u))
 #define LADDER_ON(u) ((u)->ladder_on && online_game(u))
@@ -183,13 +183,39 @@ static const char *const GAME_LINES[SMZ_MODE_COUNT] = {"Zelda + Metroid", "Rando
 static const char *const GAME_PICS[SMZ_MODE_COUNT] = {"logo", "link/Original", "samus/Original"};
 static const char *const GAME_SHORT[SMZ_MODE_COUNT] = {"SMZ3", "ALttP", "Super Metroid"};
 
+/* Entering another game: its own monthly and weekly seeds, and none of the last game's daily or tables (the host asks
+ * the server for this game's: ui_set_monthly_game, ui_daily_set, ui_ladder_load_json). */
+static void game_switch(SmzUi *u, int mode)
+{
+    u->game_mode = mode;
+    const UiGamePeriods *g = &u->periods[mode];
+    snprintf(u->monthly_label, sizeof u->monthly_label, "%s", g->monthly_label);
+    u->monthly_seed = g->monthly_seed; u->monthly_days = g->monthly_days;
+    snprintf(u->weekly_label, sizeof u->weekly_label, "%s", g->weekly_label);
+    u->weekly_seed = g->weekly_seed; u->weekly_days = g->weekly_days;
+    memset(&u->daily, 0, sizeof u->daily);
+    u->daily_has_run = 0;
+    for (int t = 0; t < 3; t++) { u->ladder[t].loaded = 0; u->ladder[t].n = 0; }
+}
+
+void ui_game_enter(SmzUi *u, int mode)
+{
+    if (mode < 0 || mode >= SMZ_MODE_COUNT) return;
+    u->game_cursor = mode;
+    if (u->game_mode != mode) game_switch(u, mode);
+}
+
 static void games_input(SmzUi *u, UiButton b)
 {
     if (b == BTN_LEFT || b == BTN_RIGHT || b == BTN_L || b == BTN_R) u->game_cursor = (u->game_cursor + (b == BTN_LEFT || b == BTN_L ? SMZ_MODE_COUNT - 1 : 1)) % SMZ_MODE_COUNT;
     else if (b != BTN_A) return;
     else if (u->game_state[u->game_cursor] == UI_GAME_SOON) snprintf(u->notice, sizeof u->notice, "%s is coming soon", GAME_NAMES[u->game_cursor]);
     else if (u->game_state[u->game_cursor] == UI_GAME_NO_ROM) snprintf(u->notice, sizeof u->notice, "Add the %s ROM first", u->game_cursor == SMZ_MODE_SM ? "Super Metroid" : "Zelda");
-    else { u->game_mode = u->game_cursor; u->notice[0] = 0; u->screen = UI_HOME; u->home_cursor = 0; if (!online_game(u)) u->daily_sel = 0; }
+    else {
+        if (u->game_mode != u->game_cursor) game_switch(u, u->game_cursor);
+        u->notice[0] = 0; u->screen = UI_HOME; u->home_cursor = 0;
+        if (!online_game(u)) u->daily_sel = 0;
+    }
 }
 
 static void home_input(SmzUi *u, UiButton b)
@@ -199,7 +225,8 @@ static void home_input(SmzUi *u, UiButton b)
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
-    else if (!online_game(u)) snprintf(u->notice, sizeof u->notice, "Online races are SMZ3 only for now");
+    else if (!online_game(u)) snprintf(u->notice, sizeof u->notice, "Online races are not here yet for this game");
+    else if (sm_mode(u) && u->home_cursor == 1) snprintf(u->notice, sizeof u->notice, "Online draft is SMZ3 only for now");
     else if (u->race.on) {   /* one kind of race, up to 8: the first screen is there only to pick a paused race back up */
         u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->race.size = 8; u->race.cursor = 0;
         u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY;
@@ -331,7 +358,7 @@ static void race_input(SmzUi *u, UiButton b)
         case UI_RACE_FORMAT: u->screen = UI_RACE_WAY; *c = 0; break;
         case UI_RACE_LENGTH: u->screen = UI_RACE_FORMAT; *c = 1; break;
         case UI_RACE_PUBLIC:
-            if (u->race.format == RACE_DRAFT) { u->screen = UI_RACE_WAY; *c = 0; break; }
+            if (u->race.format == RACE_DRAFT || sm_mode(u)) { u->screen = UI_RACE_WAY; *c = 0; break; }
             u->screen = u->race.format ? UI_RACE_LENGTH : UI_RACE_FORMAT; *c = u->race.format ? u->race.format - 1 : 0;
             break;
         case UI_RACE_LIST: u->screen = UI_RACE_WAY; *c = 2; break;
@@ -349,7 +376,7 @@ static void race_input(SmzUi *u, UiButton b)
         break;
     }
     case UI_RACE_WAY:
-        if (*c == 0) { u->screen = u->race.format == RACE_DRAFT ? UI_RACE_PUBLIC : UI_RACE_FORMAT; *c = 0; }
+        if (*c == 0) { u->race.format = u->race.format == RACE_DRAFT ? RACE_DRAFT : 0; u->screen = u->race.format == RACE_DRAFT || sm_mode(u) ? UI_RACE_PUBLIC : UI_RACE_FORMAT; *c = 0; }   /* Super Metroid: Full only */
         else if (*c == 1) { u->name_for = 2; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; }
         else { u->race.rooms_loaded = 0; u->race.room_count = 0; u->screen = UI_RACE_LIST; *c = 0; u->race.find_ms = 0; u->action = ACT_RACE_FIND; }
         break;
@@ -466,6 +493,8 @@ static const UiPreset SM_ORIGINAL = {"Original", "Tournament logic, major/minor 
 static const UiPreset *chill(const SmzUi *u) { return sm_mode(u) ? &SM_CHILL : &CHILL; }
 static const UiPreset *original(const SmzUi *u) { return sm_mode(u) ? &SM_ORIGINAL : &ORIGINAL; }
 static const UiPreset WEEKLY = {"Weekly run", "Short run: 2 crystals, 1 boss", "GanonCrystals=2,GtCrystals=2,TourianBosses=1"};
+static const UiPreset SM_WEEKLY = {"Weekly run", "Original rules, Mother Brain", ""};   /* Super Metroid's only goal: a Split seed */
+static const UiPreset *weekly(const SmzUi *u) { return sm_mode(u) ? &SM_WEEKLY : &WEEKLY; }
 static void spec_values(int *value, const char *spec);
 static const UiPreset BUILTIN[] = {
     {"Keysanity (both games)", "", "Keysanity=1"},
@@ -491,7 +520,7 @@ static int spec_skips(int i) { return i == 0 || i == UIO_LINK || i == UIO_SAMUS 
 void ui_expected_values(const SmzUi *u, int *want)
 {
     for (int i = 0; i < UI_OPT_COUNT; i++) want[i] = UI_OPTS[i].def;
-    if (u->run_mode == 5) spec_values(want, WEEKLY.spec);   /* the weekly run's own rules */
+    if (u->run_mode == 5) spec_values(want, weekly(u)->spec);   /* the weekly run's own rules */
 }
 
 static void reset_values(SmzUi *u) { for (int i = 0; i < UI_OPT_COUNT; i++) u->value[i] = UI_OPTS[i].def; }
@@ -971,22 +1000,38 @@ void ui_player_load(SmzUi *u, const char *text)
     u->online_mode = t2 && t2[1] >= '0' && t2[1] <= '2' ? t2[1] - '0' : 0;
 }
 
-void ui_set_monthly(SmzUi *u, const char *label, int seed, int days_left)
+void ui_set_monthly_game(SmzUi *u, int mode, const char *label, int seed, int days_left)
 {
-    u->monthly_days = days_left;
-    snprintf(u->monthly_label, sizeof u->monthly_label, "%s", label ? label : "");
-    u->monthly_seed = seed > 0 ? seed : 0;
+    if (mode < 0 || mode >= SMZ_MODE_COUNT) return;
+    UiGamePeriods *g = &u->periods[mode];
+    g->monthly_days = days_left;
+    snprintf(g->monthly_label, sizeof g->monthly_label, "%s", label ? label : "");
+    g->monthly_seed = seed > 0 ? seed : 0;
+    if (mode != u->game_mode) return;
+    u->monthly_days = g->monthly_days;
+    snprintf(u->monthly_label, sizeof u->monthly_label, "%s", g->monthly_label);
+    u->monthly_seed = g->monthly_seed;
 }
+
+void ui_set_monthly(SmzUi *u, const char *label, int seed, int days_left) { ui_set_monthly_game(u, SMZ_MODE_SMZ3, label, seed, days_left); }
 
 int ui_run_monthly(const SmzUi *u) { return u->run_mode == 4; }
 int ui_run_weekly(const SmzUi *u) { return u->run_mode == 5; }
 
-void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left)
+void ui_set_weekly_game(SmzUi *u, int mode, const char *label, int seed, int days_left)
 {
-    u->weekly_days = days_left;
-    snprintf(u->weekly_label, sizeof u->weekly_label, "%s", label ? label : "");
-    u->weekly_seed = seed > 0 ? seed : 0;
+    if (mode < 0 || mode >= SMZ_MODE_COUNT) return;
+    UiGamePeriods *g = &u->periods[mode];
+    g->weekly_days = days_left;
+    snprintf(g->weekly_label, sizeof g->weekly_label, "%s", label ? label : "");
+    g->weekly_seed = seed > 0 ? seed : 0;
+    if (mode != u->game_mode) return;
+    u->weekly_days = g->weekly_days;
+    snprintf(u->weekly_label, sizeof u->weekly_label, "%s", g->weekly_label);
+    u->weekly_seed = g->weekly_seed;
 }
+
+void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left) { ui_set_weekly_game(u, SMZ_MODE_SMZ3, label, seed, days_left); }
 
 int ui_run_ladder(const SmzUi *u) { return online_game(u) && (u->run_mode >= 4 || ui_is_default(u)); }
 int ui_online_now(const SmzUi *u) { return u->player_on && u->online_mode == 1 && ui_run_ladder(u); }
@@ -1100,14 +1145,13 @@ void ui_preset(SmzUi *u, int mode)
 
 void ui_apply_spec(SmzUi *u, const char *spec) { apply_spec(u, spec); }
 
-static int mode_rows(const SmzUi *u) { return sm_mode(u) ? 3 : 3 + (u->saved_count > 0) + (u->monthly_seed > 0) + (u->weekly_seed > 0); }
+static int mode_rows(const SmzUi *u) { return 3 + (u->saved_count > 0 && !sm_mode(u)) + (u->monthly_seed > 0) + (u->weekly_seed > 0); }
 
 /* 0 Cozy, 1 Original, 2 Custom, 3 Saved customs, 4 Monthly seed, 5 Weekly run (the rows that apply, in this order) */
 static int mode_kind(const SmzUi *u, int row)
 {
     int kinds[6] = {0, 1, 2}, n = 3;
-    if (sm_mode(u)) return kinds[row < n ? row : n - 1];   /* saved customs carry SMZ3 options; the monthly and weekly are online */
-    if (u->saved_count > 0) kinds[n++] = 3;
+    if (u->saved_count > 0 && !sm_mode(u)) kinds[n++] = 3;   /* saved customs carry SMZ3 options */
     if (u->monthly_seed > 0) kinds[n++] = 4;
     if (u->weekly_seed > 0) kinds[n++] = 5;
     return kinds[row < n ? row : n - 1];
@@ -1290,7 +1334,7 @@ static void mode_input(SmzUi *u, UiButton b)
         break;
     }
     case 5:
-        begin_run(u, 5, "Weekly", WEEKLY.spec);
+        begin_run(u, 5, "Weekly", weekly(u)->spec);
         snprintf(u->start_label, sizeof u->start_label, "Weekly %s", u->weekly_label);
         for (int i = 0; i < UI_OPT_COUNT; i++) if (!strcmp(UI_OPTS[i].key, "Seed")) u->value[i] = u->weekly_seed;
         break;
@@ -1931,7 +1975,7 @@ static void race_draw(SmzUi *u)
         break;
     case UI_RACE_FORMAT:
         title(u, "Championship");
-        race_row(u, 0, 36, "Full game", "Ganon and Mother Brain", C_TEXT);
+        race_row(u, 0, 36, "Full game", sm_mode(u) ? "Mother Brain" : "Ganon and Mother Brain", C_TEXT);
         race_row(u, 1, 70, "Partial game", "pick a length", C_TEXT);
         legend(u, "A Choose  B Back");
         break;
@@ -2248,12 +2292,12 @@ void ui_draw(SmzUi *u)
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
         text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
         for (int r = 0; r < HOME_ROWS; r++) {
-            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
+            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u) || (r == 1 && sm_mode(u)));   /* the online rows, without a connection (Draft is SMZ3's) */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
             rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
             hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
             text(u, 38, y + 8, off ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
-            if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, "Offline");
+            if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, u->race.on && online_game(u) ? "SMZ3 only" : "Offline");
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
@@ -2285,14 +2329,15 @@ void ui_draw(SmzUi *u)
         int gap = rows > 5 ? 12 : 14, dy = (rh - gap - 14) / 2;   /* the name and its line centred in the row */
         for (int r = 0; r < rows; r++) {
             int y = 34 + r * pitch, k = mode_kind(u, r);
-            const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : WEEKLY.name;
+            const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : weekly(u)->name;
+            const char *wgoal = sm_mode(u) ? "Mother Brain" : "2 crystals, 1 boss";
             char desc[48];
             if (k == 0) snprintf(desc, sizeof desc, "%s", chill(u)->desc);
             else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
             else if (k == 2) snprintf(desc, sizeof desc, "Pick every option yourself");
             else if (k == 3) snprintf(desc, sizeof desc, "%d saved", u->saved_count);
-            else if (k == 5 && u->weekly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today, 2 crystals, 1 boss", u->weekly_label);
-            else if (k == 5) snprintf(desc, sizeof desc, "%s: %dd left, 2 crystals, 1 boss", u->weekly_label, u->weekly_days);
+            else if (k == 5 && u->weekly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today, %s", u->weekly_label, wgoal);
+            else if (k == 5) snprintf(desc, sizeof desc, "%s: %dd left, %s", u->weekly_label, u->weekly_days, wgoal);
             else if (u->monthly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today", u->monthly_label);
             else snprintf(desc, sizeof desc, "%s: %d day%s left", u->monthly_label, u->monthly_days, u->monthly_days == 1 ? "" : "s");
             rect(u, 8, y, UI_W - 16, rh, r == u->mode_cursor ? C_SEL : C_PANEL);
@@ -2521,8 +2566,8 @@ void ui_draw(SmzUi *u)
         static const char *const TABS[4] = {"Original", "Monthly", "Weekly", "World"};
         const typeof(u->ladder[0]) *l = &u->ladder[u->ladder_tab < 3 ? u->ladder_tab : 0];
         if (u->ladder_tab == 3) snprintf(buf, sizeof buf, "World goals  %s", month_name(u->world_month && u->world_prev.n ? u->world_prev.month : u->world.month));
-        else if (l->label[0] && u->ladder_tab) snprintf(buf, sizeof buf, "Online ladder  %s", l->label);
-        else snprintf(buf, sizeof buf, "Online ladder");
+        else if (l->label[0] && u->ladder_tab) snprintf(buf, sizeof buf, "%s  %s", sm_mode(u) ? "Super Metroid ladder" : "Online ladder", l->label);
+        else snprintf(buf, sizeof buf, "%s", sm_mode(u) ? "Super Metroid ladder" : "Online ladder");
         title(u, buf);
         rect(u, UI_W - 84, 4, 78, 20, C_SEL);
         text(u, UI_W - 45, 8, C_TEXT, 1, "< Save list");
