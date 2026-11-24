@@ -7,6 +7,7 @@
 #include "smz3_state.h"
 #include "smz3_run.h"
 #include "smz3_sm.h"
+#include "smz3_z3.h"
 
 void smz_proof_parse(SmzProof *p, const char *text)
 {
@@ -58,13 +59,14 @@ void smz_proof_check(const char *settings_json, const SmzProof *p, int64_t time_
 {
     memset(v, 0, sizeof *v);
     v->checks = p->n;
-    int sm = smz_settings_mode(settings_json) == SMZ_MODE_SM;
+    int sm = smz_settings_mode(settings_json) == SMZ_MODE_SM, z3 = smz_settings_mode(settings_json) == SMZ_MODE_Z3;
     if (p->n < (strstr(settings_json, "\"challenge\":true") ? 1 : sm ? SMZ_PROOF_MIN_SM : SMZ_PROOF_MIN)) return reject(v, "too few checks");   /* a daily challenge may need only a few */
     uint8_t used[SMZ_PROOF_MAX] = {0};
     int64_t last = 0;
     for (int i = 0; i < p->n; i++) {
         if (p->loc[i] < 0 || p->loc[i] >= (int)smz3_location_count || p->loc[i] >= SMZ_PROOF_MAX) return reject(v, "unknown check");
         if (sm && smz_sm_loc_of(p->loc[i]) < 0) return reject(v, "unknown check");   /* Super Metroid alone has no Zelda checks */
+        if (z3 && smz3_locations[p->loc[i]].game != SMZ3_GAME_ZELDA) return reject(v, "unknown check");   /* nor ALttP alone Metroid ones */
         if (used[p->loc[i]]++) return reject(v, "check repeated");
         if (p->ms[i] < last) return reject(v, "checks out of time order");
         last = p->ms[i];
@@ -75,6 +77,7 @@ void smz_proof_check(const char *settings_json, const SmzProof *p, int64_t time_
     v->ok = 1;
     if (strstr(settings_json, "\"nologic\"")) return;
     if (sm) { if (smz_sm_proof_logic(settings_json, p, v)) return reject(v, "seed cannot be rebuilt"); }
+    else if (z3) { if (smz_z3_proof_logic(settings_json, p, v)) return reject(v, "seed cannot be rebuilt"); }
     else {
         static SmzLogic logic;
         if (smz_logic_build(&logic, settings_json) != 0) return reject(v, "seed cannot be rebuilt");

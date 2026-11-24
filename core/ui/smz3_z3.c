@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "smz3_z3.h"
-#include "smz3_run.h"
 #include "z3_generate.h"
 #include "z3_rom.h"
+#include "z3_fill.h"
+#include "smz3_z3.h"
+#include "smz3_run.h"
+#include "smz3_state.h"
 
 /* The 32 icons of z3randomizer's hashalphabet.asm, in its order (the hash bytes at 0x180215 are indices). */
 static const char *const ICONS[32] = {
@@ -77,9 +79,10 @@ int smz_z3_generate(char *json, size_t json_cap, const uint8_t *z3, const uint8_
     Z3GenSettings s;
     uint32_t seed;
     if (smz_settings_mode(json) != SMZ_MODE_Z3 || z3_settings(json, &s, &seed)) return -7;
-    int rc = z3_generate(&s, z3, SMZ_Z3_BASE_SIZE, rom_out, cap, seed, NULL, NULL);
+    int rc = -3;
+    for (int k = 0; (rc == -3 || rc == -4) && k < SMZ_Z3_SEED_TRIES; k++) rc = z3_generate(&s, z3, SMZ_Z3_BASE_SIZE, rom_out, cap, seed + (uint32_t)k, NULL, NULL);
     if (rc) return rc;
-    if (link_rdc && sprite_apply(rom_out, link_rdc, link_len)) return -6;
+    if (link_rdc && sprite_apply(rom_out, link_rdc, link_len)) return SMZ_Z3_ERR_SPRITE;
     char words[96], add[128];
     const char *diff = strstr(json, "\"diff\":[");
     smz_z3_hash_text(rom_out, SMZ_Z3_ROM_SIZE, words, sizeof words);
@@ -88,6 +91,140 @@ int smz_z3_generate(char *json, size_t json_cap, const uint8_t *z3, const uint8_
         insert(json, json_cap, (size_t)(diff - json) + 8, add);
         snprintf(add, sizeof add, "\"hash\":\"%s\",", words);
         insert(json, json_cap, (size_t)(diff - json), add);
+    }
+    return 0;
+}
+
+const char *smz_z3_error(int rc)
+{
+    switch (rc) {
+    case -3: case -4: return "no seed could be made from this number";
+    case -6: return "the boss shuffle could not be written";
+    case SMZ_Z3_ERR_SPRITE: return "the sprite file is not valid";
+    default: return NULL;
+    }
+}
+
+int smz_z3_rebuild(const Z3GenSettings *s, uint32_t seed, Z3Seed *z)
+{
+    for (int k = 0; k < SMZ_Z3_SEED_TRIES; k++) {   /* z3_generate_rng's steps up to isWinnable, without the ROM */
+        Z3Rng r;
+        z3_rng_init(&r, seed + (uint32_t)k);
+        int ganon = s->crystals_ganon < 0 ? z3_rng_int(&r, 0, 7) : s->crystals_ganon;
+        int tower = s->crystals_tower < 0 ? z3_rng_int(&r, 0, 7) : s->crystals_tower;
+        Z3Cfg c;
+        z3_cfg_defaults(&c);
+        c.mode_state = s->mode_state; c.logic = s->logic; c.itemPlacement = s->item_placement; c.dungeonItems = s->dungeon_items;
+        c.accessibility = s->accessibility; c.goal = s->goal; c.crystals_ganon = ganon; c.crystals_tower = tower;
+        c.mode_weapons = s->weapons; c.item_pool = s->item_pool; c.item_functionality = s->item_functionality;
+        c.enemizer_bossShuffle = s->boss_shuffle;
+        z3_cfg_derive(&c);
+        z3_seed_init(z, &c);
+        if (z3_fill(z, &r)) continue;
+        z3_texts_randomize(z, &r, s->hints);
+        if (z3_seed_winnable(z)) return 0;
+    }
+    return -1;
+}
+
+int smz_z3_settings(const char *json, Z3GenSettings *s, uint32_t *seed) { return z3_settings(json, s, seed); }
+
+static void norm(const char *a, const char *b, char *out, size_t cap)
+{
+    size_t n = 0;
+    for (const char *p = a; p; p = p == a ? b : NULL)
+        for (const char *c = p; *c && n + 1 < cap; c++)
+            if ((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9')) out[n++] = *c;
+            else if (*c >= 'A' && *c <= 'Z') out[n++] = (char)(*c - 'A' + 'a');
+    out[n] = 0;
+}
+
+static int item_location(int l)
+{
+    const char *k = Z3_LOCS[l].kind;
+    return strncmp(k, "Prize", 5) && strcmp(k, "Trade") && strcmp(k, "Medallion") && strcmp(k, "Fountain");
+}
+
+static int z3_named(const char *want)
+{
+    char n[96];
+    for (int l = 0; l < Z3_LOC_COUNT; l++) {
+        if (!item_location(l)) continue;
+        norm(Z3_LOCS[l].name, "", n, sizeof n);
+        if (!strcmp(n, want)) return l;
+    }
+    return -1;
+}
+
+/* SMZ3's names for a few of alttpr's: the bosses' heart containers, Castle Tower's first chest, Cave 45. */
+static const char *const BOSSES[] = {"Armos Knights", "Lanmolas", "Moldorm", "Helmasaur King", "Arrghus", "Mothula", "Blind", "Kholdstare", "Vitreous", "Trinexx"};
+
+int smz_z3_loc_of(int tracker_index)
+{
+    static int16_t map[512];
+    static int made;
+    if (!made) {
+        for (unsigned j = 0; j < smz3_location_count && j < 512; j++) {
+            const smz3_location *t = &smz3_locations[j];
+            char want[96];
+            int l = -1;
+            map[j] = -1;
+            if (t->game != SMZ3_GAME_ZELDA) continue;
+            for (unsigned b = 0; b < sizeof BOSSES / sizeof BOSSES[0] && l < 0; b++)
+                if (!strcmp(t->name, BOSSES[b])) { norm(t->region, "Boss", want, sizeof want); l = z3_named(want); }
+            if (l < 0 && !strcmp(t->id, "CastleTowerFoyer")) l = z3_named("castletowerroom03");
+            if (l < 0 && !strcmp(t->id, "SouthOfGrove")) l = z3_named("cave45");
+            if (l < 0) { norm(t->name, "", want, sizeof want); l = z3_named(want); }
+            if (l < 0) { norm(t->region, t->name, want, sizeof want); l = z3_named(want); }
+            if (l < 0) { norm(t->id, "", want, sizeof want); l = z3_named(want); }
+            map[j] = (int16_t)l;
+        }
+        made = 1;
+    }
+    return tracker_index >= 0 && tracker_index < (int)smz3_location_count && tracker_index < 512 ? map[tracker_index] : -1;
+}
+
+int smz_z3_tracker_index(int z3_loc)
+{
+    if (z3_loc < 0 || z3_loc >= Z3_LOC_COUNT) return -1;
+    for (int j = 0; j < (int)smz3_location_count; j++) {
+        int l = smz_z3_loc_of(j);
+        if (l >= 0 && !strcmp(Z3_LOCS[l].name, Z3_LOCS[z3_loc].name)) return j;
+    }
+    return -1;
+}
+
+/* Every prize and event (pendants, crystals, Agahnim) the items so far reach, as the logic counts them. */
+static void take_prizes(const Z3World *w, Z3Items *it, uint8_t *taken)
+{
+    for (int more = 1; more;) {
+        more = 0;
+        for (int l = 0; l < Z3_LOC_COUNT; l++) {
+            if (taken[l] || strncmp(Z3_LOCS[l].kind, "Prize", 5) || !z3_loc_exists(w, l) || w->item_at[l] == Z3_ITEM_NONE) continue;
+            if (!z3_loc_access(w, it, l)) continue;
+            taken[l] = 1; more = 1;
+            z3_items_add(it, w->item_at[l], 1);
+        }
+    }
+}
+
+int smz_z3_proof_logic(const char *json, const SmzProof *p, SmzProofVerdict *v)
+{
+    static Z3Seed z;
+    Z3GenSettings s;
+    uint32_t seed;
+    if (z3_settings(json, &s, &seed) || smz_z3_rebuild(&s, seed, &z)) return -1;
+    z.w.col = NULL;   /* every sweep fresh */
+    const Z3World *w = &z.w;
+    Z3Items it = w->pre;
+    uint8_t taken[Z3_LOC_COUNT] = {0};
+    for (int i = 0; i < p->n; i++) {
+        int l = smz_z3_loc_of(p->loc[i]);
+        if (l < 0) { v->out_of_logic++; continue; }
+        l = z3_loc_named(w, l);
+        take_prizes(w, &it, taken);
+        if (!z3_loc_access(w, &it, l)) v->out_of_logic++;
+        if (w->item_at[l] != Z3_ITEM_NONE) z3_items_add(&it, w->item_at[l], 1);
     }
     return 0;
 }

@@ -31,7 +31,8 @@ typedef struct {
 } SmzProofVerdict;
 
 /* Checks a proof against the seed of settings_json (stack of at least 32 MB needed). time_ms is the time the client claims.
- * The settings' "game" picks the logic: SMZ3's (core/gen), or Super Metroid alone's (core/smgen, smz3_sm.c). */
+ * The settings' "game" picks the logic: SMZ3's (core/gen), Super Metroid alone's (core/smgen, smz3_sm.c) or A Link to the Past
+ * alone's (core/z3gen, smz3_z3.c), which keeps SMZ3's minimum of checks. */
 void smz_proof_check(const char *settings_json, const SmzProof *p, int64_t time_ms, SmzProofVerdict *v);
 
 #endif

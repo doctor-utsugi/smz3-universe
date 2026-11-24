@@ -27,10 +27,11 @@ const PORT = Number(process.env.PORT || 3360);
 const DIR = process.env.LADDER_DIR || path.join(__dirname, 'data');
 const DATA = path.join(DIR, 'ladder.json');
 const SECRET_FILE = path.join(DIR, 'secret');
-// The shortest ladder time per game and kind: SMZ3 runs take hours, a Super Metroid run about one (its weekly is a full run
-// too, Mother Brain being its only goal), so its floor is lower.
+// The shortest ladder time per game and kind: SMZ3 runs take hours, a Super Metroid or A Link to the Past run one or two (the
+// Super Metroid weekly is a full run too, Mother Brain being its only goal), so their floor is lower.
 const MIN_MS = { smz3: { original: 10 * 60 * 1000, monthly: 10 * 60 * 1000, weekly: 10 * 60 * 1000 },
-  sm: { original: 5 * 60 * 1000, monthly: 5 * 60 * 1000, weekly: 5 * 60 * 1000 } };
+  sm: { original: 5 * 60 * 1000, monthly: 5 * 60 * 1000, weekly: 5 * 60 * 1000 },
+  z3: { original: 5 * 60 * 1000, monthly: 5 * 60 * 1000, weekly: 5 * 60 * 1000 } };
 const minMs = (game, kind) => (MIN_MS[game] || MIN_MS.smz3)[kind] || MIN_MS.smz3.original;
 const MAX_MS = 3 * 24 * 3600 * 1000;      // a token is good for this long after it was issued
 const MAX_BODY = 16384;
@@ -68,8 +69,8 @@ function weekEnd(t) {
 }
 const periodNow = (kind, t) => kind === 'weekly' ? weekOf(t) : monthOf(t);
 const seedOf = month => String(parseInt(hmac('seed:' + month).slice(0, 8), 16) % 900000000 + 100000000);
-// The games whose finishes the checker can verify; z3 joins when its generator does.
-const GAMES = ['smz3', 'sm'];
+// The games whose finishes the checker can verify.
+const GAMES = ['smz3', 'sm', 'z3'];
 const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES.includes(v) ? v : null;
 const gameOfRun = r => r.game || 'smz3';
 const seedFor = (game, period) => game === 'smz3' ? seedOf(period) : String(parseInt(hmac('seed:' + game + ':' + period).slice(0, 8), 16) % 900000000 + 100000000);
@@ -107,6 +108,10 @@ function ladder(game, kind, month) {
 // Super Metroid's Original rules (docs/STANDALONE.md): Tournament logic, Split placement, and Race (no spoiler), which every
 // online SM run sets. The monthly and weekly use them too; the weekly's only goal is Mother Brain anyway.
 const SM_RULES = { logic: 'tournament', placement: 'split', race: 'true' };
+// A Link to the Past's Original rules are alttpr's default preset, z3_settings_default; every online Z3 run is a tournament ROM
+// (no spoiler). Its weekly is Fast Ganon with 2 crystals.
+const Z3_RULES = { tournament: 'true' };
+const Z3_WEEKLY = { goals: 'fast_ganon', tower_open: '2', ganon_open: '2', tournament: 'true' };
 
 // The rules a ladder fixes, as the settings the checker rebuilds the seed from.
 function proofSettings(game, kind, period, seed) {
@@ -114,6 +119,7 @@ function proofSettings(game, kind, period, seed) {
   if (kind === 'race') return period;   // a race hands in its own settings
   if (kind === 'original' && !/^\d{1,9}$/.test(String(seed || ''))) return game === 'smz3' ? '{"nologic":1}' : JSON.stringify({ game, nologic: 1 });
   if (game === 'sm') return JSON.stringify({ game, seed: kind === 'original' ? String(seed) : seedFor(game, period), sm: SM_RULES });
+  if (game === 'z3') return JSON.stringify({ game, seed: kind === 'original' ? String(seed) : seedFor(game, period), z3: kind === 'weekly' ? Z3_WEEKLY : Z3_RULES });
   const s = { seed: kind === 'original' ? String(seed) : seedFor(game, period) };
   if (game !== 'smz3') s.game = game;
   if (kind === 'weekly') Object.assign(s, { ganonCrystals: 2, ganonsTowerCrystals: 2, tourianBosses: 1 });

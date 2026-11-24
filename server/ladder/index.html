@@ -94,7 +94,7 @@ async function load() {
 }
 // the daily windows open at 06, 14 and 22 UTC and last 4 hours
 const HOURS = [6, 14, 22], span = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return s >= 3600 ? Math.floor(s / 3600) + 'h ' + String(Math.floor(s / 60) % 60).padStart(2, '0') + 'm' : Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's'; };
-const DAILY_GAMES = ['smz3', 'sm'];
+const DAILY_GAMES = ['smz3', 'sm', 'z3'];
 let daily = null, shift = 0;
 // a window's id: SMZ3's are the bare date and index, the other games' carry their prefix (sm-2026-11-24-0)
 function windowIds(now) {

@@ -22,8 +22,8 @@ static const char *const N_MODE[] = {"Vanilla", "All Dungeons", "Spazer Hunt"};
 static const char *const N_SMLOGIC[] = {"Casual", "Tournament"};
 static const char *const N_SMPLACE[] = {"Full", "Major/minor split"};
 /* A Link to the Past alone: the values of Z3_OPTIONS (core/z3gen/z3_options_gen.c) in its order, so an index is a value there */
-static const char *const N_Z3STATE[] = {"Standard", "Open"};
-static const char *const N_Z3GOAL[] = {"Defeat Ganon", "Fast Ganon", "All Dungeons", "Master Sword Pedestal"};
+static const char *const N_Z3STATE[] = {"Standard", "Open", "Inverted", "Retro"};
+static const char *const N_Z3GOAL[] = {"Defeat Ganon", "Fast Ganon", "All Dungeons", "Master Sword Pedestal", "Triforce Pieces", "Ganonhunt", "Completionist"};
 static const char *const N_Z3CRYSTALS[] = {"None", "1", "2", "3", "4", "5", "6", "7", "Random"};
 static const char *const N_Z3DUNGEON[] = {"Standard", "Maps and compasses", "Maps, compasses, keys", "Full keysanity"};
 static const char *const N_Z3ACCESS[] = {"100% Inventory", "100% Locations", "Not guaranteed"};
@@ -32,6 +32,8 @@ static const char *const N_Z3SWORDS[] = {"Randomized", "Assured", "Vanilla", "Sw
 static const char *const N_Z3POOL[] = {"Normal", "Hard", "Expert"};
 static const char *const N_Z3HEART[] = {"Off", "Double", "Normal", "Half", "Quarter"};
 static const char *const N_Z3MENU[] = {"Slow", "Normal", "Fast", "Instant"};
+static const char *const N_Z3GLITCH[] = {"None", "Overworld Glitches", "Hybrid Major Glitches", "Major Glitches", "No Logic"};
+static const char *const N_Z3BOSS[] = {"None", "Simple", "Full", "Random"};
 /* "Random" then the jingles in SMZ_JINGLES order (tools/gen_jingles.py); the static assert below keeps the lists in step. */
 static const char *const N_JINGLE[] = {"Random", "Vanilla", "Blue Badger", "Battletoads Win", "Vampire Killer", "FF Victory", "KQ5 Town", "Kirby Win",
     "Buffed Kirby Win", "Mega Man Boss Selected", "SNAAAKE", "Pizza Time", "Shadowgate", "Sonic 2 Bonus", "SMB1", "Theme of Super Metroid",
@@ -97,8 +99,8 @@ const UiOptDef UI_OPTS[] = {
     {"SmPlacement", "Item placement", "Split keeps major items on major spots and minor ones on minor spots.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMPLACE},
     {"SmRace", "Race seed", "No spoiler: the same seed number gives another seed.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
     /* A Link to the Past alone (alttpr's options, z3_option_set): only shown, saved and written to the settings in that mode */
-    {"Z3WorldState", "World state", "Open starts in Link's house; Standard starts with the escape from the castle.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_Z3STATE},
-    {"Z3Goal", "Goal", "What ends the run.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3GOAL},
+    {"Z3WorldState", "World state", "Open starts in Link's house; Standard with the escape; Inverted in the Dark World; Retro buys arrows and keys.", OPT_ENUM, LEVEL_RUN, 0, 3, 1, N_Z3STATE},
+    {"Z3Goal", "Goal", "What ends the run.", OPT_ENUM, LEVEL_RUN, 0, 6, 0, N_Z3GOAL},
     {"Z3TowerOpen", "Crystals for Tower", "Crystals needed to open Ganon's Tower.", OPT_ENUM, LEVEL_RUN, 0, 8, 7, N_Z3CRYSTALS},
     {"Z3GanonOpen", "Crystals for Ganon", "Crystals needed to damage Ganon.", OPT_ENUM, LEVEL_RUN, 0, 8, 7, N_Z3CRYSTALS},
     {"Z3DungeonItems", "Dungeon items", "Which dungeon items may leave their dungeon.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3DUNGEON},
@@ -108,21 +110,24 @@ const UiOptDef UI_OPTS[] = {
     {"Z3ItemPool", "Item pool", "Hard and Expert take upgrades out of the pool.", OPT_ENUM, LEVEL_RUN, 0, 2, 0, N_Z3POOL},
     {"Z3ItemFunction", "Item functionality", "Hard and Expert weaken some items.", OPT_ENUM, LEVEL_RUN, 0, 2, 0, N_Z3POOL},
     {"Z3Hints", "Hints", "The telepathic tiles tell where items are.", OPT_BOOL, LEVEL_RUN, 0, 1, 1, 0},
+    {"Z3Glitches", "Glitches required", "The tricks the logic may ask for; No Logic places items anywhere.", OPT_ENUM, LEVEL_RUN, 0, 4, 0, N_Z3GLITCH},
     {"Z3Tournament", "Tournament", "No spoiler, as alttpr's race seeds.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
     {"Z3HeartBeep", "Heart beep", "How often the low health beep sounds.", OPT_ENUM, LEVEL_RUN, 0, 4, 2, N_Z3HEART},
     {"Z3MenuSpeed", "Menu speed", "How fast the item menu opens.", OPT_ENUM, LEVEL_RUN, 0, 3, 1, N_Z3MENU},
     {"Z3Quickswap", "Item quickswap", "L and R change the item without the menu.", OPT_BOOL, LEVEL_RUN, 0, 1, 1, 0},
+    {"Z3BossShuffle", "Boss shuffle", "Simple and Full move the dungeon bosses; Random draws each one.", OPT_ENUM, LEVEL_RUN, 0, 3, 0, N_Z3BOSS},
 };
 const int UI_OPT_COUNT = sizeof UI_OPTS / sizeof UI_OPTS[0];
-#define O_Z3N 15
+/* after O_Z30, in Z3_OPTIONS' order; each is the Z3_OPTIONS entry of its key, whose values it lists in their order */
+enum { O_Z3STATE, O_Z3GOAL, O_Z3TOWER, O_Z3GANON, O_Z3DUNGEON, O_Z3ACCESS, O_Z3PLACE, O_Z3SWORDS, O_Z3POOL, O_Z3FUNC, O_Z3HINTS,
+       O_Z3GLITCH, O_Z3TOURN, O_Z3HEART, O_Z3MENU, O_Z3SWAP, O_Z3BOSS };
+static const char *const Z3_KEYS[] = {"world_state", "goals", "tower_open", "ganon_open", "dungeon_items", "accessibility",
+    "item_placement", "weapons", "item_pool", "item_functionality", "hints", "glitches_required", "tournament", "heart_beep",
+    "menu_speed", "quickswap", "boss_shuffle"};
+#define O_Z3N (int)(sizeof Z3_KEYS / sizeof Z3_KEYS[0])   /* the last UI_OPTS rows, one per Z3_OPTIONS entry */
 #define O_Z30 (UI_OPT_COUNT - O_Z3N)
 #define O_SM0 (O_Z30 - 3)
 enum { O_SMLOGIC, O_SMPLACE, O_SMRACE };   /* after O_SM0 */
-/* after O_Z30; each is the Z3_OPTIONS entry of its key, whose values it lists in their order */
-enum { O_Z3STATE, O_Z3GOAL, O_Z3TOWER, O_Z3GANON, O_Z3DUNGEON, O_Z3ACCESS, O_Z3PLACE, O_Z3SWORDS, O_Z3POOL, O_Z3FUNC, O_Z3HINTS,
-       O_Z3TOURN, O_Z3HEART, O_Z3MENU, O_Z3SWAP };
-static const char *const Z3_KEYS[O_Z3N] = {"world_state", "goals", "tower_open", "ganon_open", "dungeon_items", "accessibility",
-    "item_placement", "weapons", "item_pool", "item_functionality", "hints", "tournament", "heart_beep", "menu_speed", "quickswap"};
 
 static const Z3Option *z3_opt(int o)
 {
@@ -154,7 +159,7 @@ const char *const UI_TABS_SM[LEVEL_ITEMS][24] = {
 const char *const UI_TABS_Z3[LEVEL_ITEMS][24] = {
     {"Z3WorldState", "Z3Goal", "Z3Swords", "Z3DungeonItems", "Z3Placement", "SaveStates", "Rewind", NULL},
     {"Seed", "Z3WorldState", "Z3Goal", "Z3TowerOpen", "Z3GanonOpen", "Z3Accessibility", "Z3Placement", "Z3Tournament", "MapMode", NULL},
-    {"Z3DungeonItems", "Z3Swords", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", NULL},
+    {"Z3DungeonItems", "Z3Swords", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", "Z3Glitches", "Z3BossShuffle", NULL},
     {NULL},
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", "Z3HeartBeep", "Z3MenuSpeed", "Z3Quickswap", NULL},
 };
@@ -354,8 +359,10 @@ static int z3_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
     int li = u->value[O_LINK];
     if (li > 0 && li < u->sprite_count[0]) snprintf(link, sizeof link, "%s", u->sprites[0][li]);
     int n = snprintf(out, cap, "{\"game\":\"z3\",\"seed\":\"%d\",\"z3\":{", u->value[O_SEED] ? u->value[O_SEED] : seed_if_random);
+    /* every online run is a tournament ROM (no spoiler), as the server rebuilds its seed: the monthly, the weekly and an uploaded run */
+    int tournament = u->value[O_Z30 + O_Z3TOURN] || u->run_mode >= 4 || ui_online_now(u);
     for (int o = 0, first = 1; o < O_Z3N && n < (int)cap; o++) {
-        int i = O_Z30 + o, v = u->value[i];
+        int i = O_Z30 + o, v = o == O_Z3TOURN ? tournament : u->value[i];
         const Z3Option *z = z3_opt(o);
         if (!z || (ui_opt_cosmetic(i) && o != O_Z3TOURN && v == UI_OPTS[i].def)) continue;
         if (o == O_Z3HINTS) v = !v;

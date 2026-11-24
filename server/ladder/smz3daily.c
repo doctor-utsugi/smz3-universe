@@ -6,7 +6,8 @@
  *   smz3daily --draft <id>            a Draft race (docs/RACES.md): a start spot, fixed starting items and a goal that is
  *                                     open from the start and takes 5 to 15 minutes
  *   smz3daily --draft-stats <prefix> <n>  one line per Draft, for tuning
- *   smz3daily --sm <window-id>        a Super Metroid window (smz3daily_sm.c); --sm-stats <prefix> <n> for tuning */
+ *   smz3daily --sm <window-id>        a Super Metroid window (smz3daily_sm.c); --sm-stats <prefix> <n> for tuning
+ *   smz3daily --z3 <window-id>        an A Link to the Past window (smz3daily_z3.c); --z3-stats <prefix> <n> for tuning */
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -753,12 +754,14 @@ static char **argv_g;
 static int result = 1;
 
 int sm_daily_main(int argc, char **argv);   /* smz3daily_sm.c */
+int z3_daily_main(int argc, char **argv);   /* smz3daily_z3.c */
 
 static void *work(void *arg)
 {
     (void)arg;
     static Challenge c;
     if (!strcmp(argv_g[1], "--sm") || !strcmp(argv_g[1], "--sm-stats")) { result = sm_daily_main(argc_g, argv_g); return NULL; }
+    if (!strcmp(argv_g[1], "--z3") || !strcmp(argv_g[1], "--z3-stats")) { result = z3_daily_main(argc_g, argv_g); return NULL; }
     if (argc_g >= 3 && !strncmp(argv_g[1], "--draft", 7)) {
         int stats = !strcmp(argv_g[1], "--draft-stats"), n = stats && argc_g >= 4 ? atoi(argv_g[3]) : 1;
         for (int w = 0; w < n; w++) {
@@ -801,7 +804,7 @@ static void *work(void *arg)
 
 int main(int argc, char **argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: smz3daily <window-id> | --stats <prefix> <n> | --draft <id> | --draft-stats <prefix> <n> | --sm <window-id> | --sm-stats <prefix> <n>\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: smz3daily <window-id> | --stats <prefix> <n> | --draft <id> | --draft-stats <prefix> <n> | --sm <window-id> | --sm-stats <prefix> <n> | --z3 <window-id> | --z3-stats <prefix> <n>\n"); return 2; }
     argc_g = argc; argv_g = argv;
     pthread_attr_t at;
     pthread_attr_init(&at);

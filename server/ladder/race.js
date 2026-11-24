@@ -4,7 +4,8 @@
 //   POST /api/race/join   {install, player, country, version, code, game?}                   -> {token, id, code}
 //   GET  /api/race/open?game=                                   -> {rooms: [{code, format, size, players, creator}]}
 // A room carries its game (no game: smz3): the lobby lists only the game's rooms and a join from another game is refused.
-// Super Metroid races are Championship Full only (its base patch has one goal, so no Partial, and Draft is SMZ3's).
+// Super Metroid races are Championship Full only (its base patch has one goal, so no Partial, and Draft is SMZ3's). A Link to
+// the Past has Full (Original rules) and Partial: Sprint and Half are Fast Ganon with 2 and 4 crystals.
 //   POST /api/race/close  {token}                 creator: 2 or more players go on to skins and the ready room
 //   POST /api/race/kick   {token, pid}            creator: removes a player before the start
 //   POST /api/race/pick   {token, link, samus}    the two skins
@@ -27,11 +28,15 @@ const FORMATS = {   // the Championship lengths: the run's rules, and the countd
   draft: { rules: {}, countdownMin: 5 },
 };
 const LADDERS = ['full', 'sprint', 'half'];
-const GAMES = { smz3: { formats: ['full', 'sprint', 'half', 'draft'], ladders: LADDERS }, sm: { formats: ['full'], ladders: ['full'] } };
+const GAMES = { smz3: { formats: ['full', 'sprint', 'half', 'draft'], ladders: LADDERS }, sm: { formats: ['full'], ladders: ['full'] },
+  z3: { formats: ['full', 'sprint', 'half'], ladders: LADDERS } };
 const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES[v] ? v : null;
 const ladderKey = (game, format) => game === 'smz3' ? format : game + '-' + format;   // db.ladder's table of a game and format
 // Super Metroid's Original rules, as server.js's SM_RULES: every online SM run sets Race.
 const SM_RULES = { logic: 'tournament', placement: 'split', race: 'true' };
+// A Link to the Past's, as server.js's Z3_RULES (every online Z3 run is a tournament ROM), and its Partial lengths.
+const Z3_FORMATS = { full: { tournament: 'true' }, sprint: { goals: 'fast_ganon', tower_open: '2', ganon_open: '2', tournament: 'true' },
+  half: { goals: 'fast_ganon', tower_open: '4', ganon_open: '4', tournament: 'true' } };
 const DRAFT_MS = 30 * 60 * 1000;    // a Draft ends here even if nobody reached the goal
 const DRAFT_MIN_MS = 30 * 1000;     // a Draft finish this soon can't be real
 const DRAFT_POOL = 6;               // Drafts made and checked ahead, so closing a room doesn't wait for the generator
@@ -378,6 +383,7 @@ module.exports = function race(ctx) {
           } else {
             room.seed = String(crypto.randomInt(100000000, 1000000000));
             room.settings = room.game === 'sm' ? JSON.stringify({ game: 'sm', seed: room.seed, sm: SM_RULES, challenge: true })
+              : room.game === 'z3' ? JSON.stringify({ game: 'z3', seed: room.seed, z3: Z3_FORMATS[room.format], challenge: true })
               : JSON.stringify(Object.assign({ seed: room.seed, challenge: true }, FORMATS[room.format].rules));
           }
           room.state = 'closed';

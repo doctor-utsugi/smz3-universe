@@ -1,7 +1,8 @@
 // Daily timed challenge (docs/DAILY.md): three 4 hour windows a day in UTC, one challenge per window made by smz3daily,
 // one attempt per install, hints released on the player's own clock, tokens for finishing, rank and streaks.
 // Each game has its own three windows a day at the same hours: SMZ3's ids are YYYY-MM-DD-n, Super Metroid's sm-YYYY-MM-DD-n
-// (made by smz3daily --sm), each with its own challenge file and table; the rupeergies and the streak are one balance.
+// (made by smz3daily --sm), A Link to the Past's z3-YYYY-MM-DD-n (smz3daily --z3), each with its own challenge file and table;
+// the rupeergies and the streak are one balance.
 //   GET  /api/daily?install=&game=    -> {now, current?, next, tokens}   (no seed or hints before the start; no game: smz3)
 //   POST /api/daily/start  {install, window, game?}     -> {now, token, seed, settings, goal, startedAt, closesAt, hints, nextHintAt}
 //   GET  /api/daily/hints?token=                         -> {now, hints, nextHintAt, closesAt, players}
@@ -22,8 +23,8 @@ const HOURS = [6, 14, 22];
 const LENGTH = 4 * 3600 * 1000;
 const MIN_MS = 3 * 60 * 1000;
 const PRIZE = { finish: 10, rank: [15, 10, 5], streak: { 3: 5, 7: 15, 30: 50 } };
-const GAMES = ['smz3', 'sm'];   // the games with a daily challenge
-const PREFIX = { smz3: '', sm: 'sm-' };
+const GAMES = ['smz3', 'sm', 'z3'];   // the games with a daily challenge
+const PREFIX = { smz3: '', sm: 'sm-', z3: 'z3-' };
 
 module.exports = function daily(ctx) {
   const { DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof } = ctx;
@@ -53,13 +54,13 @@ module.exports = function daily(ctx) {
     return out;
   }
   function windowById(id) {
-    const m = /^(sm-)?(\d{4}-\d{2}-\d{2})-([0-2])$/.exec(String(id || ''));
+    const m = /^(sm-|z3-)?(\d{4}-\d{2}-\d{2})-([0-2])$/.exec(String(id || ''));
     if (!m) return null;
     const day = Date.parse(m[2] + 'T00:00:00Z');
-    return Number.isNaN(day) ? null : windowAt(day, Number(m[3]), m[1] ? 'sm' : 'smz3');
+    return Number.isNaN(day) ? null : windowAt(day, Number(m[3]), m[1] ? m[1].slice(0, -1) : 'smz3');
   }
-  const gameOfWindow = id => String(id).startsWith('sm-') ? 'sm' : 'smz3';
-  const dayOfWindow = id => String(id).replace(/^sm-/, '').slice(0, 10);   // the UTC date a window belongs to, in either game
+  const gameOfWindow = id => /^(sm|z3)-/.test(String(id)) ? String(id).slice(0, 2) : 'smz3';
+  const dayOfWindow = id => String(id).replace(/^(sm|z3)-/, '').slice(0, 10);   // the UTC date a window belongs to, in any game
   const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES.includes(v) ? v : null;
   const currentWindow = (t, game) => windowsAround(t, game).find(w => w.opensAt <= t && t < w.closesAt) || null;
   const nextWindow = (t, game) => windowsAround(t, game).find(w => w.opensAt > t);
@@ -72,7 +73,7 @@ module.exports = function daily(ctx) {
     try { const c = JSON.parse(fs.readFileSync(file, 'utf8')); cache.set(id, c); return done(null, c); } catch (e) {}
     if (pending.has(id)) return pending.get(id).push(done);
     pending.set(id, [done]);
-    execFile(BIN, gameOfWindow(id) === 'sm' ? ['--sm', id] : [id], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
+    execFile(BIN, gameOfWindow(id) === 'smz3' ? [id] : ['--' + gameOfWindow(id), id], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
       let c = null;
       try { c = JSON.parse(out); } catch (e) {}
       if (c) { fs.writeFileSync(file, JSON.stringify(c)); cache.set(id, c); }

@@ -50,8 +50,8 @@ static void flag(SmzUi *u, int x, int y, int color, const char *cc)
 /* The button legend of a screen, "A Load  B Back": every host draws it as its bar with the buttons of the device in use. */
 static void legend(SmzUi *u, const char *s) { text(u, 6, UI_H - 12, C_DIM, 0, s); }
 
-/* The games the server takes: SMZ3 and Super Metroid have a daily, ladders and races; A Link to the Past not yet. */
-static int online_game(const SmzUi *u) { return u->game_mode == SMZ_MODE_SMZ3 || u->game_mode == SMZ_MODE_SM; }
+/* The games the server takes: all three have a daily, ladders and races. */
+static int online_game(const SmzUi *u) { return u->game_mode >= 0 && u->game_mode < SMZ_MODE_COUNT; }
 static int sm_mode(const SmzUi *u) { return u->game_mode == SMZ_MODE_SM; }
 static int z3_mode(const SmzUi *u) { return u->game_mode == SMZ_MODE_Z3; }
 static int single_game(const SmzUi *u) { return u->game_mode != SMZ_MODE_SMZ3; }
@@ -228,7 +228,7 @@ static void home_input(SmzUi *u, UiButton b)
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
     else if (!online_game(u)) snprintf(u->notice, sizeof u->notice, "Online races come later for this game");
-    else if (sm_mode(u) && u->home_cursor == 1) snprintf(u->notice, sizeof u->notice, "Online draft is SMZ3 only for now");
+    else if (single_game(u) && u->home_cursor == 1) snprintf(u->notice, sizeof u->notice, "Online draft is SMZ3 only for now");
     else if (u->race.on) {   /* one kind of race, up to 8: the first screen is there only to pick a paused race back up */
         u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->race.size = 8; u->race.cursor = 0;
         u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY;
@@ -499,7 +499,8 @@ static const UiPreset *chill(const SmzUi *u) { return sm_mode(u) ? &SM_CHILL : z
 static const UiPreset *original(const SmzUi *u) { return sm_mode(u) ? &SM_ORIGINAL : z3_mode(u) ? &Z3_ORIGINAL : &ORIGINAL; }
 static const UiPreset WEEKLY = {"Weekly run", "Short run: 2 crystals, 1 boss", "GanonCrystals=2,GtCrystals=2,TourianBosses=1"};
 static const UiPreset SM_WEEKLY = {"Weekly run", "Original rules, Mother Brain", ""};   /* Super Metroid's only goal: a Split seed */
-static const UiPreset *weekly(const SmzUi *u) { return sm_mode(u) ? &SM_WEEKLY : &WEEKLY; }
+static const UiPreset Z3_WEEKLY = {"Weekly run", "Fast Ganon, 2 crystals", "Z3Goal=1,Z3TowerOpen=2,Z3GanonOpen=2"};
+static const UiPreset *weekly(const SmzUi *u) { return sm_mode(u) ? &SM_WEEKLY : z3_mode(u) ? &Z3_WEEKLY : &WEEKLY; }
 static void spec_values(int *value, const char *spec);
 static const UiPreset BUILTIN[] = {
     {"Keysanity (both games)", "", "Keysanity=1"},
@@ -1987,14 +1988,14 @@ static void race_draw(SmzUi *u)
         break;
     case UI_RACE_FORMAT:
         title(u, "Championship");
-        race_row(u, 0, 36, "Full game", sm_mode(u) ? "Mother Brain" : "Ganon and Mother Brain", C_TEXT);
+        race_row(u, 0, 36, "Full game", sm_mode(u) ? "Mother Brain" : z3_mode(u) ? "Ganon" : "Ganon and Mother Brain", C_TEXT);
         race_row(u, 1, 70, "Partial game", "pick a length", C_TEXT);
         legend(u, "A Choose  B Back");
         break;
     case UI_RACE_LENGTH:
         title(u, "Partial game");
-        race_row(u, 0, 36, "Sprint", "2 crystals, 1 boss", C_TEXT);
-        race_row(u, 1, 70, "Half", "4 crystals, 2 bosses", C_TEXT);
+        race_row(u, 0, 36, "Sprint", z3_mode(u) ? "Fast Ganon, 2 crystals" : "2 crystals, 1 boss", C_TEXT);
+        race_row(u, 1, 70, "Half", z3_mode(u) ? "Fast Ganon, 4 crystals" : "4 crystals, 2 bosses", C_TEXT);
         legend(u, "A Choose  B Back");
         break;
     case UI_RACE_PUBLIC:
@@ -2304,7 +2305,7 @@ void ui_draw(SmzUi *u)
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
         text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
         for (int r = 0; r < HOME_ROWS; r++) {
-            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u) || (r == 1 && sm_mode(u)));   /* the online rows, without a connection (Draft is SMZ3's) */
+            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u) || (r == 1 && single_game(u)));   /* the online rows, without a connection (Draft is SMZ3's) */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
             rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
             hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
@@ -2342,7 +2343,7 @@ void ui_draw(SmzUi *u)
         for (int r = 0; r < rows; r++) {
             int y = 34 + r * pitch, k = mode_kind(u, r);
             const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : weekly(u)->name;
-            const char *wgoal = sm_mode(u) ? "Mother Brain" : "2 crystals, 1 boss";
+            const char *wgoal = sm_mode(u) ? "Mother Brain" : z3_mode(u) ? "Fast Ganon, 2 crystals" : "2 crystals, 1 boss";
             char desc[48];
             if (k == 0) snprintf(desc, sizeof desc, "%s", chill(u)->desc);
             else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
@@ -2578,8 +2579,8 @@ void ui_draw(SmzUi *u)
         static const char *const TABS[4] = {"Original", "Monthly", "Weekly", "World"};
         const typeof(u->ladder[0]) *l = &u->ladder[u->ladder_tab < 3 ? u->ladder_tab : 0];
         if (u->ladder_tab == 3) snprintf(buf, sizeof buf, "World goals  %s", month_name(u->world_month && u->world_prev.n ? u->world_prev.month : u->world.month));
-        else if (l->label[0] && u->ladder_tab) snprintf(buf, sizeof buf, "%s  %s", sm_mode(u) ? "Super Metroid ladder" : "Online ladder", l->label);
-        else snprintf(buf, sizeof buf, "%s", sm_mode(u) ? "Super Metroid ladder" : "Online ladder");
+        else if (l->label[0] && u->ladder_tab) snprintf(buf, sizeof buf, "%s  %s", sm_mode(u) ? "Super Metroid ladder" : z3_mode(u) ? "ALttP ladder" : "Online ladder", l->label);
+        else snprintf(buf, sizeof buf, "%s", sm_mode(u) ? "Super Metroid ladder" : z3_mode(u) ? "ALttP ladder" : "Online ladder");
         title(u, buf);
         rect(u, UI_W - 84, 4, 78, 20, C_SEL);
         text(u, UI_W - 45, 8, C_TEXT, 1, "< Save list");
