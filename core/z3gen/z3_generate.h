@@ -33,6 +33,7 @@ typedef struct {
     int menu_speed;          /* Rom::setMenuSpeed: 0 slow, 1 normal, 2 fast, 3 instant; -1 keep */
     int quickswap;           /* Rom::setQuickSwap: 0/1; -1 keep */
     int logic;               /* glitches_required: Z3_LOGIC_NOGLITCHES (0, the default) ... _NOLOGIC */
+    int boss_shuffle;        /* boss_shuffle: Z3_ENEMIZER_BOSSSHUFFLE_NONE (0, the default), _SIMPLE, _FULL, _RANDOM */
 } Z3GenSettings;
 
 /* Option table in alttpr's own keys and values (config/alttp.php randomizer.item), made by tools/z3/gen_z3_options.py. */
@@ -51,7 +52,8 @@ int z3_option_set(Z3GenSettings *s, const char *key, const char *value);
    the 21-character seed string written at 0x7FC0 plus a NUL (22 bytes); icons_out, when not NULL, the five start
    screen hash icons written at 0x180215. Returns 0, or -1 bad sizes, -2 base patch error, -3 fill failed (alttpr's
    exceptions: no location for an item, prizes unplaceable), -4 the seed cannot be beaten, -5 the texts outgrew the
-   text table (Text::getByteArray's "Too BIG"). */
+   text table (Text::getByteArray's "Too BIG"), -6 the Enemizer's boss writes failed (never seen). With boss shuffle
+   the Enemizer's seed is z3_enemizer_seed(seed). */
 int z3_generate(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len, uint8_t *out_rom, size_t out_cap,
                 uint32_t seed, char *hash_out, uint8_t *icons_out);
 /* The same on a caller's generator (z3_rng_init_mt for a run that replays the oracle's draws); seed still names the

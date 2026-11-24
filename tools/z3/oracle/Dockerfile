@@ -5,7 +5,8 @@ FROM php:8.1.29-cli-bookworm
 ARG ALTTPR_COMMIT=219fcafd029dab597b8db400efafd8f56f8b4edb
 COPY --from=composer:2.7.7 /usr/bin/composer /usr/bin/composer
 
-RUN apt-get update && apt-get install -y --no-install-recommends git unzip libzip-dev libicu-dev libgmp-dev \
+# libunwind8: the Enemizer (vendor/z3/enemizer_linux, a self-contained .NET Core build) needs it to start.
+RUN apt-get update && apt-get install -y --no-install-recommends git unzip libzip-dev libicu-dev libgmp-dev libunwind8 \
     && docker-php-ext-install bcmath zip intl pcntl gmp \
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,6 +26,11 @@ RUN cp .env.example .env && sed -i -e 's/^CACHE_DRIVER=.*/CACHE_DRIVER=array/' -
     && printf 'LOG_CHANNEL=stderr\nLOG_LEVEL=error\n' >> .env
 
 RUN chmod -R a+rwX storage bootstrap/cache
+# The Enemizer's .NET Core 2.0 finds no ICU it knows on bookworm (and reads no environment switch for it); it only
+# parses numbers, so invariant culture is enough.
+RUN sed -i 's|"configProperties": {|"configProperties": {\n      "System.Globalization.Invariant": true,|' \
+        vendor/z3/enemizer_linux/EnemizerCLI.Core.runtimeconfig.json \
+    && grep -q Globalization.Invariant vendor/z3/enemizer_linux/EnemizerCLI.Core.runtimeconfig.json
 COPY z3oracle.php /alttpr/z3oracle.php
 WORKDIR /work
 ENTRYPOINT ["php", "/alttpr/z3oracle.php"]

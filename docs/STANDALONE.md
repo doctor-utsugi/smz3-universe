@@ -345,10 +345,12 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 ## Licences
 
 Everything ported is MIT, which needs the copyright notice kept: sporchia/alttp_php_randomizer, KatDevsGames/z3randomizer,
-tewtal/SMZ3Randomizer (`Randomizer.SuperMetroid`), tewtal/sm_randomizer_rom, Zarby89/Enemizer if it comes. A
-`THIRD_PARTY.md` lists them with their notices, and the About screen names them. Map Rando's logic data is CC BY 4.0 and
-needs attribution; its submodules have their own licences, to be read before any decision. The base patches carry
-reassembled game code, the same position SMZ3's patches are in today; no ROM is shipped.
+tewtal/SMZ3Randomizer (`Randomizer.SuperMetroid`), tewtal/sm_randomizer_rom, Zarby89/Enemizer (Copyright (c) 2023
+Zarby89; its boss shuffle and base patch are in `core/z3gen/z3_enemizer*`, ported from the cassidoxa/Enimizer fork alttpr
+runs, which declares no licence of its own). A `THIRD_PARTY.md` lists them with their notices, and the About screen
+names them. Map Rando's logic data is CC BY 4.0 and needs attribution; its submodules have their own licences, to be
+read before any decision. The base patches carry reassembled game code, the same position SMZ3's patches are in today;
+no ROM is shipped.
 
 ## Risks
 

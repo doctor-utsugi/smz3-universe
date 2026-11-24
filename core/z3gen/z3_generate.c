@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "z3_generate.h"
+#include "z3_enemizer.h"
 #include "z3_rom.h"
 
 void z3_settings_default(Z3GenSettings *s)
@@ -45,6 +46,7 @@ int z3_option_set(Z3GenSettings *s, const char *key, const char *value)
             else if (!strcmp(key, "glitches_required")) s->logic = v;
             else if (!strcmp(key, "heart_beep")) s->heart_beep = v;
             else if (!strcmp(key, "menu_speed")) s->menu_speed = v;
+            else if (!strcmp(key, "boss_shuffle")) s->boss_shuffle = v;
             else return -1;
             return 0;
         }
@@ -110,6 +112,7 @@ int z3_generate_rng(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len
     c.mode_weapons = s->weapons;
     c.item_pool = s->item_pool;
     c.item_functionality = s->item_functionality;
+    c.enemizer_bossShuffle = s->boss_shuffle;
     z3_cfg_derive(&c);
 
     z3_seed_init(&z, &c);
@@ -117,6 +120,7 @@ int z3_generate_rng(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len
     z3_texts_randomize(&z, r, s->hints);
     if (z3_rom_write(out_rom, &z, s, r)) return -5;
     if (!z3_seed_winnable(&z)) return -4;   /* prepSeed: "Game Unwinnable" */
+    if (s->boss_shuffle != Z3_ENEMIZER_BOSSSHUFFLE_NONE && z3_enemize(out_rom, &z.w, z3_enemizer_seed(seed))) return -6;
     if (s->tournament) z3_rom_set_tournament(out_rom, true);   /* rummageTable() is an empty stub upstream */
 
     /* alttpr's icons come from the seed's database id (hash_array); here a stream of their own, so they depend on

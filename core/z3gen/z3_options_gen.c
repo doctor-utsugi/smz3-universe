@@ -93,6 +93,12 @@ static const Z3OptValue z3_opt_menu_speed_values[] = {
     { "fast", "Fast" },
     { "instant", "Instant" },
 };
+static const Z3OptValue z3_opt_boss_shuffle_values[] = {
+    { "none", "None" },
+    { "simple", "Simple" },
+    { "full", "Full" },
+    { "random", "Random" },
+};
 
 const Z3Option Z3_OPTIONS[] = {
     { "world_state", "World State", "dropdown", z3_opt_world_state_values, 4, "open" },
@@ -111,5 +117,6 @@ const Z3Option Z3_OPTIONS[] = {
     { "heart_beep", "Heart Beep", "dropdown", z3_opt_heart_beep_values, 5, "normal" },
     { "menu_speed", "Menu Speed", "dropdown", z3_opt_menu_speed_values, 4, "normal" },
     { "quickswap", "Item Quickswap", "checkbox", 0, 0, "true" },
+    { "boss_shuffle", "Boss Shuffle", "dropdown", z3_opt_boss_shuffle_values, 4, "none" },
 };
-const int Z3_OPTION_COUNT = 16;
+const int Z3_OPTION_COUNT = 17;

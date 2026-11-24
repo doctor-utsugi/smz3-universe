@@ -8,6 +8,7 @@
 //   php z3oracle.php placementbatch <cases.jsonl> <out.txt>    one {"seed":n, ...settings} per line, full Randomizer run
 //   php z3oracle.php checkplacement <cases.jsonl> <out.txt>    {"settings":{..},"placement":{loc:item}}: winnable + reachable
 //   php z3oracle.php placementrom <base.sfc> <case.json> <out.sfc>  a seeded prepSeed run, or writeToRom for a given placement
+//                                                             (boss shuffle runs the Enemizer with the case's "enemizer_seed")
 //   php z3oracle.php rombatch <base.sfc> <cases.jsonl> <outdir>      placementrom per line, <outdir>/<n>.sfc
 //   php z3oracle.php textdata <out.json>                         data for tools/z3/gen_z3_text.py
 // alttpr draws from random_int (a CSPRNG). The Dockerfile patches get_random_int() so that, once oracle_seed() has run,
@@ -373,6 +374,9 @@ function case_rom(string $base, array $case, string $path): string
     }
     $w->writeToRom($rom);
     $winnable = (new WorldCollection([$w]))->isWinnable();
+    if ($w->isEnemized()) {
+        enemize($rom, $w, $base, $seed, $hash, (int) ($case['enemizer_seed'] ?? 1));
+    }
     if ($settings['tournament'] ?? false) {
         $rom->setTournamentType('standard');
         $rom->rummageTable();
@@ -392,6 +396,22 @@ function case_rom(string $base, array $case, string $path): string
     $rom->updateChecksum();
     $rom->save($path);
     return 'winnable ' . ($winnable ? 1 : 0);
+}
+
+// prepSeed's Enemizer run, after the seed string and hash writeToRom(save) writes (it wants a "VT" ROM). --rom is the
+// patched base, so --base is empty; the seed is the case's "enemizer_seed" (random_int upstream).
+function enemize(Rom $rom, World $w, string $base, int $seed, array $hash, int $enemizer_seed): void
+{
+    $rom->setSeedString(str_pad("VT $seed", 21, ' '));
+    $rom->setStartScreenHash($hash);
+    if (!is_file(Rom::getJsonPatchLocation())) {
+        @mkdir(dirname(Rom::getJsonPatchLocation()), 0777, true);
+        file_put_contents(Rom::getJsonPatchLocation(), '[]');
+    }
+    config(['enemizer.base' => $base]);
+    $en = new \ALttP\Enemizer($w, $rom->getWriteLog());
+    $en->randomize($enemizer_seed);
+    $en->writeToRom($rom);
 }
 
 // Data for tools/z3/gen_z3_text.py: the dialog table after Rom's removeUnwanted, the string pools setTexts and
