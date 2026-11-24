@@ -11,7 +11,7 @@ const db = JSON.parse(fs.readFileSync(file, 'utf8'));
 const [cmd, arg] = process.argv.slice(2);
 const fmt = ms => `${Math.floor(ms / 3600000)}:${String(Math.floor(ms / 60000) % 60).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}.${String(Math.floor(ms % 1000 / 10)).padStart(2, '0')}`;
 if (cmd === 'list') {
-  db.runs.forEach((r, i) => console.log(i, r.kind, r.month || '-', fmt(r.timeMs), r.country || '--', r.player, r.install.slice(0, 8), r.hold ? 'HELD: ' + r.hold : ''));
+  db.runs.forEach((r, i) => console.log(i, (r.game || 'smz3') + '/' + r.kind + (r.preset ? '/' + r.preset : ''), r.month || r.period || '-', fmt(r.timeMs), r.country || '--', r.player, r.install.slice(0, 8), r.hold ? 'HELD: ' + r.hold : ''));
 } else if (cmd === 'approve') {
   const r = db.runs[Number(arg)];
   if (!r) { console.error('no such entry'); process.exit(1); }

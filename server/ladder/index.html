@@ -29,6 +29,9 @@
   .games { display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin-top:18px; }
   .games button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:999px; padding:8px 16px; font:600 14px system-ui, sans-serif; cursor:pointer; }
   .games button.on { border-color:var(--gold); color:var(--gold); } .games button:disabled { color:var(--dim); cursor:default; }
+  .tables { display:flex; gap:6px; flex-wrap:wrap; margin:2px 0 10px; } .tables:empty { display:none; }
+  .tables button { background:none; color:var(--dim); border:1px solid var(--line); border-radius:999px; padding:4px 10px; font:600 12px system-ui, sans-serif; cursor:pointer; }
+  .tables button.on { border-color:var(--orange); color:var(--orange); }
   footer { text-align:center; color:var(--dim); font-size:12px; padding:8px 16px 40px; }
 </style>
 </head>
@@ -37,7 +40,7 @@
 <main>
   <section class="daily"><h2>Daily challenge</h2><div class="hint">Three 4 hour windows a day, one try each, on the real clock. <select id="dwin"></select></div>
     <div id="dinfo"></div><ol id="daily"></ol><div class="late" id="dlate"></div></section>
-  <section><h2>Original</h2><div class="hint">Original rules, all time</div><ol id="original"></ol></section>
+  <section><h2 id="otitle">Original</h2><div class="tables" id="tables"></div><div class="hint" id="ohint">Original rules, all time</div><ol id="original"></ol></section>
   <section><h2>Weekly run</h2><div class="hint">Short run, fewer goals. <select id="week"></select> &nbsp;<span id="wseed"></span></div><ol id="weekly"></ol></section>
   <section><h2>Monthly seed</h2><div class="hint"><select id="month"></select> &nbsp;<span id="seed"></span></div><ol id="monthly"></ol></section>
 </main>
@@ -56,11 +59,28 @@ function draw(id, list) {
 async function get(q) { return (await fetch('api/' + q)).json(); }
 // the game whose tables are shown; the server lists the games it keeps ladders for, the others show as coming soon
 const GAMES = [['smz3', 'SMZ3', 'A Link to the Past · Super Metroid · Ladder'], ['z3', 'A Link to the Past', 'Randomizer · Ladder'], ['sm', 'Super Metroid', 'Randomizer · Ladder']];
-let game = 'smz3';
+let game = 'smz3', presets = {}, preset = '';
 const gq = (q, first) => game === 'smz3' ? q : q + (first ? '?' : '&') + 'game=' + game;
+// the first table is Original or one of the game's race presets, each ranked apart
+function drawTables() {
+  const box = document.getElementById('tables'), list = presets[game] || [];
+  box.innerHTML = '';
+  if (!list.length) preset = '';
+  for (const [key, name] of list.length ? [['', 'Original']].concat(list.map(p => [p.key, p.name])) : []) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.className = key === preset ? 'on' : '';
+    b.onclick = () => { preset = key; drawTables(); load(); };
+    box.appendChild(b);
+  }
+  const cur = list.find(p => p.key === preset);
+  document.getElementById('otitle').textContent = cur ? cur.name : 'Original';
+  document.getElementById('ohint').textContent = cur ? 'Race preset, all time' : 'Original rules, all time';
+}
 async function loadGames() {
   let live = ['smz3'];
-  try { live = (await get('games')).games; } catch (e) {}
+  try { const g = await get('games'); live = g.games; presets = g.presets || {}; } catch (e) {}
+  drawTables();
   const nav = document.getElementById('games');
   nav.innerHTML = '';
   for (const [id, name, sub] of GAMES) {
@@ -69,7 +89,7 @@ async function loadGames() {
     b.disabled = !live.includes(id);
     b.className = id === game ? 'on' : '';
     b.onclick = () => {
-      game = id;
+      game = id; preset = ''; drawTables();
       document.getElementById('gname').textContent = name; document.getElementById('gsub').textContent = sub;
       document.querySelector('.daily').style.display = DAILY_GAMES.includes(id) ? '' : 'none';   // each of these games has its own daily
       for (const sel of ['month', 'week', 'dwin']) document.getElementById(sel).innerHTML = '';
@@ -88,7 +108,7 @@ async function load() {
     if (!wsel.options.length) { w.weeks.forEach(x => wsel.add(new Option(x, x))); wsel.onchange = load; }
     document.getElementById('wseed').textContent = wsel.value === w.week ? 'seed ' + w.seed + ' · ends ' + new Date(w.endsAt).toLocaleDateString() : '';
     draw('weekly', (await get(gq('ladder?kind=weekly&week=' + wsel.value))).runs);
-    draw('original', (await get(gq('ladder?kind=original'))).runs);
+    draw('original', (await get(gq('ladder?kind=original' + (preset ? '&preset=' + preset : '')))).runs);
     draw('monthly', (await get(gq('ladder?kind=monthly&month=' + sel.value))).runs);
   } catch (e) {}
 }

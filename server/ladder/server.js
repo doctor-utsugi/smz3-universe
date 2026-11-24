@@ -1,8 +1,9 @@
 // SMZ3 online ladder: a tiny HTTP service with no dependencies.
-//   POST /api/start   {install, kind, game?}       -> {token, seed?}   (kind: original | monthly | weekly)
-//   Tokens: id.install.kind.period.startedAt.sig for smz3, id.install.kind.period.startedAt.game.sig for the other games.
+//   POST /api/start   {install, kind, game?, preset?} -> {token, seed?}   (kind: original | monthly | weekly; preset: original only)
+//   Tokens: id.install.kind.period.startedAt.sig for smz3, id.install.kind.period.startedAt.game.sig for the other games,
+//   id.install.kind.period.startedAt.game.preset.sig for a race preset's table (PRESETS).
 //   POST /api/finish  {token, timeMs, player, country, proof, seed?} -> {ok, rank}   (proof: "loc ms" lines, see below)
-//   GET  /api/ladder  ?kind=original | ?kind=monthly&month=YYYY-MM | ?kind=weekly&week=YYYY-Www
+//   GET  /api/ladder  ?kind=original[&preset=] | ?kind=monthly&month=YYYY-MM | ?kind=weekly&week=YYYY-Www
 //   GET  /api/monthly ?game=                       -> {month, seed, months:[...]}
 //   GET  /api/weekly  ?game=                       -> {week, seed, weeks:[...], endsAt}
 //   Every ladder call takes an optional game (GAMES); without one it is smz3, so released apps keep working.
@@ -10,7 +11,7 @@
 //   /api/goals...: the world goals of the month, see goals.js
 //   /api/race/...: online races, see race.js
 //   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
-//   GET  /api/games                                -> {games:[...]}   the games with ladders
+//   GET  /api/games                                -> {games:[...], presets:{game:[{key, name}]}}   the games with ladders
 //   GET  /api/maprando/seed ?settings=&seed=      -> a Map Rando seed as a BPS patch (maprando.js)
 //   GET  /download                                 -> 302 to the latest GitHub release page
 // A finished run is only accepted with a token the server signed when the run began, and its time
@@ -44,7 +45,7 @@ fs.mkdirSync(DIR, { recursive: true });
 if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
 const SECRET = fs.readFileSync(SECRET_FILE, 'utf8').trim();
 
-// runs: {game?, kind, month?, player, timeMs, finishedAt, install} (no game: smz3); used: finished token ids
+// runs: {game?, kind, preset?, month?, player, timeMs, finishedAt, install} (no game: smz3, no preset: Original); used: finished token ids
 let db = { runs: [], used: [] };
 try { db = JSON.parse(fs.readFileSync(DATA, 'utf8')); } catch (e) {}
 const used = new Set(db.used);
@@ -95,10 +96,10 @@ setInterval(() => {
 }, 600000).unref();
 
 const periodOfRun = r => r.period || r.month;
-function ladder(game, kind, month) {
+function ladder(game, kind, month, preset = '') {
   const best = new Map();   // best run per install
   for (const r of db.runs) {
-    if (r.hold || gameOfRun(r) !== game || r.kind !== kind || (kind !== 'original' && periodOfRun(r) !== month)) continue;
+    if (r.hold || gameOfRun(r) !== game || r.kind !== kind || (r.preset || '') !== preset || (kind !== 'original' && periodOfRun(r) !== month)) continue;
     if (!best.has(r.install) || r.timeMs < best.get(r.install).timeMs) best.set(r.install, r);
   }
   return [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, 100)
@@ -112,12 +113,29 @@ const SM_RULES = { logic: 'tournament', placement: 'split', race: 'true' };
 // (no spoiler). Its weekly is Fast Ganon with 2 crystals.
 const Z3_RULES = { tournament: 'true' };
 const Z3_WEEKLY = { goals: 'fast_ganon', tower_open: '2', ganon_open: '2', tournament: 'true' };
+// Race presets besides Original, each its own original-kind table, keyed as core/ui's UiLadderPreset (docs/STANDALONE.md, Ladder presets).
+// ALttP's follow SahasrahBot's presets/alttpr casualboots, standard and adkeys; Map Rando's are checked on time and rate only.
+const PRESETS = {
+  z3: {
+    casual_boots: { name: 'Casual Boots', z3: { world_state: 'standard', weapons: 'assured', hints: 'off', tournament: 'true', start_boots: 'true' } },
+    standard: { name: 'Standard', z3: { world_state: 'standard', hints: 'off', tournament: 'true' } },
+    ad_keys: { name: 'AD Keys', z3: { goals: 'dungeons', dungeon_items: 'full', hints: 'off', tournament: 'true' } },
+  },
+  sm: {
+    mr_s5: { name: 'Map Rando Season 5', sm: { generator: 'maprando', preset: 'Community Race Season 5' } },
+    mr_beginner: { name: 'Map Rando Beginner', sm: { generator: 'maprando', preset: 'Default' } },
+  },
+};
+// '' for Original, the key of a listed preset, or null for anything else.
+const presetOf = (game, v) => v === undefined || v === null || v === '' ? '' : PRESETS[game] && Object.hasOwn(PRESETS[game], v) ? v : null;
+const presetList = Object.fromEntries(Object.entries(PRESETS).map(([g, ps]) => [g, Object.entries(ps).map(([key, p]) => ({ key, name: p.name }))]));
 
 // The rules a ladder fixes, as the settings the checker rebuilds the seed from.
-function proofSettings(game, kind, period, seed) {
+function proofSettings(game, kind, period, seed, preset) {
   if (kind === 'daily') return dailyRoutes.settingsOf(period);
   if (kind === 'race') return period;   // a race hands in its own settings
   if (kind === 'original' && !/^\d{1,9}$/.test(String(seed || ''))) return game === 'smz3' ? '{"nologic":1}' : JSON.stringify({ game, nologic: 1 });
+  if (preset) return JSON.stringify({ game, seed: String(seed), ...PRESETS[game][preset], name: undefined });
   if (game === 'sm') return JSON.stringify({ game, seed: kind === 'original' ? String(seed) : seedFor(game, period), sm: SM_RULES });
   if (game === 'z3') return JSON.stringify({ game, seed: kind === 'original' ? String(seed) : seedFor(game, period), z3: kind === 'weekly' ? Z3_WEEKLY : Z3_RULES });
   const s = { seed: kind === 'original' ? String(seed) : seedFor(game, period) };
@@ -126,7 +144,7 @@ function proofSettings(game, kind, period, seed) {
   return JSON.stringify(s);
 }
 
-function verifyProof(game, kind, period, b, timeMs, done) {
+function verifyProof(game, kind, period, b, timeMs, done, preset) {
   const child = execFile(CHECKER, [String(timeMs)], { timeout: 60000, maxBuffer: 1 << 16 }, (err, out) => {
     let v;
     try { v = JSON.parse(out); } catch (e) { return done('proof check failed'); }
@@ -134,7 +152,7 @@ function verifyProof(game, kind, period, b, timeMs, done) {
     done(null, { suspect: !!v.suspect, reason: v.reason });
   });
   child.stdin.on('error', () => {});
-  child.stdin.end(proofSettings(game, kind, period, b.seed) + '\n' + b.proof);
+  child.stdin.end(proofSettings(game, kind, period, b.seed, preset) + '\n' + b.proof);
 }
 
 function send(res, code, body, type = 'application/json') {
@@ -203,7 +221,7 @@ http.createServer((req, res) => {
   }
   const qgame = gameOf(url.searchParams.get('game'));
   if (req.method === 'GET' && ['/api/monthly', '/api/weekly', '/api/ladder'].includes(url.pathname) && !qgame) return send(res, 400, { error: 'unknown game' });
-  if (req.method === 'GET' && url.pathname === '/api/games') return send(res, 200, { games: GAMES });
+  if (req.method === 'GET' && url.pathname === '/api/games') return send(res, 200, { games: GAMES, presets: presetList });
   if (req.method === 'GET' && url.pathname === '/api/monthly') {
     const month = monthOf(Date.now());
     return send(res, 200, { month, seed: seedFor(qgame, month), months: periods(qgame, 'monthly') });
@@ -220,16 +238,19 @@ http.createServer((req, res) => {
       return send(res, 200, { kind, week, runs: ladder(qgame, kind, week) });
     }
     const month = /^\d{4}-\d{2}$/.test(url.searchParams.get('month') || '') ? url.searchParams.get('month') : monthOf(Date.now());
-    return send(res, 200, { kind, month, runs: ladder(qgame, kind, month) });
+    const preset = kind === 'original' ? presetOf(qgame, url.searchParams.get('preset')) : '';
+    if (preset === null) return send(res, 400, { error: 'unknown preset' });
+    return send(res, 200, { kind, month, preset: preset || undefined, runs: ladder(qgame, kind, month, preset) });   // preset before runs: the clients drop a table no longer picked
   }
   if (req.method === 'POST' && url.pathname === '/api/start') {
     if (limited('s', ip, START_PER_HOUR)) return send(res, 429, { error: 'slow down' });
     return readJson(req, res, b => {
-      const game = gameOf(b.game);
-      if (!onlyKeys(b, ['install', 'kind', 'game']) || !game || !['original', 'monthly', 'weekly'].includes(b.kind) || !/^[0-9a-f-]{16,40}$/.test(String(b.install))) return send(res, 400, { error: 'invalid' });
+      const game = gameOf(b.game), preset = presetOf(game, b.preset);
+      if (!onlyKeys(b, ['install', 'kind', 'game', 'preset']) || !game || !['original', 'monthly', 'weekly'].includes(b.kind) || !/^[0-9a-f-]{16,40}$/.test(String(b.install))) return send(res, 400, { error: 'invalid' });
+      if (preset === null || (preset && b.kind !== 'original')) return send(res, 400, { error: 'unknown preset' });
       const now = Date.now(), month = periodNow(b.kind, now);
       const id = crypto.randomBytes(8).toString('hex');
-      const body = [id, b.install, b.kind, month, now].concat(game === 'smz3' ? [] : [game]).join('.');   // tokens without a game are smz3
+      const body = [id, b.install, b.kind, month, now].concat(game === 'smz3' ? [] : [game], preset ? [preset] : []).join('.');   // tokens without a game are smz3, without a preset Original
       const seed = b.kind === 'original' ? undefined : seedFor(game, month);
       send(res, 200, { token: body + '.' + hmac(body), seed });
     });
@@ -239,12 +260,14 @@ http.createServer((req, res) => {
     return readJson(req, res, b => {
       if (!onlyKeys(b, ['token', 'timeMs', 'player', 'country', 'proof', 'seed']) || typeof b.token !== 'string' || typeof b.proof !== 'string' || b.proof.length > 12000) return send(res, 400, { error: 'invalid' });
       const parts = b.token.split('.');
-      if (parts.length !== 6 && parts.length !== 7) return send(res, 400, { error: 'invalid' });
+      if (parts.length < 6 || parts.length > 8) return send(res, 400, { error: 'invalid' });
       const body = parts.slice(0, -1).join('.');
       const sig = Buffer.from(parts[parts.length - 1]), want = Buffer.from(hmac(body));
       if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return send(res, 400, { error: 'invalid' });
-      const [id, install, kind, month, startedAt] = parts, game = parts.length === 7 ? gameOf(parts[5]) : 'smz3';
+      const [id, install, kind, month, startedAt] = parts, game = parts.length >= 7 ? gameOf(parts[5]) : 'smz3';
       if (!game) return send(res, 400, { error: 'unknown game' });
+      const preset = parts.length === 8 ? presetOf(game, parts[6]) : '';
+      if (!preset && parts.length === 8) return send(res, 400, { error: 'unknown preset' });
       const timeMs = b.timeMs, elapsed = Date.now() - Number(startedAt);
       if (!Number.isInteger(timeMs) || timeMs < minMs(game, kind) || timeMs > MAX_MS || timeMs > elapsed || elapsed > MAX_MS) return send(res, 400, { error: 'invalid time' });
       if (used.has(id)) return send(res, 200, { ok: true, duplicate: true });
@@ -252,15 +275,15 @@ http.createServer((req, res) => {
         if (err) return send(res, 400, { error: err });
         if (used.has(id)) return send(res, 200, { ok: true, duplicate: true });
         used.add(id);
-        const mine = db.runs.findIndex(r => r.install === install && gameOfRun(r) === game && r.kind === kind && (kind !== 'original' ? periodOfRun(r) === month : true) && !r.hold === !verdict.suspect);
-        const entry = { game: game === 'smz3' ? undefined : game, kind, month: kind === 'monthly' ? month : undefined, period: kind === 'weekly' ? month : undefined, player: clean(b.player, 24) || 'Player', country: /^[A-Z]{2}$/.test(b.country) ? b.country : '', timeMs, finishedAt: Date.now(), install, hold: verdict.suspect ? verdict.reason : undefined };
+        const mine = db.runs.findIndex(r => r.install === install && gameOfRun(r) === game && r.kind === kind && (r.preset || '') === preset && (kind !== 'original' ? periodOfRun(r) === month : true) && !r.hold === !verdict.suspect);
+        const entry = { game: game === 'smz3' ? undefined : game, kind, preset: preset || undefined, month: kind === 'monthly' ? month : undefined, period: kind === 'weekly' ? month : undefined, player: clean(b.player, 24) || 'Player', country: /^[A-Z]{2}$/.test(b.country) ? b.country : '', timeMs, finishedAt: Date.now(), install, hold: verdict.suspect ? verdict.reason : undefined };
         if (mine < 0) db.runs.push(entry);
         else if (db.runs[mine].timeMs > timeMs) db.runs[mine] = entry;      // one entry per install and ladder: its best
         else { db.runs[mine].player = entry.player; db.runs[mine].country = entry.country; }
         save();
-        const rank = verdict.suspect ? 0 : ladder(game, kind, month).findIndex(r => r.timeMs === timeMs) + 1;
+        const rank = verdict.suspect ? 0 : ladder(game, kind, month, preset).findIndex(r => r.timeMs === timeMs) + 1;
         send(res, 200, { ok: true, rank, held: verdict.suspect ? true : undefined });
-      });
+      }, preset);
     });
   }
   send(res, 404, { error: 'not found' });
