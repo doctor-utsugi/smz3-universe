@@ -241,6 +241,18 @@ the discovery map logic.
 - The race lobby, entered from a game, lists only that game's rooms.
 - Every online call sends the game.
 
+### New version notice
+
+It stays as it is and moves to the first screen: at start every version asks `/api/version`, and when a newer
+release is out the carousel says so, with Options > Update.
+
+- **PC (Windows, macOS, AppImage) and Android/Thor** download and install the release themselves, as today.
+- **Linux built from source** says where to get it.
+- **3DS** today only says where: `smz3-universe.duckdns.org/download`, which the server redirects to the latest
+  release. Step 1b makes it download itself: the `.3dsx` written over the running file (its path from `argv[0]`),
+  the `.cia` downloaded and installed through the AM service (as FBI does), then a restart. If the console refuses,
+  the link stays.
+
 ## Community options, by phase
 
 ### Z3
@@ -298,6 +310,7 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 
 1. **The `game` field** through runs, settings, ROM names, the hosts' ROM sizes and ROM search, and the server, with
    nothing new to pick yet. Check: SMZ3 ROMs byte-identical, old runs, tokens and records still load.
+1b. **3DS self-update** (see New version notice).
 2. **SM generator** (stages 1-5 above).
 3. **SM on the hosts:** the game carousel and per-game run lists, single ROM, tracker half map, end of run, hash, sprites. Offline only.
 4. **SM online:** ladders, presets, monthly, weekly, proof checker, web switch. Then the SM daily, races and goals.

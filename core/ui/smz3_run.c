@@ -3,12 +3,36 @@
 #include <string.h>
 #include "smz3_run.h"
 
+static const char *const MODE_IDS[SMZ_MODE_COUNT] = {"smz3", "z3", "sm"};
+
+const char *smz_mode_id(int mode) { return mode > 0 && mode < SMZ_MODE_COUNT ? MODE_IDS[mode] : MODE_IDS[0]; }
+
+int smz_mode_of(const char *id)
+{
+    if (!id || !*id) return SMZ_MODE_SMZ3;
+    for (int i = 0; i < SMZ_MODE_COUNT; i++) if (!strcmp(id, MODE_IDS[i])) return i;
+    return -1;
+}
+
+int smz_settings_mode(const char *json)
+{
+    const char *p = json ? strstr(json, "\"game\":\"") : NULL;
+    if (!p) return SMZ_MODE_SMZ3;
+    p += 8;
+    char id[8];
+    size_t n = strcspn(p, "\"");
+    if (n >= sizeof id || p[n] != '"') return -1;
+    memcpy(id, p, n);
+    id[n] = 0;
+    return smz_mode_of(id);
+}
+
 int smz_run_save(const char *path, const SmzRun *r)
 {
     FILE *f = fopen(path, "w");
     if (!f) return -1;
-    fprintf(f, "SMZRUN1\nname=%s\nseed=%s\nrom=%s\ncreated=%lld\nplayed=%lld\nplay_ms=%lld\ngame=%d\nzc=%d\nzt=%d\nmc=%d\nmt=%d\nbm=%d\ncm=%d\nsms=%lld\nsz=%d\nsm=%d\ngoals=%s\nsettings=%s\n",
-            r->name, r->seed, r->rom_path, (long long)r->created, (long long)r->last_played, (long long)r->play_ms, r->game,
+    fprintf(f, "SMZRUN1\nmode=%s\nname=%s\nseed=%s\nrom=%s\ncreated=%lld\nplayed=%lld\nplay_ms=%lld\ngame=%d\nzc=%d\nzt=%d\nmc=%d\nmt=%d\nbm=%d\ncm=%d\nsms=%lld\nsz=%d\nsm=%d\ngoals=%s\nsettings=%s\n",
+            smz_mode_id(r->mode), r->name, r->seed, r->rom_path, (long long)r->created, (long long)r->last_played, (long long)r->play_ms, r->game,
             r->zelda_cleared, r->zelda_total, r->metroid_cleared, r->metroid_total, r->boss_mask, r->crystal_mask, (long long)r->save_ms, r->save_zelda, r->save_metroid, r->goals, r->settings);
     return fclose(f) ? -1 : 0;
 }
@@ -28,6 +52,7 @@ int smz_run_load(const char *path, SmzRun *r)
         if (!v) continue;
         *v++ = 0;
         if (!strcmp(line, "name")) copy(r->name, sizeof r->name, v);
+        else if (!strcmp(line, "mode")) { if ((r->mode = smz_mode_of(v)) < 0) { fclose(f); return -1; } }   /* a game this build lacks */
         else if (!strcmp(line, "seed")) copy(r->seed, sizeof r->seed, v);
         else if (!strcmp(line, "rom")) copy(r->rom_path, sizeof r->rom_path, v);
         else if (!strcmp(line, "settings")) copy(r->settings, sizeof r->settings, v);
@@ -82,6 +107,7 @@ int smz_run_rom_name(const char *json, const char *seed, char *out, int cap)
         if (skipped) continue;
         h = (h ^ (uint8_t)*p++) * 0x01000193u;
     }
-    int n = snprintf(out, cap, "smz3_%s_%08x.sfc", seed, h);
+    int mode = smz_settings_mode(json);
+    int n = snprintf(out, cap, "%s_%s_%08x.sfc", smz_mode_id(mode < 0 ? SMZ_MODE_SMZ3 : mode), seed, h);
     return n < cap ? n : -1;
 }

@@ -186,7 +186,7 @@ static void options_input(SmzUi *u, UiButton b)
         int bit = OPTION_ROWS[kind[*c]].bit;
         if (bit < 0) {
             if (u->update_install) u->action = ACT_UPDATE;
-            else snprintf(u->notice, sizeof u->notice, "Get it from the GitHub releases");
+            else snprintf(u->notice, sizeof u->notice, "smz3-universe.duckdns.org/download");
             return;
         }
         if (bit) { u->action = ACT_OPTIONS; u->action_slot = bit; return; }

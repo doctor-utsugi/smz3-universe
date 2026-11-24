@@ -110,7 +110,7 @@ typedef struct {
     int world_month, world_cursor, world_top;   /* the World tab shows last month / its cursor (-1 the month switch) / the goal whose top 10 is open (-1 none) */
     int daily_on, daily_sel, daily_cursor, daily_has_run, daily_info;   /* the run list's Daily row: shown / has the cursor (2: the World goals row under it); its screen's button (0 Start, 1 Info, 2 Back, 3 Link, 4 Samus); the host keeps an attempt; the Info page is open */
     SmzDailyInfo daily;
-    char start_label[24], notice[32];
+    char start_label[24], notice[40];
     int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
     struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started, find_ms;   /* find_ms: since the list was last asked for */

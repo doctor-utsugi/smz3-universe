@@ -1,13 +1,15 @@
 // SMZ3 online ladder: a tiny HTTP service with no dependencies.
-//   POST /api/start   {install, kind}              -> {token, seed?}   (kind: original | monthly | weekly)
+//   POST /api/start   {install, kind, game?}       -> {token, seed?}   (kind: original | monthly | weekly)
 //   POST /api/finish  {token, timeMs, player, country, proof, seed?} -> {ok, rank}   (proof: "loc ms" lines, see below)
 //   GET  /api/ladder  ?kind=original | ?kind=monthly&month=YYYY-MM | ?kind=weekly&week=YYYY-Www
-//   GET  /api/monthly                              -> {month, seed, months:[...]}
-//   GET  /api/weekly                               -> {week, seed, weeks:[...], endsAt}
+//   GET  /api/monthly ?game=                       -> {month, seed, months:[...]}
+//   GET  /api/weekly  ?game=                       -> {week, seed, weeks:[...], endsAt}
+//   Every ladder call takes an optional game (GAMES); without one it is smz3, so released apps keep working.
 //   /api/daily..., /api/tokens: the daily timed challenge, see daily.js
 //   /api/goals...: the world goals of the month, see goals.js
 //   /api/race/...: online races, see race.js
 //   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
+//   GET  /download                                 -> 302 to the latest GitHub release page
 // A finished run is only accepted with a token the server signed when the run began, and its time
 // cannot be longer than the wall clock time since then or shorter than MIN_MS. It must also carry a proof of run, the
 // checks it cleared with their play times; smz3check replays them against the known seed. A proof that cannot have
@@ -34,7 +36,7 @@ fs.mkdirSync(DIR, { recursive: true });
 if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
 const SECRET = fs.readFileSync(SECRET_FILE, 'utf8').trim();
 
-// runs: {kind, month?, player, timeMs, finishedAt, install}; used: finished token ids
+// runs: {game?, kind, month?, player, timeMs, finishedAt, install} (no game: smz3); used: finished token ids
 let db = { runs: [], used: [] };
 try { db = JSON.parse(fs.readFileSync(DATA, 'utf8')); } catch (e) {}
 const used = new Set(db.used);
@@ -59,6 +61,11 @@ function weekEnd(t) {
 }
 const periodNow = (kind, t) => kind === 'weekly' ? weekOf(t) : monthOf(t);
 const seedOf = month => String(parseInt(hmac('seed:' + month).slice(0, 8), 16) % 900000000 + 100000000);
+// The games whose finishes the checker can verify; z3 and sm join when their generators do.
+const GAMES = ['smz3'];
+const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES.includes(v) ? v : null;
+const gameOfRun = r => r.game || 'smz3';
+const seedFor = (game, period) => game === 'smz3' ? seedOf(period) : String(parseInt(hmac('seed:' + game + ':' + period).slice(0, 8), 16) % 900000000 + 100000000);
 const clean = (v, n) => String(v == null ? '' : v).replace(/[^\p{L}\p{N} _.'!-]/gu, '').trim().slice(0, n);
 
 function onlyKeys(b, keys) {
@@ -80,10 +87,10 @@ setInterval(() => {
 }, 600000).unref();
 
 const periodOfRun = r => r.period || r.month;
-function ladder(kind, month) {
+function ladder(game, kind, month) {
   const best = new Map();   // best run per install
   for (const r of db.runs) {
-    if (r.hold || r.kind !== kind || (kind !== 'original' && periodOfRun(r) !== month)) continue;
+    if (r.hold || gameOfRun(r) !== game || r.kind !== kind || (kind !== 'original' && periodOfRun(r) !== month)) continue;
     if (!best.has(r.install) || r.timeMs < best.get(r.install).timeMs) best.set(r.install, r);
   }
   return [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, 100)
@@ -91,16 +98,17 @@ function ladder(kind, month) {
 }
 
 // The rules a ladder fixes, as the settings the checker rebuilds the seed from.
-function proofSettings(kind, period, seed) {
+function proofSettings(game, kind, period, seed) {
   if (kind === 'daily') return dailyRoutes.settingsOf(period);
   if (kind === 'race') return period;   // a race hands in its own settings
   if (kind === 'original' && !/^\d{1,9}$/.test(String(seed || ''))) return '{"nologic":1}';
-  const s = { seed: kind === 'original' ? String(seed) : seedOf(period) };
+  const s = { seed: kind === 'original' ? String(seed) : seedFor(game, period) };
+  if (game !== 'smz3') s.game = game;
   if (kind === 'weekly') Object.assign(s, { ganonCrystals: 2, ganonsTowerCrystals: 2, tourianBosses: 1 });
   return JSON.stringify(s);
 }
 
-function verifyProof(kind, period, b, timeMs, done) {
+function verifyProof(game, kind, period, b, timeMs, done) {
   const child = execFile(CHECKER, [String(timeMs)], { timeout: 60000, maxBuffer: 1 << 16 }, (err, out) => {
     let v;
     try { v = JSON.parse(out); } catch (e) { return done('proof check failed'); }
@@ -108,7 +116,7 @@ function verifyProof(kind, period, b, timeMs, done) {
     done(null, { suspect: !!v.suspect, reason: v.reason });
   });
   child.stdin.on('error', () => {});
-  child.stdin.end(proofSettings(kind, period, b.seed) + '\n' + b.proof);
+  child.stdin.end(proofSettings(game, kind, period, b.seed) + '\n' + b.proof);
 }
 
 function send(res, code, body, type = 'application/json') {
@@ -149,8 +157,7 @@ function refreshRelease() {
 refreshRelease();
 
 const page = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-const periods = kind => [...new Set(db.runs.filter(r => r.kind === kind).map(periodOfRun).concat(periodNow(kind, Date.now())))].sort().reverse();
-const months = () => periods('monthly');
+const periods = (game, kind) => [...new Set(db.runs.filter(r => gameOfRun(r) === game && r.kind === kind).map(periodOfRun).concat(periodNow(kind, Date.now())))].sort().reverse();
 
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -161,36 +168,43 @@ http.createServer((req, res) => {
   if (url.pathname.startsWith('/api/daily') || url.pathname === '/api/tokens') { if (dailyRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/goals')) { if (goalRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/race/')) { if (raceRoutes(req, res, url, ip)) return; }
+  if (req.method === 'GET' && url.pathname === '/download') {   // the short link the apps that cannot update themselves show
+    res.writeHead(302, { Location: `https://github.com/${RELEASES}/releases/latest` });
+    return res.end();
+  }
   if (req.method === 'GET' && url.pathname === '/api/version') {
     refreshRelease();
     return send(res, 200, { tag: release.tag, base: release.tag ? `https://github.com/${RELEASES}/releases/download/${release.tag}/` : '' });
   }
+  const qgame = gameOf(url.searchParams.get('game'));
+  if (req.method === 'GET' && ['/api/monthly', '/api/weekly', '/api/ladder'].includes(url.pathname) && !qgame) return send(res, 400, { error: 'unknown game' });
   if (req.method === 'GET' && url.pathname === '/api/monthly') {
     const month = monthOf(Date.now());
-    return send(res, 200, { month, seed: seedOf(month), months: months() });
+    return send(res, 200, { month, seed: seedFor(qgame, month), months: periods(qgame, 'monthly') });
   }
   if (req.method === 'GET' && url.pathname === '/api/weekly') {
     const week = weekOf(Date.now());
-    return send(res, 200, { week, seed: seedOf(week), weeks: periods('weekly'), endsAt: weekEnd(Date.now()) });
+    return send(res, 200, { week, seed: seedFor(qgame, week), weeks: periods(qgame, 'weekly'), endsAt: weekEnd(Date.now()) });
   }
   if (req.method === 'GET' && url.pathname === '/api/ladder') {
     const k = url.searchParams.get('kind');
     const kind = k === 'monthly' || k === 'weekly' ? k : 'original';
     if (kind === 'weekly') {
       const week = /^\d{4}-W\d{2}$/.test(url.searchParams.get('week') || '') ? url.searchParams.get('week') : weekOf(Date.now());
-      return send(res, 200, { kind, week, runs: ladder(kind, week) });
+      return send(res, 200, { kind, week, runs: ladder(qgame, kind, week) });
     }
     const month = /^\d{4}-\d{2}$/.test(url.searchParams.get('month') || '') ? url.searchParams.get('month') : monthOf(Date.now());
-    return send(res, 200, { kind, month, runs: ladder(kind, month) });
+    return send(res, 200, { kind, month, runs: ladder(qgame, kind, month) });
   }
   if (req.method === 'POST' && url.pathname === '/api/start') {
     if (limited('s', ip, START_PER_HOUR)) return send(res, 429, { error: 'slow down' });
     return readJson(req, res, b => {
-      if (!onlyKeys(b, ['install', 'kind']) || !['original', 'monthly', 'weekly'].includes(b.kind) || !/^[0-9a-f-]{16,40}$/.test(String(b.install))) return send(res, 400, { error: 'invalid' });
+      const game = gameOf(b.game);
+      if (!onlyKeys(b, ['install', 'kind', 'game']) || !game || !['original', 'monthly', 'weekly'].includes(b.kind) || !/^[0-9a-f-]{16,40}$/.test(String(b.install))) return send(res, 400, { error: 'invalid' });
       const now = Date.now(), month = periodNow(b.kind, now);
       const id = crypto.randomBytes(8).toString('hex');
-      const body = [id, b.install, b.kind, month, now].join('.');
-      const seed = b.kind === 'original' ? undefined : seedOf(month);
+      const body = [id, b.install, b.kind, month, now].concat(game === 'smz3' ? [] : [game]).join('.');   // tokens without a game are smz3
+      const seed = b.kind === 'original' ? undefined : seedFor(game, month);
       send(res, 200, { token: body + '.' + hmac(body), seed });
     });
   }
@@ -199,25 +213,26 @@ http.createServer((req, res) => {
     return readJson(req, res, b => {
       if (!onlyKeys(b, ['token', 'timeMs', 'player', 'country', 'proof', 'seed']) || typeof b.token !== 'string' || typeof b.proof !== 'string' || b.proof.length > 12000) return send(res, 400, { error: 'invalid' });
       const parts = b.token.split('.');
-      if (parts.length !== 6) return send(res, 400, { error: 'invalid' });
-      const body = parts.slice(0, 5).join('.');
-      const sig = Buffer.from(parts[5]), want = Buffer.from(hmac(body));
+      if (parts.length !== 6 && parts.length !== 7) return send(res, 400, { error: 'invalid' });
+      const body = parts.slice(0, -1).join('.');
+      const sig = Buffer.from(parts[parts.length - 1]), want = Buffer.from(hmac(body));
       if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return send(res, 400, { error: 'invalid' });
-      const [id, install, kind, month, startedAt] = parts;
+      const [id, install, kind, month, startedAt] = parts, game = parts.length === 7 ? gameOf(parts[5]) : 'smz3';
+      if (!game) return send(res, 400, { error: 'unknown game' });
       const timeMs = b.timeMs, elapsed = Date.now() - Number(startedAt);
       if (!Number.isInteger(timeMs) || timeMs < MIN_MS || timeMs > MAX_MS || timeMs > elapsed || elapsed > MAX_MS) return send(res, 400, { error: 'invalid time' });
       if (used.has(id)) return send(res, 200, { ok: true, duplicate: true });
-      verifyProof(kind, month, b, timeMs, (err, verdict) => {
+      verifyProof(game, kind, month, b, timeMs, (err, verdict) => {
         if (err) return send(res, 400, { error: err });
         if (used.has(id)) return send(res, 200, { ok: true, duplicate: true });
         used.add(id);
-        const mine = db.runs.findIndex(r => r.install === install && r.kind === kind && (kind !== 'original' ? periodOfRun(r) === month : true) && !r.hold === !verdict.suspect);
-        const entry = { kind, month: kind === 'monthly' ? month : undefined, period: kind === 'weekly' ? month : undefined, player: clean(b.player, 24) || 'Player', country: /^[A-Z]{2}$/.test(b.country) ? b.country : '', timeMs, finishedAt: Date.now(), install, hold: verdict.suspect ? verdict.reason : undefined };
+        const mine = db.runs.findIndex(r => r.install === install && gameOfRun(r) === game && r.kind === kind && (kind !== 'original' ? periodOfRun(r) === month : true) && !r.hold === !verdict.suspect);
+        const entry = { game: game === 'smz3' ? undefined : game, kind, month: kind === 'monthly' ? month : undefined, period: kind === 'weekly' ? month : undefined, player: clean(b.player, 24) || 'Player', country: /^[A-Z]{2}$/.test(b.country) ? b.country : '', timeMs, finishedAt: Date.now(), install, hold: verdict.suspect ? verdict.reason : undefined };
         if (mine < 0) db.runs.push(entry);
         else if (db.runs[mine].timeMs > timeMs) db.runs[mine] = entry;      // one entry per install and ladder: its best
         else { db.runs[mine].player = entry.player; db.runs[mine].country = entry.country; }
         save();
-        const rank = verdict.suspect ? 0 : ladder(kind, month).findIndex(r => r.timeMs === timeMs) + 1;
+        const rank = verdict.suspect ? 0 : ladder(game, kind, month).findIndex(r => r.timeMs === timeMs) + 1;
         send(res, 200, { ok: true, rank, held: verdict.suspect ? true : undefined });
       });
     });
