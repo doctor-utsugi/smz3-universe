@@ -20,6 +20,8 @@ int smz_z3_generate(char *json, size_t json_cap, const uint8_t *z3, const uint8_
 
 /* The hash of a generated ROM, the names of its five file select icons ("Bow Hookshot Lamp Map Cape"). */
 void smz_z3_hash_text(const uint8_t *rom, size_t len, char *out, size_t cap);
+/* The icon indices (0-31, the picture z3hash_NN.png) of such a hash text: 5, or 0 when it is not one. */
+int smz_z3_hash_icons(const char *text, int out[5]);
 /* What a smz_z3_generate error means for the player, NULL for the codes they cannot act on. */
 const char *smz_z3_error(int rc);
 

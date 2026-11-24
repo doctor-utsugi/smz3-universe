@@ -1258,8 +1258,10 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             char hash[64] = "";
             const char *hp = strstr(r->settings, "\"hash\":\"");
             if (hp) snprintf(hash, sizeof hash, "%.*s", (int)strcspn(hp + 8, "\""), hp + 8);
-            if (smz3_z3_alone()) snprintf(row, sizeof row, "Time %s    Zelda %u/%u    %s", s, t->zelda_cleared, t->zelda_total, hash);
+            int icons = smz3_z3_alone() && smz_z3_hash_icons(hash, (int[5]){0});
+            if (smz3_z3_alone()) snprintf(row, sizeof row, "Time %s    Zelda %u/%u    %s", s, t->zelda_cleared, t->zelda_total, icons ? "" : hash);
             else snprintf(row, sizeof row, "Time %s    Metroid %u/%u    %s", s, t->metroid_cleared, t->metroid_total, hash);
+            if (icons) map_hash_icons(ren, x0 + gfx_text_width(22 * u, row), y - 4 * u, 30 * u, hash);   /* the file select screen's icons */
         } else snprintf(row, sizeof row, "Time %s    Zelda %u/%u    Metroid %u/%u", s, t->zelda_cleared, t->zelda_total, t->metroid_cleared, t->metroid_total);
         gfx_text(x0, y, 22 * u, C(0x87, 0x93, 0xA6), 0, row); y += 44 * u;
         gfx_text(x0, y, 22 * u, C(0xE9, 0xA2, 0x3B), 0, "Last checks"); y += 32 * u;
@@ -1347,7 +1349,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         if (dungeon_showing(dv, live)) dungeon_draw(ren, dv, area, t, in_logic, live, wram, wram_len, sram, sram_len, !discovered_only, SDL_GetTicks());
         else {
             map_draw(ren, mv, area, t, disc, discovered_only, in_logic, wram, wram_len, SDL_GetTicks());
-            map_legend(ren, x0 + w, area.y + area.h + 4 * u, 18 * u, 0, in_logic != NULL);
+            if (!map_game_on()) map_legend(ren, x0 + w, area.y + area.h + 4 * u, 18 * u, 0, in_logic != NULL);
         }
     } else {
         char slots[52], lr[52];   /* the keys as bound in the options */
@@ -1388,7 +1390,8 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
     } else if (tab == TAB_MAP) {
         bar[nb++] = (HelpItem){"STICK", "<", "Pan"}; bar[nb++] = (HelpItem){"RT", "+", "Zoom in"}; bar[nb++] = (HelpItem){"LT", "-", "Zoom out"};
         bar[nb++] = (HelpItem){"A", "F", mv->follow ? "Following" : "Follow"};
-        if (!smz3_sm_alone()) bar[nb++] = (HelpItem){"Y", "D", "Dungeons"};
+        if (map_game_on()) bar[nb++] = (HelpItem){"Y", "D", "Next area"};
+        else if (!smz3_sm_alone()) bar[nb++] = (HelpItem){"Y", "D", "Dungeons"};
     }
     if (!chat && tab != ct) bar[nb++] = (HelpItem){NULL, "P", pause ? "Game paused" : "Game running"};   /* P is typed on CHAT */
     if (tab != ct) bar[nb++] = (HelpItem){"START", "O", "Options"};
@@ -1961,6 +1964,7 @@ static void play(int slot, int game_save_only)
     music_prepare(romp, run.settings, run.seed);
     if (run.mode == SMZ_MODE_SMZ3 && !smz_rom_shortcut_hooks(rom)) smz_rom_checksum(rom);   /* a run made before the item shortcuts; a single game has no hooks */
     int ok = emu_open(rom, rl, romp) == 0;
+    map_game_rom(rom, rl);
     free(rom);
     if (!ok) { note("the emulator could not load the ROM"); return; }
     smz3_set_mode(run.mode | (smz_sm_is_maprando(run.settings) ? SMZ3_MAPRANDO : 0));   /* the tracker reads the memory of this run's game */
@@ -2198,7 +2202,7 @@ static void play(int slot, int game_save_only)
                 else if (show && k == SDLK_ESCAPE) show = 0;   /* Esc always closes the tracker */
                 else if (k == pad_key(PA_LEAVE)) { if (show) show = 0; else if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }   /* a finished run has nothing to save */
                 else if (k == SDLK_F11) toggle_fullscreen();
-                else if (show && tab == TAB_MAP && k == SDLK_d) dungeon_toggle(&dv, lp);
+                else if (show && tab == TAB_MAP && k == SDLK_d) { if (map_game_on()) map_game_step(1); else dungeon_toggle(&dv, lp); }
                 else if (show && tab == TAB_MAP && dungeon_showing(&dv, lp) && (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_UP || k == SDLK_DOWN || k == SDLK_h)) {
                     if (k == SDLK_LEFT) dungeon_step(&dv, lp, -1);
                     else if (k == SDLK_RIGHT) dungeon_step(&dv, lp, 1);
@@ -2285,7 +2289,7 @@ static void play(int slot, int game_save_only)
                 else if (show && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) tab = (tab + 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) tab = (tab + ntabs - 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_B) show = 0;
-                else if (show && b == SDL_CONTROLLER_BUTTON_Y && tab == TAB_MAP) dungeon_toggle(&dv, lp);
+                else if (show && b == SDL_CONTROLLER_BUTTON_Y && tab == TAB_MAP) { if (map_game_on()) map_game_step(1); else dungeon_toggle(&dv, lp); }
                 else if (show && b == SDL_CONTROLLER_BUTTON_A && tab == TAB_MAP) { if (dungeon_showing(&dv, lp)) dungeon_here(&dv); else mv.follow = !mv.follow; }
             }
         }

@@ -518,7 +518,7 @@ static const UiPreset ORIGINAL = {"Original", "The default randomizer rules", ""
 static const UiPreset SM_CHILL = {"Cozy run", "Casual logic, save states, rewind", "SmLogic=0,SaveStates=1,Rewind=1"};
 static const UiPreset SM_ORIGINAL = {"Original", "Tournament logic, major/minor split", ""};
 /* A Link to the Past: Original is alttpr.com's default preset; Cozy the easiest the first-release options allow */
-static const UiPreset Z3_CHILL = {"Cozy run", "Sword from the start, basic placement", "Z3Swords=1,Z3Placement=0,SaveStates=1,Rewind=1"};
+static const UiPreset Z3_CHILL = {"Cozy run", "Sword from the start, dark rooms lit", "Z3Swords=1,Z3Placement=0,LightDarkRooms=1,SaveStates=1,Rewind=1"};
 static const UiPreset Z3_ORIGINAL = {"Original", "alttpr.com's default rules", ""};
 static const UiPreset *chill(const SmzUi *u) { return sm_mode(u) ? &SM_CHILL : z3_mode(u) ? &Z3_CHILL : &CHILL; }
 static const UiPreset *original(const SmzUi *u) { return sm_mode(u) ? &SM_ORIGINAL : z3_mode(u) ? &Z3_ORIGINAL : &ORIGINAL; }

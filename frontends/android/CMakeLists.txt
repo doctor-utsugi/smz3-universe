@@ -33,6 +33,7 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_counters.c
     ../../core/ui/smz3_runlogic.c
     ../../core/ui/smz3_tracker.c
+    ../../core/ui/smz3_smmap.c
     ../../core/ui/smz3_rewind.c
     ../../core/ui/smz3_sm.c
     ../../core/smgen/sm_generate.c

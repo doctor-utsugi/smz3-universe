@@ -2731,10 +2731,10 @@ index 0000000..2c4963b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..e613b71
+index 0000000..57d5be4
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6100 @@
+@@ -0,0 +1,6175 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2764,6 +2764,7 @@ index 0000000..e613b71
 +#include "smz3_rewind.h"
 +#include "smz3_sm.h"
 +#include "smz3_z3.h"
++#include "smz3_smmap.h"
 +// from smz3_rom.h, whose generator headers stay out of C++
 +int smz_rom_shortcut_hooks(uint8_t *rom);
 +void smz_rom_checksum(uint8_t *rom);
@@ -4348,7 +4349,7 @@ index 0000000..e613b71
 +// ---- icons: romfs:/smz3/icons/<name>.pv (made by tools/gen_3ds_assets.py), loaded once
 +
 +struct TrkIcon { char name[40]; int w, h; u16 *c; u8 *a; };
-+static TrkIcon icons[72];
++static TrkIcon icons[96];
 +
 +static const TrkIcon *getIcon(const char *file)
 +{
@@ -4806,9 +4807,62 @@ index 0000000..e613b71
 +static float mapHomeX() { return smz3_sm_alone() ? 1055 : smz3_z3_alone() ? 240 : 811; }
 +static float mapHomeZoom() { return smz3_sm_alone() || smz3_z3_alone() ? 0.27f : 0.19f; }
 +
++// The game's own pause map in a Map Rando run (core/ui/smz3_smmap.c), on the same view struct: cx, cy in the area's 512 x 256
++// pixels. Allocated on the first Map Rando run.
++static SmzSmMap *gameMap;
++static uint32_t *gameMapPx;
++static TrkMapView gameView = {256, 128, 1, true};
++static bool gameZoomSet;
++
++static bool gameMapOn()
++{
++    if (!smz3_maprando() || !Memory.ROM || !Memory.RAM || !Memory.SRAM || !smz_smmap_rom_ok(Memory.ROM, Memory.CalculatedSize)) return false;
++    if (!gameMap && (gameMap = (SmzSmMap *)malloc(sizeof *gameMap))) smz_smmap_init(gameMap);
++    if (!gameMapPx) gameMapPx = (uint32_t *)malloc(320 * 240 * 4);
++    return gameMap && gameMapPx;
++}
++
++static void gameMapStep(int dir) { if (gameMapOn()) smz_smmap_step(gameMap, Memory.SRAM, 0x20000, dir); }
++
++static void drawGameMap(TrkMapView &v, int ax, int ay, int aw, int ah, bool mini)
++{
++    smz_smmap_update(gameMap, Memory.ROM, Memory.CalculatedSize, Memory.RAM, 0x20000, Memory.SRAM, 0x20000);
++    float cx, cy, z;
++    smz_smmap_home(gameMap, aw, ah, &cx, &cy, &z);
++    if (!mini) {
++        bool here = gameMap->samus_area == gameMap->shown && gameMap->samus_x >= 0;
++        if (gameZoomSet && v.zoom != z && here) { cx = gameMap->samus_x * 8 + 4.0f; cy = gameMap->samus_y * 8 + 4.0f; }
++        if (gameZoomSet) z = v.zoom;
++        if (!v.follow) { cx = v.cx; cy = v.cy; }
++        v.cx = cx; v.cy = cy; v.zoom = z;
++    }
++    if (aw > 320) aw = 320;
++    if (ah > 240) ah = 240;
++    smz_smmap_draw(gameMap, gameMapPx, aw, ah, aw, cx, cy, z >= 1 ? floorf(z + 0.5f) : 0.5f);
++    int x0 = ax < clipX0 ? clipX0 : ax, x1 = ax + aw > clipX1 ? clipX1 : ax + aw;
++    int y0 = ay < clipY0 ? clipY0 : ay, y1 = ay + ah > clipY1 ? clipY1 : ay + ah;
++    for (int x = x0; x < x1; x++) {
++        u16 *p = trkFb + x * 240 + 239 - y0;
++        const uint32_t *src = gameMapPx + (y0 - ay) * aw + (x - ax);
++        for (int y = y0; y < y1; y++, src += aw) *p-- = to565((int)(*src & 0xFFFFFF));
++    }
++    const char *name = smz_smmap_area_name(gameMap->shown);
++    if (*name) {
++        fillAlpha(ax, ay, ax + textW(name) + 8, ay + 15, 0x000000, 170);
++        text(ax + 4, ay, 0xE8ECF2, name);
++    }
++}
++
 +static void drawMap(TrkMapView &v, int ax, int ay, int aw, int ah, bool mini)
 +{
 +    buildStacks();
++    if (gameMapOn()) {
++        int sx0 = clipX0, sy0 = clipY0, sx1 = clipX1, sy1 = clipY1;
++        setClip(ax, ay, ax + aw, ay + ah);
++        drawGameMap(mini ? v : gameView, ax, ay, aw, ah, mini);
++        setClip(sx0, sy0, sx1, sy1);
++        return;
++    }
 +    if (v.follow && disc.has_position) { v.cx = disc.x; v.cy = disc.y; }
 +    int sx0 = clipX0, sy0 = clipY0, sx1 = clipX1, sy1 = clipY1;
 +    setClip(ax, ay, ax + aw, ay + ah);
@@ -6093,7 +6147,15 @@ index 0000000..e613b71
 +    if (sec >= 300) snprintf(pace, sizeof pace, "%.1f", done * 3600.0f / sec);
 +    textf(x, y, theme.text, "Items %d / %d   %s/h", owned, items, pace);
 +    y += 15;
-+    if (runHash[0]) { textFit(x, y, cw, theme.dim, runHash); y += 15; }
++    int hashIc[5];
++    if (runHash[0] && smz3_z3_alone() && smz_z3_hash_icons(runHash, hashIc)) {   // the file select screen's five icons
++        for (int k = 0; k < 5; k++) {
++            char name[24];
++            snprintf(name, sizeof name, "z3hash_%02d", hashIc[k]);
++            if (const TrkIcon *ic = getIcon(name)) drawIcon(ic, x + k * 18, y, 16, 16, 256);
++        }
++        y += 19;
++    } else if (runHash[0]) { textFit(x, y, cw, theme.dim, runHash); y += 15; }
 +    if (bars) { drawRewards(x, y, 15); y += 20; }
 +    else y += 4;
 +    if (trk.n_recent_items > 0 && y + 28 < y1) {
@@ -6217,9 +6279,13 @@ index 0000000..e613b71
 +static const char *const DUNGEON_BUTTONS[4] = {"<", ">", "HERE", "WORLD"};
 +static const int WORLD_W[5] = {64, 24, 24, 58, 58}, DUNGEON_W[4] = {24, 24, 58, 58};
 +
++static const char *const AREA_BUTTONS[5] = {"AREA", "-", "+", "FOLLOW", "CENTER"};
++static const int AREA_W[5] = {48, 24, 24, 58, 58};
++
 +static int mapButtons(const char *const **names, const int **widths)
 +{
 +    if (dungeonShowing(dv)) { *names = DUNGEON_BUTTONS; *widths = DUNGEON_W; return 4; }
++    if (gameMapOn()) { *names = AREA_BUTTONS; *widths = AREA_W; return 5; }
 +    bool dungeons = !smz3_sm_alone() && dungeonAvailable();
 +    *names = WORLD_BUTTONS + !dungeons; *widths = WORLD_W + !dungeons;
 +    return dungeons ? 5 : 4;
@@ -6250,7 +6316,7 @@ index 0000000..e613b71
 +    for (int i = 0; i < n; i++) {
 +        int bx0, bx1;
 +        mapButtonRect(i, n, w, &bx0, &bx1);
-+        bool on = !inDungeon && !strcmp(names[i], "FOLLOW") && bigMap.follow;
++        bool on = !inDungeon && !strcmp(names[i], "FOLLOW") && (gameMapOn() ? gameView.follow : bigMap.follow);
 +        fillAlpha(bx0, y1 - 22, bx1, y1 - 4, 0x000000, 180);
 +        text(bx0, y1 - 21, on ? theme.accent : 0xFFFFFF, names[i], HALIGN_CENTER, bx1);
 +    }
@@ -7692,6 +7758,14 @@ index 0000000..e613b71
 +            mapButtonRect(i, n, w, &bx0, &bx1);
 +            if (x < bx0 || x >= bx1) continue;
 +            const char *b = names[i];
++            if (gameMapOn()) {
++                if (!strcmp(b, "AREA")) gameMapStep(1);
++                else if (!strcmp(b, "-") && gameView.zoom > 0.75f) { gameView.zoom = gameView.zoom > 1.5f ? gameView.zoom - 1 : 0.5f; gameZoomSet = true; }
++                else if (!strcmp(b, "+") && gameView.zoom < 4) { gameView.zoom = gameView.zoom < 1 ? 1 : gameView.zoom + 1; gameZoomSet = true; }
++                else if (!strcmp(b, "FOLLOW")) gameView.follow = !gameView.follow;
++                else if (!strcmp(b, "CENTER")) { gameView.follow = true; gameZoomSet = false; gameMapStep(0); }
++                return;
++            }
 +            if (!strcmp(b, "-") && bigMap.zoom > 0.2f) bigMap.zoom /= 1.5f;
 +            else if (!strcmp(b, "+") && bigMap.zoom < 1.5f) bigMap.zoom *= 1.5f;
 +            else if (!strcmp(b, "FOLLOW")) bigMap.follow = !bigMap.follow;
@@ -7730,7 +7804,8 @@ index 0000000..e613b71
 +static void dragBy(int dx, int dy)
 +{
 +    if (tab == TAB_MAP && dungeonShowing(dv)) return;
-+    if (tab == TAB_MAP) { bigMap.follow = false; bigMap.cx -= dx / bigMap.zoom; bigMap.cy -= dy / bigMap.zoom; dirty = true; }
++    if (tab == TAB_MAP && gameMapOn()) { float z = gameView.zoom >= 1 ? floorf(gameView.zoom + 0.5f) : 0.5f; gameView.follow = false; gameView.cx -= dx / z; gameView.cy -= dy / z; dirty = true; }
++    else if (tab == TAB_MAP) { bigMap.follow = false; bigMap.cx -= dx / bigMap.zoom; bigMap.cy -= dy / bigMap.zoom; dirty = true; }
 +    else if (tab == TAB_CHECKS || tab == TAB_HELP) { scrollY[tab] -= dy; clampScroll(tab); dirty = true; }
 +}
 +

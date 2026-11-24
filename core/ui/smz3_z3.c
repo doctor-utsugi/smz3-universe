@@ -23,6 +23,25 @@ void smz_z3_hash_text(const uint8_t *rom, size_t len, char *out, size_t cap)
     snprintf(out, cap, "%s %s %s %s %s", ICONS[h[0] & 31], ICONS[h[1] & 31], ICONS[h[2] & 31], ICONS[h[3] & 31], ICONS[h[4] & 31]);
 }
 
+int smz_z3_hash_icons(const char *text, int out[5])
+{
+    int n = 0;
+    while (text && *text && n < 5) {
+        while (*text == ' ') text++;
+        int best = -1;
+        size_t blen = 0;
+        for (int i = 0; i < 32; i++) {   /* the longest name that starts here ("Ice Rod" before a one-word name) */
+            size_t l = strlen(ICONS[i]);
+            if (l > blen && !strncmp(text, ICONS[i], l) && (text[l] == ' ' || !text[l])) { best = i; blen = l; }
+        }
+        if (best < 0) return 0;
+        out[n++] = best;
+        text += blen;
+    }
+    while (text && *text == ' ') text++;
+    return n == 5 && text && !*text ? 5 : 0;
+}
+
 static uint32_t u32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 
 /* The Link block of an RDC sprite (smz3_sprite.c's fields: graphics, palettes, gloves) where alttpr's rom.js writes a ZSPR. */
@@ -83,6 +102,14 @@ int smz_z3_generate(char *json, size_t json_cap, const uint8_t *z3, const uint8_
     for (int k = 0; (rc == -3 || rc == -4) && k < SMZ_Z3_SEED_TRIES; k++) rc = z3_generate(&s, z3, SMZ_Z3_BASE_SIZE, rom_out, cap, seed + (uint32_t)k, NULL, NULL);
     if (rc) return rc;
     if (link_rdc && sprite_apply(rom_out, link_rdc, link_len)) return SMZ_Z3_ERR_SPRITE;
+    if (strstr(json, "\"lightDarkRooms\":true")) {
+        /* as SMZ3's LightDarkRooms: bit 0 of each room header's first byte is the dark flag, headers through the table at $04:F1E2 */
+        for (int room = 0; room < 296; room++) {
+            const uint8_t *t = rom_out + 0x271E2 + 2 * room;
+            rom_out[0x20000 + ((t[0] | t[1] << 8) & 0x7FFF)] &= 0xFE;
+        }
+        z3_rom_update_checksum(rom_out);
+    }
     char words[96], add[128];
     const char *diff = strstr(json, "\"diff\":[");
     smz_z3_hash_text(rom_out, SMZ_Z3_ROM_SIZE, words, sizeof words);

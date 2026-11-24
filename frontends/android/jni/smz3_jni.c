@@ -1084,3 +1084,119 @@ JNIEXPORT jobjectArray JNICALL NATIVE(dailyPhrases)(JNIEnv *env, jclass cls)
     for (int i = 0; i < SMZ_DAILY_PHRASES; i++) (*env)->SetObjectArrayElement(env, r, i, (*env)->NewStringUTF(env, SMZ_DAILY_PHRASE[i]));
     return r;
 }
+
+/* The game's own pause map in a Map Rando run (smz3_smmap.h): the tracker thread hands in each read, the map view takes the
+ * picture (the whole area, 512 x 256) and changes the area shown. */
+#include <pthread.h>
+#include <stdlib.h>
+#include "smz3_smmap.h"
+static pthread_mutex_t g_mm_lock = PTHREAD_MUTEX_INITIALIZER;
+static SmzSmMap *g_mm;
+static uint8_t *g_mm_rom, *g_mm_wram, *g_mm_sram;
+static size_t g_mm_rom_len;
+static int g_mm_stamp;
+
+JNIEXPORT jboolean JNICALL NATIVE(gameMapRom)(JNIEnv *env, jclass cls, jbyteArray rom)
+{
+    pthread_mutex_lock(&g_mm_lock);
+    free(g_mm_rom);
+    g_mm_rom = NULL;
+    jsize n = rom ? (*env)->GetArrayLength(env, rom) : 0;
+    if (n > 0 && (g_mm_rom = malloc((size_t)n))) {
+        (*env)->GetByteArrayRegion(env, rom, 0, n, (jbyte *)g_mm_rom);
+        g_mm_rom_len = (size_t)n;
+        if (!smz_smmap_rom_ok(g_mm_rom, g_mm_rom_len)) { free(g_mm_rom); g_mm_rom = NULL; }
+    }
+    if (g_mm_rom && !g_mm) g_mm = malloc(sizeof *g_mm);
+    if (g_mm_rom && !g_mm_wram) g_mm_wram = calloc(1, 0x20000);
+    if (g_mm_rom && !g_mm_sram) g_mm_sram = calloc(1, 0x8000);
+    if (g_mm) smz_smmap_init(g_mm);
+    int ok = g_mm_rom && g_mm && g_mm_wram && g_mm_sram;
+    g_mm_stamp++;
+    pthread_mutex_unlock(&g_mm_lock);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+/* A new read: the picture is rebuilt when the game's map changed. */
+JNIEXPORT void JNICALL NATIVE(gameMapUpdate)(JNIEnv *env, jclass cls, jbyteArray wram, jbyteArray sram)
+{
+    pthread_mutex_lock(&g_mm_lock);
+    if (g_mm_rom && g_mm && g_mm_wram && g_mm_sram) {
+        jsize wl = (*env)->GetArrayLength(env, wram), sl = (*env)->GetArrayLength(env, sram);
+        (*env)->GetByteArrayRegion(env, wram, 0, wl < 0x20000 ? wl : 0x20000, (jbyte *)g_mm_wram);
+        (*env)->GetByteArrayRegion(env, sram, 0, sl < 0x8000 ? sl : 0x8000, (jbyte *)g_mm_sram);
+        if (smz_smmap_update(g_mm, g_mm_rom, g_mm_rom_len, g_mm_wram, 0x20000, g_mm_sram, 0x8000)) g_mm_stamp++;
+    }
+    pthread_mutex_unlock(&g_mm_lock);
+}
+
+/* Changes with every new picture; -1 while there is none. */
+JNIEXPORT jint JNICALL NATIVE(gameMapStamp)(JNIEnv *env, jclass cls)
+{
+    pthread_mutex_lock(&g_mm_lock);
+    int s = g_mm_rom && g_mm && g_mm->shown >= 0 ? (g_mm_stamp & 0x7FFFFFFF) : -1;
+    pthread_mutex_unlock(&g_mm_lock);
+    return s;
+}
+
+/* The picture into out (512 x 256 ARGB); then {area shown, Samus's area, her tile x and y, the drawn box x0 y0 x1 y1}. */
+JNIEXPORT jintArray JNICALL NATIVE(gameMapPicture)(JNIEnv *env, jclass cls, jintArray out)
+{
+    static uint32_t px[SMZ_SMMAP_W * SMZ_SMMAP_H];
+    jint info[8] = {-1, -1, -1, -1, 0, 0, 0, 0};
+    pthread_mutex_lock(&g_mm_lock);
+    if (g_mm_rom && g_mm && g_mm->shown >= 0) {
+        smz_smmap_draw(g_mm, px, SMZ_SMMAP_W, SMZ_SMMAP_H, SMZ_SMMAP_W, SMZ_SMMAP_W / 2.0f, SMZ_SMMAP_H / 2.0f, 1);
+        jint v[8] = {g_mm->shown, g_mm->samus_area, g_mm->samus_x, g_mm->samus_y, g_mm->x0, g_mm->y0, g_mm->x1, g_mm->y1};
+        memcpy(info, v, sizeof info);
+    }
+    pthread_mutex_unlock(&g_mm_lock);
+    if (info[0] >= 0 && (*env)->GetArrayLength(env, out) >= SMZ_SMMAP_W * SMZ_SMMAP_H)
+        (*env)->SetIntArrayRegion(env, out, 0, SMZ_SMMAP_W * SMZ_SMMAP_H, (const jint *)px);
+    jintArray r = (*env)->NewIntArray(env, 8);
+    (*env)->SetIntArrayRegion(env, r, 0, 8, info);
+    return r;
+}
+
+/* {cx, cy, zoom}: the view that shows the area (or Samus) in w x h, as every host starts it. */
+JNIEXPORT jfloatArray JNICALL NATIVE(gameMapHome)(JNIEnv *env, jclass cls, jint w, jint h)
+{
+    float v[3] = {SMZ_SMMAP_W / 2.0f, SMZ_SMMAP_H / 2.0f, 1};
+    pthread_mutex_lock(&g_mm_lock);
+    if (g_mm) smz_smmap_home(g_mm, w, h, &v[0], &v[1], &v[2]);
+    pthread_mutex_unlock(&g_mm_lock);
+    jfloatArray r = (*env)->NewFloatArray(env, 3);
+    (*env)->SetFloatArrayRegion(env, r, 0, 3, v);
+    return r;
+}
+
+/* The next (1) or previous (-1) area the player has been in, 0 Samus's again; the picture follows at once. */
+JNIEXPORT void JNICALL NATIVE(gameMapStep)(JNIEnv *env, jclass cls, jint dir)
+{
+    pthread_mutex_lock(&g_mm_lock);
+    if (g_mm_rom && g_mm && g_mm_wram && g_mm_sram) {
+        smz_smmap_step(g_mm, g_mm_sram, 0x8000, dir);
+        if (smz_smmap_update(g_mm, g_mm_rom, g_mm_rom_len, g_mm_wram, 0x20000, g_mm_sram, 0x8000)) g_mm_stamp++;
+    }
+    pthread_mutex_unlock(&g_mm_lock);
+}
+
+JNIEXPORT jstring JNICALL NATIVE(gameMapArea)(JNIEnv *env, jclass cls)
+{
+    pthread_mutex_lock(&g_mm_lock);
+    const char *n = g_mm ? smz_smmap_area_name(g_mm->shown) : "";
+    pthread_mutex_unlock(&g_mm_lock);
+    return (*env)->NewStringUTF(env, n);
+}
+
+/* An ALttP seed hash's five file select icons (z3hash_NN.png), empty when the text is not one. */
+JNIEXPORT jintArray JNICALL NATIVE(z3HashIcons)(JNIEnv *env, jclass cls, jstring text)
+{
+    int ic[5];
+    const char *t = (*env)->GetStringUTFChars(env, text, NULL);
+    int n = smz_z3_hash_icons(t, ic);
+    (*env)->ReleaseStringUTFChars(env, text, t);
+    jintArray r = (*env)->NewIntArray(env, n);
+    if (n) (*env)->SetIntArrayRegion(env, r, 0, n, ic);
+    return r;
+}

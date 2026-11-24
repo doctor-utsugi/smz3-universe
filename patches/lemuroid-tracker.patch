@@ -6691,10 +6691,10 @@ index 0000000..6aac24b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
 new file mode 100644
-index 0000000..5d062de
+index 0000000..2634dfa
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
-@@ -0,0 +1,523 @@
+@@ -0,0 +1,590 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -6795,7 +6795,7 @@ index 0000000..5d062de
 +
 +    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 +        override fun onScale(d: ScaleGestureDetector): Boolean {
-+            matrix.postScale(d.scaleFactor, d.scaleFactor, d.focusX, d.focusY)
++            (if (gameShown()) gameMatrix else matrix).postScale(d.scaleFactor, d.scaleFactor, d.focusX, d.focusY)
 +            invalidate()
 +            return true
 +        }
@@ -6823,7 +6823,7 @@ index 0000000..5d062de
 +
 +    private val panDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
 +        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-+            if (panel.showsDungeon()) return true
++            if (panel.showsDungeon() || gameShown()) return true
 +            matrix.getValues(values)
 +            val half = markHalf(values[Matrix.MSCALE_X]) + 6f
 +            val pts = FloatArray(2)
@@ -6854,13 +6854,14 @@ index 0000000..5d062de
 +
 +        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
 +            if (following) return true
-+            matrix.postTranslate(-dx, -dy)
++            (if (gameShown()) gameMatrix else matrix).postTranslate(-dx, -dy)
 +            invalidate()
 +            return true
 +        }
 +
 +        override fun onDoubleTap(e: MotionEvent): Boolean {
 +            if (following) return true
++            if (gameShown()) { gameFitted = false; invalidate(); return true }
 +            fit()
 +            invalidate()
 +            return true
@@ -7008,6 +7009,7 @@ index 0000000..5d062de
 +
 +    /** The [CENTER] button: puts the player in the middle of the view at a readable zoom (the whole map when unknown). */
 +    fun centerOnPlayerNow() {
++        if (gameShown()) { Smz3Native.gameMapStep(0); gameFitted = false; invalidate(); return }
 +        centerOnPlayer()
 +        invalidate()
 +    }
@@ -7075,8 +7077,73 @@ index 0000000..5d062de
 +        return true
 +    }
 +
++    // Map Rando: the game's own pause map (core/ui/smz3_smmap.c), the area's 512 x 256 picture drawn in whole pixels.
++    private val gameMatrix = Matrix()
++    private var gameBmp: Bitmap? = null
++    private var gamePx: IntArray? = null
++    private var gameStamp = -2
++    private var gameInfo = IntArray(8) { -1 }
++    private var gameFitted = false
++    private val gamePaint = Paint()
++    private val gameLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E8ECF2"); typeface = Typeface.DEFAULT_BOLD }
++    private val gameLabelBack = Paint().apply { color = Color.argb(170, 0, 0, 0) }
++
++    private fun gameShown() = Smz3Tracker.mapRando && gameStamp >= 0
++
++    /** The next area the player has been in, as Select does on the pause screen. */
++    fun nextGameArea() {
++        Smz3Native.gameMapStep(1)
++        invalidate()
++    }
++
++    private fun drawGameMap(canvas: Canvas): Boolean {
++        val stamp = Smz3Native.gameMapStamp()
++        if (stamp < 0 || width == 0 || height == 0) { gameStamp = -2; return false }
++        val bmp = gameBmp ?: Bitmap.createBitmap(512, 256, Bitmap.Config.ARGB_8888).also { gameBmp = it }
++        if (stamp != gameStamp) {
++            val px = gamePx ?: IntArray(512 * 256).also { gamePx = it }
++            val info = Smz3Native.gameMapPicture(px)
++            if (info[0] != gameInfo[0]) gameFitted = false   // another area starts from its own view
++            gameInfo = info
++            bmp.setPixels(px, 0, 512, 0, 0, 512, 256)
++            gameStamp = stamp
++        }
++        val home = Smz3Native.gameMapHome(width, height)
++        val here = gameInfo[1] == gameInfo[0] && gameInfo[2] >= 0
++        val sx = gameInfo[2] * 8 + 4f
++        val sy = gameInfo[3] * 8 + 4f
++        if (follow || !gameFitted) {
++            val z = if (follow) maxOf(1f, Math.round(home[2] * miniZoom).toFloat()) else home[2]
++            val cx = if (follow && here) sx else home[0]
++            val cy = if (follow && here) sy else home[1]
++            gameMatrix.reset()
++            gameMatrix.postScale(z, z)
++            gameMatrix.postTranslate(Math.round(width / 2f - cx * z).toFloat(), Math.round(height / 2f - cy * z).toFloat())
++            gameFitted = true
++        } else if (following && here) {
++            val pts = floatArrayOf(sx, sy)
++            gameMatrix.mapPoints(pts)
++            gameMatrix.postTranslate(Math.round(width / 2f - pts[0]).toFloat(), Math.round(height / 2f - pts[1]).toFloat())
++        }
++        canvas.drawColor(Color.BLACK)
++        canvas.save()
++        canvas.concat(gameMatrix)
++        canvas.drawBitmap(bmp, 0f, 0f, gamePaint)
++        canvas.restore()
++        val name = Smz3Native.gameMapArea()
++        if (name.isNotEmpty()) {
++            val d = resources.displayMetrics.density
++            gameLabel.textSize = 14f * d
++            canvas.drawRect(0f, 0f, gameLabel.measureText(name) + 12f * d, 22f * d, gameLabelBack)
++            canvas.drawText(name, 6f * d, 16f * d, gameLabel)
++        }
++        if (follow) drawZoom(canvas)
++        return true
++    }
++
 +    override fun onDraw(canvas: Canvas) {
 +        canvas.drawColor(Color.parseColor("#0B0E12"))
++        if (Smz3Tracker.mapRando && drawGameMap(canvas)) return
 +        if (Smz3Tracker.mapRando) {   // its rooms are moved: the vanilla map would point the wrong way
 +            val note = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#8793A6"); textAlign = Paint.Align.CENTER; textSize = minOf(width / 22f, 15f * resources.displayMetrics.density) }
 +            canvas.drawText("Map Rando rebuilds the map:", width / 2f, height / 2f - note.textSize * 0.2f, note)
@@ -7291,10 +7358,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..d722c89
+index 0000000..d3bffdd
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,193 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7472,6 +7539,21 @@ index 0000000..d722c89
 +    @JvmStatic external fun goalBoss(text: String): Array<String>?
 +    /** The daily chat's quick lines, emotes among them. */
 +    @JvmStatic external fun dailyPhrases(): Array<String>
++
++    /** Map Rando: the game's own pause map. The run's ROM (false when it is not a Map Rando one), then each read. */
++    @JvmStatic external fun gameMapRom(rom: ByteArray?): Boolean
++    @JvmStatic external fun gameMapUpdate(wram: ByteArray, sram: ByteArray)
++    /** Changes with each new picture, -1 while there is none. */
++    @JvmStatic external fun gameMapStamp(): Int
++    /** The 512 x 256 picture into out, then {area shown, Samus's area, her tile x, y, drawn box x0, y0, x1, y1}. */
++    @JvmStatic external fun gameMapPicture(out: IntArray): IntArray
++    /** {cx, cy, zoom}: the view that shows the area (or Samus) in w x h. */
++    @JvmStatic external fun gameMapHome(w: Int, h: Int): FloatArray
++    /** The next (1) or previous (-1) area visited, 0 Samus's again. */
++    @JvmStatic external fun gameMapStep(dir: Int)
++    @JvmStatic external fun gameMapArea(): String
++    /** An ALttP seed hash's five file select icons (assets smz3/items/z3hash_NN.png), empty when the text is not one. */
++    @JvmStatic external fun z3HashIcons(text: String): IntArray
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt
 new file mode 100644
@@ -7553,10 +7635,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..c731a88
+index 0000000..2d6dffc
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1177 @@
+@@ -0,0 +1,1209 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -7631,6 +7713,8 @@ index 0000000..c731a88
 +
 +    private lateinit var game: TextView
 +    private lateinit var hashLine: TextView
++    private lateinit var hashIcons: LinearLayout
++    private var hashShown: String? = null
 +    private lateinit var time: TextView
 +    private lateinit var zeldaText: TextView
 +    private lateinit var metroidText: TextView
@@ -7643,6 +7727,7 @@ index 0000000..c731a88
 +    private var goalsRun = false
 +
 +    private var map: Smz3MapView? = null
++    private var mapAreaButton: View? = null
 +    private var miniMap: Smz3MapView? = null
 +    private val cells = mutableListOf<ItemCell>()
 +    private val regions = mutableListOf<Region>()
@@ -7780,8 +7865,16 @@ index 0000000..c731a88
 +        // the seed hash on a line of its own: four Map Rando words or five ALttP icons did not fit beside the name
 +        hashLine = label(12f, Role.TEXT).apply {
 +            maxLines = 1
++            includeFontPadding = false
++            gravity = Gravity.CENTER_VERTICAL
 +            visibility = View.GONE
 +            setAutoSizeTextTypeUniformWithConfiguration(7, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
++        }
++        hashIcons = LinearLayout(context).apply {
++            orientation = LinearLayout.HORIZONTAL
++            gravity = Gravity.CENTER_VERTICAL
++            visibility = View.GONE
++            repeat(5) { addView(ImageView(context), LinearLayout.LayoutParams(dp(20), dp(20)).apply { setMargins(0, 0, dp(3), 0) }) }
 +        }
 +        percent = label(46f, Role.ACCENT).apply { includeFontPadding = false }
 +        time = label(20f, Role.TEXT)
@@ -7797,7 +7890,8 @@ index 0000000..c731a88
 +                orientation = LinearLayout.VERTICAL
 +                setPadding(dp(8), 0, 0, dp(4))
 +                addView(game, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(19)))   // auto-size needs a set box
-+                addView(hashLine, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)))
++                addView(hashLine, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(20)))
++                addView(hashIcons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(22)))
 +                addView(time)
 +            },
 +            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
@@ -8093,6 +8187,14 @@ index 0000000..c731a88
 +                text = if (view.following) "[FOLLOW: ON]" else "[FOLLOW]"
 +            }
 +        }
++        val areaBtn = label(14f, Role.ACCENT).apply {
++            text = "[AREA]"
++            setPadding(dp(14), dp(10), dp(14), dp(10))
++            setBackgroundColor(Color.argb(170, 0, 0, 0))
++            visibility = if (Smz3Tracker.mapRando) View.VISIBLE else View.GONE
++            setOnClickListener { view.nextGameArea() }
++        }
++        mapAreaButton = areaBtn
 +        val overlay = buildMarkOverlay().also { markOverlay = it }
 +        view.onMapTap = { x, y -> showAddMark(x, y) }
 +        view.onMarkTap = { mark -> showMark(mark) }
@@ -8100,6 +8202,7 @@ index 0000000..c731a88
 +            addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 +            val buttons = LinearLayout(context).apply {
 +                orientation = LinearLayout.HORIZONTAL
++                addView(areaBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 0, dp(8), 0) })
 +                addView(followBtn)
 +                addView(center, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(8), 0, 0, 0) })
 +            }
@@ -8646,6 +8749,7 @@ index 0000000..c731a88
 +            applyTheme(next)
 +        }
 +        if (s.started && s.game in 1..2) lastGame = s.game
++        mapAreaButton?.visibility = if (Smz3Tracker.mapRando) View.VISIBLE else View.GONE
 +        areaBox = s.areaBox
 +        game.text = when {
 +            !s.started -> "Waiting for a file"
@@ -8655,8 +8759,18 @@ index 0000000..c731a88
 +            else -> "Unknown"
 +        }
 +        val hash = if (s.started && s.game in 1..2) Smz3Tracker.smHash else ""
-+        if (hashLine.text.toString() != hash) hashLine.text = hash
-+        hashLine.visibility = if (hash.isEmpty()) View.GONE else View.VISIBLE
++        if (hash != hashShown) {
++            hashShown = hash
++            // ALttP: the five icons of its file select screen, drawn in whole pixels
++            val icons = if (Smz3Tracker.z3Alone && hash.isNotEmpty()) Smz3Native.z3HashIcons(hash) else IntArray(0)
++            for (k in 0 until 5) {
++                val bmp = icons.getOrNull(k)?.let { n -> runCatching { context.assets.open("smz3/items/z3hash_%02d.png".format(n)).use { BitmapFactory.decodeStream(it) } }.getOrNull() }
++                (hashIcons.getChildAt(k) as ImageView).setImageDrawable(bmp?.let { android.graphics.drawable.BitmapDrawable(context.resources, it).apply { setFilterBitmap(false) } })
++            }
++            hashLine.text = if (icons.size == 5) "" else hash
++            hashIcons.visibility = if (icons.size == 5) View.VISIBLE else View.GONE
++            hashLine.visibility = if (hash.isEmpty() || icons.size == 5) View.GONE else View.VISIBLE
++        }
 +        val sec = s.elapsedMs / 1000
 +        time.text = "%d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60)
 +        val cleared = s.zeldaCleared + s.metroidCleared
@@ -9370,10 +9484,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..780416d
+index 0000000..4f452f6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,493 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -9500,6 +9614,12 @@ index 0000000..780416d
 +        Thread { OnlineLadder.reportGoals(context, slot, createdAt, online, text) }.start()
 +    }
 +
++    /** A Map Rando run's ROM goes to the game map (core/ui/smz3_smmap.c); any other run clears it. */
++    private fun loadGameMap(context: Context, slot: Int?) {
++        val rom = if (mapRando && slot != null) runCatching { RunStore.romFile(context, slot).readBytes() }.getOrNull() else null
++        Smz3Native.gameMapRom(rom)
++    }
++
 +    fun start(scope: CoroutineScope, view: GLRetroView) {
 +        val context = view.context
 +        // which randomizer's ROM runs: the memory reads (in this process) and the tracker follow it
@@ -9509,6 +9629,7 @@ index 0000000..780416d
 +        smHash = if (smAlone || z3Alone) activeRun?.let { runCatching { org.json.JSONObject(it.settings).optString("hash") }.getOrNull() }.orEmpty() else ""
 +        mapRando = smAlone && com.swordfish.lemuroid.app.mobile.feature.runs.MapRando.isMapRando(activeRun?.settings)
 +        Smz3Native.setMode(RunStore.stateMode(activeRun?.settings))
++        loadGameMap(context, RunStore.activeSlot(context))
 +        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 +        displays.registerDisplayListener(
 +            object : DisplayManager.DisplayListener {
@@ -9663,6 +9784,7 @@ index 0000000..780416d
 +                    val runNow = slotNow?.let { RunStore.load(context, it) }
 +                    mapRando = smAlone && com.swordfish.lemuroid.app.mobile.feature.runs.MapRando.isMapRando(runNow?.settings)
 +                    Smz3Native.setMode(RunStore.stateMode(runNow?.settings))
++                    loadGameMap(context, slotNow)
 +                    baseMs = slotNow?.let { RunStore.load(context, it)?.playTimeMs } ?: 0L
 +                    Smz3Native.setGoal(slotNow?.let { RunStore.load(context, it)?.settings })   // a daily challenge ends at its goal
 +                    pendingPlayTime = 0
@@ -9673,6 +9795,7 @@ index 0000000..780416d
 +                    Smz3Native.countersLoad(slotNow?.let { runCatching { RunStore.goalsFile(context, it).readText() }.getOrNull() })
 +                }
 +                Smz3Native.countersTick(wram, sram, if (started) s[0] else 0, if (started) s[2] + s[4] else -1)
++                if (mapRando) Smz3Native.gameMapUpdate(wram, sram)
 +                val help = Smz3Help.current()
 +                if (slotNow != discoverySlot) {
 +                    discoverySlot = slotNow

@@ -24,7 +24,7 @@
 enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_CONFIG, TAB_CHAT, TAB_COUNT };
 static const char *const TAB_NAMES[TAB_COUNT] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "CONFIG", "CHAT"};
 
-enum { HIT_TAB, HIT_ZOOM, HIT_SLOT, HIT_SHORTCUT, HIT_PICK, HIT_PICK_CLEAR, HIT_PICK_CLOSE, HIT_REGION, HIT_HINT, HIT_REVEAL, HIT_REVEAL_REGION, HIT_CENTER, HIT_FOLLOW, HIT_DUNGEONS,
+enum { HIT_TAB, HIT_ZOOM, HIT_SLOT, HIT_SHORTCUT, HIT_PICK, HIT_PICK_CLEAR, HIT_PICK_CLOSE, HIT_REGION, HIT_HINT, HIT_REVEAL, HIT_REVEAL_REGION, HIT_CENTER, HIT_FOLLOW, HIT_DUNGEONS, HIT_AREA,
        HIT_CHIP, HIT_MINI_CHIP, HIT_CONFIG, HIT_HOTKEY, HIT_RESET, HIT_LEAVE, HIT_FIN_MENU, HIT_FIN_CREDITS, HIT_FIN_BACK,
        HIT_PHRASE, HIT_CHAT_OFF, HIT_MUTE };
 enum { CF_SLOT, CF_SPEED, CF_SHAPE, CF_SCREENS, CF_FIXED, CF_ROW, CF_WEAPONS, CF_DAILY };
@@ -301,7 +301,8 @@ static void run_left(float x, float top, float cw, float h)
         y += 6 * u;
     }
     if (smz3_sm_alone() || smz3_z3_alone()) {   /* a single game: its seed hash where the other game's count goes */
-        if (run_hash[0]) { gfx_text(x, y, fit_px(run_hash, cw, 13 * u, 8 * u), AMBER, 0, run_hash); y += 29 * u; }
+        if (run_hash[0] && smz3_z3_alone() && map_hash_icons(R, x, y - 2 * u, fminf(24 * u, cw / 6), run_hash) > 0) y += 29 * u;
+        else if (run_hash[0]) { gfx_text(x, y, fit_px(run_hash, cw, 13 * u, 8 * u), AMBER, 0, run_hash); y += 29 * u; }
     }
     if (!smz3_sm_alone()) {
         snprintf(s, sizeof s, "Zelda  %u / %u", t->zelda_cleared, t->zelda_total);
@@ -583,7 +584,10 @@ static void page_map(float top)
         return;
     }
     map_draw(R, &mv, map_area, F.t, F.disc, F.discovered_only, F.in_logic, F.wram, F.wram_len, SDL_GetTicks());
-    if (!smz3_sm_alone() && dungeon_available(R)) {
+    if (map_game_on()) {
+        dungeon_chip_draw(6 * u, H - 38 * u, 92 * u, 32 * u, "AREA", 0);
+        add_hit(6 * u, H - 38 * u, 92 * u, 32 * u, HIT_AREA, 0);
+    } else if (!smz3_sm_alone() && dungeon_available(R)) {
         dungeon_chip_draw(6 * u, H - 38 * u, 92 * u, 32 * u, "DUNGEONS", 0);
         add_hit(6 * u, H - 38 * u, 92 * u, 32 * u, HIT_DUNGEONS, 0);
     }
@@ -594,12 +598,14 @@ static void page_map(float top)
 
 static void map_center(void)
 {
+    if (map_game_on()) { mv.follow = 1; mv.gz_set = 0; map_game_step(0); return; }
     if (F.disc && F.disc->has_position) { mv.zoom = map_area.w / 240.0f * mini_zoom; mv.cx = F.disc->x; mv.cy = F.disc->y; }
     else map_view_fit(&mv, map_area);
 }
 
 static void map_pinch(float fx, float fy, float k)
 {
+    if (map_game_on()) { map_view_move(&mv, 0, 0, k); return; }
     float fit = fminf(map_area.w / 1623.0f, map_area.h / 958.0f), z0 = mv.zoom, z1 = z0 * k;
     z1 = z1 < fit * 0.5f ? fit * 0.5f : z1 > 16 ? 16 : z1;
     float ax = fx - map_area.x - map_area.w / 2.0f, ay = fy - map_area.y - map_area.h / 2.0f;   /* the point under the fingers stays there */
@@ -978,6 +984,7 @@ static void do_hit(const Hit *h)
     case HIT_CENTER: map_center(); break;
     case HIT_FOLLOW: mv.follow = !mv.follow; break;
     case HIT_DUNGEONS: dungeon_toggle(&dv, live); break;
+    case HIT_AREA: map_game_step(1); break;
     case HIT_CHIP: dungeon_chip_tap(&dv, live, h->arg & 15, h->arg >> 4); break;
     case HIT_MINI_CHIP: dungeon_chip_tap(&minidv, live, h->arg & 15, h->arg >> 4); break;
     case HIT_CONFIG: config_tap(h->arg); break;

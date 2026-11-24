@@ -8,6 +8,9 @@
 #include "pc_assets.h"
 #include "pc_gfx.h"
 #include "pc_map.h"
+#include "pc_emu.h"
+#include "smz3_smmap.h"
+#include "smz3_z3.h"
 #include "smz3_state.h"
 
 #define MAP_W 1623.0f
@@ -125,12 +128,86 @@ static void load(SDL_Renderer *r)
     for (unsigned i = 0; i < smz3_location_count && i < 512; i++) if (stack_size[stack_head[i]] < 255) stack_size[stack_head[i]]++;
 }
 
-void map_view_init(MapView *v) { v->cx = MAP_W / 2; v->cy = MAP_H / 2; v->zoom = 1.4f; v->follow = 1; v->highlight = 0; }
+void map_view_init(MapView *v) { v->cx = MAP_W / 2; v->cy = MAP_H / 2; v->zoom = 1.4f; v->follow = 1; v->highlight = 0; v->gz = v->gz_set = 0; }
+
+static SmzSmMap *gmap;
+static uint8_t *grom;
+static size_t grom_len;
+static SDL_Texture *gtexs[2];
+static int gtex_w[2], gtex_h[2];
+static uint32_t *gbuf;
+static size_t gbuf_len;
+
+void map_game_rom(const uint8_t *rom, size_t len)
+{
+    free(grom);
+    grom = NULL;
+    if (!smz_smmap_rom_ok(rom, len) || !(grom = malloc(len))) return;
+    memcpy(grom, rom, len);
+    grom_len = len;
+    if (!gmap) gmap = malloc(sizeof *gmap);
+    if (gmap) smz_smmap_init(gmap);
+}
+
+int map_game_on(void) { return grom && gmap && smz3_maprando(); }
+
+void map_game_step(int dir)
+{
+    size_t sl = 0;
+    uint8_t *s = emu_sram(&sl);
+    if (map_game_on()) smz_smmap_step(gmap, s, sl, dir);
+}
+
+const char *map_game_area(void) { return map_game_on() ? smz_smmap_area_name(gmap->shown) : ""; }
 
 void map_view_move(MapView *v, float dx, float dy, float dz)
 {
+    if (map_game_on()) {
+        float z = v->gz > 0 ? v->gz : 1;
+        if (dx != 0 || dy != 0) { v->follow = 0; v->gx += dx / z; v->gy += dy / z; }
+        if (dz != 0 && dz != 1) { z *= dz; v->gz_set = v->gz = z < 0.5f ? 0.5f : z > 8 ? 8 : z; }
+        return;
+    }
     if (dx != 0 || dy != 0) { v->follow = 0; v->cx += dx / v->zoom; v->cy += dy / v->zoom; }
     if (dz != 0) { v->zoom *= dz; if (v->zoom < 0.4f) v->zoom = 0.4f; if (v->zoom > 8) v->zoom = 8; }
+}
+
+/* The game's pause map (core/ui/smz3_smmap.c) in the area, with the area's name in a corner. */
+static void game_map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const uint8_t *wram, size_t wram_len)
+{
+    size_t sl = 0;
+    uint8_t *sram = emu_sram(&sl);
+    smz_smmap_update(gmap, grom, grom_len, wram, wram_len, sram, sl);
+    float cx, cy, z;
+    smz_smmap_home(gmap, area.w, area.h, &cx, &cy, &z);
+    int here = gmap->samus_area == gmap->shown && gmap->samus_x >= 0;
+    if (v->gz_set > 0 && v->gz_set != z && here) { cx = gmap->samus_x * 8 + 4.0f; cy = gmap->samus_y * 8 + 4.0f; }
+    if (v->gz_set > 0) z = v->gz_set;
+    if (!v->follow && v->gz > 0) { cx = v->gx; cy = v->gy; }
+    v->gx = cx; v->gy = cy; v->gz = z;
+    z = z >= 1 ? floorf(z + 0.5f) : 0.5f;   /* whole pixels keep the walls one line thick */
+    size_t need = (size_t)area.w * area.h;
+    if (need > gbuf_len) { free(gbuf); gbuf = malloc(need * 4); gbuf_len = gbuf ? need : 0; }
+    if (!gbuf) return;
+    smz_smmap_draw(gmap, gbuf, area.w, area.h, area.w, cx, cy, z);
+    int s = gfx_slot();
+    if (!gtexs[s] || gtex_w[s] < area.w || gtex_h[s] < area.h) {
+        if (gtexs[s]) SDL_DestroyTexture(gtexs[s]);
+        gtexs[s] = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, area.w, area.h);
+        gtex_w[s] = area.w; gtex_h[s] = area.h;
+        if (gtexs[s]) SDL_SetTextureScaleMode(gtexs[s], SDL_ScaleModeNearest);
+    }
+    if (!gtexs[s]) return;
+    SDL_Rect src = {0, 0, area.w, area.h};
+    SDL_UpdateTexture(gtexs[s], &src, gbuf, area.w * 4);
+    SDL_RenderCopy(r, gtexs[s], &src, &area);
+    float h = fminf(20.0f, fmaxf(12.0f, area.h / 22.0f));
+    const char *name = smz_smmap_area_name(gmap->shown);
+    if (*name) {
+        float w = gfx_text_width(h, name) + h;
+        gfx_rect(area.x, area.y, w, h * 1.5f, (SDL_Color){0, 0, 0, 170});
+        gfx_text(area.x + h / 2, area.y + h * 0.25f, h, (SDL_Color){0xE8, 0xEC, 0xF2, 255}, 0, name);
+    }
 }
 
 /* A single game shows only its half of the combined map: Super Metroid right of x 480 (smz_disc_area_box), A Link to the
@@ -190,6 +267,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     float z = v->zoom, ox = area.x + area.w / 2.0f - v->cx * z, oy = area.y + area.h / 2.0f - v->cy * z;
     SDL_RenderSetClipRect(r, &area);
     gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
+    if (map_game_on()) { game_map_draw(r, v, area, wram, wram_len); SDL_RenderSetClipRect(r, NULL); return; }
     if (smz3_maprando()) {   /* its rooms are moved: the vanilla map would point the wrong way */
         float h = fminf(22.0f, area.w / 24.0f);
         gfx_text(area.x + area.w / 2.0f, area.y + area.h / 2.0f - h, h, (SDL_Color){0x87, 0x93, 0xA6, 255}, 1, "Map Rando rebuilds the map:");
@@ -332,4 +410,19 @@ SDL_Rect map_icon_art(const char *icon)
     }
     if (k < 8) { known[k].name = icon; known[k].art = art; }
     return art;
+}
+
+float map_hash_icons(SDL_Renderer *r, float x, float y, float size, const char *hash)
+{
+    int ic[5];
+    if (!smz_z3_hash_icons(hash, ic)) return 0;
+    static char names[32][16];   /* map_item_icon keeps the name pointer as its cache key */
+    for (int i = 0; i < 5; i++) {
+        char *name = names[ic[i] & 31];
+        snprintf(name, sizeof names[0], "z3hash_%02d.png", ic[i] & 31);
+        SDL_Texture *t = map_item_icon(r, name);
+        SDL_FRect d = {x + i * size * 1.15f, y, size, size};
+        if (t) SDL_RenderCopyF(r, t, NULL, &d);
+    }
+    return size * (5 * 1.15f - 0.15f);
 }

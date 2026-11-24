@@ -45,7 +45,7 @@ SMGEN := sm_generate sm_fill sm_world sm_world_gen sm_patch sm_options_gen
 Z3GEN := $(notdir $(basename $(wildcard $(CORE)/z3gen/*.c)))
 GEN := smz3_generate smz3_fill smz3_world smz3_world_gen smz3_rng smz3_patch smz3_rom smz3_text smz3_sprite smz3_hints smz3_itemopts smz3_plando smz3_md5 smz3_romsetup smz3_romderived smz3_dungeonmaps smz3_goalicons
 SRC := $(addprefix $(CORE)/gen/,$(addsuffix .c,$(GEN))) $(addprefix $(CORE)/smgen/,$(addsuffix .c,$(SMGEN))) $(addprefix $(CORE)/z3gen/,$(addsuffix .c,$(Z3GEN))) $(CORE)/smz3_state.c $(CORE)/smz3_locations.c $(CORE)/smz3_inventory.c \
-       $(CORE)/ui/smz3_ui.c $(CORE)/ui/smz3_ui_opts.c $(CORE)/ui/smz3_run.c $(CORE)/ui/smz3_host.c $(CORE)/ui/smz3_tracker.c $(CORE)/ui/smz3_goal.c $(CORE)/ui/smz3_daily.c $(CORE)/ui/smz3_race.c $(CORE)/ui/smz3_shortcuts.c $(CORE)/ui/smz3_counters.c $(CORE)/ui/smz3_discovery.c $(CORE)/ui/smz3_runlogic.c $(CORE)/ui/smz3_proof.c $(CORE)/ui/smz3_preview.c $(CORE)/ui/smz3_rewind.c $(CORE)/ui/smz3_sm.c $(CORE)/ui/smz3_z3.c \
+       $(CORE)/ui/smz3_ui.c $(CORE)/ui/smz3_ui_opts.c $(CORE)/ui/smz3_run.c $(CORE)/ui/smz3_host.c $(CORE)/ui/smz3_tracker.c $(CORE)/ui/smz3_goal.c $(CORE)/ui/smz3_daily.c $(CORE)/ui/smz3_race.c $(CORE)/ui/smz3_shortcuts.c $(CORE)/ui/smz3_counters.c $(CORE)/ui/smz3_discovery.c $(CORE)/ui/smz3_runlogic.c $(CORE)/ui/smz3_proof.c $(CORE)/ui/smz3_preview.c $(CORE)/ui/smz3_rewind.c $(CORE)/ui/smz3_sm.c $(CORE)/ui/smz3_z3.c $(CORE)/ui/smz3_smmap.c \
        $(wildcard pc_*.c) font_data.c $(OUT)/ips_data.c $(OUT)/sm_ips_data.c $(OUT)/z3_ips_data.c $(OUT)/map_data.c $(OUT)/logo_data.c
 OBJ := $(patsubst %.c,$(OUT)/o/%.o,$(notdir $(SRC)))
 

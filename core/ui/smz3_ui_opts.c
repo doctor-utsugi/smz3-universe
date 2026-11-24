@@ -167,9 +167,9 @@ const char *const UI_TABS_SM[LEVEL_ITEMS][24] = {
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", NULL},
 };
 const char *const UI_TABS_Z3[LEVEL_ITEMS][24] = {
-    {"Z3WorldState", "Z3Goal", "Z3Swords", "Z3DungeonItems", "Z3Placement", "SaveStates", "Rewind", NULL},
+    {"Z3WorldState", "Z3Goal", "Z3Swords", "Z3DungeonItems", "Z3Placement", "LightDarkRooms", "SaveStates", "Rewind", NULL},
     {"Seed", "Z3WorldState", "Z3Goal", "Z3TowerOpen", "Z3GanonOpen", "Z3Accessibility", "Z3Placement", "Z3Tournament", "MapMode", NULL},
-    {"Z3DungeonItems", "Z3Swords", "Z3StartBoots", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", "Z3Glitches", "Z3BossShuffle", NULL},
+    {"Z3DungeonItems", "Z3Swords", "Z3StartBoots", "Z3ItemPool", "Z3ItemFunction", "Z3Hints", "Z3Glitches", "Z3BossShuffle", "LightDarkRooms", NULL},
     {NULL},
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", "Z3HeartBeep", "Z3MenuSpeed", "Z3Quickswap", NULL},
 };
@@ -290,6 +290,7 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
         }
         u->value[O_SAVES] = strstr(json, "\"saveStates\":true") != NULL;
         u->value[O_REWIND] = strstr(json, "\"rewind\":true") != NULL;
+        u->value[O_DARK] = strstr(json, "\"lightDarkRooms\":true") != NULL;
         return;
     }
     smz_logic_settings(json, &s);
@@ -407,10 +408,10 @@ static int z3_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
     }
     if (n < (int)cap) n += snprintf(out + n, cap - n,
         "},\"mapMode\":\"%s\",\"saveStates\":%s,\"rewind\":%s,\"defaultRules\":%s,\"screenFilter\":\"%s\",\"screenShape\":\"%s\",\"linkSprite\":\"%s\","
-        "\"samusSprite\":\"\",\"helpMode\":\"none\",\"helpCount\":0,\"plando\":\"\",\"musicPackage\":\"\",\"lightDarkRooms\":false,\"nerfedCharge\":false,"
+        "\"samusSprite\":\"\",\"helpMode\":\"none\",\"helpCount\":0,\"plando\":\"\",\"musicPackage\":\"\",\"lightDarkRooms\":%s,\"nerfedCharge\":false,"
         "\"quickMorph\":false,\"showReachable\":false,\"showFixedKeys\":false,\"diff\":[",
         u->value[O_MAP] ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
-        ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], link);
+        ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], link, u->value[O_DARK] ? "true" : "false");
     for (int i = O_Z30, first = 1; i < UI_OPT_COUNT && n < (int)cap; i++) {   /* the world state, the goal and what was changed */
         if (i > O_Z30 + O_Z3GOAL && u->value[i] == UI_OPTS[i].def) continue;
         char v[44];
