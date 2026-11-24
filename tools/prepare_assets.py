@@ -33,18 +33,11 @@ markers = json.loads((root / "data/map_markers.json").read_text())
 (assets / "map_markers.json").write_text(json.dumps(
     [[m["index"], m["x"] // 2, m["y"] // 2] for m in markers]))
 print("map", img.size, "(half-size coordinates)", len(markers), "markers")
-# The portals painted over, for the single-game modes (tools/map_portals.py): the clean crops side by side and their places.
-import sys
-sys.path.insert(0, str(root / "tools"))
-import map_portals
-crops = map_portals.patches(img)
-strip = Image.new("RGB", (sum(c[2] for c in crops), max(c[3] for c in crops)))
-rects, sx = [], 0
-for x, y, w, h, crop in crops:
-    strip.paste(crop, (sx, 0)); rects.append([x, y, w, h, sx]); sx += w
-strip.save(assets / "map_patches.png", optimize=True)
-(assets / "map_patches.json").write_text(json.dumps(rects))
-print(len(rects), "map patches")
+# The portals replaced with what the original games show, for the single-game modes (data/map_patches.*, made by
+# tools/map_portals.py from this map, the Super Metroid ROM and full ALttP overworld renders).
+for name in ("map_patches.png", "map_patches.json"):
+    shutil.copyfile(root / "data" / name, assets / name)
+print(len(json.loads((root / "data/map_patches.json").read_text())), "map patches")
 
 
 # Super Metroid room rectangles (from the user's own ROM via tools/sm_rooms.py) and ALttP dungeon centres,
