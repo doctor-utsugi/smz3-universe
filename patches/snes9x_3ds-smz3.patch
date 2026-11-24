@@ -1150,10 +1150,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..a87d0bf
+index 0000000..9199029
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1302 @@
+@@ -0,0 +1,1424 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1174,6 +1174,7 @@ index 0000000..a87d0bf
 +#include "smz3_race.h"
 +#include "smz3_run.h"
 +#include "smz3_version.h"
++#include "smz3_bps.h"
 +}
 +
 +#define ONLINE_DIR SMZ_DIR "/online"
@@ -2456,12 +2457,133 @@ index 0000000..a87d0bf
 +    static u8 param[0x300], hmac[0x20];
 +    return R_SUCCEEDED(APT_DoApplicationJump(param, sizeof param, hmac));
 +}
++
++// ---- Map Rando: neither 3DS can build a seed (docs/STANDALONE.md), so the server builds it and sends a BPS patch from the
++// vanilla ROM (server/ladder/maprando.js), applied here to the player's own ROM
++
++struct MrSink { u8 *buf; size_t n, cap; char info[512]; };
++static volatile s64 gMrGot, gMrTotal;
++static volatile int gMrPhase;   // 0 idle, 1 waiting while the server builds the seed, 2 downloading
++static u64 gMrSince;
++
++static size_t mrWrite(char *data, size_t size, size_t count, void *arg)
++{
++    MrSink *s = (MrSink *)arg;
++    size_t len = size * count;
++    if (s->n + len > s->cap) {
++        size_t want = s->cap ? s->cap * 2 : 2u << 20;
++        while (want < s->n + len) want *= 2;
++        u8 *b = want <= (8u << 20) ? (u8 *)realloc(s->buf, want) : NULL;
++        if (!b) return 0;   // a short count stops curl
++        s->buf = b;
++        s->cap = want;
++    }
++    memcpy(s->buf + s->n, data, len);
++    s->n += len;
++    return len;
++}
++
++static size_t mrHeader(char *data, size_t size, size_t count, void *arg)
++{
++    MrSink *s = (MrSink *)arg;
++    size_t len = size * count;
++    if (len > 12 && !strncasecmp(data, "X-Seed-Info:", 12)) {
++        const char *v = data + 12;
++        while (v < data + len && *v == ' ') v++;
++        size_t k = data + len - v;
++        while (k && (v[k - 1] == '\r' || v[k - 1] == '\n')) k--;
++        if (k >= sizeof s->info) k = sizeof s->info - 1;
++        memcpy(s->info, v, k);
++        s->info[k] = 0;
++    }
++    return len;
++}
++
++static int mrProgress(void *, curl_off_t total, curl_off_t now, curl_off_t, curl_off_t)
++{
++    gMrTotal = total;
++    gMrGot = now;
++    if (now > 0) gMrPhase = 2;
++    return 0;
++}
++
++static int mrFail(char *info, size_t cap, const char *why)
++{
++    snprintf(info, cap, "{\"error\":\"%s\"}", why);
++    return -1;
++}
++
++bool smzMapRandoOnline(void) { return onNetwork(); }
++
++int smzMapRandoFetch(const char *settings, uint64_t seed, const uint8_t *sm, size_t smLen, uint8_t *out, size_t cap, char *info, size_t infoCap)
++{
++    static bool curlReady;
++    if (!onNetwork()) return mrFail(info, infoCap, "No internet connection");
++    if (!curlReady) curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
++    if (smLen % 0x8000 == 0x200) { sm += 0x200; smLen -= 0x200; }   // a copier header: the patch is made from the bare ROM
++    u32 *soc = (u32 *)memalign(0x1000, UPDATE_SOC);
++    bool socOwn = soc && R_SUCCEEDED(socInit(soc, UPDATE_SOC));   // else the RetroAchievements code has it up already
++    if (!socOwn) { free(soc); soc = NULL; }
++    CURL *c = curlReady ? curl_easy_init() : NULL;
++    MrSink s = {};
++    long status = 0;
++    CURLcode rc = CURLE_FAILED_INIT;
++    gMrGot = gMrTotal = 0;
++    gMrSince = osGetTime();
++    gMrPhase = 1;
++    if (c) {
++        char *q = curl_easy_escape(c, settings, 0), url[640];
++        snprintf(url, sizeof url, "%s/api/maprando/seed?settings=%s&seed=%llu", baseUrl(), q ? q : "", (unsigned long long)seed);
++        curl_free(q);
++        curl_easy_setopt(c, CURLOPT_URL, url);
++        curl_easy_setopt(c, CURLOPT_USERAGENT, "smz3-3ds");
++        curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 20L);
++        curl_easy_setopt(c, CURLOPT_TIMEOUT, 300L);   // the server may build the seed first, up to three minutes
++        curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 64L * 1024);
++        curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, mrWrite);
++        curl_easy_setopt(c, CURLOPT_WRITEDATA, &s);
++        curl_easy_setopt(c, CURLOPT_HEADERFUNCTION, mrHeader);
++        curl_easy_setopt(c, CURLOPT_HEADERDATA, &s);
++        curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
++        curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, mrProgress);
++        rc = curl_easy_perform(c);
++        curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
++        curl_easy_cleanup(c);
++    }
++    if (socOwn) { socExit(); free(soc); }
++    gMrPhase = 0;
++    log3dsWrite("maprando %s seed %llu: curl %d, status %ld, %u bytes", settings, (unsigned long long)seed, (int)rc, status, (unsigned)s.n);
++    int r = -1;
++    if (rc != CURLE_OK && !status) mrFail(info, infoCap, c ? "Could not reach the server" : "Not enough memory");
++    else if (status == 503) mrFail(info, infoCap, "The server is busy, try again in a minute");
++    else if (status == 429) mrFail(info, infoCap, "Too many seeds this hour, try later");
++    else if (status == 422) mrFail(info, infoCap, "The server found no seed for this");
++    else if (status != 200 || rc != CURLE_OK) mrFail(info, infoCap, "The server could not make the seed");
++    else {
++        int b = smz_bps_target_size(s.buf, s.n) > cap ? -1 : smz_bps_apply(s.buf, s.n, sm, smLen, out, cap);
++        if (b == -2) mrFail(info, infoCap, "The patch does not fit this Super Metroid ROM (CRC)");
++        else if (b) mrFail(info, infoCap, "The seed came damaged, try again");
++        else { snprintf(info, infoCap, "%s", s.info[0] ? s.info : "{}"); r = 0; }
++    }
++    free(s.buf);
++    return r;
++}
++
++int smzMapRandoProgress(char *out, size_t cap)
++{
++    int phase = gMrPhase;
++    s64 got = gMrGot, total = gMrTotal;
++    if (phase == 1) snprintf(out, cap, "Map Rando: the server builds it ... %llus", (unsigned long long)((osGetTime() - gMrSince) / 1000));
++    else if (phase == 2 && total > 0) snprintf(out, cap, "Map Rando: downloading %d%%", (int)(got * 100 / total));
++    else if (phase == 2) snprintf(out, cap, "Map Rando: downloading %lld KB", (long long)(got / 1024));
++    return phase;
++}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..71d8657
+index 0000000..4862d0b
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,130 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2582,16 +2704,22 @@ index 0000000..71d8657
 +void smzRaceWho(const char *player, const char *country, char *out, size_t cap);
 +
 +
++// Map Rando seeds from the server (GET /api/maprando/seed): a BPS patch applied to the player's ROM, as smz3_sm.h's
++// SmzMapRandoFn. Online says whether the console has a network now; Progress gives the busy line while a fetch runs (0: none).
++bool smzMapRandoOnline(void);
++int smzMapRandoFetch(const char *settings, uint64_t seed, const uint8_t *sm, size_t smLen, uint8_t *out, size_t cap, char *info, size_t infoCap);
++int smzMapRandoProgress(char *out, size_t cap);
++
 +// SMZ_MODE_* of the game entered from the carousel: SMZ3 keeps its files where they were, the others get folders of their own
 +extern int smzRunMode;
 +
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..e34b2c3
+index 0000000..e323254
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6080 @@
+@@ -0,0 +1,6100 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3389,6 +3517,7 @@ index 0000000..e34b2c3
 +    char json[4096], seedText[16];
 +    char hints[SMZ_HOST_HELP_COUNT * SMZ_HOST_HELP_TEXT];
 +    int rc;
++    volatile bool done;
 +};
 +
 +static void genThread(void *arg)
@@ -3396,6 +3525,7 @@ index 0000000..e34b2c3
 +    GenJob *j = (GenJob *)arg;
 +    j->rc = smz_host_generate(j->ui, j->seedIfRandom, j->sm, j->z3, j->link, j->linkLen, j->samus, j->samusLen, loadIps, &j->sm,
 +                              j->rom, j->json, sizeof j->json, j->seedText, sizeof j->seedText, j->hints);
++    j->done = true;
 +}
 +
 +// dailyCheck: the run is the attempt of a daily challenge ending at this goal (smz3_goal.h), off the ladders;
@@ -3450,6 +3580,9 @@ index 0000000..e34b2c3
 +    }
 +    if (job.rom) {
 +        Thread t = threadCreate(genThread, &job, 512 * 1024, 0x30, -2, false);
++        // a Map Rando seed comes from the server: its progress is drawn while the thread waits on it
++        for (char line[48]; t && !job.done; svcSleepThread(100000000LL))
++            if (smzMapRandoProgress(line, sizeof line)) { ui_busy(u, line); drawUi(u); }
 +        if (t) { threadJoin(t, U64_MAX); threadFree(t); }
 +        else genThread(&job);
 +        if (job.rc == 0) {
@@ -3500,6 +3633,8 @@ index 0000000..e34b2c3
 +            snprintf(message, cap, ipsNoMemory ? "Out of memory loading %s" : "Missing patch %s", ipsFailed);
 +        } else if (z3Run && smz_z3_error(job.rc)) {
 +            snprintf(message, cap, "%s", smz_z3_error(job.rc));
++        } else if (smRun && smz_sm_error(job.rc)) {
++            snprintf(message, cap, "%.43s", smz_sm_error(job.rc));
 +        } else {
 +            snprintf(message, cap, "Generation failed (%d)", job.rc);
 +        }
@@ -3799,6 +3934,8 @@ index 0000000..e34b2c3
 +        ui_game_state(&ui, SMZ_MODE_SM, smFound ? UI_GAME_READY : UI_GAME_NO_ROM);
 +        ui_game_state(&ui, SMZ_MODE_Z3, z3Found ? UI_GAME_READY : UI_GAME_NO_ROM);
 +    }
++    // Map Rando comes from the server: offered while the console has a network, checked again with the retries below
++    smz_sm_set_maprando(smzMapRandoFetch, smzMapRandoOnline() ? SMZ_MR_READY : SMZ_MR_OFFLINE);
 +    refreshSlots(&ui);
 +    if (left == SMZ_DAILY_SLOT && ui.daily_on) ui.daily_sel = 1;
 +    else if (left >= 0 && left < ui.slot_count) {   // one step down onto it, so the list scrolls the way the pad does
@@ -3896,6 +4033,7 @@ index 0000000..e34b2c3
 +            if (osGetTime() >= nextInfo) { nextInfo = osGetTime() + 60000; smzDailyRequestInfo(); if (!versionKnown) smzOnlineRequestVersion(); }
 +            if (osGetTime() >= nextRetry) {
 +                nextRetry = osGetTime() + 10000;
++                smz_sm_set_maprando(smzMapRandoFetch, smzMapRandoOnline() ? SMZ_MR_READY : SMZ_MR_OFFLINE);
 +                if (!monthly[0].have || !weekly[0].have) smzOnlineStartup();
 +                if (smzRunMode != SMZ_MODE_SMZ3 && (!monthly[smzRunMode].have || !weekly[smzRunMode].have)) smzOnlineSeedsFor(smzRunMode);
 +                if (ladderFailed) { ladderFailed = false; smzOnlineRequestLadders(); }
@@ -3980,7 +4118,7 @@ index 0000000..e34b2c3
 +                    // On the 3DS the picture is the pause menu's Screen option, the same for every run (the run's own screen
 +                    // shape and filter are the Thor's and the PC's).
 +                    applyScreen();
-+                    smz3_set_mode(r.mode);   // the tracker reads memory the way the run's ROM keeps it
++                    smz3_set_mode(r.mode | (smz_sm_is_maprando(r.settings) ? SMZ3_MAPRANDO : 0));   // the tracker reads memory the way the run's ROM keeps it
 +                    mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777); addShortcutHooks(r.rom_path); snprintf(romPathOut, cap, "%s", r.rom_path); gPlaySlot = slot; chosen = true; break; }
 +            }
 +        }
@@ -4458,6 +4596,7 @@ index 0000000..e34b2c3
 +static bool finishedBefore = false;   // the run had ended when it was loaded
 +static bool goalsRun;   // a monthly or weekly run: the RUN tab shows its goals instead of the completion bars
 +static int needGanon = 7, needTower = 7, needTourian = 4;   // from the run's settings
++static bool fastGanon;   // alttpr's Fast Ganon: the pyramid is open and the tower does not count
 +// The game's end, kept until the run is left even if the reading flickers: 0 not reached, 1 the run-complete card is up,
 +// 2 ended without it (closed for the credits, or a finished run played again). Once ended, this screen shows the details.
 +static int cardState = 0;
@@ -4658,6 +4797,13 @@ index 0000000..e34b2c3
 +    if (v.follow && disc.has_position) { v.cx = disc.x; v.cy = disc.y; }
 +    int sx0 = clipX0, sy0 = clipY0, sx1 = clipX1, sy1 = clipY1;
 +    setClip(ax, ay, ax + aw, ay + ah);
++    if (smz3_maprando()) {   // its rooms are moved: the vanilla map would point the wrong way
++        fill(ax, ay, ax + aw, ay + ah, 0x0B0E12);
++        text(ax, ay + ah / 2 - 15, theme.dim, mini ? "Map Rando's map" : "Map Rando rebuilds the map:", HALIGN_CENTER, ax + aw);
++        text(ax, ay + ah / 2 + 1, theme.dim, mini ? "is in the game" : "see the game's own map", HALIGN_CENTER, ax + aw);
++        setClip(sx0, sy0, sx1, sy1);
++        return;
++    }
 +    mapPixels(v, ax, ay, aw, ah, ax, ay, ax + aw, ay + ah, discoveredOnly ? 3 : 1);
 +    static SmzRect seen[400];
 +    int ns = smz_disc_rects(&disc, seen, 400);
@@ -5788,7 +5934,7 @@ index 0000000..e34b2c3
 +            if (fin) snprintf(s, sizeof s, "Beaten");
 +            else if (tower > 0) snprintf(s, sizeof s, "Tower: %d crystal%s more", tower, tower == 1 ? "" : "s");
 +            else if (ganon > 0) snprintf(s, sizeof s, "Ganon: %d crystal%s more", ganon, ganon == 1 ? "" : "s");
-+            else snprintf(s, sizeof s, "Tower open");
++            else snprintf(s, sizeof s, fastGanon ? "Ganon vulnerable" : "Tower open");
 +        } else {
 +            open = tourian <= 0;
 +            if (fin) snprintf(s, sizeof s, "Beaten");
@@ -7739,7 +7885,7 @@ index 0000000..e34b2c3
 +        memset(&r0, 0, sizeof r0);
 +        if (curSlot >= 0 && runLoad(rp, &r0) == 0) smz_tracker_reset(&trk, r0.play_ms, r0.save_ms, r0.save_zelda, r0.save_metroid);
 +        else smz_tracker_reset(&trk, 0, 0, 0, 0);
-+        smz3_set_mode(r0.mode);
++        smz3_set_mode(r0.mode | (smz_sm_is_maprando(r0.settings) ? SMZ3_MAPRANDO : 0));
 +        snprintf(runName, sizeof runName, "%s", r0.name);
 +        const char *hp = strstr(r0.settings, "\"hash\":\"");   // a single game's seed hash, as its file select screen shows it
 +        snprintf(runHash, sizeof runHash, "%.*s", hp ? (int)strcspn(hp + 8, "\"") : 0, hp ? hp + 8 : "");
@@ -7757,6 +7903,8 @@ index 0000000..e34b2c3
 +            auto z3rule = [&](const char *key) { const char *p = strstr(r0.settings, key); return p && p[14] >= '0' && p[14] <= '7' ? p[14] - '0' : 7; };
 +            needGanon = z3rule("\"ganon_open\":\""); needTower = z3rule("\"tower_open\":\"");
 +        }
++        fastGanon = strstr(r0.settings, "\"goals\":\"fast_ganon\"") != NULL;
++        if (fastGanon) needTower = 0;
 +        if (needGanon > 7) needGanon = 7;
 +        if (needTower > 7) needTower = 7;
 +        if (needTourian > 4) needTourian = 4;

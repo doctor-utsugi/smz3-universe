@@ -16,6 +16,8 @@ cp "$ROOT"/core/gen/smz3_*.h source/
 for f in smz3_state smz3_locations smz3_inventory; do cp "$ROOT/core/$f.c" source/; done
 # the Super Metroid generator (core/smgen), flat beside the rest: its one relative include is made plain
 cp "$ROOT"/core/smgen/sm_*.[ch] source/
+# the BPS reader for the Map Rando seeds the server sends (core/common)
+cp "$ROOT"/core/common/smz3_bps.[ch] source/
 sed -i 's#"../gen/smz3_rng.h"#"smz3_rng.h"#' source/sm_fill.h
 python3 "$ROOT"/tools/gen_sm_ips_c.py "$ROOT"/patches/sm_randomizer.ips source/sm_ips_data.c
 # and the A Link to the Past one (core/z3gen), its includes already plain
