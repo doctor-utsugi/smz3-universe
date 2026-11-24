@@ -1150,10 +1150,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..c4f3bef
+index 0000000..bdec372
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1299 @@
+@@ -0,0 +1,1303 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1654,14 +1654,18 @@ index 0000000..c4f3bef
 +    s.fn(s.arg);
 +}
 +
-+static void spawn(ThreadFunc fn, void *arg)
++// false when no thread could be made (the app's few thread slots all taken): the caller frees its busy flag to ask again
++static bool spawn(ThreadFunc fn, void *arg)
 +{
 +    Spawned *s = (Spawned *)malloc(sizeof *s);
-+    if (!s) return;
++    if (!s) return false;
 +    s->fn = fn; s->arg = arg; s->mode = modeNow();   // the game it was asked for, whatever is entered meanwhile
 +    Thread t = threadCreate(spawned, s, 64 * 1024, 0x30, -2, true);   // detached
 +    if (!t) free(s);
++    return t != NULL;
 +}
++
++static void unbusy(int *state) { LightLock_Lock(&gLock); *state = 0; LightLock_Unlock(&gLock); }
 +
 +static bool gHttpReady;
 +static void netUp() { if (!gHttpReady) gHttpReady = R_SUCCEEDED(httpcInit(0x4000)); }
@@ -1850,10 +1854,10 @@ index 0000000..c4f3bef
 +    lockInit();
 +    netUp();   // without httpc the thread fails at once, and the menu shows the card offline
 +    LightLock_Lock(&gLock);
-+    bool busy = gLadderState[0] == 1 || gLadderState[1] == 1 || gLadderState[2] == 1;
++    bool busy = gLadderState[0] || gLadderState[1] || gLadderState[2];   // asked, or an answer not taken yet (the menu asks every frame)
 +    for (int t = 0; t < 3 && !busy; t++) gLadderState[t] = 1;
 +    LightLock_Unlock(&gLock);
-+    if (!busy) spawn(laddersThread, NULL);
++    if (!busy && !spawn(laddersThread, NULL)) for (int t = 0; t < 3; t++) unbusy(&gLadderState[t]);
 +}
 +
 +void smzOnlineRequestGoals(void)
@@ -1864,7 +1868,7 @@ index 0000000..c4f3bef
 +    bool busy = gGoalsState == 1;
 +    if (!busy) gGoalsState = 1;
 +    LightLock_Unlock(&gLock);
-+    if (!busy) spawn(goalsThread, NULL);
++    if (!busy && !spawn(goalsThread, NULL)) unbusy(&gGoalsState);
 +}
 +
 +void smzOnlineRequestVersion(void)
@@ -1876,7 +1880,7 @@ index 0000000..c4f3bef
 +    bool busy = gVersionState == 1;
 +    if (!busy) gVersionState = 1;
 +    LightLock_Unlock(&gLock);
-+    if (!busy) spawn(versionThread, NULL);
++    if (!busy && !spawn(versionThread, NULL)) unbusy(&gVersionState);
 +}
 +
 +void smzOnlineGoalsReport(int slot, int64_t created, bool online, const char *counters)
@@ -1912,10 +1916,10 @@ index 0000000..c4f3bef
 +    lockInit();
 +    netUp();   // without httpc the thread fails at once, and the menu shows the card offline
 +    LightLock_Lock(&gLock);
-+    bool busy = gDailyState == 1;
++    bool busy = gDailyState != 0;   // asked, or an answer not taken yet (the menu asks every frame until it has one)
 +    if (!busy) gDailyState = 1;
 +    LightLock_Unlock(&gLock);
-+    if (!busy) spawn(dailyInfoThread, NULL);
++    if (!busy && !spawn(dailyInfoThread, NULL)) unbusy(&gDailyState);
 +}
 +
 +int smzDailyTakeInfo(SmzDailyInfo *d)
@@ -1939,7 +1943,7 @@ index 0000000..c4f3bef
 +    bool busy = gHintState == 1;
 +    if (!busy) { gHintState = 1; gHintRun = *r; }
 +    LightLock_Unlock(&gLock);
-+    if (!busy) spawn(dailyHintsThread, NULL);
++    if (!busy && !spawn(dailyHintsThread, NULL)) unbusy(&gHintState);
 +}
 +
 +bool smzDailyTakeHints(SmzDailyRun *r)
