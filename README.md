@@ -45,7 +45,10 @@ its row in the list shows the crystals and bosses you have so far.
 - Map Rando (Super Metroid runs): [Map Rando](https://maprando.com) rebuilds the whole map, as SM races play it.
   Pick Beginner, Season 5 or another preset and a skill level. PC, Linux handhelds, the Thor and Android make the
   seed on the device; the 3DS downloads it from the server, so it needs a connection there. The tracker shows items
-  and the hash only, since its map is the vanilla one. These runs stay off the online ladder for now.
+  and the hash only, since its map is the vanilla one. A Season 5 or Beginner run with the preset's own settings
+  goes on that preset's online table.
+- Race presets (A Link to the Past runs): Casual Boots, Standard and AD Keys, as SahasrahBot defines them for
+  racetime races. Each has its own online table; on the ladder screen, A on the first tab switches tables.
 - Monthly seed: one fixed seed per month, the same for everyone, with its own table of best times.
 - Weekly run: a short run on a new seed every Monday at 00:00 UTC. Two crystals open Ganon's Tower and Ganon, and
   one boss opens Tourian.

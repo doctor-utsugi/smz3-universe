@@ -90,7 +90,7 @@ the owner's answers of 2026-11-24 are folded in.
 | Slots | Per game: 32 runs on the Thor and PC and 4 on the 3DS for each of the three games, plus that game's daily. |
 | Ladders | Per game: Original rules, Monthly seed, Weekly run, Daily challenge, Championship races. No table mixes games. |
 | Original rules | Z3: alttpr.com's default preset (`config/alttp.php`, preset `default`): Open, Defeat Ganon, 7/7 crystals, Standard dungeon items, 100% Inventory, Advanced placement, Randomized swords, Normal pool, no glitches, hints on. SM: Tournament logic, Split placement. SMZ3 unchanged. |
-| Ladder presets | Besides Original, each game gets the presets its community races, each with its own table, built from the community's own definitions (SahasrahBot's `presets/alttpr/*.yaml` for Z3, maprando.com's presets for Map Rando). Counted on 2026-11-24 from racetime race descriptions (the last 1000 alttpr races, 26 Sep to 24 Nov 2026; the last 300 smr races, November 2026). Z3 at launch: Casual Boots (Standard, assured sword, Pegasus Boots; the most raced preset besides tournament formats), Standard, AD Keys (All Dungeons, full keysanity). Z3 later, as each option is ported: Inverted, and Enemizer (the most mentioned of all, needs boss and enemy shuffle). Crosskeys is raced a lot too but needs entrance shuffle, which is not planned. Fast Ganon stays the weekly's goal, without a table (barely raced). SM: the community races only Map Rando (every smr race sampled: the Season 5 league settings, its Item Draft matches, and a few Beginner/chill ones). Tables: Map Rando Season 5 and Map Rando Beginner. tewtal's generator keeps Original (Tournament, Split) as the classic, without preset tables of its own, since nobody races its other options. Item Draft (each player drafts starting items) is a 1v1 format, a candidate for the races. SMZ3: the tables it has today. Custom stays off the ladders. |
+| Ladder presets | Besides Original, each game gets the presets its community races, each with its own table, built from the community's own definitions (SahasrahBot's `presets/alttpr/*.yaml` for Z3, maprando.com's presets for Map Rando). Counted on 2026-11-24 from racetime race descriptions (the last 1000 alttpr races, 26 Sep to 24 Nov 2026; the last 300 smr races, November 2026). Z3 at launch: Casual Boots (Standard, assured sword, Pegasus Boots; the most raced preset besides tournament formats), Standard, AD Keys (All Dungeons, full keysanity). Z3 later, as each option is ported: Inverted, and Enemizer (the most mentioned of all, needs boss and enemy shuffle). Crosskeys is raced a lot too but needs entrance shuffle, which is not planned. Fast Ganon stays the weekly's goal, without a table (barely raced). SM: the community races only Map Rando (every smr race sampled: the Season 5 league settings, its Item Draft matches, and a few Beginner/chill ones). Tables: Map Rando Season 5 and Map Rando Beginner. tewtal's generator keeps Original (Tournament, Split) as the classic, without preset tables of its own, since nobody races its other options. Item Draft (each player drafts starting items) is a 1v1 format, a candidate for the races. SMZ3: the tables it has today. Custom stays off the ladders. Built and deployed on 2026-11-24 (see Online, Server, Preset tables). |
 | Online rules | Same as SMZ3 today, in all three games: no ladder, monthly, weekly, daily or race run allows save states or rewind. Fast forward is allowed on ladder, monthly and weekly runs because the run clock counts the time the game would have taken at normal speed (PC passes the factor to `smz_tracker_tick`, `frontends/pc/pc_main.c:2357`; the 3DS counts fast-forwarded frames at the SNES rate; Android scales the clock with the speed), so it gives no time back. Daily and race runs block it (the `challenge` flag) because their clock is the real one. The racetime ban on fast forward exists because races there are timed in real time; it does not apply to this clock. Z3 allows Save & Quit, SM allows saving and reloading at stations: both are part of the game. |
 | End of a run | Z3: the mosaic before the Triforce room; pedestal goal at the end of the pedestal animation; triforce hunt and Ganonhunt where the game ends them. SM: Samus loses control entering the ship. Read from memory, never from a button. |
 | Hash on screen | Z3: the five file select icons, also shown in the run row and the race ready room. SM: the seed hash the base patch draws, if it draws one, else the tracker shows a name built from the seed. |
@@ -234,6 +234,13 @@ the discovery map logic.
   SM Partial: none, since the base patch has one goal). Draft goals per game.
 - **World goals:** the catalog already groups goals as zelda, metroid and shared; Z3 and SM runs add to them.
 - **Web** (`smz3-universe.duckdns.org`): a game switch at the top of every table.
+- **Preset tables** (built and deployed): `PRESETS` in `server.js` lists each game's presets with the settings the
+  proof checker regenerates the seed from. `/api/games` lists them; `/api/start` takes `preset` for an original run
+  only and adds it to the token (`...startedAt.game.preset.sig`, so SMZ3 and Original tokens are unchanged);
+  `/api/ladder?preset=` reads one table; records carry `preset`. The web page shows the tables as buttons in the
+  Original section. Z3: `casual_boots` (Standard, assured sword, hints off, boots from the start, as SahasrahBot's
+  `casualboots.yaml`), `standard`, `ad_keys`; SM: `mr_s5`, `mr_beginner`. The clients send the preset when the run's
+  rules are exactly a preset's (`ui_run_preset`), and the ladder screen's first tab cycles the tables with A.
 
 ### Clients
 
@@ -303,14 +310,14 @@ host and called through a small C interface, the way `maprando-wasm` wraps them 
   settings and seed number give the same seed on every device built from the same pinned crates, which the monthly,
   weekly and daily need. Its site caps a seed's attempts by time (60 seconds, `attempts_timeout`); the devices cap
   them by count instead, so a slow console reaches the same seed as a fast one instead of giving up earlier.
-- **Ladders:** Map Rando Season 5 and Map Rando Beginner as SM preset tables (see Ladder presets); the monthly and
-  weekly can also be Map Rando seeds. Not built yet: the ladder has no preset dimension for any game (a table is a
-  game and a kind: original, monthly or weekly), so a Map Rando run is a custom run and never goes online. The tables
-  come with that dimension, for Z3's presets too.
+- **Ladders:** Map Rando Season 5 and Map Rando Beginner are SM preset tables (see Ladder presets, built and
+  deployed). The monthly and weekly stay classic seeds for now.
 - **Tracker and proof:** the tracker's SM map does not match a rebuilt map, so it shows items and the hash only until
-  the map can be drawn from the seed's room layout. The proof checker would keep the time and rate rules only: there
-  is no logic check for a Map Rando seed (`smz_sm_proof_logic` answers "no logic" for one). Running the crate on the
-  server for it comes with the tables.
+  the map can be drawn from the seed's room layout. The proof checker keeps the time and rate rules only: there is no
+  logic check for a Map Rando seed (`smz_sm_proof_logic` answers "no logic" for one). A check is possible with the
+  crate's own traverser (`Randomizer::update_reachability`), but the server would have to regenerate the seed for each
+  finish (5 to 10 s and about 800 MB on the VM), rebuild the start location and hub, and map the tracker's location
+  ids to the crate's item locations. Not built; a Map Rando finish is trusted on time and rate as before.
 - **Save and items:** Map Rando keeps 0xA00-byte save slots at $0010, $0A10 and $1410 (classic SM: 0x65C), items at
   +0xB0; the hosts pass `SMZ3_MAPRANDO` with the mode. Checked on a generated ROM: the 100 item PLMs keep bit index =
   location id, so the tracker's location table holds.
@@ -345,7 +352,7 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 2. **SM generator** (stages 1-5 above).
 3. **SM on the hosts:** the game carousel and per-game run lists, single ROM, tracker half map, end of run, hash, sprites. Offline only.
 4. **SM online:** ladders, presets, monthly, weekly, proof checker, web switch. Then the SM daily, races and goals.
-   Built, not deployed: Original only (Map Rando tables wait for step 9); weekly a Split seed, monthly Original; proof
+   Deployed: Original, plus the Map Rando Season 5 and Beginner tables; weekly a Split seed, monthly Original; proof
    minimum 10 checks and 5 minutes; daily ids `sm-<date>-<n>`; races Championship Full only (see DAILY.md, RACES.md).
 5. **Z3 base patch and oracle** (stages 1-2 above).
 6. **Z3 generator** for the first-release options (stages 3-6).
@@ -361,8 +368,8 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
    waits for the Enemizer (step 9) to write them; the customizer is not started.
 9. **Map Rando** on every host but the old 3DS; then the Enemizer boss shuffle.
    Done (see Map Rando, On each host): PC, Linux handhelds, Android and the Thor generate on the device; both 3DS
-   models take the server's BPS patch, with a connection. The ladder tables wait for a preset dimension on the
-   ladder. The Enemizer boss shuffle is in `core/z3gen` (Z3.md).
+   models take the server's BPS patch, with a connection. The ladder tables are built (Online, Server, Preset
+   tables). The Enemizer boss shuffle is in `core/z3gen` (Z3.md).
 10. **Map Rando on the old 3DS**, after everything else; the server and BPS patch only if it cannot fit.
     Today both 3DS models use the server's BPS patch (step 9); running the crate on the console is still open.
 
