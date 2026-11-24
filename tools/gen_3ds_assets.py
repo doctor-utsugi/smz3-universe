@@ -26,11 +26,29 @@ def rgb565(im):
 
 # map<n>.bin: u16 w, u16 h, RGB565 rows; level n has 1/2^(n+1) pixel per unit of the 1623 x 958 marker space
 os.makedirs(os.path.join(romfs, "icons"), exist_ok=True)
-full = Image.open(os.path.join(src, "map.png"))
+full = Image.open(os.path.join(src, "map.png")).convert("RGB")
+# the map without the other game's portals (map_patches.png, tools/map_portals.py), for the single-game runs
+clean = full.copy()
+strip = Image.open(os.path.join(src, "map_patches.png")).convert("RGB")
+for x, y, w, h, sx in json.load(open(os.path.join(src, "map_patches.json"))):
+    clean.paste(strip.crop((sx, 0, sx + w, h)), (x, y))
 for n in range(3):
     w, h = round(1623 / 2 ** (n + 1)), round(958 / 2 ** (n + 1))
-    im = full.resize((w, h), Image.LANCZOS)
+    im, cl = full.resize((w, h), Image.LANCZOS), clean.resize((w, h), Image.LANCZOS)
     open(os.path.join(romfs, "map%d.bin" % n), "wb").write(struct.pack("<HH", w, h) + rgb565(im))
+    # mapp<n>.bin: u16 count, then per rectangle u16 x, y, w, h, its RGB565 pixels as the map has them and as clean
+    a, c, boxes = im.tobytes(), cl.tobytes(), []
+    for x, y, pw, ph, _ in json.load(open(os.path.join(src, "map_patches.json"))):
+        f = 2 ** (n + 2)   # full-size pixels per level pixel; the box takes in the resize's reach around the patch
+        x0, y0 = max(0, int(x / f) - 3), max(0, int(y / f) - 3)
+        x1, y1 = min(w, int((x + pw) / f) + 4), min(h, int((y + ph) / f) + 4)
+        if any(a[(yy * w + xx) * 3:(yy * w + xx) * 3 + 3] != c[(yy * w + xx) * 3:(yy * w + xx) * 3 + 3] for yy in range(y0, y1) for xx in range(x0, x1)):
+            boxes.append((x0, y0, x1 - x0, y1 - y0))
+    data = struct.pack("<H", len(boxes))
+    for x0, y0, bw, bh in boxes:
+        box = (x0, y0, x0 + bw, y0 + bh)
+        data += struct.pack("<HHHH", x0, y0, bw, bh) + rgb565(im.crop(box)) + rgb565(cl.crop(box))
+    open(os.path.join(romfs, "mapp%d.bin" % n), "wb").write(data)
 
 
 def pv(path, out_path, crop=False):
