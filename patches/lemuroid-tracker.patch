@@ -3238,10 +3238,10 @@ index 0000000..91f0bba
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 new file mode 100644
-index 0000000..e341844
+index 0000000..e232c5f
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,166 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -3289,8 +3289,10 @@ index 0000000..e341844
 +    /** [mode] as the core's SMZ_MODE_* (0 SMZ3, 1 ALttP, 2 Super Metroid). */
 +    fun modeIndex() = when (mode) { "z3" -> 1; "sm" -> 2; else -> 0 }
 +
-+    /** What the memory reads follow for a run of the game shown: its mode, with SMZ3_MAPRANDO (0x10) for a Map Rando seed. */
-+    fun stateMode(settings: String?) = modeIndex() or (if (mode == "sm" && MapRando.isMapRando(settings)) 0x10 else 0)
++    /** What the memory reads follow for a run of the game shown: its mode, with SMZ3_MAPRANDO (0x10) for a Map Rando seed and
++     *  SMZ3_Z3_INVERTED (0x20) for an Inverted ALttP run. */
++    fun stateMode(settings: String?) = modeIndex() or (if (mode == "sm" && MapRando.isMapRando(settings)) 0x10 else 0) or
++        (if (mode == "z3" && settings?.contains("\"world_state\":\"inverted\"") == true) 0x20 else 0)
 +
 +    fun runsDir(context: Context) = runsDir(context, mode)
 +
@@ -6691,10 +6693,10 @@ index 0000000..6aac24b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
 new file mode 100644
-index 0000000..2634dfa
+index 0000000..45c74d7
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
-@@ -0,0 +1,590 @@
+@@ -0,0 +1,591 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -7181,10 +7183,11 @@ index 0000000..2634dfa
 +        val radius = (5f + 2f * zoom).coerceIn(5f, 16f)
 +        for (m in markers) {
 +            if ((Smz3Tracker.smAlone && m[1] < SM_LEFT) || (Smz3Tracker.z3Alone && m[1] >= SM_LEFT)) continue
-+            pts[0] = m[1].toFloat(); pts[1] = m[2].toFloat()
++            val my = (m[2] + Smz3Native.markerDy(m[0])).toFloat()
++            pts[0] = m[1].toFloat(); pts[1] = my
 +            matrix.mapPoints(pts)
 +            if (pts[0] < -20 || pts[1] < -20 || pts[0] > width + 20 || pts[1] > height + 20) continue
-+            if (discoveredOnly && !isSeen(m[1].toFloat(), m[2].toFloat())) continue
++            if (discoveredOnly && !isSeen(m[1].toFloat(), my)) continue
 +            val stack = stacks[m[0]]
 +            if (stack != null) {
 +                // a dungeon is one dot: finished only when every check inside is, as pending as its remaining checks
@@ -7358,10 +7361,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..d3bffdd
+index 0000000..ba020a8
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,195 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7432,6 +7435,8 @@ index 0000000..d3bffdd
 +
 +    /** Which randomizer's ROM the memory reads follow (0 SMZ3, 1 A Link to the Past alone, 2 Super Metroid alone). */
 +    @JvmStatic external fun setMode(mode: Int)
++    /** How far down the half-size map the check's marker moves in the mode set (Inverted's Link's House). */
++    @JvmStatic external fun markerDy(index: Int): Int
 +
 +    @JvmStatic external fun itemByName(name: String): Int
 +

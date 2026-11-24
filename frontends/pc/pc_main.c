@@ -1967,7 +1967,7 @@ static void play(int slot, int game_save_only)
     map_game_rom(rom, rl);
     free(rom);
     if (!ok) { note("the emulator could not load the ROM"); return; }
-    smz3_set_mode(run.mode | (smz_sm_is_maprando(run.settings) ? SMZ3_MAPRANDO : 0));   /* the tracker reads the memory of this run's game */
+    smz3_set_mode(run.mode | smz3_mode_flags(run.settings));   /* the tracker reads the memory of this run's game */
 
     /* runs that send a time online (the ladders, the daily challenge) and finished runs never allow states, whatever their options */
     int states = json_flag(run.settings, "saveStates", 0) && !online_slot_kind(slot + 1) && !strstr(run.settings, "\"challenge\":true");

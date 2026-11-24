@@ -303,9 +303,9 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
         const SmzMarker *m = &d->data->markers[k];
         int i = m->index;
         if (i < 0 || i >= (int)smz3_location_count || i >= 512 || !smz3_mode_has(smz3_locations[i].game)) continue;
-        float px = ox + m->x * z, py = oy + m->y * z;
+        float my = (float)(m->y + smz3_marker_dy(i)), px = ox + m->x * z, py = oy + my * z;
         if (px < area.x - 20 || py < area.y - 20 || px > area.x + area.w + 20 || py > area.y + area.h + 20) continue;
-        if (discovered_only && !seen_at(seen, ns, (float)m->x, (float)m->y)) continue;
+        if (discovered_only && !seen_at(seen, ns, (float)m->x, my)) continue;
         int head = stack_head[i], stacked = stack_size[head] > 1, done;
         if (stacked) {
             if (i != head) continue;

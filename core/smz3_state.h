@@ -39,6 +39,11 @@ typedef struct {
  * checks. SM alone has its own three-slot SRAM; ALttP alone keeps the combo's Zelda layout (z3randomizer's sram.asm). */
 void smz3_set_mode(int mode);
 #define SMZ3_MAPRANDO 0x10   /* or'ed into smz3_set_mode's mode: SM alone built by Map Rando, which keeps 0xA00 byte save slots */
+#define SMZ3_Z3_INVERTED 0x20   /* or'ed in too: ALttP alone in Inverted, where Link's House is in the Dark World */
+/* The flags above that a run's settings JSON asks for. */
+int smz3_mode_flags(const char *settings);
+/* How far down the half-size map a check's marker moves in this mode: the Dark World's height for Inverted's Link's House. */
+int smz3_marker_dy(int index);
 int smz3_sm_alone(void);
 int smz3_maprando(void);
 int smz3_z3_alone(void);

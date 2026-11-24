@@ -2731,7 +2731,7 @@ index 0000000..2c4963b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..57d5be4
+index 0000000..3bad20c
 --- /dev/null
 +++ b/source/smz3run.cpp
 @@ -0,0 +1,6175 @@
@@ -4134,7 +4134,7 @@ index 0000000..57d5be4
 +                    // On the 3DS the picture is the pause menu's Screen option, the same for every run (the run's own screen
 +                    // shape and filter are the Thor's and the PC's).
 +                    applyScreen();
-+                    smz3_set_mode(r.mode | (smz_sm_is_maprando(r.settings) ? SMZ3_MAPRANDO : 0));   // the tracker reads memory the way the run's ROM keeps it
++                    smz3_set_mode(r.mode | smz3_mode_flags(r.settings));   // the tracker reads memory the way the run's ROM keeps it
 +                    mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777); addShortcutHooks(r.rom_path); snprintf(romPathOut, cap, "%s", r.rom_path); gPlaySlot = slot; chosen = true; break; }
 +            }
 +        }
@@ -4897,9 +4897,9 @@ index 0000000..57d5be4
 +        int i = m.markers[k].index;
 +        if (i < 0 || i >= (int)smz3_location_count || i >= SMZ_TRK_MAX_LOCS) continue;
 +        if (!smz3_mode_has(smz3_locations[i].game)) continue;
-+        float px = ox + m.markers[k].x * v.zoom, py = oy + m.markers[k].y * v.zoom;
++        float my = (float)(m.markers[k].y + smz3_marker_dy(i)), px = ox + m.markers[k].x * v.zoom, py = oy + my * v.zoom;
 +        if (px < ax - 8 || py < ay - 8 || px > ax + aw + 8 || py > ay + ah + 8) continue;
-+        if (discoveredOnly && !isSeen((float)m.markers[k].x, (float)m.markers[k].y)) continue;
++        if (discoveredOnly && !isSeen((float)m.markers[k].x, my)) continue;
 +        int head = stackHead[i];
 +        bool done;
 +        if (stackSize[head] > 1) {
@@ -7975,7 +7975,7 @@ index 0000000..57d5be4
 +        memset(&r0, 0, sizeof r0);
 +        if (curSlot >= 0 && runLoad(rp, &r0) == 0) smz_tracker_reset(&trk, r0.play_ms, r0.save_ms, r0.save_zelda, r0.save_metroid);
 +        else smz_tracker_reset(&trk, 0, 0, 0, 0);
-+        smz3_set_mode(r0.mode | (smz_sm_is_maprando(r0.settings) ? SMZ3_MAPRANDO : 0));
++        smz3_set_mode(r0.mode | smz3_mode_flags(r0.settings));
 +        snprintf(runName, sizeof runName, "%s", r0.name);
 +        const char *hp = strstr(r0.settings, "\"hash\":\"");   // a single game's seed hash, as its file select screen shows it
 +        snprintf(runHash, sizeof runHash, "%.*s", hp ? (int)strcspn(hp + 8, "\"") : 0, hp ? hp + 8 : "");

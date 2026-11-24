@@ -1,3 +1,4 @@
+#include <string.h>
 #include "smz3_state.h"
 
 #define WRAM_ZELDA_MODULE 0x0010
@@ -9,9 +10,30 @@
 #define SRAM_ZELDA 0x0000        /* 0xA06000 */
 #define SRAM_METROID 0x20C0      /* 0xA160C0 */
 
-static int g_sm_alone, g_z3_alone, g_maprando;
+#define DARK_WORLD_DY 479   /* the Dark World sits under the Light World, 958 / 2 */
 
-void smz3_set_mode(int mode) { g_sm_alone = (mode & 15) == 2; g_z3_alone = (mode & 15) == 1; g_maprando = g_sm_alone && (mode & SMZ3_MAPRANDO); }
+static int g_sm_alone, g_z3_alone, g_maprando, g_inverted;
+
+void smz3_set_mode(int mode)
+{
+    g_sm_alone = (mode & 15) == 2;
+    g_z3_alone = (mode & 15) == 1;
+    g_maprando = g_sm_alone && (mode & SMZ3_MAPRANDO);
+    g_inverted = g_z3_alone && (mode & SMZ3_Z3_INVERTED);
+}
+
+int smz3_mode_flags(const char *settings)
+{
+    if (!settings) return 0;
+    return (strstr(settings, "\"generator\":\"maprando\"") ? SMZ3_MAPRANDO : 0) |
+           (strstr(settings, "\"world_state\":\"inverted\"") ? SMZ3_Z3_INVERTED : 0);
+}
+
+int smz3_marker_dy(int index)
+{
+    return g_inverted && index >= 0 && (unsigned)index < smz3_location_count && !strcmp(smz3_locations[index].id, "LinksHouse")
+        ? DARK_WORLD_DY : 0;
+}
 int smz3_sm_alone(void) { return g_sm_alone; }
 int smz3_maprando(void) { return g_maprando; }
 int smz3_z3_alone(void) { return g_z3_alone; }

@@ -452,6 +452,7 @@ JNIEXPORT jint JNICALL NATIVE(mapRandoProgress)(JNIEnv *env, jclass cls)
 
 /* Which randomizer's ROM the reads follow (smz3_set_mode): set when a run starts, in each process that reads memory. */
 JNIEXPORT void JNICALL NATIVE(setMode)(JNIEnv *env, jclass cls, jint mode) { smz3_set_mode(mode); }
+JNIEXPORT jint JNICALL NATIVE(markerDy)(JNIEnv *env, jclass cls, jint index) { return smz3_marker_dy(index); }
 
 JNIEXPORT jint JNICALL NATIVE(itemByName)(JNIEnv *env, jclass cls, jstring name)
 {
