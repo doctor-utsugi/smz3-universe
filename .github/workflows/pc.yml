@@ -1,7 +1,7 @@
 # Builds the PC app for Linux, Windows and macOS, the Android app and the 3DS homebrew. vendor/ is not in git: the IPS patches and map icons are copied from their source
 # repositories by tools/prepare_assets.py. The Super Metroid room table is derived from a ROM and cannot be committed, so these CI
 # builds ship an empty one (the map still works, without the discovered-room overlay of Super Metroid).
-# Map Rando (tools/maprando/fetch.sh, Rust) goes into the Linux, Windows and Android builds; macOS is built without it.
+# Map Rando (tools/maprando/fetch.sh, Rust) goes into the Linux, Windows, macOS and Android builds.
 name: pc
 on:
   workflow_dispatch:
@@ -67,7 +67,7 @@ jobs:
       matrix:
         os: [macos-15-intel]   # the Apple-silicon images never got a runner for this account
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Fetch assets
@@ -90,6 +90,10 @@ jobs:
           ./configure -q --prefix="$RUNNER_TEMP/sdl2" --disable-shared --enable-static
           make -s -j"$(sysctl -n hw.ncpu)" install >/dev/null
           echo "$RUNNER_TEMP/sdl2/bin" >> "$GITHUB_PATH"
+      - name: Map Rando sources and data
+        run: |
+          command -v zstd >/dev/null || brew install zstd
+          tools/maprando/fetch.sh
       - run: ./build-pc.sh
       - name: SDL2 is inside the binary
         run: |
@@ -111,7 +115,7 @@ jobs:
           rc=$?
           echo "window run exit code $rc (142 = still running when the alarm fired)"
           [ $rc -eq 142 ] || exit 1
-      - run: cp -r assets/sprites build/pc/sprites && tar czf SMZ3-macos-intel.tar.gz -C build/pc smz3 sprites
+      - run: cp -r assets/sprites build/pc/sprites && cp -r build/maprando-data build/pc/maprando-data && tar czf SMZ3-macos-intel.tar.gz -C build/pc smz3 sprites maprando-data
       - uses: actions/upload-artifact@v4
         with:
           name: smz3-macos

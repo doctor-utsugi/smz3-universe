@@ -34,8 +34,9 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT/rust" "$OUT/sm-json-data" "$OUT/patches" "$OUT/TitleScreen" "$OUT/gfx" "$OUT/maps"
 cp -r "$SRC/rust/data" "$SRC/rust/VERSION" "$OUT/rust/"
+# tar keeps the region folders, as GNU cp --parents would, on macOS too
 (cd "$SRC/sm-json-data" && cp -r connection enemies weapons tech.json helpers.json items.json numerics.json LICENSE.md \
-    "$OUT/sm-json-data/" && find region -name '*.json' -exec cp --parents {} "$OUT/sm-json-data/" \;)
+    "$OUT/sm-json-data/" && find region -name '*.json' | tar -cf - -T - | tar -xf - -C "$OUT/sm-json-data")
 cp "$SRC/room_geometry.json" "$SRC/LICENSE" "$OUT/"
 cp -r "$SRC/patches/ips" "$SRC/patches/rom_map" "$OUT/patches/"
 mkdir -p "$OUT/patches/mosaic"   # the vanilla tile theme only, the one the hosts offer
