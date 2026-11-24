@@ -2,6 +2,7 @@
    Location/World methods the transpiled closures call. Ported from alttp_php_randomizer (sporchia, MIT). */
 #include <string.h>
 #include "z3_world.h"
+#include "z3_romdata_gen.h"
 
 #define H(i) (it->n[Z3_ITEM_##i] > 0)
 
@@ -39,6 +40,13 @@ void z3_world_init(Z3World *w, const Z3Cfg *cfg)
     memset(w, 0, sizeof *w);
     w->cfg = *cfg;
     z3_world_defaults(w);
+    for (int s = 0; s < Z3_SHOP_COUNT; s++)   /* the region constructors' default inventories */
+        for (int k = 0; k < 3; k++) {
+            const Z3ShopSlot *d = &Z3_SHOP_ROM[s].inv[k];
+            w->shop[s].item[k] = d->item;
+            w->shop[s].max[k] = d->max;
+            w->shop[s].price[k] = d->price;
+        }
 }
 
 bool z3_has(const Z3Items *it, int item, int at_least)
@@ -200,21 +208,64 @@ bool z3_loc_collectable(int loc)
     return strcmp(k, "Medallion") != 0 && strcmp(k, "Fountain") != 0;
 }
 
-/* Sweeps like World::collectItems() with a fresh collected list (PHP keeps one across calls; see docs/Z3.md). */
+bool z3_shop_access(const Z3World *w, const Z3Items *it, int shop)
+{
+    return z3_region_enter(w, it, Z3_SHOPS[shop].region) && z3_shop_req(w, it, shop);
+}
+
+/* The do/while of World::collectItems and collectOtherItems: each pass tests every location against the items held
+   when the pass began, as PHP's filter does. Shop inventories count as locations (getCollectableLocations). */
+static void sweep(const Z3World *w, Z3Items *have, Z3Items *found, Z3Collected *col)
+{
+    Z3Collected fresh;
+    if (!col) {
+        memset(&fresh, 0, sizeof fresh);
+        col = &fresh;
+    }
+    for (int n = 1; n;) {
+        Z3Items before = *have;
+        n = 0;
+        for (int l = 0; l < Z3_LOC_COUNT; l++) {
+            int item = w->item_at[l];
+            if (col->loc[l] || item == Z3_ITEM_NONE || !z3_loc_collectable(l) || !z3_loc_exists(w, l)) continue;
+            if (!z3_loc_access(w, &before, l)) continue;
+            col->loc[l] = true;
+            col->count++;
+            z3_items_add(have, item, 1);
+            if (found) z3_items_add(found, item, 1);
+            n++;
+        }
+        for (int s = 0; s < Z3_SHOP_COUNT; s++)
+            for (int k = 0; k < 3; k++) {
+                int item = w->shop[s].item[k];
+                if (col->shop[s][k] || item == Z3_ITEM_NONE || !z3_shop_access(w, &before, s)) continue;
+                col->shop[s][k] = true;
+                col->count++;
+                z3_items_add(have, item, 1);
+                if (found) z3_items_add(found, item, 1);
+                n++;
+            }
+    }
+}
+
+void z3_collect_items(const Z3World *w, const Z3Items *in, Z3Items *out)
+{
+    if (in) *out = *in;
+    else memset(out, 0, sizeof *out);
+    for (int i = 0; i < Z3_ITEM_COUNT; i++) z3_items_add(out, i, w->pre.n[i]);
+    sweep(w, out, NULL, w->col);
+}
+
+void z3_collect_other(const Z3World *w, const Z3Items *in, Z3Items *found)
+{
+    Z3Items have = *in;
+    memset(found, 0, sizeof *found);
+    sweep(w, &have, found, w->col);
+}
+
 void z3_collect(const Z3World *w, Z3Items *out)
 {
-    bool taken[Z3_LOC_COUNT] = { false };
-    *out = w->pre;
-    for (bool found = true; found;) {
-        Z3Items before = *out;
-        found = false;
-        for (int l = 0; l < Z3_LOC_COUNT; l++) {
-            if (taken[l] || w->item_at[l] == Z3_ITEM_NONE || !z3_loc_collectable(l) || !z3_loc_exists(w, l)) continue;
-            if (!z3_loc_access(w, &before, l)) continue;
-            taken[l] = found = true;
-            z3_items_add(out, w->item_at[l], 1);
-        }
-    }
+    z3_collect_items(w, NULL, out);
 }
 
 bool z3_loc_access_collected(const Z3World *w, int loc)
@@ -222,4 +273,11 @@ bool z3_loc_access_collected(const Z3World *w, int loc)
     Z3Items all;
     z3_collect(w, &all);
     return z3_loc_access(w, &all, loc);
+}
+
+bool z3_win_condition(const Z3World *w, const Z3Items *it)
+{
+    return z3_has(it, Z3_ITEM_Triforce, 1)
+        || (z3_region_enter(w, it, Z3_REG_North_East_Light_World) && w->cfg.goal == Z3_GOAL_TRIFORCE_HUNT
+            && z3_has(it, Z3_ITEM_TriforcePiece, w->cfg.item_Goal_Required));
 }
