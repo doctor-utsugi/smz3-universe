@@ -78,17 +78,23 @@ static int apply_ips(uint8_t *rom, size_t size, const uint8_t *p, size_t n)
 int z3_generate(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len, uint8_t *out_rom, size_t out_cap,
                 uint32_t seed, char *hash_out, uint8_t *icons_out)
 {
+    Z3Rng r;
+    z3_rng_init(&r, seed);
+    return z3_generate_rng(s, jp_rom, jp_len, out_rom, out_cap, &r, seed, hash_out, icons_out);
+}
+
+int z3_generate_rng(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len, uint8_t *out_rom, size_t out_cap,
+                    Z3Rng *r, uint32_t seed, char *hash_out, uint8_t *icons_out)
+{
     static Z3Seed z;   /* static: the 3DS stack is small */
     if (jp_len != Z3_JP_SIZE || out_cap < Z3_ROM_SIZE) return -1;
     memcpy(out_rom, jp_rom, Z3_JP_SIZE);
     memset(out_rom + Z3_JP_SIZE, 0, Z3_ROM_SIZE - Z3_JP_SIZE);   /* Rom::resize before the base patch */
     if (apply_ips(out_rom, Z3_ROM_SIZE, Z3_BASE_IPS, Z3_BASE_IPS_LEN)) return -2;
 
-    Z3Rng r;
-    z3_rng_init(&r, seed);
     /* prepSeed draws the random crystal counts first, Ganon's before the tower's. */
-    int ganon = s->crystals_ganon < 0 ? z3_rng_int(&r, 0, 7) : s->crystals_ganon;
-    int tower = s->crystals_tower < 0 ? z3_rng_int(&r, 0, 7) : s->crystals_tower;
+    int ganon = s->crystals_ganon < 0 ? z3_rng_int(r, 0, 7) : s->crystals_ganon;
+    int tower = s->crystals_tower < 0 ? z3_rng_int(r, 0, 7) : s->crystals_tower;
 
     Z3Cfg c;
     z3_cfg_defaults(&c);
@@ -106,8 +112,9 @@ int z3_generate(const Z3GenSettings *s, const uint8_t *jp_rom, size_t jp_len, ui
     z3_cfg_derive(&c);
 
     z3_seed_init(&z, &c);
-    if (z3_fill(&z, &r)) return -3;
-    z3_rom_write(out_rom, &z, s, &r);
+    if (z3_fill(&z, r)) return -3;
+    z3_texts_randomize(&z, r, s->hints);
+    if (z3_rom_write(out_rom, &z, s, r)) return -5;
     if (!z3_seed_winnable(&z)) return -4;   /* prepSeed: "Game Unwinnable" */
     if (s->tournament) z3_rom_set_tournament(out_rom, true);   /* rummageTable() is an empty stub upstream */
 

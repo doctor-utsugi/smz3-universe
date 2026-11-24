@@ -79,6 +79,8 @@ void z3_seed_init(Z3Seed *s, const Z3Cfg *cfg)
     z3_world_init(&s->w, cfg);
     s->w.col = &s->col;
     s->uncle_target = Z3_ITEM_NONE;
+    s->bow_alt_loc = -1;
+    z3_texts_init(&s->tx);
     z3_items_add(&s->w.pre, Z3_ITEM_BossHeartContainer, 3);
     z3_items_add(&s->w.pre, Z3_ITEM_BombUpgrade10, 1);
     z3_items_add(&s->w.pre, Z3_ITEM_ArrowUpgrade10, 3);
@@ -270,7 +272,9 @@ static int prepare_world(Z3Seed *s, Z3Rng *r, List *dungeon, List *adv, List *ni
 
     set_shops(w);
     set_medallions(w, r);
-    /* placeBosses with bossShuffle none: z3_world_defaults already holds alttpr's bosses. */
+    /* placeBosses with bossShuffle none: z3_world_defaults holds the dungeon bosses; it ends with these two. */
+    w->boss_of[Z3_REG_Hyrule_Castle_Tower] = Z3_BOSS_Agahnim;
+    w->boss_of[Z3_REG_Ganons_Tower] = Z3_BOSS_Agahnim2;
     if (fill_prizes(s, r, 5)) return -1;
     set_fountains(w, r);
     shuffle_prize_packs(s, r);
@@ -360,6 +364,8 @@ static int prepare_world(Z3Seed *s, Z3Rng *r, List *dungeon, List *adv, List *ni
     shuffle(adv, r);
     shuffle(nice, r);
     shuffle(trash, r);
+    memcpy(s->adv, adv->v, (size_t)adv->n);
+    s->n_adv = adv->n;
     return 0;
 }
 

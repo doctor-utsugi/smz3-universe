@@ -1,9 +1,8 @@
 /* Port of World::writeToRom, setEscapeFills, writePrizePacksToRom and the Rom.php setters they call
    (alttp_php_randomizer, sporchia, MIT), for Open/Standard, No Glitches, no enemizer, retro, timer or multiworld.
-   Not ported (texts): World::$texts/$credits and Rom::setText/setCredit/writeText/writeCredits, so the credit and
-   tablet texts that Pedestal, Drop\Bombos, Drop\Ether, Npc\Uncle, Npc\Zora, Npc\Witch, Npc\BugCatchingKid and
-   Dig\HauntedGrove set in writeItem, Randomizer::setTexts/randomizeCredits, HintService and setMysteryMasking's
-   intro text. The vanilla key/map/compass swaps of Location::writeItem are off without glitched logic. */
+   Texts and credits: World::$texts/$credits (z3_texts_randomize) plus what the special locations' writeItem sets,
+   written by Rom::writeCredits/writeText (z3_text.c). The vanilla key/map/compass swaps of Location::writeItem are
+   off without glitched logic. */
 #include <string.h>
 #include "z3_rom.h"
 #include "z3_romdata_gen.h"
@@ -75,11 +74,35 @@ static void wbytes(uint8_t *rom, int32_t at, const uint8_t *b, size_t n) { memcp
 
 static bool is_prize(int loc) { return strncmp(Z3_LOCS[loc].kind, "Prize", 5) == 0; }
 
-/* Location::writeItem (and Prize's music, HeraBasement's key fanfare). */
-static void write_item(uint8_t *rom, const Z3Seed *s, const RomCfg *rc, Z3Rng *r, int loc)
+/* The texts the special locations' writeItem sets (Rom::setCredit/setText), by the item's target. */
+static void write_item_text(Z3Seed *s, int loc, int item)
+{
+    static const struct { const char *kind; int text, credit, credit_lt; } special[] = {
+        { "Pedestal", Z3_TXT_mastersword_pedestal_translated, Z3_CREDIT_pedestal, Z3_LT_PEDESTAL_CREDITS },
+        { "Drop_Ether", Z3_TXT_tablet_ether_book, -1, -1 },
+        { "Drop_Bombos", Z3_TXT_tablet_bombos_book, -1, -1 },
+        { "Npc_Uncle", -1, Z3_CREDIT_house, Z3_LT_UNCLE_CREDITS },
+        { "Npc_Zora", -1, Z3_CREDIT_zora, Z3_LT_ZORA_CREDITS },
+        { "Npc_Witch", -1, Z3_CREDIT_witch, Z3_LT_WITCH_CREDITS },
+        { "Npc_BugCatchingKid", -1, Z3_CREDIT_kakariko2, Z3_LT_KID_CREDITS },
+        { "Dig_HauntedGrove", -1, Z3_CREDIT_grove, Z3_LT_GROVE_CREDITS },
+    };
+    static const int text_lt[] = { Z3_LT_PEDESTAL, Z3_LT_ETHER, Z3_LT_BOMBOS };
+    for (int i = 0; i < (int)(sizeof special / sizeof *special); i++) {
+        if (strcmp(Z3_LOCS[loc].kind, special[i].kind)) continue;
+        const char *t;
+        if (special[i].credit >= 0 && (t = Z3_LOC_TEXT[special[i].credit_lt][item])) z3_texts_credit(&s->tx, special[i].credit, t);
+        if (special[i].text >= 0 && (t = Z3_LOC_TEXT[text_lt[i]][item])) z3_texts_set(&s->tx, special[i].text, t);
+    }
+}
+
+/* Location::writeItem (and Prize's music, HeraBasement's key fanfare, the special locations' texts). */
+static void write_item(uint8_t *rom, Z3Seed *s, const RomCfg *rc, Z3Rng *r, int loc)
 {
     int item = s->w.item_at[loc];
     int bytes_of = item == Z3_ITEM_UncleSword && s->uncle_target != Z3_ITEM_NONE ? s->uncle_target : item;
+    write_item_text(s, loc, bytes_of);
+    if (loc == s->bow_alt_loc) bytes_of = Z3_ITEM_ProgressiveBowAlternate;   /* new Item\Bow('ProgressiveBow', [0x65]) */
     const Z3ItemRom *ib = &Z3_ITEM_ROM[bytes_of];
     const Z3LocRom *lr = &Z3_LOC_ROM[loc];
     for (int k = 0; k < lr->n; k++)
@@ -274,14 +297,13 @@ static void remove_uncles_sword(uint8_t *rom)
 
 /* ------------------------------------------------------------------ World::writeToRom */
 
-void z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
+int z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
 {
     const Z3Cfg *c = &s->w.cfg;
     RomCfg rc;
     Z3Sram sram;
     rom_cfg(c, &rc);
     z3_sram_init(&sram);
-    (void)g;
 
     for (int reg = 0; reg < Z3_REG_COUNT; reg++) {   /* each region: placed locations, then the empty ones as Nothing */
         for (int l = 0; l < Z3_LOC_COUNT; l++)
@@ -414,13 +436,23 @@ void z3_rom_write(uint8_t *rom, Z3Seed *s, const Z3GenSettings *g, Z3Rng *r)
 
     bool triforce_hud = c->goal == Z3_GOAL_TRIFORCE_HUNT || c->goal == Z3_GOAL_GANONHUNT || c->item_Goal_Required > 0;
     w8(rom, 0x180039, triforce_hud ? 0 : c->goal == Z3_GOAL_COMPLETIONIST);   /* enableHudItemCounter */
-    /* PHP tests crystals.tower === 0: true for a random draw (an int), maybe not for a request string "0". */
-    if (c->crystals_tower == 0) z3_sram_open_ganons_tower(&sram);
+    /* crystals.tower === 0: prepSeed keeps a chosen count as the request's string, so only a random 0 is an int. */
+    if (g->crystals_tower < 0 && c->crystals_tower == 0) z3_sram_open_ganons_tower(&sram);
     w8(rom, 0x180211, 0x04);                              /* setGameType('item') */
     w8(rom, 0x18008E, 0x00);                              /* setPseudoBoots(false) */
     w8(rom, 0x187032, 0x01);                              /* enableFastRom(true) */
+
+    static uint8_t credits[0x1000];                       /* writeCredits */
+    uint16_t ptrs[Z3_CREDIT_COUNT + 1];
+    int n = z3_credits_data(&s->tx, credits, sizeof credits, ptrs);
+    wbytes(rom, 0x181500, credits, (size_t)n);
+    for (int i = 0; i <= Z3_CREDIT_COUNT; i++) w16(rom, 0x76CC0 + 2 * i, ptrs[i]);
+    n = z3_text_table(&s->tx, rom + 0xE0000);             /* writeText */
+    if (n < 0) return -1;                                 /* Text::getByteArray: "Too BIG" */
+
     z3_sram_write(&sram, rom);                            /* writeInitialSram */
     w16(rom, 0x180196, total_item_count(&s->w));          /* setTotalItemCount */
+    return 0;
 }
 
 /* ------------------------------------------------------------------ outside writeToRom */

@@ -6,7 +6,9 @@
 //   php z3oracle.php worldvectors <count> <seed> <out.txt>     Location::canAccess, Region::canEnter/canComplete per case
 //   php z3oracle.php placementbatch <cases.jsonl> <out.txt>    one {"seed":n, ...settings} per line, full Randomizer run
 //   php z3oracle.php checkplacement <cases.jsonl> <out.txt>    {"settings":{..},"placement":{loc:item}}: winnable + reachable
-//   php z3oracle.php placementrom <base.sfc> <case.json> <out.sfc>  writeToRom for a given placement (Customizer path)
+//   php z3oracle.php placementrom <base.sfc> <case.json> <out.sfc>  a seeded prepSeed run, or writeToRom for a given placement
+//   php z3oracle.php rombatch <base.sfc> <cases.jsonl> <outdir>      placementrom per line, <outdir>/<n>.sfc
+//   php z3oracle.php textdata <out.json>                         data for tools/z3/gen_z3_text.py
 // alttpr draws from random_int (a CSPRNG). The Dockerfile patches get_random_int() so that, once oracle_seed() has run,
 // it draws from mt_rand seeded with mt_srand(seed, MT_RAND_MT19937) instead. Only the oracle is patched; with no seed
 // the generator behaves as upstream.
@@ -20,6 +22,12 @@ use ALttP\Support\ItemCollection;
 use ALttP\Support\WorldCollection;
 use ALttP\World;
 
+// Paths on the command line are relative to the caller's directory (/work); Laravel needs to run from __DIR__.
+$GLOBALS['Z3_CWD'] = getcwd();
+function wp(string $p): string
+{
+    return $p !== '' && $p[0] === '/' ? $p : $GLOBALS['Z3_CWD'] . '/' . $p;
+}
 chdir(__DIR__);
 require __DIR__ . '/vendor/autoload.php';
 $app = require __DIR__ . '/bootstrap/app.php';
@@ -37,6 +45,8 @@ function make_world(array $s): World
 {
     Item::clearCache();
     Boss::clearCache();
+    // alttpr serves one world per request, so its world id is always 1 (the id shows up in some hint texts).
+    (fn () => static::$max_world = 1)->bindTo(null, World::class)();
     $cg = $s['crystals_ganon'] ?? '7';
     $ct = $s['crystals_tower'] ?? '7';
     $logic = ['none' => 'NoGlitches', 'overworld_glitches' => 'OverworldGlitches', 'hybrid_major_glitches' => 'HybridMajorGlitches',
@@ -47,8 +57,10 @@ function make_world(array $s): World
         'dungeonItems' => $s['dungeon_items'] ?? 'standard',
         'accessibility' => $s['accessibility'] ?? 'items',
         'goal' => $s['goal'] ?? 'ganon',
-        'crystals.ganon' => $cg === 'random' ? get_random_int(0, 7) : (int) $cg,
-        'crystals.tower' => $ct === 'random' ? get_random_int(0, 7) : (int) $ct,
+        // prepSeed keeps a chosen count as the request's string; only a random one is an int (World::writeToRom's
+        // `crystals.tower === 0` pre-opens the tower for a random 0 only).
+        'crystals.ganon' => $cg === 'random' ? get_random_int(0, 7) : (string) $cg,
+        'crystals.tower' => $ct === 'random' ? get_random_int(0, 7) : (string) $ct,
         'entrances' => 'none',
         'mode.weapons' => $s['weapons'] ?? 'randomized',
         'tournament' => $s['tournament'] ?? false,
@@ -77,7 +89,7 @@ function cfg_line(World $w): string
 
 function item_names(World $w): array
 {
-    return array_values(array_map(fn ($i) => $i->getName(), Item::all($w)->values()));
+    return array_values(array_map(fn ($i) => $i->getRawName(), Item::all($w)->values()));
 }
 
 function random_items(World $w, array $names): ItemCollection
@@ -101,7 +113,7 @@ function items_line(ItemCollection $items): string
 {
     $counts = [];
     foreach ($items->values() as $i) {
-        $counts[$i->getName()] = ($counts[$i->getName()] ?? 0) + 1;
+        $counts[$i->getRawName()] = ($counts[$i->getRawName()] ?? 0) + 1;
     }
     return 'items' . implode('', array_map(fn ($n, $c) => " $n:$c", array_keys($counts), $counts));
 }
@@ -200,10 +212,10 @@ function cmd_worldvectors(int $count, int $seed, string $path): void
         $items = random_items($w, item_names($w));
         $out .= "case\n" . cfg_line($w) . "\n" . items_line($items) . "\n";
         foreach ($prize_locs as $l) {
-            $out .= "prize\t$l\t{$l->getItem()->getName()}\n";
+            $out .= "prize\t$l\t{$l->getItem()->getRawName()}\n";
         }
         foreach ($w->getRegion('Medallions')->getLocations() as $l) {
-            $out .= "medallion\t$l\t{$l->getItem()->getName()}\n";
+            $out .= "medallion\t$l\t{$l->getItem()->getRawName()}\n";
         }
         foreach ($placed as $p) {
             $out .= "placed\t$p\n";
@@ -223,10 +235,10 @@ function placement_text(World $w): string
 {
     $out = '';
     foreach ($w->getLocations() as $l) {
-        $out .= "P\t$l\t" . ($l->hasItem() ? $l->getItem()->getName() : '-') . "\n";
+        $out .= "P\t$l\t" . ($l->hasItem() ? $l->getItem()->getRawName() : '-') . "\n";
     }
     foreach ($w->getPreCollectedItems()->values() as $i) {
-        $out .= "pre\t{$i->getName()}\n";
+        $out .= "pre\t{$i->getRawName()}\n";
     }
     foreach ($w->getRegions() as $key => $region) {
         $out .= "boss\t$key\t" . ($region->getBoss('top') ? $region->getBoss('top')->getName() : '-') . "\n";
@@ -278,10 +290,13 @@ function cmd_checkplacement(string $in, string $path): void
         try {
             $w = load_placement(json_decode($line, true));
             $out .= 'winnable ' . ((new WorldCollection([$w]))->isWinnable() ? 1 : 0) . "\n";
+            // getCollectableLocations() is cached on first use, so read reachability off a fresh sweep instead.
             $w->resetCollectedLocations();
-            $w->collectItems();
-            foreach ($w->getCollectableLocations() as $l) {
-                $out .= "unreached\t$l\n";
+            $items = $w->collectItems();
+            foreach ($w->getLocations() as $l) {
+                if ($l->hasItem() && !$l instanceof Location\Medallion && !$l instanceof Location\Fountain && !$l->canAccess($items)) {
+                    $out .= "unreached\t$l\t{$l->getItem()->getRawName()}\n";
+                }
             }
         } catch (\Throwable $e) {
             $out .= "error\t" . str_replace("\n", ' ', $e->getMessage()) . "\n";
@@ -290,28 +305,134 @@ function cmd_checkplacement(string $in, string $path): void
     file_put_contents($path, $out);
 }
 
+// A ROM for one seeded case. Without "placement": the whole of prepSeed on the seeded generator (crystals, Randomizer
+// ::randomize with texts, credits and hints, writeToRom, isWinnable, tournament). With "placement": the Customizer
+// path, writeToRom for a given placement after setTexts/randomizeCredits. Either way the seed string is
+// str_pad("VT <seed>", 21) and the hash icons the case's "hash" (alttpr takes both from its database record).
 function cmd_placementrom(string $base, string $in, string $path): void
 {
-    $case = json_decode(file_get_contents($in), true);
-    oracle_seed((int) ($case['settings']['seed'] ?? 1));
-    $case['settings']['override_start_screen'] = $case['hash'] ?? [0, 1, 2, 3, 4];
-    $w = load_placement($case);
+    echo case_rom($base, json_decode(file_get_contents($in), true), $path) . "\n";
+}
+
+// placementrom for every line of a .jsonl, ROMs written as <outdir>/<line number from 0>.sfc
+function cmd_rombatch(string $base, string $in, string $dir): void
+{
+    foreach (file($in, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $n => $line) {
+        try {
+            echo "$n " . case_rom($base, json_decode($line, true), "$dir/$n.sfc") . "\n";
+        } catch (\Throwable $e) {
+            echo "$n error " . str_replace("\n", ' ', $e->getMessage()) . "\n";
+        }
+    }
+}
+
+function case_rom(string $base, array $case, string $path): string
+{
+    $settings = $case['settings'] ?? $case;
+    $seed = (int) ($settings['seed'] ?? 1);
+    $hash = $case['hash'] ?? [0, 1, 2, 3, 4];
+    oracle_seed($seed);
+    $settings['override_start_screen'] = $hash;
     $rom = new Rom($base);
     if (!$rom->checkMD5()) {
         fwrite(STDERR, "base ROM md5 {$rom->getMD5()} is not Rom::HASH " . Rom::HASH . "\n");
         exit(3);
     }
-    $rand = new Randomizer([$w]);
-    $rand->setTexts($w);
-    $rand->randomizeCredits($w);
+    if (isset($case['placement'])) {
+        $case['settings'] = $settings;
+        $w = load_placement($case);
+        $rand = new Randomizer([$w]);
+        $rand->setTexts($w);
+        $rand->randomizeCredits($w);
+    } else {
+        $w = make_world($settings);
+        $rand = new Randomizer([$w]);
+        $rand->randomize();
+    }
     $w->writeToRom($rom);
-    $rom->setStartScreenHash($w->config('override_start_screen'));
-    if ($case['settings']['tournament'] ?? false) {
+    $winnable = (new WorldCollection([$w]))->isWinnable();
+    if ($settings['tournament'] ?? false) {
         $rom->setTournamentType('standard');
         $rom->rummageTable();
     }
+    // Cosmetics: alttpr.com applies them in the browser on save; these are Rom.php's own setters for them.
+    if (isset($settings['heart_beep'])) {
+        $rom->setHeartBeepSpeed($settings['heart_beep']);
+    }
+    if (isset($settings['menu_speed'])) {
+        $rom->setMenuSpeed($settings['menu_speed']);
+    }
+    if (isset($settings['quickswap'])) {
+        $rom->setQuickSwap($settings['quickswap'] === 'true' || $settings['quickswap'] === true);
+    }
+    $rom->setSeedString(str_pad("VT $seed", 21, ' '));
+    $rom->setStartScreenHash($hash);
     $rom->updateChecksum();
     $rom->save($path);
+    return 'winnable ' . ($winnable ? 1 : 0);
+}
+
+// Data for tools/z3/gen_z3_text.py: the dialog table after Rom's removeUnwanted, the string pools setTexts and
+// HintService draw from, the hint names (strings or arrays, exactly as __() returns them) and every location text
+// that writeItem sets, per item. Plus encoder samples (string -> convertDialogCompressed bytes) to check the C encoder.
+function cmd_textdata(string $path): void
+{
+    $w = World::factory('open', []);
+    $text = new \ALttP\Text;
+    $text->removeUnwanted();
+    $table = (fn () => $this->text_array)->call($text);
+    $out = ['text' => []];
+    foreach ($table as $k => $bytes) {
+        $out['text'][] = [$k, array_values($bytes)];
+    }
+    $rand = new Randomizer([$w]);
+    foreach (['uncle', 'tavern_man', 'blind', 'ganon_1', 'ganon_phase_3_no_silvers', 'triforce', 'hint'] as $f) {
+        $out['strings'][$f] = array_values($rand->getTextArray("strings/$f.txt"));
+    }
+    foreach (Item::all($w) as $item) {
+        $out['hint_item'][$item->getRawName()] = __('hint.item.' . $item->getRawName());
+    }
+    foreach ($w->getLocations() as $l) {
+        $out['hint_location']["$l"] = __('hint.location.' . $l);
+    }
+    $special = [['Master Sword Pedestal', 'getItemCreditsText'], ['Master Sword Pedestal', 'getItemPedestalText'],
+        ['Ether Tablet', 'getItemText'], ['Bombos Tablet', 'getItemText'], ["Link's Uncle", 'getItemCreditsText'],
+        ['King Zora', 'getItemCreditsText'], ['Potion Shop', 'getItemCreditsText'], ['Sick Kid', 'getItemCreditsText'],
+        ['Flute Spot', 'getItemCreditsText']];
+    foreach ($special as [$name, $method]) {
+        $l = $w->getLocation($name);
+        $m = new \ReflectionMethod($l, $method);
+        $m->setAccessible(true);
+        $texts = [];
+        foreach (Item::all($w) as $item) {
+            if ($item instanceof \ALttP\ItemAlias) {
+                continue;
+            }
+            $l->setItem($item);
+            $texts[$item->getRawName()] = $m->invoke($l);
+        }
+        $out['loctext'][] = ['location' => $name, 'method' => $method, 'texts' => $texts];
+        $l->setItem(null);
+    }
+    $dialog = new \ALttP\Support\Dialog;
+    $samples = [];
+    foreach ($out['strings'] as $pool) {
+        foreach ($pool as $str) {
+            $samples[] = $str;
+        }
+    }
+    foreach ($out['loctext'] as $lt) {
+        foreach ($lt['texts'] as $str) {
+            $samples[] = $str;
+        }
+    }
+    $samples = array_merge($samples, ["{NOBORDER}\nhello there", "a → b ≥ c… x", "Lonk! Boots\nare in the\nDark World",
+        "hint.item.Bottle:1, hint.item.Hammer:1 and hint.item.Lamp:1 hint.location.Misery Mire - Big Key Chest:1",
+        "You need 3 crystals to enter.", "To beat Ganon you must collect 7 Crystals and defeat his minion at the top of his tower."]);
+    foreach (array_unique($samples) as $str) {
+        $out['encode'][] = [$str, $dialog->convertDialogCompressed($str)];
+    }
+    file_put_contents($path, json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
 
 function cmd_schema(string $path): void
@@ -328,12 +449,14 @@ function cmd_schema(string $path): void
 
 $a = array_slice($argv, 1);
 switch ($a[0] ?? '') {
-    case 'schema': cmd_schema($a[1]); break;
-    case 'vectors': cmd_vectors((int) $a[1], (int) $a[2], $a[3]); break;
-    case 'worldvectors': cmd_worldvectors((int) $a[1], (int) $a[2], $a[3]); break;
-    case 'placementbatch': cmd_placementbatch($a[1], $a[2]); break;
-    case 'checkplacement': cmd_checkplacement($a[1], $a[2]); break;
-    case 'placementrom': cmd_placementrom($a[1], $a[2], $a[3]); break;
+    case 'schema': cmd_schema(wp($a[1])); break;
+    case 'textdata': cmd_textdata(wp($a[1])); break;
+    case 'vectors': cmd_vectors((int) $a[1], (int) $a[2], wp($a[3])); break;
+    case 'worldvectors': cmd_worldvectors((int) $a[1], (int) $a[2], wp($a[3])); break;
+    case 'placementbatch': cmd_placementbatch(wp($a[1]), wp($a[2])); break;
+    case 'checkplacement': cmd_checkplacement(wp($a[1]), wp($a[2])); break;
+    case 'placementrom': cmd_placementrom(wp($a[1]), wp($a[2]), wp($a[3])); break;
+    case 'rombatch': cmd_rombatch(wp($a[1]), wp($a[2]), wp($a[3])); break;
     default:
         fwrite(STDERR, "usage: z3oracle.php schema|vectors|worldvectors|placementbatch|checkplacement|placementrom ...\n");
         exit(1);
