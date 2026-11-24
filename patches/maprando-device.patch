@@ -1,0 +1,158 @@
+diff --git a/rust/maprando/Cargo.toml b/rust/maprando/Cargo.toml
+index f1440c1..592099a 100644
+--- a/rust/maprando/Cargo.toml
++++ b/rust/maprando/Cargo.toml
+@@ -28,13 +28,26 @@ slice-of-array = "0.3.2"
+ pathfinding = "4.2.1"
+ env_logger = "0.10.0"
+ log = "0.4.17"
+-object_store = { version = "0.10.2", features=["aws", "gcp"] }
+-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+-futures = "0.3.25"
++object_store = { version = "0.10.2", features=["aws", "gcp"], optional = true }
++reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"], optional = true }
++futures = { version = "0.3.25", optional = true }
+ zstd = "0.12.2"
+-crypto-hash = "0.3.4"
++crypto-hash = { version = "0.3.4", optional = true }
+ serde-xml-rs = "0.6.0"
+ crc32fast = "1.3.2"
+ apache-avro = "0.19.0"
+ arrayvec = { version = "0.7.6", features=["serde"] }
+ indexmap = "2.13.0"
++
++[features]
++# The site's remote map pools, seed storage and tools; devices build without them (no OpenSSL, no HTTP).
++default = ["web"]
++web = ["dep:object_store", "dep:reqwest", "dep:futures", "dep:crypto-hash"]
++
++[[bin]]
++name = "build-mosaic"
++required-features = ["web"]
++
++[[bin]]
++name = "maprando-test"
++required-features = ["web"]
+diff --git a/rust/maprando/src/lib.rs b/rust/maprando/src/lib.rs
+index 6d6c625..ecf8053 100644
+--- a/rust/maprando/src/lib.rs
++++ b/rust/maprando/src/lib.rs
+@@ -11,6 +11,7 @@ pub mod map_settings;
+ pub mod patch;
+ pub mod preset;
+ pub mod randomize;
++#[cfg(feature = "web")]
+ pub mod seed_repository;
+ pub mod settings;
+ pub mod spoiler_log;
+diff --git a/rust/maprando/src/map_repository.rs b/rust/maprando/src/map_repository.rs
+index 3f3fa5d..feb5224 100644
+--- a/rust/maprando/src/map_repository.rs
++++ b/rust/maprando/src/map_repository.rs
+@@ -1,3 +1,4 @@
++#![cfg_attr(not(feature = "web"), allow(dead_code, unused))]
+ use anyhow::{Context, Result, bail};
+ use hashbrown::HashMap;
+ use log::info;
+@@ -29,11 +30,13 @@ pub trait MapRepository: Send + Sync {
+     fn request_refill(&self, settings: &RandomizerSettings) -> Result<()>;
+ }
+ 
++#[cfg(feature = "web")]
+ pub struct SelectableMapRepository {
+     pub pregenerated: PregeneratedMapRepository,
+     pub fresh: Option<HttpMapRepository>,
+ }
+ 
++#[cfg(feature = "web")]
+ impl MapRepository for SelectableMapRepository {
+     fn get_map_batch(
+         &self,
+@@ -73,6 +76,7 @@ struct PregeneratedMapPool {
+ 
+ enum PregeneratedMapPoolSource {
+     Local(PathBuf),
++    #[cfg(feature = "web")]
+     Remote {
+         base_url: reqwest::Url,
+         client: reqwest::blocking::Client,
+@@ -148,10 +152,13 @@ struct MapManifest {
+ 
+ impl PregeneratedMapRepository {
+     pub fn new(config: &MapPoolsConfig) -> Result<Self> {
++        #[cfg(feature = "web")]
+         let client = reqwest::blocking::Client::builder()
+             .timeout(Duration::from_secs(30))
+             .build()
+             .context("Creating map pool HTTP client")?;
++        #[cfg(not(feature = "web"))]
++        let client = ();
+         Ok(Self {
+             pools: config
+                 .pools
+@@ -187,8 +194,13 @@ impl MapRepository for PregeneratedMapRepository {
+     }
+ }
+ 
++#[cfg(feature = "web")]
++type PoolClient = reqwest::blocking::Client;
++#[cfg(not(feature = "web"))]
++type PoolClient = ();
++
+ impl PregeneratedMapPool {
+-    fn new(name: &str, config: &MapPoolConfig, client: &reqwest::blocking::Client) -> Result<Self> {
++    fn new(name: &str, config: &MapPoolConfig, client: &PoolClient) -> Result<Self> {
+         let path = Path::new("../maps").join(name);
+         let manifest_path = path.join("manifest.json");
+         let manifest_bytes = std::fs::read(&manifest_path)
+@@ -217,12 +229,18 @@ impl PregeneratedMapPool {
+                 manifest.files.len()
+             );
+         } else {
++            #[cfg(not(feature = "web"))]
++            bail!("{name}: no local batches ({})", path.display());
++            #[cfg(feature = "web")]
+             let base_url = config
+                 .base_url
+                 .as_ref()
+                 .context("No local batches and no base_url configured")?;
++            #[cfg(feature = "web")]
+             let base_url = reqwest::Url::parse(&format!("{}/", base_url.trim_end_matches('/')))?;
++            #[cfg(feature = "web")]
+             info!("{name}: using remote batches ({base_url})");
++            #[cfg(feature = "web")]
+             PregeneratedMapPoolSource::Remote {
+                 base_url,
+                 client: client.clone(),
+@@ -248,6 +266,7 @@ impl PregeneratedMapPool {
+                 info!("Map batch file: {}", path.display());
+                 Box::new(File::open(&path).with_context(|| format!("Opening {}", path.display()))?)
+             }
++            #[cfg(feature = "web")]
+             PregeneratedMapPoolSource::Remote { base_url, client } => {
+                 let url = base_url.join(&self.filenames[idx])?;
+                 info!("Map batch URL: {url}");
+@@ -276,6 +295,7 @@ impl PregeneratedMapPool {
+     }
+ }
+ 
++#[cfg(feature = "web")]
+ pub struct HttpMapRepository {
+     base_url: String,
+     client: reqwest::blocking::Client,
+@@ -373,6 +393,7 @@ struct GenerateResponseEdges {
+     to_door_node_id: Vec<Vec<NodeId>>,
+ }
+ 
++#[cfg(feature = "web")]
+ impl HttpMapRepository {
+     pub fn new(server: &str, skill_presets: &[SkillAssumptionSettings]) -> Result<Self> {
+         let server = server
+@@ -568,6 +589,7 @@ impl HttpMapRepository {
+     }
+ }
+ 
++#[cfg(feature = "web")]
+ impl MapRepository for HttpMapRepository {
+     fn get_map_batch(
+         &self,

@@ -1,0 +1,21 @@
+[package]
+name = "smz3-maprando"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "C interface to Map Rando's generator (blkerby/MapRandomizer), for the SMZ3 Universe hosts"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+maprando = { path = "../../vendor/maprando/rust/maprando", default-features = false }
+maprando-game = { path = "../../vendor/maprando/rust/maprando-game" }
+anyhow = "1"
+rand = "0.8.5"
+serde_json = "1"
+serde = "1"
+
+[profile.release]
+codegen-units = 1
+panic = "unwind"

@@ -281,14 +281,18 @@ host and called through a small C interface, the way `maprando-wasm` wraps them 
 
 - **Build:** Rust joins the toolchain. PC and Linux handhelds build natively; Android through the NDK targets; the 3DS
   through the tier 3 target `armv6k-nintendo-3ds` (nightly, `build-std`, devkitARM's libctru underneath).
-- **Data:** the sm-json-data logic set is converted at build time into a compact file the crate loads. Its build only
+- **Measured** (2026-11-24, one seed, Season 5 and Default presets): PC 5 to 10 s and 740 to 870 MB peak; the Thor
+  23 to 40 s and 820 MB, giving the same ROM byte for byte as the PC.
+- **Data:** for now the hosts load upstream's own files, packed by `tools/maprando/fetch.sh` (27 MB, 9 MB compressed:
+  the logic JSON, presets, IPS and Mosaic base patches, title images and 20 batches of each shipped map pool); a
+  compact converted file stays the plan for smaller hosts. Its build only
   downloads the map pools' manifests; a device fetches the one map a seed picks, or ships a fixed subset. Either
   way every device sees the same pool, or the same seed number would pick different maps.
 - **Where it runs:**
   - PC, Linux handhelds, Android and the Thor: yes.
-  - New 3DS: expected to run. The app already detects it and turns on the 804 MHz mode (`osSetSpeedupEnable`,
-    `vendor/snes9x_3ds/source/3dsmain.cpp:2569`), and it has more app memory than the old model. Generation time
-    and peak memory are measured there before it ships.
+  - New 3DS: does not fit as the crate stands. Measured on 2026-11-24 (pinned commit `8adf9c9`, `core/maprando`): the
+    loaded data takes about 270 MB (`GameData`) and 600 MB once the link data is built, and a seed peaks at 740 to 870 MB,
+    while the whole New 3DS has 256 MB (about 124 MB for an app, 178 MB in its extended mode). It goes the old 3DS's way.
   - Old 3DS (268 MHz, less memory): Map Rando shows as *Not compatible on this console* for now. Once everything else
     is done, the work is to make it fit: lighter data, fewer attempts per seed, maps fetched one at a time.
   - Last resort if the old 3DS still cannot: the server runs the same crate, patches a vanilla SM ROM it keeps and
