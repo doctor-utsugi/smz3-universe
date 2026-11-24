@@ -325,6 +325,14 @@ host and called through a small C interface, the way `maprando-wasm` wraps them 
   $0FB2 to $AA4F, so the classic SM check (event 0x0E and $0FB2 == $AA4F) holds unchanged.
 - **Licences:** Map Rando is MIT (Copyright (c) 2023 maddo, kyleb); sm-json-data is CC BY 4.0. Both are credited on
   every host's About screen and in `THIRD_PARTY.md`.
+- **Tracker map:** a Map Rando run's map tab shows the game's own pause map, built from the running game by
+  `core/ui/smz3_smmap.c` the way `map_area.asm`, `map_progress_maintain.asm`, `item_dots_disappear.asm` and
+  `special_door_reveal.asm` build it: the area tilemaps ($82:964A), tiles ($E2:8000) and pause palette of the ROM,
+  explored ($07F7, $7E:CD52), revealed (SRAM $2000) and partial (SRAM $2700) bits, item dots ($83:E000 against
+  $7E:D870), the white corners round Samus's tile. It follows Samus's area; AREA (PC `d`, pad Y) steps through the
+  areas she has been in (SRAM $2600). Not drawn: the pause screen's sprite icons (ship, bosses) and the room name.
+  Checked on 2026-11-24 against the pause screen on PC and on the Thor's bottom screen, over several rooms. Classic
+  SM keeps its own map: its ROM has no such tilemaps, and `smz_smmap_rom_ok` refuses it.
 
 #### On each host (step 9)
 
