@@ -12,6 +12,9 @@ const char *store_dir(void);
 const char *store_exe_dir(void);
 /* "<dir>/<rel>" in a static buffer, one per thread (the folders are created on demand). */
 const char *store_path(const char *fmt, ...);
+/* The game (SMZ_MODE_*) whose runs store_path's "runs/..." paths reach. */
+void store_set_mode(int mode);
+int store_get_mode(void);
 
 /* Paths of the two base ROMs, kept in config.txt. */
 void store_roms_get(char sm[512], char z3[512]);

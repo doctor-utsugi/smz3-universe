@@ -3015,6 +3015,7 @@ static void window_main(int start_slot)
         {
             Uint32 now = SDL_GetTicks();
             if (!welcome_active()) ui_tick(&ui, (int)(now - last_tick));   /* the logo's time runs once the ROM files are in */
+            if (ui.game_mode != store_get_mode()) { store_set_mode(ui.game_mode); refill_slots(); }   /* a game entered from the carousel: its own runs */
             last_tick = now;
         }
         race_answers();

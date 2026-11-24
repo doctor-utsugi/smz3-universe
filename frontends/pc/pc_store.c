@@ -83,6 +83,11 @@ const char *store_dir(void)
     return dir;
 }
 
+static int store_mode;   /* SMZ_MODE_*: whose runs the run paths reach */
+
+void store_set_mode(int mode) { store_mode = mode; }
+int store_get_mode(void) { return store_mode; }
+
 const char *store_path(const char *fmt, ...)
 {
     static _Thread_local char path[1024];   /* one per thread: the online requests run beside the menu */
@@ -91,7 +96,10 @@ const char *store_path(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(rel, sizeof rel, fmt, ap);
     va_end(ap);
-    snprintf(path, sizeof path, "%s/%s", store_dir(), rel);
+    /* SMZ3 keeps runs/ as it always was; the other games get runs/<id>/, all but the files of the install itself */
+    if (store_mode && !strncmp(rel, "runs/", 5) && strcmp(rel, "runs/install_id") && strcmp(rel, "runs/player.txt"))
+        snprintf(path, sizeof path, "%s/runs/%s/%s", store_dir(), smz_mode_id(store_mode), rel + 5);
+    else snprintf(path, sizeof path, "%s/%s", store_dir(), rel);
     mkdirs(path);
     return path;
 }
