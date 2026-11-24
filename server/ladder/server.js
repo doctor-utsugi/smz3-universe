@@ -9,6 +9,7 @@
 //   /api/goals...: the world goals of the month, see goals.js
 //   /api/race/...: online races, see race.js
 //   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
+//   GET  /api/games                                -> {games:[...]}   the games with ladders
 //   GET  /download                                 -> 302 to the latest GitHub release page
 // A finished run is only accepted with a token the server signed when the run began, and its time
 // cannot be longer than the wall clock time since then or shorter than MIN_MS. It must also carry a proof of run, the
@@ -178,6 +179,7 @@ http.createServer((req, res) => {
   }
   const qgame = gameOf(url.searchParams.get('game'));
   if (req.method === 'GET' && ['/api/monthly', '/api/weekly', '/api/ladder'].includes(url.pathname) && !qgame) return send(res, 400, { error: 'unknown game' });
+  if (req.method === 'GET' && url.pathname === '/api/games') return send(res, 200, { games: GAMES });
   if (req.method === 'GET' && url.pathname === '/api/monthly') {
     const month = monthOf(Date.now());
     return send(res, 200, { month, seed: seedFor(qgame, month), months: periods(qgame, 'monthly') });
