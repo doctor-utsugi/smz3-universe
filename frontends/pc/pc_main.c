@@ -2038,8 +2038,13 @@ static void play(int slot, int game_save_only)
     if (rg.on) {
         race_set_slow(1);
         rg.shown = ui.race.room.since;
-        int gc = json_num(run.settings, "ganonCrystals", 7), tc = json_num(run.settings, "ganonsTowerCrystals", 7);
-        rg.need = (gc > tc ? gc : tc) + json_num(run.settings, "tourianBosses", 4);
+        int gc = json_num(run.settings, "ganonCrystals", 7), tc = json_num(run.settings, "ganonsTowerCrystals", 7), mode = store_get_mode();
+        if (mode == SMZ_MODE_Z3) {   /* alttpr's keys hold strings; "random" counts as seven */
+            const char *g = strstr(run.settings, "\"ganon_open\":\""), *t = strstr(run.settings, "\"tower_open\":\"");
+            gc = g && g[14] >= '0' && g[14] <= '7' ? g[14] - '0' : 7;
+            tc = t && t[14] >= '0' && t[14] <= '7' ? t[14] - '0' : 7;
+        }
+        rg.need = mode == SMZ_MODE_Z3 ? (gc > tc ? gc : tc) + 3 : mode == SMZ_MODE_SM ? json_num(run.settings, "tourianBosses", 4) : (gc > tc ? gc : tc) + json_num(run.settings, "tourianBosses", 4);
         rg.draft = !strcmp(ui.race.room.format, "draft");
         rg.goal = trk.goal;
         ntabs = TAB_COUNT + 1;   /* CHAT */
@@ -2435,8 +2440,10 @@ static void play(int slot, int game_save_only)
                 if (daily && trk.started && smz_daily_note_began(&dr, online_now_ms())) online_daily_save(&dr);   /* the clock starts with the game, as in the ladder */
                 if (rg.on && trk.started && ((trk.boss_mask & ~rg.bosses) || (trk.crystal_mask & 0x7F & ~rg.crystals))) {   /* news for the rivals */
                     static const char *const BOSS[4] = {"beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley"};
+                    static const char *const PENDANT[4] = {"got the Green Pendant", "got the Blue Pendant", "got the Red Pendant", NULL};   /* ALttP's boss mask */
+                    const char *const *names = store_get_mode() == SMZ_MODE_Z3 ? PENDANT : BOSS;
                     int nb = trk.boss_mask & ~rg.bosses & 15, nc = trk.crystal_mask & 0x7F & ~rg.crystals;
-                    for (int i = 0; i < 4; i++) if (nb >> i & 1) race_event(BOSS[i]);
+                    for (int i = 0; i < 4; i++) if (nb >> i & 1 && names[i]) race_event(names[i]);
                     for (int i = 0; i < 7; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); race_event(m); }
                     rg.bosses |= nb; rg.crystals |= nc;
                     int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;

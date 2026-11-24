@@ -122,6 +122,11 @@ void ui_set_slot_rules(SmzUi *u, int i, const char *j)
     if (i < 0 || i >= UI_SLOTS) return;
     UiSlot *t = &u->slots[i];
     int ganon = json_int(j, "\"ganonCrystals\":", 7), tower = json_int(j, "\"ganonsTowerCrystals\":", 7);
+    if (j && strstr(j, "\"game\":\"z3\"")) {   /* alttpr's keys hold strings; "random" counts as seven */
+        const char *g = strstr(j, "\"ganon_open\":\""), *w = strstr(j, "\"tower_open\":\"");
+        ganon = g && g[14] >= '0' && g[14] <= '7' ? g[14] - '0' : 7;
+        tower = w && w[14] >= '0' && w[14] <= '7' ? w[14] - '0' : 7;
+    }
     t->crystals_need = ganon > tower ? ganon : tower;
     t->bosses_need = json_int(j, "\"tourianBosses\":", 4);
     json_str(j, "\"linkSprite\":\"", t->link_sprite, sizeof t->link_sprite);

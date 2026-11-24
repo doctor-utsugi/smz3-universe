@@ -5665,10 +5665,10 @@ index 0000000..96cc28c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt
 new file mode 100644
-index 0000000..3f61dbe
+index 0000000..f5a5aae
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,182 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -5730,7 +5730,7 @@ index 0000000..3f61dbe
 +    private val row get() = 22 * density
 +
 +    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (row * if (Smz3Tracker.smAlone) 3 else 5).toInt())   // Super Metroid alone: no crystals, no Ganon
++        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), (row * if (Smz3Tracker.smAlone || Smz3Tracker.z3Alone) 3 else 5).toInt())   // a single game: its own goal rows only
 +    }
 +
 +    private fun write(canvas: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, align: Paint.Align = Paint.Align.LEFT) {
@@ -5805,20 +5805,22 @@ index 0000000..3f61dbe
 +            y += row
 +        }
 +
-+        // Metroid bosses: the beaten ones first, then the ones still standing, as many as Tourian wants
-+        write(canvas, "Bosses", 0f, y + row * 0.68f, 12f, textColor)
-+        val order = (0 until 4).filter { bosses and (1 shl it) != 0 } + (0 until 4).filter { bosses and (1 shl it) == 0 }
-+        val unit = minOf(row * 0.9f, (iconsRight - iconsLeft) / 4f)
-+        for ((k, i) in order.take(tourianNeeds).withIndex()) {
-+            val bmp = tokens[i] ?: continue
-+            val h = unit * bmp.height / bmp.width
-+            dst.set(iconsLeft + k * unit * 1.05f, y + (row - h) / 2, iconsLeft + k * unit * 1.05f + unit, y + (row + h) / 2)
-+            paint.alpha = if (bosses and (1 shl i) != 0) 255 else 80
-+            canvas.drawBitmap(bmp, null, dst, paint)
++        if (!Smz3Tracker.z3Alone) {   // A Link to the Past alone: no Metroid bosses nor Mother Brain
++            // Metroid bosses: the beaten ones first, then the ones still standing, as many as Tourian wants
++            write(canvas, "Bosses", 0f, y + row * 0.68f, 12f, textColor)
++            val order = (0 until 4).filter { bosses and (1 shl it) != 0 } + (0 until 4).filter { bosses and (1 shl it) == 0 }
++            val unit = minOf(row * 0.9f, (iconsRight - iconsLeft) / 4f)
++            for ((k, i) in order.take(tourianNeeds).withIndex()) {
++                val bmp = tokens[i] ?: continue
++                val h = unit * bmp.height / bmp.width
++                dst.set(iconsLeft + k * unit * 1.05f, y + (row - h) / 2, iconsLeft + k * unit * 1.05f + unit, y + (row + h) / 2)
++                paint.alpha = if (bosses and (1 shl i) != 0) 255 else 80
++                canvas.drawBitmap(bmp, null, dst, paint)
++            }
++            paint.alpha = 255
++            write(canvas, "${minOf(beaten, tourianNeeds)}/$tourianNeeds", w, y + row * 0.68f, 12f, if (beaten >= tourianNeeds) ok else textColor, Paint.Align.RIGHT)
++            y += row
 +        }
-+        paint.alpha = 255
-+        write(canvas, "${minOf(beaten, tourianNeeds)}/$tourianNeeds", w, y + row * 0.68f, 12f, if (beaten >= tourianNeeds) ok else textColor, Paint.Align.RIGHT)
-+        y += row
 +
 +        val boxX = 0f
 +        val nameX = 18 * density
@@ -5837,6 +5839,7 @@ index 0000000..3f61dbe
 +            y += row
 +        }
 +
++        if (Smz3Tracker.z3Alone) return
 +        drawBox(canvas, boxX, y + row / 2, finished)
 +        write(canvas, "Mother Brain", nameX, y + row * 0.68f, 12f, textColor)
 +        val tourian = tourianNeeds - beaten
@@ -7525,10 +7528,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..dc940e7
+index 0000000..2d5ed64
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1162 @@
+@@ -0,0 +1,1166 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -8447,7 +8450,11 @@ index 0000000..dc940e7
 +            goalsRun = false
 +            if (slot != null && com.swordfish.lemuroid.app.mobile.feature.runs.OnlineLadder.runMode(context, slot) in 2..3) {
 +                val set = runCatching { org.json.JSONObject(com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.load(context, slot)!!.settings) }.getOrNull()
-+                if (set != null) {
++                val z3 = set?.optJSONObject("z3")
++                if (Smz3Tracker.z3Alone && z3 != null) {   // alttpr's keys; "random" counts as all seven
++                    goals.setRules(z3.optString("ganon_open").toIntOrNull() ?: 7, z3.optString("tower_open").toIntOrNull() ?: 7, 0)
++                    goalsRun = true
++                } else if (set != null) {
 +                    goals.setRules(set.optInt("ganonCrystals", 7), set.optInt("ganonsTowerCrystals", 7), set.optInt("tourianBosses", 4))
 +                    goalsRun = true
 +                }
@@ -12713,10 +12720,10 @@ index 0000000..6742946
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..1ba36b0
+index 0000000..f7af6c6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,617 @@
+@@ -0,0 +1,623 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -12904,7 +12911,12 @@ index 0000000..1ba36b0
 +        if (kept) { resumeAt = paused!!.resumeAt; main.post { showPausedCard() } }
 +        RunStore.load(activity, RaceClient.SLOT)?.settings?.let { s ->
 +            val j = runCatching { JSONObject(s) }.getOrDefault(JSONObject())
-+            need = maxOf(j.optInt("ganonCrystals", 7), j.optInt("ganonsTowerCrystals", 7)) + j.optInt("tourianBosses", 4)
++            val z3 = j.optJSONObject("z3")
++            need = when {   // what the progress counts: crystals and Metroid bosses, a single game's own
++                z3 != null -> maxOf(z3.optString("ganon_open").toIntOrNull() ?: 7, z3.optString("tower_open").toIntOrNull() ?: 7) + 3
++                j.optString("game") == "sm" -> j.optInt("tourianBosses", 4)
++                else -> maxOf(j.optInt("ganonCrystals", 7), j.optInt("ganonsTowerCrystals", 7)) + j.optInt("tourianBosses", 4)
++            }
 +            goal = Smz3Native.raceGoalText(s)
 +        }
 +        val pad = (8 * activity.resources.displayMetrics.density).toInt()
@@ -13172,8 +13184,9 @@ index 0000000..1ba36b0
 +            val nb = snap.bossMask and 15 and bosses.inv()
 +            val nc = snap.crystalMask and 0x7F and crystals.inv()
 +            if (nb != 0 || nc != 0) {
-+                val names = arrayOf("beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley")
-+                for (i in 0 until 4) if ((nb shr i) and 1 != 0) RaceClient.event(names[i])
++                val names = if (Smz3Tracker.z3Alone) arrayOf("got the Green Pendant", "got the Blue Pendant", "got the Red Pendant", "")   // its boss mask holds the pendants
++                    else arrayOf("beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley")
++                for (i in 0 until 4) if ((nb shr i) and 1 != 0 && names[i].isNotEmpty()) RaceClient.event(names[i])
 +                for (i in 0 until 7) if ((nc shr i) and 1 != 0) RaceClient.event("got Crystal ${i + 1}")
 +                bosses = bosses or nb; crystals = crystals or nc
 +                if (!draft()) RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))

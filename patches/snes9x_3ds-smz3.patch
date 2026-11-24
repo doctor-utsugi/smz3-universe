@@ -2588,10 +2588,10 @@ index 0000000..71d8657
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..205ffcc
+index 0000000..e34b2c3
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6069 @@
+@@ -0,0 +1,6080 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -5746,34 +5746,38 @@ index 0000000..205ffcc
 +    const int ok = 0x4CC38A, iconsX = x + 54, right = x + cw;
 +    int got = __builtin_popcount(trk.crystal_mask & 0x7F), beaten = __builtin_popcount(trk.boss_mask & 0xF);
 +    int need = needGanon > needTower ? needGanon : needTower;
-+    bool fin = trk.game == 3;
++    bool fin = trk.game == 3, sm = smz3_sm_alone(), z3 = smz3_z3_alone();
 +    char s[48];
 +    text(x, y, theme.accent, "GOALS");
 +    y += 15;
-+    text(x, y, theme.text, "Crystals");
-+    if (need > 0) {
-+        int slot = (right - 28 - iconsX) / need;
-+        if (slot > 12) slot = 12;
-+        for (int i = 0; i < need; i++)
-+            drawGem(iconsX + i * slot, y + 1, slot - 2, 12, need == 7 ? trk.crystal_mask >> i & 1 : i < got, need == 7 && (i == 4 || i == 5));
-+    }
-+    snprintf(s, sizeof s, "%d/%d", got < need ? got : need, need);
-+    text(right, y, got >= need ? ok : theme.text, s, HALIGN_RIGHT);
-+    y += 16;
-+    text(x, y, theme.text, "Bosses");
-+    for (int k = 0, pass = 0; pass < 2; pass++)   // the beaten ones first, as many as Tourian wants
-+        for (int i = 0; i < 4 && k < needTourian; i++) {
-+            bool won = trk.boss_mask >> i & 1;
-+            if (won != (pass == 0)) continue;
-+            drawIcon(getIcon(TOKENS[i]), iconsX + k * 15, y, 14, 14, won ? 256 : 80);
-+            k++;
++    if (!sm) {
++        text(x, y, theme.text, "Crystals");
++        if (need > 0) {
++            int slot = (right - 28 - iconsX) / need;
++            if (slot > 12) slot = 12;
++            for (int i = 0; i < need; i++)
++                drawGem(iconsX + i * slot, y + 1, slot - 2, 12, need == 7 ? trk.crystal_mask >> i & 1 : i < got, need == 7 && (i == 4 || i == 5));
 +        }
-+    snprintf(s, sizeof s, "%d/%d", beaten < needTourian ? beaten : needTourian, needTourian);
-+    text(right, y, beaten >= needTourian ? ok : theme.text, s, HALIGN_RIGHT);
-+    y += 16;
++        snprintf(s, sizeof s, "%d/%d", got < need ? got : need, need);
++        text(right, y, got >= need ? ok : theme.text, s, HALIGN_RIGHT);
++        y += 16;
++    }
++    if (!z3) {
++        text(x, y, theme.text, "Bosses");
++        for (int k = 0, pass = 0; pass < 2; pass++)   // the beaten ones first, as many as Tourian wants
++            for (int i = 0; i < 4 && k < needTourian; i++) {
++                bool won = trk.boss_mask >> i & 1;
++                if (won != (pass == 0)) continue;
++                drawIcon(getIcon(TOKENS[i]), iconsX + k * 15, y, 14, 14, won ? 256 : 80);
++                k++;
++            }
++        snprintf(s, sizeof s, "%d/%d", beaten < needTourian ? beaten : needTourian, needTourian);
++        text(right, y, beaten >= needTourian ? ok : theme.text, s, HALIGN_RIGHT);
++        y += 16;
++    }
 +    // the two final bosses: a box ticked in the credits, and under the name what still keeps each closed
 +    int tower = needTower - got, ganon = needGanon - got, tourian = needTourian - beaten;
-+    for (int b = 0; b < 2; b++) {
++    for (int b = sm ? 1 : 0; b < (z3 ? 1 : 2); b++) {   // a single game: its own final boss only
 +        if (fin) fill(x, y + 2, x + 10, y + 12, ok);
 +        else { fill(x, y + 2, x + 10, y + 3, theme.dim); fill(x, y + 11, x + 10, y + 12, theme.dim); fill(x, y + 2, x + 1, y + 12, theme.dim); fill(x + 9, y + 2, x + 10, y + 12, theme.dim); }
 +        text(x + 15, y, theme.text, b == 0 ? "Ganon" : "Mother Brain");
@@ -6642,7 +6646,8 @@ index 0000000..205ffcc
 +    if (!rg.on) { rg.resume = false; return; }
 +    smzRaceSetSlow(true);
 +    rg.shown = rg.room.since;
-+    rg.need = (needGanon > needTower ? needGanon : needTower) + needTourian;
++    int crystals = needGanon > needTower ? needGanon : needTower;   // what the progress counts: a single game's own goals
++    rg.need = smz3_z3_alone() ? crystals + 3 : smz3_sm_alone() ? needTourian : crystals + needTourian;
 +    if (rg.resume) { rg.resume = false; rg.loadPending = true; rg.back = rg.skipOld = true; }   // the state loads with the first frame
 +}
 +
@@ -6728,7 +6733,9 @@ index 0000000..205ffcc
 +    bool quiet = rg.back || rg.loadPending;   // back after a pause: what the saved game had was told before
 +    if (nb || nc) {
 +        static const char *const BOSS[4] = {"beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley"};
-+        for (int i = 0; i < 4 && !quiet; i++) if (nb >> i & 1) smzRaceEvent(BOSS[i]);
++        static const char *const PENDANT[4] = {"got the Green Pendant", "got the Blue Pendant", "got the Red Pendant", NULL};   // A Link to the Past's boss mask
++        const char *const *names = smz3_z3_alone() ? PENDANT : BOSS;
++        for (int i = 0; i < 4 && !quiet; i++) if (nb >> i & 1 && names[i]) smzRaceEvent(names[i]);
 +        for (int i = 0; i < 7 && !quiet; i++) if (nc >> i & 1) { char m[24]; snprintf(m, sizeof m, "got Crystal %d", i + 1); smzRaceEvent(m); }
 +        rg.bosses |= nb; rg.crystals |= nc;
 +        int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
@@ -7746,6 +7753,10 @@ index 0000000..205ffcc
 +        goalsRun = kind == 2 || kind == 3;
 +        auto rule = [&](const char *key, int def) { const char *p = strstr(r0.settings, key); int v = p ? atoi(p + strlen(key)) : def; return v < 0 ? 0 : v; };
 +        needGanon = rule("\"ganonCrystals\":", 7); needTower = rule("\"ganonsTowerCrystals\":", 7); needTourian = rule("\"tourianBosses\":", 4);
++        if (strstr(r0.settings, "\"game\":\"z3\"")) {   // alttpr's keys hold strings; "random" counts as seven
++            auto z3rule = [&](const char *key) { const char *p = strstr(r0.settings, key); return p && p[14] >= '0' && p[14] <= '7' ? p[14] - '0' : 7; };
++            needGanon = z3rule("\"ganon_open\":\""); needTower = z3rule("\"tower_open\":\"");
++        }
 +        if (needGanon > 7) needGanon = 7;
 +        if (needTower > 7) needTower = 7;
 +        if (needTourian > 4) needTourian = 4;
