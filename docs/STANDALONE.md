@@ -325,10 +325,12 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 7. **Z3 on the hosts** and **Z3 online**, as steps 3 and 4.
    Hosts done, offline (see Z3.md, step 7): PC, 3DS and Android generate and track Z3 runs. A single-game run shows
    nothing of the other game on the second screen: no portals on its half of the map, no Dungeons button in SM, no
-   other game's bosses, crystals, counters or items (SMZ3 54, SM 21, Z3 33), no shortcut rows. Online is next.
+   other game's bosses, crystals, counters or items (SMZ3 54, SM 21, Z3 33), no shortcut rows.
+   Online done and deployed: ladders, Original monthly, a Fast Ganon 2-crystal weekly, the proof checker on z3gen's
+   logic, the daily (`z3-<date>-<n>`), Championship rooms and world goals; every online Z3 run is a tournament ROM.
 8. **Z3 next options**, then glitched logic.
    Generator done (`core/z3gen`, see Z3.md): Inverted, Retro, Triforce Hunt, Ganonhunt, Completionist and the five
-   logics, byte-identical to alttpr; offered in `Z3_OPTIONS`, not yet on the hosts. Boss shuffle places bosses but
+   logics, byte-identical to alttpr; offered in `Z3_OPTIONS` and on every host's Custom screen. Boss shuffle places bosses but
    waits for the Enemizer (step 9) to write them; the customizer is not started.
 9. **Map Rando** on every host but the old 3DS; then the Enemizer boss shuffle.
 10. **Map Rando on the old 3DS**, after everything else; the server and BPS patch only if it cannot fit.

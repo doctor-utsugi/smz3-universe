@@ -255,6 +255,15 @@ Super Metroid has its own challenge in each window, beside SMZ3's, with its own 
   alone. PC and the 3DS keep the attempt in `runs/sm/`, Android in `files/runs/sm/`.
 - **Not checked yet.** The planner's batch numbers and a real attempt on each host.
 
+## ALttP's daily (built, deployed)
+
+- **Ids** `z3-2026-11-24-0`, beside SMZ3's and Super Metroid's windows, with its own table.
+- **Planner.** `smz3daily --z3 <id>` (`server/ladder/smz3daily_z3.c`, built with `core/z3gen`): an Original tournament
+  seed rebuilt with `smz_z3_rebuild`. Goals: a major item (30%, `loc:<index>`), a boss (30%, `zboss:<room>`), 1 to 3
+  crystals (15%, `crystals:<n>`), reaching a dungeon (15%, `zdungeon:<id>`) or Agahnim (10%, `aga`). The estimate is
+  0.8 min per overworld step and 1.5 per dungeon step. `--z3-stats <prefix> <n>` prints a batch.
+- **Server.** `GET /api/daily?game=z3`, `POST /api/daily/start {..., game: "z3"}`, tables by `z3-` window.
+
 ## Phase 9: calibration (waiting for data)
 
 It needs real times: the first public window is 2026-10-30-2. After a week, compare each window's median (`/api/daily/table`) with its `searchMin` and adjust the costs per check, per game switch and per goal in `smz3daily.c`.

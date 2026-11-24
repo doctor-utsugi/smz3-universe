@@ -15,6 +15,11 @@ only (Tournament, Split, Race, to Mother Brain); its ladder is `sm-full`. Record
 The hosts send the game of the carousel, so each game's lobby shows its own rooms; Draft and the formats screen are
 SMZ3's for now.
 
+## ALttP rooms (built, deployed)
+
+`game: "z3"` as above. Championship Full is Original to Ganon, Sprint and Half are Fast Ganon with 2 and 4 crystals;
+all are tournament ROMs. Ladders are `z3-full`, `z3-sprint`, `z3-half`. Draft stays SMZ3's.
+
 ## Decisions
 
 | Topic | Decision |

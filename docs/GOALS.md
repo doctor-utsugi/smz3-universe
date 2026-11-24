@@ -63,7 +63,7 @@ The ladder's World tab switches between this month and last month; A on one of l
 with each player's share of the total.
 
 A report carries a run's totals so far, not what changed, and the server keeps the latest one per run (`run` is
-`s<slot>-<created>` for SMZ3 and `m<slot>-<created>` for Super Metroid, whose runs count too). A total that goes down after a state load takes back what was reported. Each counter is cut to
+`s<slot>-<created>` for SMZ3 and `m<slot>-<created>` for Super Metroid and `z<slot>-<created>` for ALttP, whose runs count too). A total that goes down after a state load takes back what was reported. Each counter is cut to
 the goal's `perRun`, an install can report `runsPerInstallPerMonth` runs (60), and reports are limited per IP and hour.
 A run that began the month before only adds what came since.
 
