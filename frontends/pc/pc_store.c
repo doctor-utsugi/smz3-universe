@@ -174,12 +174,19 @@ static uint8_t *load_rom(const char *path, size_t want, const char *md5, const c
     return out;
 }
 
-int store_load_base(uint8_t **sm, uint8_t **z3, char *err, size_t errcap)
+int store_load_sm(uint8_t **sm, char *err, size_t errcap)
 {
     char smp[512], z3p[512];
     store_roms_get(smp, z3p);
     *sm = load_rom(smp, 0x300000, SMZ_MD5_SM, "Super Metroid (JU)", err, errcap);
-    if (!*sm) return -1;
+    return *sm ? 0 : -1;
+}
+
+int store_load_base(uint8_t **sm, uint8_t **z3, char *err, size_t errcap)
+{
+    char smp[512], z3p[512];
+    store_roms_get(smp, z3p);
+    if (store_load_sm(sm, err, errcap)) return -1;
     *z3 = load_rom(z3p, 0x100000, SMZ_MD5_Z3, "A Link to the Past (JP v1.0)", err, errcap);
     if (!*z3) { free(*sm); *sm = NULL; return -1; }
     return 0;

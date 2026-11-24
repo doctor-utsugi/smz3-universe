@@ -182,7 +182,7 @@ static void run_card(float l, float t, float w, float h)
     text(x, t + 55, 5.5f, DIM, 0, card.finished ? "FINISHED IN" : "PLAY TIME");
     clock_text(card.ms, line, sizeof line);
     text(x, t + 68, 12, card.finished ? GREEN : TEXT, 0, line);
-    bar("ZELDA", card.zelda, card.zelda_total, x, t + 82, w - 18, GREEN);
+    if (card.zelda_total) bar("ZELDA", card.zelda, card.zelda_total, x, t + 82, w - 18, GREEN);   /* none in Super Metroid alone */
     bar("METROID", card.metroid, card.metroid_total, x, t + 100, w - 18, BLUE);
     float y = t + 124;
     int room = (int)((h - 141) / 10);

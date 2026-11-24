@@ -37,7 +37,7 @@ static int wram_ok(size_t len) { return len > 0xF400; }
 
 int smz_shortcut_ready(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len)
 {
-    if (!wram_ok(wram_len)) return 0;
+    if (!wram_ok(wram_len) || smz3_sm_alone()) return 0;   /* Super Metroid alone has no shortcut hooks yet */
     switch (smz3_current_game(sram, sram_len)) {
     case SMZ3_GAME_ZELDA: return (wram[0x10] == 0x07 || wram[0x10] == 0x09) && wram[0x11] == 0;
     case SMZ3_GAME_METROID: return (wram[0x998] | wram[0x999] << 8) == 8;

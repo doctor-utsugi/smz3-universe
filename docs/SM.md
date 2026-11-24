@@ -119,8 +119,13 @@ Defaults (`sm_settings_defaults`): Tournament, Split, not Race.
   multiworld) is not checked yet.
 - Playthrough on Race. The C# runs the playthrough check only when it makes a spoiler (not Race); the C checks
   every seed. A Race seed that fails would be an error in C and a ROM in C#; the filler should make that impossible.
-- Seed hash on screen. The base patch has `randopatches/seed_display.asm`; how it draws the four bytes at 0x2FFF00
-  (and whether the tracker can show the same) is still to read.
-- End of run. Not looked at yet (`STANDALONE.md` asks for the ship signal from the base ASM).
-- Host wiring. No frontend builds `core/smgen/` yet; the Makefiles need `core/smgen/*.c`, `core/gen/smz3_rng.c` and
-  the generated `sm_ips_data.c`.
+- Seed hash on screen. `randopatches/seed_display.asm` draws the four bytes at 0x2FFF00 on the file select screen as four
+  words of its `WordTable` (byte & 31). `core/ui/smz3_sm.c` spells them the same way (`smz_sm_hash_text`); the hosts put
+  them in the run's settings (`"hash"`, and a `Hash:` line in the run info) and in the tracker header.
+- End of run (`smz3_run_finished` in Super Metroid mode, not checked in a game yet): the base patch keeps vanilla's
+  escape and gunship code, so the clock stops when the gunship AI at `$A2:AA4F` (enemy word `$0FB2`, the same signal
+  SMZ3 reads) runs after the timebomb is set (event 0x0E, `$7ED821` bit 6, set when Mother Brain dies), or as a fallback
+  when the game state `$0998` reaches 0x26 (Zebes explodes) or 0x27 (credits).
+- Hosts (step 3 of `STANDALONE.md`): every frontend builds `core/smgen/` and `core/ui/smz3_sm.c`, with `sm_ips_data.c`
+  generated at build time. Super Metroid's Samus sprites reuse the RDC Samus block, moved from the combo's tile banks to
+  the standalone ones (`$9C-$9F`, `$F5-$FF`, `sprite/gfx.asm` of both base ROMs). Not run on any device yet.

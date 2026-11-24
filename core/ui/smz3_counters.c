@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "smz3_counters.h"
+#include "smz3_state.h"
 
 static const char *const KEYS[SMC_COUNT] = {
     "rupees", "moblin", "soldier", "octorok", "stalfos", "hinox", "lynel", "keese", "rope",
@@ -57,13 +58,14 @@ void smz_counters_reset(SmzCounters *c) { memset(c, 0, sizeof *c); }
 static uint64_t bosses_beaten(int game, const uint8_t *wram, size_t wl, const uint8_t *sram, size_t sl)
 {
     uint64_t m = 0;
-    for (size_t i = 0; i < sizeof ZBOSS / sizeof ZBOSS[0]; i++) {
+    int alone = smz3_sm_alone();   /* Super Metroid alone: no Zelda, and its bosses only in work RAM (game 3 keeps the last read) */
+    for (size_t i = 0; i < sizeof ZBOSS / sizeof ZBOSS[0] && !alone; i++) {
         size_t o = (size_t)ZBOSS[i].room * 2 + 1;   /* the live copy while ALttP runs, the parked one otherwise */
         unsigned v = game == 1 ? at(wram, wl, 0xF000 + o) : at(sram, sl, o);
         if (v & 0x08) m |= 1ull << ZBOSS[i].counter;
     }
     for (size_t i = 0; i < sizeof MBOSS / sizeof MBOSS[0]; i++) {
-        unsigned v = game == 2 ? at(wram, wl, 0xD828 + MBOSS[i].area) : at(sram, sl, 0x2078 + MBOSS[i].area);
+        unsigned v = game == 2 || alone ? at(wram, wl, 0xD828 + MBOSS[i].area) : at(sram, sl, 0x2078 + MBOSS[i].area);
         if (v & MBOSS[i].bit) m |= 1ull << MBOSS[i].counter;
     }
     return m;

@@ -34,7 +34,7 @@ int smz_boss_mask(const uint8_t *wram, size_t wram_len, const uint8_t *sram, siz
     /* area byte (from $7ED828 / save RAM $2078) and flag of Kraid, Phantoon, Draygon, Ridley */
     static const int area[4] = {1, 3, 4, 2};
     uint8_t flags[8];
-    if (game == 2) {
+    if (game == 2 || smz3_sm_alone()) {   /* Super Metroid alone keeps them only in work RAM */
         if (wram_len < 0xD830) return 0;
         memcpy(flags, wram + 0xD828, 8);
     } else {
@@ -49,7 +49,7 @@ int smz_boss_mask(const uint8_t *wram, size_t wram_len, const uint8_t *sram, siz
 int smz_prepared_apply(int dead_mask, uint8_t *wram, size_t wram_len, uint8_t *sram, size_t sram_len)
 {
     static const int area[4] = {1, 3, 4, 2};
-    if (!dead_mask || sram_len < 0x33FF) return 0;
+    if (!dead_mask || sram_len < 0x33FF || smz3_sm_alone()) return 0;
     int changed = 0;
     if (sram[0x33FE] == 0xFF) {
         /* only in game (state 8 and on): while the file loads the game fills these bytes itself */
@@ -66,6 +66,7 @@ int smz_crystal_mask(const uint8_t *wram, size_t wram_len, const uint8_t *sram, 
     /* bit 0 of $7EF37A is crystal 6, then 1, 5, 7, 2, 4, 3 */
     static const int crystal_of_bit[7] = {6, 1, 5, 7, 2, 4, 3};
     unsigned bits;
+    if (smz3_sm_alone()) return 0;
     if (game == 2 || game == 3) { if (sram_len < 0x37B) return 0; bits = sram[0x37A]; }   /* parked while Super Metroid (or its credits) runs */
     else { if (wram_len < 0xF37B) return 0; bits = wram[0xF37A]; }
     int mask = 0;

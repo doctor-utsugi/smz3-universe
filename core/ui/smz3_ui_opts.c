@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "smz3_ui_gen.h"
 #include "smz3_itemopts.h"
@@ -6,6 +7,7 @@
 #include "smz3_plando.h"
 #include "smz3_jingles_data.h"
 #include "smz3_runlogic.h"
+#include "smz3_run.h"
 
 static const char *const N_KEYS[] = {"None", "Both games", "Zelda only", "Metroid only", "Random"};
 static const char *const N_PLACE[] = {"Anywhere", "Dungeons + Metroid", "Crystal dungeons + Metroid", "Vanilla game", "Opposite game"};
@@ -16,6 +18,8 @@ static const char *const N_SHAPE[] = {"Original (4:3)", "Wide (16:9)", "Square p
 static const char *const N_HELP[] = {"All helps", "Limited helps", "No helps"};
 static const char *const N_WALL[] = {"Easy", "Normal", "Medium", "Hard"};
 static const char *const N_MODE[] = {"Vanilla", "All Dungeons", "Spazer Hunt"};
+static const char *const N_SMLOGIC[] = {"Casual", "Tournament"};
+static const char *const N_SMPLACE[] = {"Full", "Major/minor split"};
 /* "Random" then the jingles in SMZ_JINGLES order (tools/gen_jingles.py); the static assert below keeps the lists in step. */
 static const char *const N_JINGLE[] = {"Random", "Vanilla", "Blue Badger", "Battletoads Win", "Vampire Killer", "FF Victory", "KQ5 Town", "Kirby Win",
     "Buffed Kirby Win", "Mega Man Boss Selected", "SNAAAKE", "Pizza Time", "Shadowgate", "Sonic 2 Bonus", "SMB1", "Theme of Super Metroid",
@@ -76,8 +80,14 @@ const UiOptDef UI_OPTS[] = {
     B("MockBall", "Mockball", "Allow mockball."),
     B("SwordOnlyDarkRooms", "Sword only dark rooms", "Dark rooms may be crossed with only the sword."),
     B("LightWorldSouthFakeFlippers", "Light World south fake flippers", "Allow fake flippers in the south."),
+    /* Super Metroid alone (tewtal's generator): only shown, saved and written to the settings in that mode */
+    {"SmLogic", "Logic", "Casual expects only easy moves; Tournament may ask for harder ones.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMLOGIC},
+    {"SmPlacement", "Item placement", "Split keeps major items on major spots and minor ones on minor spots.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMPLACE},
+    {"SmRace", "Race seed", "No spoiler: the same seed number gives another seed.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
 };
 const int UI_OPT_COUNT = sizeof UI_OPTS / sizeof UI_OPTS[0];
+#define O_SM0 (UI_OPT_COUNT - 3)
+enum { O_SMLOGIC, O_SMPLACE, O_SMRACE };   /* after O_SM0 */
 
 /* The Create run tabs: the popular options, the run itself, what only touches one game, and how it is played. */
 const char *const UI_TABS[LEVEL_ITEMS][24] = {
@@ -92,6 +102,13 @@ const char *const UI_TABS[LEVEL_ITEMS][24] = {
      "LaunchPadRequiresIceBeam", "WaterwayNeedsGravitySuit", "EasyEastCrateriaSkyItem", "EasyBlueBrinstarTop", "ParlorSpeedBooster",
      "MockBall", NULL},
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", "ShowReachable", "ShowFixedKeys", "MusicPackage", NULL},
+};
+const char *const UI_TABS_SM[LEVEL_ITEMS][24] = {
+    {"SmLogic", "SmPlacement", "SaveStates", "Rewind", NULL},
+    {"Seed", "SmLogic", "SmPlacement", "SmRace", "MapMode", NULL},
+    {NULL},
+    {NULL},
+    {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", NULL},
 };
 _Static_assert((int)O_LINK == UIO_LINK && (int)O_SAMUS == UIO_SAMUS && (int)O_PLANDO == UIO_PLANDO && (int)O_JINGLE == UIO_JINGLE && (int)O_MAP == UIO_MAP && (int)O_SHAPE == UIO_SHAPE && (int)O_HELP == UIO_HELP && (int)O_HELPS == UIO_HELPS && (int)O_MODE == UIO_MODE, "option indices");
 
@@ -131,7 +148,7 @@ void ui_settings(const SmzUi *u, int32_t seed_if_random, SmzSettings *s, SmzPatc
     pc->pyramid_open = py == 2 ? (s->seed >> 3) & 1 : py;
     pc->tourian_door_open = dr == 2 ? (s->seed >> 5) & 1 : dr;
     smz_cfg_set(&s->cfg, "WallJumpDifficulty", u->value[O_WALL]);
-    for (int i = O_LOGIC0; i < UI_OPT_COUNT; i++) smz_cfg_set(&s->cfg, UI_OPTS[i].key, u->value[i]);
+    for (int i = O_LOGIC0; i < O_SM0; i++) smz_cfg_set(&s->cfg, UI_OPTS[i].key, u->value[i]);
     s->game_mode = u->value[O_MODE];
     s->spazers_in_pool = u->value[O_SPAZ_POOL];
     s->spazers_required = u->value[O_SPAZ_REQ] < s->spazers_in_pool ? u->value[O_SPAZ_REQ] : s->spazers_in_pool;
@@ -166,6 +183,16 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
 {
     static const int KEYIDX[4] = {0, 2, 3, 1};   /* KEYS_None, KEYS_Zelda, KEYS_SuperMetroid, KEYS_Both as the Keysanity option */
     SmzSettings s;
+    if (smz_settings_mode(json) == SMZ_MODE_SM) {
+        const char *seed = strstr(json, "\"seed\":\"");
+        u->value[O_SEED] = seed ? atoi(seed + 8) : 0;
+        u->value[O_SM0 + O_SMLOGIC] = !strstr(json, "\"logic\":\"casual\"");
+        u->value[O_SM0 + O_SMPLACE] = !strstr(json, "\"placement\":\"full\"");
+        u->value[O_SM0 + O_SMRACE] = strstr(json, "\"race\":\"true\"") != NULL;
+        u->value[O_SAVES] = strstr(json, "\"saveStates\":true") != NULL;
+        u->value[O_REWIND] = strstr(json, "\"rewind\":true") != NULL;
+        return;
+    }
     smz_logic_settings(json, &s);
     u->value[O_SEED] = s.seed;
     u->value[O_KEYS] = KEYIDX[s.keysanity & 3];
@@ -177,7 +204,7 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
     u->value[O_SPAZ_POOL] = s.spazers_in_pool;
     u->value[O_SPAZ_REQ] = s.spazers_required;
     u->value[O_WALL] = smz_cfg_get(&s.cfg, "WallJumpDifficulty");
-    for (int i = O_LOGIC0; i < UI_OPT_COUNT; i++) u->value[i] = smz_cfg_get(&s.cfg, UI_OPTS[i].key);
+    for (int i = O_LOGIC0; i < O_SM0; i++) u->value[i] = smz_cfg_get(&s.cfg, UI_OPTS[i].key);
     for (int g = 0; g < SMZ_ITEMOPT_GROUP_COUNT; g++) u->value[O_ITEM0 + g] = s.item_opt[g];
     if (strstr(json, "\"saveStates\":false")) u->value[O_SAVES] = 0;
     u->value[O_REWIND] = strstr(json, "\"rewind\":true") != NULL;
@@ -186,11 +213,15 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
 /* 1 when every option that changes the run's rules is at its default; the seed, sprites, screen, map view and jingle are cosmetic. */
 int ui_opt_cosmetic(int i)
 {
-    return i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_REACH || i == O_FKEYS;
+    return i == O_SEED || i == O_LINK || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_JINGLE || i == O_MORPH || i == O_MUSIC || i == O_REACH || i == O_FKEYS
+        || i == O_SM0 + O_SMRACE;
 }
 
 int ui_opt_hidden(const SmzUi *u, int i)
 {
+    int sm = u->game_mode == SMZ_MODE_SM;   /* each game shows only its own options; SMZ3 never sees Super Metroid's */
+    if (i >= O_SM0) return !sm;
+    if (sm) return !(i == O_SEED || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_SAVES || i == O_REWIND);
     int mode = u->value[O_MODE];
     if (i == O_HELPS) return u->value[O_HELP] != 1;
     if (i == O_SPAZ_POOL || i == O_SPAZ_REQ) return mode != 2;
@@ -212,9 +243,37 @@ int ui_is_default(const SmzUi *u)
 }
 
 
+/* Super Metroid alone: its generator's options in "sm", then the keys the hosts read for every run (the SMZ3-only aids off). */
+static int sm_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t cap)
+{
+    static const char *const FILTER[] = {"sharp", "smooth", "crt", "lcd"};
+    static const char *const SHAPE[] = {"original", "wide", "pixel"};
+    char samus[32] = "";
+    int si = u->value[O_SAMUS];
+    if (si > 0 && si < u->sprite_count[1]) snprintf(samus, sizeof samus, "%s", u->sprites[1][si]);
+    int n = snprintf(out, cap,
+        "{\"game\":\"sm\",\"seed\":\"%d\",\"sm\":{\"logic\":\"%s\",\"goal\":\"defeatmb\",\"placement\":\"%s\",\"race\":\"%s\"},"
+        "\"mapMode\":\"%s\",\"saveStates\":%s,\"rewind\":%s,\"defaultRules\":%s,\"screenFilter\":\"%s\",\"screenShape\":\"%s\",\"samusSprite\":\"%s\","
+        "\"linkSprite\":\"\",\"helpMode\":\"none\",\"helpCount\":0,\"plando\":\"\",\"musicPackage\":\"\",\"lightDarkRooms\":false,\"nerfedCharge\":false,"
+        "\"quickMorph\":false,\"showReachable\":false,\"showFixedKeys\":false,\"diff\":[",
+        u->value[O_SEED] ? u->value[O_SEED] : seed_if_random, u->value[O_SM0 + O_SMLOGIC] ? "tournament" : "casual",
+        u->value[O_SM0 + O_SMPLACE] ? "split" : "full", u->value[O_SM0 + O_SMRACE] ? "true" : "false",
+        u->value[O_MAP] ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
+        ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], samus);
+    for (int i = O_SM0, first = 1; i < UI_OPT_COUNT && n < (int)cap; i++) {   /* "Label: value" for the run's info screen */
+        char v[44];
+        ui_value_text(u, i, v, sizeof v);
+        n += snprintf(out + n, cap - n, "%s\"%s: %s\"", first ? "" : ",", UI_OPTS[i].label, v);
+        first = 0;
+    }
+    if (n < (int)cap) n += snprintf(out + n, cap - n, "]}");
+    return n < (int)cap ? n : -1;
+}
+
 /* The run's settings as JSON, in the format both frontends store with a run (keys and values as the generator's schema names them). */
 int ui_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t cap)
 {
+    if (u->game_mode == SMZ_MODE_SM) return sm_settings_json(u, seed_if_random, out, cap);
     static const char *const KEYS[] = {"None", "Zelda", "SuperMetroid", "Both"};
     static const char *const PLACE[] = {"Anywhere", "DungeonsAndMetroid", "CrystalDungeonsAndMetroid", "SameGame", "OppositeGame"};
     static const char *const FILTER[] = {"sharp", "smooth", "crt", "lcd"};
@@ -250,7 +309,7 @@ int ui_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, size_t c
         first = 0;
     }
     n += snprintf(out + n, n < (int)cap ? cap - n : 0, "],\"logic\":{");
-    for (int i = O_LOGIC0; i < UI_OPT_COUNT && n < (int)cap; i++)
+    for (int i = O_LOGIC0; i < O_SM0 && n < (int)cap; i++)
         n += snprintf(out + n, cap - n, "\"%s\":%s,", UI_OPTS[i].key, smz_cfg_get(&s.cfg, UI_OPTS[i].key) ? "true" : "false");
     /* the frontends hand every integer in "logic" to the generator by name (smz_setting_set) */
     n += snprintf(out + n, n < (int)cap ? cap - n : 0, "\"GameMode\":%d,\"SpazersInPool\":%d,\"SpazersRequired\":%d,", s.game_mode, s.spazers_in_pool, s.spazers_required);

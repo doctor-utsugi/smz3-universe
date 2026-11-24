@@ -31,8 +31,21 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_counters.c
     ../../core/ui/smz3_runlogic.c
     ../../core/ui/smz3_tracker.c
-    ../../core/ui/smz3_rewind.c)
-target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/ui)
+    ../../core/ui/smz3_rewind.c
+    ../../core/ui/smz3_sm.c
+    ../../core/smgen/sm_generate.c
+    ../../core/smgen/sm_fill.c
+    ../../core/smgen/sm_world.c
+    ../../core/smgen/sm_world_gen.c
+    ../../core/smgen/sm_patch.c
+    ../../core/smgen/sm_options_gen.c
+    ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c)
+target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/smgen ../../core/ui)
+# the Super Metroid base patch as a C array, made at build time like the PC build does
+find_program(PYTHON3 python3 REQUIRED)
+add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c
+    COMMAND ${PYTHON3} ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/gen_sm_ips_c.py ${CMAKE_CURRENT_SOURCE_DIR}/../../patches/sm_randomizer.ips ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/gen_sm_ips_c.py ${CMAKE_CURRENT_SOURCE_DIR}/../../patches/sm_randomizer.ips)
 # the release tag shown on the second screen: the tag CI builds, else the newest tag here
 if("$ENV{GITHUB_REF_NAME}" MATCHES "^v")
     set(SMZ3_VERSION "$ENV{GITHUB_REF_NAME}")

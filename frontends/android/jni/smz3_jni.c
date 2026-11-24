@@ -369,6 +369,40 @@ JNIEXPORT jstring JNICALL NATIVE(lastError)(JNIEnv *env, jclass cls)
     return (*env)->NewStringUTF(env, g_error);
 }
 
+#include "smz3_sm.h"
+
+/* Super Metroid alone: the run's settings JSON with the seed hash added (smz_sm_generate), read back by smLastSettings. */
+static char g_sm_json[4096];
+
+JNIEXPORT jbyteArray JNICALL NATIVE(generateSm)(JNIEnv *env, jclass cls, jbyteArray sm, jstring settings, jbyteArray samusRdc)
+{
+    g_error[0] = 0;
+    if ((*env)->GetArrayLength(env, sm) != SMZ_SM_BASE_SIZE) { snprintf(g_error, sizeof g_error, "the Super Metroid ROM has the wrong size"); return NULL; }
+    const char *j = (*env)->GetStringUTFChars(env, settings, NULL);
+    snprintf(g_sm_json, sizeof g_sm_json, "%s", j);
+    (*env)->ReleaseStringUTFChars(env, settings, j);
+    jbyte *smb = (*env)->GetByteArrayElements(env, sm, NULL);
+    jbyte *sam = samusRdc ? (*env)->GetByteArrayElements(env, samusRdc, NULL) : NULL;
+    uint8_t *rom = malloc(SMZ_SM_ROM_SIZE);
+    int rc = rom ? smz_sm_generate(g_sm_json, sizeof g_sm_json, (const uint8_t *)smb, (const uint8_t *)sam,
+                                   sam ? (size_t)(*env)->GetArrayLength(env, samusRdc) : 0, rom, SMZ_SM_ROM_SIZE) : -1;
+    jbyteArray result = NULL;
+    if (rc) snprintf(g_error, sizeof g_error, rc == -6 ? "the sprite file is not valid" : "generation failed (%d)", rc);
+    else {
+        result = (*env)->NewByteArray(env, SMZ_SM_ROM_SIZE);
+        (*env)->SetByteArrayRegion(env, result, 0, SMZ_SM_ROM_SIZE, (const jbyte *)rom);
+    }
+    if (sam) (*env)->ReleaseByteArrayElements(env, samusRdc, sam, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, sm, smb, JNI_ABORT);
+    free(rom);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL NATIVE(smLastSettings)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, g_sm_json); }
+
+/* Which randomizer's ROM the reads follow (smz3_set_mode): set when a run starts, in each process that reads memory. */
+JNIEXPORT void JNICALL NATIVE(setMode)(JNIEnv *env, jclass cls, jint mode) { smz3_set_mode(mode); }
+
 JNIEXPORT jint JNICALL NATIVE(itemByName)(JNIEnv *env, jclass cls, jstring name)
 {
     const char *n = (*env)->GetStringUTFChars(env, name, NULL);
@@ -666,6 +700,7 @@ JNIEXPORT void JNICALL NATIVE(uiSetSlotCount)(JNIEnv *env, jclass cls, jint n) {
 JNIEXPORT jint JNICALL NATIVE(uiSlot)(JNIEnv *env, jclass cls) { return g_ui.screen == UI_SLOTS_SCREEN ? (g_ui.daily_sel ? -1 : g_ui.slot_cursor) : g_ui.screen == UI_SLOT_MENU || g_ui.screen == UI_CONFIRM ? g_ui.active_slot : -1; }
 JNIEXPORT jint JNICALL NATIVE(uiScreen)(JNIEnv *env, jclass cls) { return g_ui.screen; }
 JNIEXPORT jint JNICALL NATIVE(uiGameMode)(JNIEnv *env, jclass cls) { return g_ui.game_mode; }
+JNIEXPORT void JNICALL NATIVE(uiGameState)(JNIEnv *env, jclass cls, jint mode, jint state) { ui_game_state(&g_ui, mode, state); }
 
 JNIEXPORT jstring JNICALL NATIVE(romName)(JNIEnv *env, jclass cls, jstring json, jstring seed)
 {

@@ -256,6 +256,8 @@ static void rewards(float x, float y, float w, float h)
     }
 }
 
+static char run_hash[48];   /* a Super Metroid run's seed hash (its settings' "hash"), "" otherwise */
+
 static void run_left(float x, float top, float cw, float h)
 {
     const SmzTracker *t = F.t;
@@ -293,9 +295,13 @@ static void run_left(float x, float top, float cw, float h)
         }
         y += 6 * u;
     }
-    snprintf(s, sizeof s, "Zelda  %u / %u", t->zelda_cleared, t->zelda_total);
-    gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
-    bar(x, y, cw, 8 * u, t->zelda_total ? (float)t->zelda_cleared / t->zelda_total : 0, GREEN); y += 12 * u;
+    if (smz3_sm_alone()) {   /* Super Metroid alone: its seed hash where the Zelda count goes */
+        if (run_hash[0]) { gfx_text(x, y, fit_px(run_hash, cw, 13 * u, 8 * u), AMBER, 0, run_hash); y += 29 * u; }
+    } else {
+        snprintf(s, sizeof s, "Zelda  %u / %u", t->zelda_cleared, t->zelda_total);
+        gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
+        bar(x, y, cw, 8 * u, t->zelda_total ? (float)t->zelda_cleared / t->zelda_total : 0, GREEN); y += 12 * u;
+    }
     snprintf(s, sizeof s, "Metroid  %u / %u", t->metroid_cleared, t->metroid_total);
     gfx_text(x, y, 13 * u, TEXT, 0, s); y += 17 * u;
     bar(x, y, cw, 8 * u, t->metroid_total ? (float)t->metroid_cleared / t->metroid_total : 0, RED); y += 12 * u;
@@ -473,7 +479,7 @@ static void page_items(float top)
     for (int g = SMZ3_GAME_ZELDA; g <= SMZ3_GAME_METROID; g++)
         for (int i = 0; i < n; i++) {
             const smz3_inv_item *it = &smz3_inventory_items[i];
-            if ((int)it->game != g) continue;
+            if ((int)it->game != g || (smz3_sm_alone() && g == SMZ3_GAME_ZELDA)) continue;
             float cx = left + (k % columns) * cell, cy = y + (k / columns) * cell;
             int level = F.t->inventory[i];
             k++;
@@ -519,6 +525,7 @@ static void page_checks(float top)
     char s[96];
     for (int r = 0; r < n_regions; r++) {
         const Region *g = &regions[r];
+        if (smz3_sm_alone() && g->game == SMZ3_GAME_ZELDA) continue;
         if (g->game != game) {
             game = g->game;
             y += 8 * u;
@@ -899,6 +906,8 @@ void dual_draw(SDL_Renderer *r, const DualFrame *f, int w, int h)
 
 void dual_open(int slot, const SmzRun *run)
 {
+    const char *hp = strstr(run->settings, "\"hash\":\"");
+    snprintf(run_hash, sizeof run_hash, "%.*s", hp ? (int)strcspn(hp + 8, "\"") : 0, hp ? hp + 8 : "");
     hints_open(slot, run);
     hk_load();
     map_set_visible(hints_visible());

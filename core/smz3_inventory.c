@@ -83,6 +83,7 @@ void smz3_inventory(const uint8_t *wram, size_t wram_len, const uint8_t *sram, s
         size_t len, off;
         levels[i] = -1;
         if (!live) continue;
+        if (it->game == SMZ3_GAME_ZELDA && smz3_sm_alone()) { levels[i] = 0; continue; }
 
         if (it->game == SMZ3_GAME_ZELDA) {
             if (cur == SMZ3_GAME_ZELDA) {

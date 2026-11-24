@@ -3,6 +3,8 @@
 #include "smz3_host.h"
 #include "smz3_text.h"
 #include "smz3_ui_gen.h"
+#include "smz3_run.h"
+#include "smz3_sm.h"
 
 void smz_host_sprites(const SmzUi *u, char link[32], char samus[32])
 {
@@ -24,6 +26,10 @@ int smz_host_generate(const SmzUi *u, int32_t seed_if_random, const uint8_t *sm,
     SmzPatchCfg cfg;
     char link[32], samus[32];
     if (ui_settings_json(u, seed_if_random, settings_json, json_cap) < 0) return -8;
+    if (u->game_mode == SMZ_MODE_SM) {   /* Super Metroid alone: its own generator, only its ROM, a 4 MB ROM */
+        snprintf(seed_text, seed_cap, "%d", u->value[0] ? u->value[0] : (int)seed_if_random);
+        return smz_sm_generate(settings_json, json_cap, sm, samus_rdc, samus_len, rom_out, SMZ_HOST_ROM_SIZE);
+    }
     ui_settings(u, seed_if_random, &s, &cfg, link, samus);
     cfg.link_rdc = link_rdc; cfg.link_rdc_len = link_len;
     cfg.samus_rdc = samus_rdc; cfg.samus_rdc_len = samus_len;

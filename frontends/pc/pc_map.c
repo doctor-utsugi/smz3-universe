@@ -92,10 +92,13 @@ void map_view_move(MapView *v, float dx, float dy, float dz)
     if (dz != 0) { v->zoom *= dz; if (v->zoom < 0.4f) v->zoom = 0.4f; if (v->zoom > 8) v->zoom = 8; }
 }
 
+/* Super Metroid alone shows only the Metroid half of the combined map, right of x 480 (smz_disc_area_box). */
+#define HALF_X (smz3_sm_alone() ? 480.0f : 0.0f)
+
 void map_view_fit(MapView *v, SDL_Rect area)
 {
-    v->zoom = fminf(area.w / MAP_W, area.h / MAP_H);
-    v->cx = MAP_W / 2; v->cy = MAP_H / 2;
+    v->zoom = fminf(area.w / (MAP_W - HALF_X), area.h / MAP_H);
+    v->cx = (MAP_W + HALF_X) / 2; v->cy = MAP_H / 2;
 }
 
 static const uint8_t *visible;
@@ -144,17 +147,18 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     SDL_RenderSetClipRect(r, &area);
     gfx_rect((float)area.x, (float)area.y, (float)area.w, (float)area.h, (SDL_Color){0x0B, 0x0E, 0x12, 255});
     if (!map_tex) { SDL_RenderSetClipRect(r, NULL); return; }
-    float sx = map_w / MAP_W;
-    SDL_FRect whole = {ox, oy, MAP_W * z, MAP_H * z};
+    float sx = map_w / MAP_W, hx = HALF_X;
+    SDL_FRect whole = {ox + hx * z, oy, (MAP_W - hx) * z, MAP_H * z};
+    SDL_Rect part = {(int)(hx * sx), 0, map_w - (int)(hx * sx), map_h};
     Uint8 veil = discovered_only ? 20 : 145;
     SDL_SetTextureColorMod(map_tex, veil, veil, veil);
-    SDL_RenderCopyF(r, map_tex, NULL, &whole);
+    SDL_RenderCopyF(r, map_tex, &part, &whole);
     SmzRect seen[400];
     int ns = smz_disc_rects(d, seen, 400);
     SDL_SetTextureColorMod(map_tex, 255, 255, 255);
     for (int i = 0; i < ns; i++) {
         SmzRect q = seen[i];
-        if (q.x < 0) { q.w += q.x; q.x = 0; }
+        if (q.x < hx) { q.w += q.x - hx; q.x = hx; }
         if (q.y < 0) { q.h += q.y; q.y = 0; }
         if (q.x + q.w > MAP_W) q.w = MAP_W - q.x;
         if (q.y + q.h > MAP_H) q.h = MAP_H - q.y;
@@ -169,7 +173,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     for (int k = 0; k < d->data->n_markers; k++) {
         const SmzMarker *m = &d->data->markers[k];
         int i = m->index;
-        if (i < 0 || i >= (int)smz3_location_count || i >= 512) continue;
+        if (i < 0 || i >= (int)smz3_location_count || i >= 512 || (hx > 0 && smz3_locations[i].game == SMZ3_GAME_ZELDA)) continue;
         float px = ox + m->x * z, py = oy + m->y * z;
         if (px < area.x - 20 || py < area.y - 20 || px > area.x + area.w + 20 || py > area.y + area.h + 20) continue;
         if (discovered_only && !seen_at(seen, ns, (float)m->x, (float)m->y)) continue;
@@ -212,6 +216,7 @@ void map_draw(SDL_Renderer *r, MapView *v, SDL_Rect area, const SmzTracker *t, c
     int nb = wram ? smz_disc_boss_marks(d, wram, wram_len, boss, 16) : 0;
     for (int i = 0; i < nb; i++) {
         float px = ox + boss[i].x * z, py = oy + boss[i].y * z, h = fminf(20, fmaxf(8, 7 + 3 * z));
+        if (boss[i].x < hx) continue;
         if (discovered_only && !seen_at(seen, ns, boss[i].x, boss[i].y)) continue;
         SDL_Color c = boss[i].done ? (SDL_Color){0x60, 0x68, 0x78, 255} : (SDL_Color){0xE0, 0x5A, 0x4F, 255};
         gfx_rect(px - h, py - h, 2 * h, 2 * h, (SDL_Color){0, 0, 0, 255});

@@ -50,6 +50,12 @@ static void flag(SmzUi *u, int x, int y, int color, const char *cc)
 /* The button legend of a screen, "A Load  B Back": every host draws it as its bar with the buttons of the device in use. */
 static void legend(SmzUi *u, const char *s) { text(u, 6, UI_H - 12, C_DIM, 0, s); }
 
+/* Only SMZ3 is online for now (the server takes no other game): Super Metroid runs have no daily, ladder or races. */
+static int online_game(const SmzUi *u) { return u->game_mode == SMZ_MODE_SMZ3; }
+static int sm_mode(const SmzUi *u) { return u->game_mode == SMZ_MODE_SM; }
+#define DAILY_ON(u) ((u)->daily_on && online_game(u))
+#define LADDER_ON(u) ((u)->ladder_on && online_game(u))
+
 void ui_init(SmzUi *u)
 {
     memset(u, 0, sizeof *u);
@@ -175,6 +181,7 @@ static int paused_row(const SmzUi *u);
 static const char *const GAME_NAMES[SMZ_MODE_COUNT] = {"SMZ3", "A Link to the Past", "Super Metroid"};
 static const char *const GAME_LINES[SMZ_MODE_COUNT] = {"Zelda + Metroid", "Randomizer", "Randomizer"};
 static const char *const GAME_PICS[SMZ_MODE_COUNT] = {"logo", "link/Original", "samus/Original"};
+static const char *const GAME_SHORT[SMZ_MODE_COUNT] = {"SMZ3", "ALttP", "Super Metroid"};
 
 static void games_input(SmzUi *u, UiButton b)
 {
@@ -182,7 +189,7 @@ static void games_input(SmzUi *u, UiButton b)
     else if (b != BTN_A) return;
     else if (u->game_state[u->game_cursor] == UI_GAME_SOON) snprintf(u->notice, sizeof u->notice, "%s is coming soon", GAME_NAMES[u->game_cursor]);
     else if (u->game_state[u->game_cursor] == UI_GAME_NO_ROM) snprintf(u->notice, sizeof u->notice, "Add the %s ROM first", u->game_cursor == SMZ_MODE_SM ? "Super Metroid" : "Zelda");
-    else { u->game_mode = u->game_cursor; u->notice[0] = 0; u->screen = UI_HOME; u->home_cursor = 0; }
+    else { u->game_mode = u->game_cursor; u->notice[0] = 0; u->screen = UI_HOME; u->home_cursor = 0; if (!online_game(u)) u->daily_sel = 0; }
 }
 
 static void home_input(SmzUi *u, UiButton b)
@@ -192,6 +199,7 @@ static void home_input(SmzUi *u, UiButton b)
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
+    else if (!online_game(u)) snprintf(u->notice, sizeof u->notice, "Online races are SMZ3 only for now");
     else if (u->race.on) {   /* one kind of race, up to 8: the first screen is there only to pick a paused race back up */
         u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->race.size = 8; u->race.cursor = 0;
         u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY;
@@ -381,7 +389,7 @@ static int visible(const SmzUi *u, int level, int *idx)
     for (int k = 0; k < UI_OPT_COUNT; k++) {
         int i = k;
         if (level != LEVEL_ITEMS) {
-            const char *key = k < 24 ? UI_TABS[level][k] : NULL;
+            const char *key = k < 24 ? (sm_mode(u) ? UI_TABS_SM : UI_TABS)[level][k] : NULL;
             if (!key) break;
             for (i = 0; i < UI_OPT_COUNT && strcmp(UI_OPTS[i].key, key); i++) {}
             if (i == UI_OPT_COUNT) continue;
@@ -393,6 +401,14 @@ static int visible(const SmzUi *u, int level, int *idx)
         idx[n++] = i;
     }
     return n;
+}
+
+/* Super Metroid's Create screen has no saved customs (they carry SMZ3 options) and skips the tabs it has nothing in. */
+static int save_row(const SmzUi *u) { return !sm_mode(u); }
+static int tab_shown(const SmzUi *u, int level) { int idx[UI_MAX_OPTS]; return visible(u, level, idx) > 0; }
+static void tab_step(SmzUi *u, int d)
+{
+    for (int l = u->level + d; l >= LEVEL_QUICK && l <= LEVEL_ITEMS; l += d) if (tab_shown(u, l)) { u->level = l; return; }
 }
 
 static void change(SmzUi *u, int opt, int dir, int big)
@@ -412,8 +428,8 @@ static void change(SmzUi *u, int opt, int dir, int big)
 }
 
 /* slot rows on screen: the Daily row takes the first place */
-static int world_row(const SmzUi *u) { return u->ladder_on && u->daily_on; }   /* World goals beside the Daily challenge, in its row */
-static int slots_shown(const SmzUi *u) { return UI_SLOTS_SHOWN + (UI_H - 240) / 47 - (u->daily_on != 0); }
+static int world_row(const SmzUi *u) { return LADDER_ON(u) && DAILY_ON(u); }   /* World goals beside the Daily challenge, in its row */
+static int slots_shown(const SmzUi *u) { return UI_SLOTS_SHOWN + (UI_H - 240) / 47 - (DAILY_ON(u) != 0); }
 
 #define SAVED_ROWS (5 + (UI_H - 240) / 38)
 
@@ -445,6 +461,10 @@ static void move(int *cur, int *scroll, int n, int dir)
 typedef struct { const char *name, *desc, *spec; } UiPreset;
 static const UiPreset CHILL = {"Cozy run", "Zelda keys shuffled, easy wall jumps", "Keysanity=2,WallJumpDifficulty=0,LightDarkRooms=1,SaveStates=1,Rewind=1,ShowReachable=1,ShowFixedKeys=1"};
 static const UiPreset ORIGINAL = {"Original", "The default randomizer rules", ""};
+static const UiPreset SM_CHILL = {"Cozy run", "Casual logic, save states, rewind", "SmLogic=0,SaveStates=1,Rewind=1"};
+static const UiPreset SM_ORIGINAL = {"Original", "Tournament logic, major/minor split", ""};
+static const UiPreset *chill(const SmzUi *u) { return sm_mode(u) ? &SM_CHILL : &CHILL; }
+static const UiPreset *original(const SmzUi *u) { return sm_mode(u) ? &SM_ORIGINAL : &ORIGINAL; }
 static const UiPreset WEEKLY = {"Weekly run", "Short run: 2 crystals, 1 boss", "GanonCrystals=2,GtCrystals=2,TourianBosses=1"};
 static void spec_values(int *value, const char *spec);
 static const UiPreset BUILTIN[] = {
@@ -968,7 +988,7 @@ void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left)
     u->weekly_seed = seed > 0 ? seed : 0;
 }
 
-int ui_run_ladder(const SmzUi *u) { return u->run_mode >= 4 || ui_is_default(u); }
+int ui_run_ladder(const SmzUi *u) { return online_game(u) && (u->run_mode >= 4 || ui_is_default(u)); }
 int ui_online_now(const SmzUi *u) { return u->player_on && u->online_mode == 1 && ui_run_ladder(u); }
 
 int ui_player_text(const SmzUi *u, char *out, size_t cap)
@@ -1073,19 +1093,20 @@ static void begin_run(SmzUi *u, int mode, const char *label, const char *spec)
 
 void ui_preset(SmzUi *u, int mode)
 {
-    if (mode == 0) begin_run(u, 0, CHILL.name, CHILL.spec);
-    else begin_run(u, mode == 1 ? 1 : 2, mode == 1 ? ORIGINAL.name : "Custom", mode == 1 ? ORIGINAL.spec : "");
+    if (mode == 0) begin_run(u, 0, chill(u)->name, chill(u)->spec);
+    else begin_run(u, mode == 1 ? 1 : 2, mode == 1 ? original(u)->name : "Custom", mode == 1 ? original(u)->spec : "");
     u->screen = UI_SLOTS_SCREEN;
 }
 
 void ui_apply_spec(SmzUi *u, const char *spec) { apply_spec(u, spec); }
 
-static int mode_rows(const SmzUi *u) { return 3 + (u->saved_count > 0) + (u->monthly_seed > 0) + (u->weekly_seed > 0); }
+static int mode_rows(const SmzUi *u) { return sm_mode(u) ? 3 : 3 + (u->saved_count > 0) + (u->monthly_seed > 0) + (u->weekly_seed > 0); }
 
 /* 0 Cozy, 1 Original, 2 Custom, 3 Saved customs, 4 Monthly seed, 5 Weekly run (the rows that apply, in this order) */
 static int mode_kind(const SmzUi *u, int row)
 {
     int kinds[6] = {0, 1, 2}, n = 3;
+    if (sm_mode(u)) return kinds[row < n ? row : n - 1];   /* saved customs carry SMZ3 options; the monthly and weekly are online */
     if (u->saved_count > 0) kinds[n++] = 3;
     if (u->monthly_seed > 0) kinds[n++] = 4;
     if (u->weekly_seed > 0) kinds[n++] = 5;
@@ -1221,6 +1242,7 @@ static void start_input(SmzUi *u, UiButton b)
         int d = b == BTN_UP ? rows - 1 : 1;
         *cur = (*cur + d) % rows;
         if (*cur == 2 && (!u->player_on || !ui_run_ladder(u))) *cur = (*cur + d) % rows;   /* a local-only run has no online row to pick */
+        if (*cur == 0 && sm_mode(u)) *cur = (*cur + d) % rows;   /* Super Metroid alone: Samus only */
     }
     else if (b == BTN_LEFT) u->start_col = u->start_col > 0 && *cur == 2 ? u->start_col - 1 : 0;
     else if (b == BTN_RIGHT) u->start_col = *cur == 2 && u->online_mode == 1 ? (u->start_col < 2 ? u->start_col + 1 : 2) : *cur < START_ROW;
@@ -1252,8 +1274,8 @@ static void mode_input(SmzUi *u, UiButton b)
     else if (b == BTN_DOWN) u->mode_cursor = (u->mode_cursor + 1) % n;
     else if (b == BTN_B) u->screen = UI_SLOTS_SCREEN;
     else if (b == BTN_A) switch (mode_kind(u, u->mode_cursor)) {
-    case 0: begin_run(u, 0, CHILL.name, CHILL.spec); break;
-    case 1: begin_run(u, 1, ORIGINAL.name, ORIGINAL.spec); break;
+    case 0: begin_run(u, 0, chill(u)->name, chill(u)->spec); break;
+    case 1: begin_run(u, 1, original(u)->name, original(u)->spec); break;
     case 2:
         if (u->keep_custom) {   /* back after freeing a saved slot: the options that did not fit are still there */
             u->keep_custom = 0; u->run_mode = 2; u->level = LEVEL_QUICK; u->screen = UI_CREATE;
@@ -1283,7 +1305,7 @@ void ui_input(SmzUi *u, UiButton b)
     u->notice[0] = 0;
     switch (u->screen) {
     case UI_SLOTS_SCREEN:
-        if (u->daily_on && (b == BTN_UP || b == BTN_DOWN)) {   /* the Daily (and World) row sits between the last slot and the first */
+        if (DAILY_ON(u) && (b == BTN_UP || b == BTN_DOWN)) {   /* the Daily (and World) row sits between the last slot and the first */
             int n = 1 + u->slot_count, pos = u->daily_sel ? 0 : 1 + u->slot_cursor;
             pos = (pos + (b == BTN_UP ? n - 1 : 1)) % n;
             if (!pos) u->daily_sel = 1;
@@ -1300,7 +1322,7 @@ void ui_input(SmzUi *u, UiButton b)
             u->slot_cursor = c < 0 ? 0 : c >= u->slot_count ? u->slot_count - 1 : c;
             slot_view(u);
         }
-        else if (b == BTN_SELECT && u->ladder_on) ladder_open(u);
+        else if (b == BTN_SELECT && LADDER_ON(u)) ladder_open(u);
         else if (b == BTN_B && u->home_on) u->screen = UI_HOME;
         else if (b == BTN_A) {
             u->active_slot = u->slot_cursor;
@@ -1327,13 +1349,12 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_CREATE: {
         int idx[UI_MAX_OPTS], n = visible(u, u->level, idx);
         int *cur = &u->cursor[u->level], *scr = &u->scroll[u->level];
-        int rows = n + 2;                                   /* then Save as custom and Next */
+        int rows = n + 1 + save_row(u);                     /* then Save as custom and Next */
         if (b == BTN_UP) move(cur, scr, rows, -1);
         else if (b == BTN_DOWN) move(cur, scr, rows, 1);
         else if (b == BTN_B) u->screen = UI_MODE;
-        else if (b == BTN_L) { if (u->level > LEVEL_QUICK) u->level--; }
-        else if (b == BTN_R) { if (u->level < LEVEL_ITEMS) u->level++; }
-        else if (*cur == n) {
+        else if (b == BTN_L || b == BTN_R) tab_step(u, b == BTN_L ? -1 : 1);
+        else if (*cur == n && save_row(u)) {
             if (b == BTN_A) {
                 u->name_for = 0;
                 for (int k = 1, i;; k++) {   /* the first "Custom N" not saved yet */
@@ -1345,7 +1366,7 @@ void ui_input(SmzUi *u, UiButton b)
                 u->key_cursor = 0;
                 u->screen = UI_NAME;
             }
-        } else if (*cur == n + 1) {
+        } else if (*cur == n + save_row(u)) {
             if (b == BTN_A) { u->run_mode = 2; goto_start(u); }
         } else {
             const UiOptDef *d = &UI_OPTS[idx[*cur]];
@@ -1448,7 +1469,7 @@ void ui_touch(SmzUi *u, int x, int y)
         case H_ROW: u->cursor[u->level] = t->idx; ui_input(u, BTN_A); break;
         case H_SCROLL: {
             int idx[UI_MAX_OPTS], n = visible(u, u->level, idx);
-            for (int k = 0; k < 3; k++) move(&u->cursor[u->level], &u->scroll[u->level], n + 2, t->idx);
+            for (int k = 0; k < 3; k++) move(&u->cursor[u->level], &u->scroll[u->level], n + 1 + save_row(u), t->idx);
             break;
         }
         case H_CREATE: u->run_mode = 2; goto_start(u); break;
@@ -1576,11 +1597,13 @@ static void slot_rich(SmzUi *u, int i, int y, int w)
     /* Link with the crystals the run asks for, Samus with its bosses; what is missing is dark (the pictures are dimmed).
      * All seven crystals go by number; fewer are slots filled by the count, the bosses beaten first. */
     char sk[56];   /* the run's own sprites; the games' standing ones (tools/gen_original_icons.py) for the originals */
-    snprintf(sk, sizeof sk, "link/%s", t->link_sprite[0] ? t->link_sprite : "Original");
-    put(u, 2, 88, y + 15, 10, 14, C_TEXT, 0, sk);
     int cn = t->crystals_need ? t->crystals_need : 7, bn = t->bosses_need ? t->bosses_need : 4, got = 0, order[4], k = 0;
-    for (int n = 0; n < 7; n++) got += t->crystal_mask >> n & 1;
-    for (int n = 1; n <= cn; n++) gem(u, 106 + (n - 1) * 14, y + 17, cn == 7 ? t->crystal_mask >> (n - 1) & 1 : n <= got, cn == 7 && (n == 5 || n == 6));
+    if (!sm_mode(u)) {   /* Super Metroid alone: Samus and her bosses only */
+        snprintf(sk, sizeof sk, "link/%s", t->link_sprite[0] ? t->link_sprite : "Original");
+        put(u, 2, 88, y + 15, 10, 14, C_TEXT, 0, sk);
+        for (int n = 0; n < 7; n++) got += t->crystal_mask >> n & 1;
+        for (int n = 1; n <= cn; n++) gem(u, 106 + (n - 1) * 14, y + 17, cn == 7 ? t->crystal_mask >> (n - 1) & 1 : n <= got, cn == 7 && (n == 5 || n == 6));
+    }
     snprintf(sk, sizeof sk, "samus/%s", t->samus_sprite[0] ? t->samus_sprite : "Original");
     put(u, 2, 88, y + 29, 10, 14, C_TEXT, 0, sk);
     static const char *const BOSS[4] = {"reward/kraid", "reward/phantoon", "reward/draygon", "reward/ridley"};
@@ -1597,7 +1620,7 @@ static void slot_rich(SmzUi *u, int i, int y, int w)
         flag(u, fx, y + 15, wc, u->country);
         text(u, u->country[0] ? fx - 4 : 8 + w - 8, y + 14, wc, 2, who);
     }
-    bar(u, 214, y + 27, w - 214, t->zelda_cleared, t->zelda_total, C_GREEN);
+    if (!sm_mode(u)) bar(u, 214, y + 27, w - 214, t->zelda_cleared, t->zelda_total, C_GREEN);
     bar(u, 214, y + 36, w - 214, t->metroid_cleared, t->metroid_total, C_ACCENT);
 }
 
@@ -2013,19 +2036,21 @@ void ui_draw(SmzUi *u)
     case UI_SLOTS_SCREEN: {
         int more = u->slot_count > slots_shown(u);
         /* with the token counter beside Ladder the title is shorter, so it fits in the hosts' wider fonts too */
-        if (u->daily_sel == 1) snprintf(buf, sizeof buf, "SMZ3  -  Special run");
-        else if (u->daily_sel == 2) snprintf(buf, sizeof buf, "SMZ3  -  World goals");
-        else snprintf(buf, sizeof buf, more ? (u->daily_on ? "SMZ3  -  Runs  (%d/%d)" : "SMZ3  -  Select a run  (%d/%d)") : u->daily_on ? "SMZ3  -  Runs" : "SMZ3  -  Select a run", u->slot_cursor + 1, u->slot_count);
+        const char *g = GAME_SHORT[u->game_mode];
+        if (u->daily_sel == 1) snprintf(buf, sizeof buf, "%s  -  Special run", g);
+        else if (u->daily_sel == 2) snprintf(buf, sizeof buf, "%s  -  World goals", g);
+        else if (more) snprintf(buf, sizeof buf, DAILY_ON(u) ? "%s  -  Runs  (%d/%d)" : "%s  -  Select a run  (%d/%d)", g, u->slot_cursor + 1, u->slot_count);
+        else snprintf(buf, sizeof buf, DAILY_ON(u) ? "%s  -  Runs" : "%s  -  Select a run", g);
         title(u, buf);
-        if (u->ladder_on) {
+        if (LADDER_ON(u)) {
             rect(u, UI_W - 70, 4, 64, 20, C_SEL);
             text(u, UI_W - 38, 8, C_TEXT, 1, "Ladder >");
             hit(u, H_LADDER, 0, UI_W - 70, 4, 64, 20);
         }
-        if (u->daily_on && u->daily.loaded == 1) token_chip(u, UI_W - 70 - 52, 4);
+        if (DAILY_ON(u) && u->daily.loaded == 1) token_chip(u, UI_W - 70 - 52, 4);
         int w = UI_W - 16 - (more ? 26 : 0), top = 32, shown = slots_shown(u);
         if (world_row(u)) { int half = (w - 6) / 2; daily_row(u, 8, top, half); world_list_row(u, 8 + half + 6, top, w - half - 6); top += 47; }
-        else if (u->daily_on) { daily_row(u, 8, top, w); top += 47; }
+        else if (DAILY_ON(u)) { daily_row(u, 8, top, w); top += 47; }
         for (int r = 0; r < shown && u->slot_scroll + r < u->slot_count; r++) {
             int i = u->slot_scroll + r, y = top + r * 47, used = u->slots[i].used;
             rect(u, 8, y, w, 44, i == u->slot_cursor && !u->daily_sel ? C_SEL : C_PANEL);
@@ -2049,7 +2074,7 @@ void ui_draw(SmzUi *u)
             int by = top + (shown - 1) * 47;
             if (u->slot_scroll + shown < u->slot_count) { rect(u, x, by, 20, 44, C_PANEL); text(u, x + 10, by + 14, C_ACCENT, 1, "v"); hit(u, H_CHEVRON, 1, x, by, 20, 44); }
         }
-        legend(u, u->ladder_on ? u->home_on ? "A Open  Select Ladder  B Back" : "A Open  Select Ladder" : u->home_on ? "A Open  B Back" : "A Open");
+        legend(u, LADDER_ON(u) ? u->home_on ? "A Open  Select Ladder  B Back" : "A Open  Select Ladder" : u->home_on ? "A Open  B Back" : "A Open");
         if (u->version[0]) text(u, UI_W - 6, UI_H - 12, C_DIM, 2, u->version);
         break;
     }
@@ -2085,20 +2110,21 @@ void ui_draw(SmzUi *u)
         title(u, "");   /* six tabs take the whole bar */
         {
             static const char *const TABS[LEVEL_COUNT] = { "Quick", "Run", "Zelda", "Metroid", "Play", "Items" };
-            for (int t = 0; t < LEVEL_COUNT; t++) {
-                int x = 4 + t * 52;
+            for (int t = 0, k = 0; t < LEVEL_COUNT; t++) {
+                if (sm_mode(u) && !tab_shown(u, t)) continue;
+                int x = 4 + k++ * 52;
                 hit(u, H_TAB, t, x, 4, 50, 20);
                 rect(u, x, 4, 50, 20, u->level == t ? C_SEL : C_BG);
                 text(u, x + 25, 8, C_TEXT, 1, TABS[t]);
             }
             if (u->level == LEVEL_QUICK) text(u, 6, 30, C_DIM, 0, "The options most players change");
         }
-        for (int r = 0; r < ROWS_SHOWN && scr + r <= n + 1; r++) {
+        for (int r = 0; r < ROWS_SHOWN && scr + r <= n + save_row(u); r++) {
             int row = scr + r, y = LIST_Y + r * ROW_H;
             rect(u, 4, y, UI_W - 40, ROW_H - 2, row == cur ? C_SEL : C_PANEL);
             hit(u, H_ROW, row, 4, y, UI_W - 40, ROW_H - 2);
-            if (row == n) { text(u, (UI_W - 40) / 2, y + 4, C_ACCENT, 1, "Save as custom..."); continue; }
-            if (row == n + 1) { text(u, (UI_W - 40) / 2, y + 4, C_ACCENT, 1, "Next: sprites and start"); continue; }
+            if (row == n && save_row(u)) { text(u, (UI_W - 40) / 2, y + 4, C_ACCENT, 1, "Save as custom..."); continue; }
+            if (row == n + save_row(u)) { text(u, (UI_W - 40) / 2, y + 4, C_ACCENT, 1, "Next: sprites and start"); continue; }
             ui_value_text(u, idx[row], val, sizeof val);
             text(u, 10, y + 4, C_TEXT, 0, UI_OPTS[idx[row]].label);
             int pic = (idx[row] == UIO_LINK || idx[row] == UIO_SAMUS) && u->value[idx[row]] > 0 && u->value[idx[row]] < u->sprite_count[idx[row] == UIO_SAMUS];
@@ -2123,7 +2149,7 @@ void ui_draw(SmzUi *u)
         text(u, UI_W - 48, UI_H - 44, C_ACCENT, 1, "Next");
         hit(u, H_CREATE, 0, UI_W - 92, UI_H - 54, 88, 32);
         {
-            const char *tip = u->notice[0] ? u->notice : cur < n ? UI_OPTS[idx[cur]].tip : cur == n ? "Saves these options under a name." : "Choose the sprites, then start.";
+            const char *tip = u->notice[0] ? u->notice : cur < n ? UI_OPTS[idx[cur]].tip : cur == n && save_row(u) ? "Saves these options under a name." : "Choose the sprites, then start.";
             char line[44];
             size_t len = strlen(tip), cut = len;
             if (len > 28) { cut = 28; while (cut > 0 && tip[cut] != 0x20) cut--; if (!cut) cut = 28; }
@@ -2222,7 +2248,7 @@ void ui_draw(SmzUi *u)
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
         text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
         for (int r = 0; r < HOME_ROWS; r++) {
-            int y = 70 + r * 34, off = (r == 1 || r == 2) && !u->race.on;   /* the online rows, without a connection */
+            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
             rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
             hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
@@ -2259,10 +2285,10 @@ void ui_draw(SmzUi *u)
         int gap = rows > 5 ? 12 : 14, dy = (rh - gap - 14) / 2;   /* the name and its line centred in the row */
         for (int r = 0; r < rows; r++) {
             int y = 34 + r * pitch, k = mode_kind(u, r);
-            const char *name = k == 0 ? CHILL.name : k == 1 ? ORIGINAL.name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : WEEKLY.name;
+            const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : WEEKLY.name;
             char desc[48];
-            if (k == 0) snprintf(desc, sizeof desc, "%s", CHILL.desc);
-            else if (k == 1) snprintf(desc, sizeof desc, "%s", ORIGINAL.desc);
+            if (k == 0) snprintf(desc, sizeof desc, "%s", chill(u)->desc);
+            else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
             else if (k == 2) snprintf(desc, sizeof desc, "Pick every option yourself");
             else if (k == 3) snprintf(desc, sizeof desc, "%d saved", u->saved_count);
             else if (k == 5 && u->weekly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today, 2 crystals, 1 boss", u->weekly_label);
@@ -2346,9 +2372,9 @@ void ui_draw(SmzUi *u)
     case UI_START: {
         snprintf(buf, sizeof buf, "%s  -  Sprites", u->start_label);
         title(u, buf);
-        int rh = u->player_on ? 46 : 56, step = rh + 6;
-        for (int g = 0; g < 2; g++) {
-            int y = 34 + g * step, v = u->value[g ? UIO_SAMUS : UIO_LINK];
+        int rh = u->player_on ? 46 : 56, step = rh + 6, g0 = sm_mode(u);   /* Super Metroid alone: no Link row */
+        for (int g = g0; g < 2; g++) {
+            int y = 34 + (g - g0) * step, v = u->value[g ? UIO_SAMUS : UIO_LINK];
             if (v >= u->sprite_count[g]) v = 0;
             rect(u, 8, y, 218, rh, u->start_cursor == g && !u->start_col ? C_SEL : C_PANEL);
             hit(u, H_START, g, 8, y, 218, rh);
@@ -2363,7 +2389,7 @@ void ui_draw(SmzUi *u)
             text(u, 72, y + rh / 2 + 4, C_ACCENT, 0, u->sprites[g][v]);
             text(u, 272, y + rh / 2 - 6, C_ACCENT, 1, "Random");
         }
-        if (u->player_on) {
+        if (u->player_on && online_game(u)) {
             int y = 34 + 2 * step, sel = u->start_cursor == 2;
             if (!ui_run_ladder(u)) {   /* changed rules: the time stays on this device */
                 rect(u, 8, y, UI_W - 16, 36, C_PANEL);

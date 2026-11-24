@@ -19,7 +19,8 @@ void smz_host_plando_name(const SmzUi *u, char name[32]);
 int smz_host_set_plando(const char *yaml, size_t len, char *err, size_t errcap);
 
 /* Generates the run chosen in the menu. rom_out takes SMZ_HOST_ROM_SIZE bytes; settings_json receives the run's
- * settings and seed_text its seed. Returns 0 or a negative generator error. */
+ * settings and seed_text its seed. Returns 0 or a negative generator error. For Super Metroid alone (u->game_mode
+ * SMZ_MODE_SM) only sm and the Samus sprite are read, and the ROM is smz_mode_rom_size(SMZ_MODE_SM) bytes (smz3_sm.h). */
 int smz_host_generate(const SmzUi *u, int32_t seed_if_random, const uint8_t *sm, const uint8_t *z3,
                       const uint8_t *link_rdc, size_t link_len, const uint8_t *samus_rdc, size_t samus_len,
                       SmzHostIps ips, void *ips_user, uint8_t *rom_out, char *settings_json, size_t json_cap,

@@ -21,6 +21,8 @@ void store_roms_get(char sm[512], char z3[512]);
 void store_roms_set(const char *sm, const char *z3);
 /* Loads and checks the base ROMs (3 MB Super Metroid JU, 1 MB ALttP JP v1.0). Returns 0 or -1 with the reason in err. */
 int store_load_base(uint8_t **sm, uint8_t **z3, char *err, size_t errcap);
+/* Only the Super Metroid ROM, all a Super Metroid run needs. */
+int store_load_sm(uint8_t **sm, char *err, size_t errcap);
 
 uint8_t *store_read(const char *path, size_t *len);
 int store_write(const char *path, const void *data, size_t len);

@@ -42,6 +42,7 @@
 #include "smz3_discovery.h"
 #include "smz3_proof.h"
 #include "smz3_rewind.h"
+#include "smz3_sm.h"
 #include "smz3_romsetup.h"
 #include "pc_idle.h"
 #include "smz3_runlogic.h"
@@ -94,8 +95,9 @@ static void *generate_thread(void *arg)
     snprintf(j->run.name, sizeof j->run.name, "%s", ui_run_label(gu));
     snprintf(j->run.seed, sizeof j->run.seed, "%s", seed);
     snprintf(j->run.settings, sizeof j->run.settings, "%s", json);
+    j->run.mode = gu->game_mode;
     for (unsigned i = 0; i < smz3_location_count; i++)
-        if (smz3_locations[i].game == SMZ3_GAME_ZELDA) j->run.zelda_total++; else j->run.metroid_total++;
+        if (smz3_locations[i].game != SMZ3_GAME_ZELDA) j->run.metroid_total++; else if (j->run.mode != SMZ_MODE_SM) j->run.zelda_total++;
     return NULL;
 }
 
@@ -432,12 +434,23 @@ static SmzMapData map_data(void)
     return d;
 }
 
+/* The carousel's Super Metroid card: ready once its ROM is there, the only one it needs. */
+static void sm_card(void)
+{
+    uint8_t *a;
+    char err[64];
+    int ok = store_load_sm(&a, err, sizeof err) == 0;
+    if (ok) free(a);
+    ui_game_state(&ui, SMZ_MODE_SM, ok ? UI_GAME_READY : UI_GAME_NO_ROM);
+}
+
 static int g_base_checked;   /* 0 unknown, 1 ready, -1 not ready; reset when ROMs are added */
 static int base_ok(void)
 {
     if (g_base_checked) return g_base_checked > 0;
     uint8_t *a, *b;
     char err[64];
+    sm_card();
     if (store_load_base(&a, &b, err, sizeof err)) { g_base_checked = -1; return 0; }
     derive_data(a, b);
     free(a); free(b);
@@ -815,6 +828,7 @@ static void *goals_report_thread(void *arg)
 
 static void goals_report(int slot, const SmzRun *run)
 {
+    if (run->mode != SMZ_MODE_SMZ3) return;   /* the world goals are online, SMZ3 only for now */
     GoalReport *g = calloc(1, sizeof *g);
     if (!g) return;
     g->slot = slot; g->created = run->created; g->online = online_slot_kind(slot) > 0;
@@ -998,12 +1012,14 @@ static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, f
     snprintf(s, sizeof s, "%u%%", total ? done * 100 / total : 0);
     gfx_text(x + pad, y, 64 * u, C(0xE9, 0xA2, 0x3B), 0, s);
     y += 84 * u;
-    gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Zelda");
-    snprintf(s, sizeof s, "%u/%u", t->zelda_cleared, t->zelda_total);
-    gfx_text(x + w - pad, y, 20 * u, C(0xE8, 0xEC, 0xF2), 2, s);
-    y += 26 * u;
-    draw_bar(x + pad, y, w - 2 * pad, 10 * u, t->zelda_total ? (float)t->zelda_cleared / t->zelda_total : 0, C(0x4C, 0xC3, 0x8A));
-    y += 30 * u;
+    if (!smz3_sm_alone()) {   /* Super Metroid alone: no Zelda half */
+        gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Zelda");
+        snprintf(s, sizeof s, "%u/%u", t->zelda_cleared, t->zelda_total);
+        gfx_text(x + w - pad, y, 20 * u, C(0xE8, 0xEC, 0xF2), 2, s);
+        y += 26 * u;
+        draw_bar(x + pad, y, w - 2 * pad, 10 * u, t->zelda_total ? (float)t->zelda_cleared / t->zelda_total : 0, C(0x4C, 0xC3, 0x8A));
+        y += 30 * u;
+    }
     gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Metroid");
     snprintf(s, sizeof s, "%u/%u", t->metroid_cleared, t->metroid_total);
     gfx_text(x + w - pad, y, 20 * u, C(0xE8, 0xEC, 0xF2), 2, s);
@@ -1169,7 +1185,12 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         fmt_time(t->elapsed_ms ? t->elapsed_ms : r->play_ms, s, sizeof s);
         gfx_text(x0, y, 30 * u, C(0xE8, 0xEC, 0xF2), 0, r->name); y += 44 * u;
         char row[160];
-        snprintf(row, sizeof row, "Time %s    Zelda %u/%u    Metroid %u/%u", s, t->zelda_cleared, t->zelda_total, t->metroid_cleared, t->metroid_total);
+        if (smz3_sm_alone()) {   /* with the seed hash its file select screen shows */
+            char hash[48] = "";
+            const char *hp = strstr(r->settings, "\"hash\":\"");
+            if (hp) snprintf(hash, sizeof hash, "%.*s", (int)strcspn(hp + 8, "\""), hp + 8);
+            snprintf(row, sizeof row, "Time %s    Metroid %u/%u    %s", s, t->metroid_cleared, t->metroid_total, hash);
+        } else snprintf(row, sizeof row, "Time %s    Zelda %u/%u    Metroid %u/%u", s, t->zelda_cleared, t->zelda_total, t->metroid_cleared, t->metroid_total);
         gfx_text(x0, y, 22 * u, C(0x87, 0x93, 0xA6), 0, row); y += 44 * u;
         gfx_text(x0, y, 22 * u, C(0xE9, 0xA2, 0x3B), 0, "Last checks"); y += 32 * u;
         for (int i = 0; i < t->n_recent_checks; i++, y += line) {
@@ -1213,6 +1234,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         if (per < 1) per = 1;
         for (unsigned i = 0; i < smz3_inventory_count && i < SMZ_TRK_MAX_INV; i++) {
             const smz3_inv_item *it = &smz3_inventory_items[i];
+            if (smz3_sm_alone() && it->game == SMZ3_GAME_ZELDA) continue;
             if (it->game != last_game) { if (last_game) y += (k + per - 1) / per * (cell + gap) + 14 * u; k = 0; last_game = it->game; }
             float cx = x0 + (k % per) * (cell + gap), cy = y + (k / per) * (cell + gap);
             int level = t->inventory[i];
@@ -1230,10 +1252,11 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             k++;
         }
     } else if (tab == TAB_CHECKS) {
-        int rows = checks_rows(win_h), first = scroll;
-        if (first > (int)smz3_location_count - rows) first = (int)smz3_location_count - rows;
+        int rows = checks_rows(win_h), first = scroll, nloc = (int)smz3_location_count;
+        if (smz3_sm_alone()) for (nloc = 0; nloc < (int)smz3_location_count && smz3_locations[nloc].game != SMZ3_GAME_ZELDA; nloc++) {}   /* the Metroid checks come first */
+        if (first > nloc - rows) first = nloc - rows;
         if (first < 0) first = 0;
-        for (int i = 0; i < rows && first + i < (int)smz3_location_count && first + i < SMZ_TRK_MAX_LOCS; i++) {
+        for (int i = 0; i < rows && first + i < nloc && first + i < SMZ_TRK_MAX_LOCS; i++) {
             const smz3_location *l = &smz3_locations[first + i];
             int done = t->cleared[first + i];
             snprintf(s, sizeof s, "%s %s  -  %s", done ? "[x]" : "[ ]", l->game == SMZ3_GAME_ZELDA ? "Z" : "M", l->name);
@@ -1243,7 +1266,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             }
             gfx_text(x0, y + i * line, 19 * u, done ? C(0x4C, 0xC3, 0x8A) : in_logic && !in_logic[first + i] ? C(0x5A, 0x66, 0x78) : C(0xE8, 0xEC, 0xF2), 0, s);
         }
-        snprintf(s, sizeof s, "%d-%d of %u", first + 1, first + rows, smz3_location_count);
+        snprintf(s, sizeof s, "%d-%d of %d", first + 1, first + rows, nloc);
         gfx_text(x0 + w, bottom, 18 * u, C(0x87, 0x93, 0xA6), 2, s);
     } else if (tab == TAB_MAP) {
         SDL_Rect area = {(int)x0, (int)y, (int)w, (int)(bottom - y - 30 * u)};
@@ -1859,12 +1882,13 @@ static void play(int slot, int game_save_only)
     if (!run.rom_path[0]) rom_file(&run, romp, sizeof romp); else snprintf(romp, sizeof romp, "%s", run.rom_path);
     size_t rl;
     uint8_t *rom = store_read(romp, &rl);
-    if (!rom || rl != SMZ_HOST_ROM_SIZE) { free(rom); note("the ROM of this run is missing; make a new run"); return; }
+    if (!rom || rl != smz_mode_rom_size(run.mode)) { free(rom); note("the ROM of this run is missing; make a new run"); return; }
     music_prepare(romp, run.settings, run.seed);
-    if (!smz_rom_shortcut_hooks(rom)) smz_rom_checksum(rom);   /* a run made before the item shortcuts */
+    if (run.mode != SMZ_MODE_SM && !smz_rom_shortcut_hooks(rom)) smz_rom_checksum(rom);   /* a run made before the item shortcuts; Super Metroid alone has no hooks */
     int ok = emu_open(rom, rl, romp) == 0;
     free(rom);
     if (!ok) { note("the emulator could not load the ROM"); return; }
+    smz3_set_mode(run.mode);   /* the tracker reads the memory of this run's game */
 
     /* runs that send a time online (the ladders, the daily challenge) and finished runs never allow states, whatever their options */
     int states = json_flag(run.settings, "saveStates", 0) && !online_slot_kind(slot + 1) && !strstr(run.settings, "\"challenge\":true");
@@ -1912,7 +1936,7 @@ static void play(int slot, int game_save_only)
     dungeon_set_fixed_keys(strstr(run.settings, "\"showFixedKeys\"") ? json_flag(run.settings, "showFixedKeys", 0) : !strcmp(run.name, "Cozy run"));
     {   /* the seed, rebuilt: what each collected check gave, and what is in logic when the run allows it */
         LogicJob lj = {&logic, run.settings, -1};
-        run_big(logic_thread, &lj);
+        if (run.mode != SMZ_MODE_SM) run_big(logic_thread, &lj);   /* the SMZ3 logic only */
         have_logic = lj.rc == 0 && reach && strstr(run.settings, "\"helpMode\":\"all\"");
         for (int j = 0; j < 512; j++) g_found[j] = lj.rc == 0 ? (int16_t)smz_logic_item_at(&logic, j) : -1;
     }
@@ -2679,6 +2703,7 @@ static void play(int slot, int game_save_only)
     smz_counters_text(&g_goalc, run.goals, sizeof run.goals);
     store_run_save(slot + 1, &run);
     goals_report(slot + 1, &run);
+    smz3_set_mode(SMZ_MODE_SMZ3);
     if (audio) SDL_CloseAudioDevice(audio);
     if (tex) SDL_DestroyTexture(tex);
     emu_close();
@@ -2957,6 +2982,7 @@ static void window_main(int start_slot)
     char err[200];
     SDL_Window *w = win; (void)w;
     ui_init(&ui);
+    sm_card();
     snprintf(ui.version, sizeof ui.version, "%s", SMZ3_VERSION);   /* one screen: the run list carries the release */
     pad_cfg_load();
     sc_cfg_load();
@@ -3198,8 +3224,8 @@ static void window_main(int start_slot)
             } else if (act == ACT_LOAD_SAVE) { pending_play = slot; pending_state_only = 1; }
             else if (act == ACT_LOAD_STATE) { pending_play = slot; pending_state_only = 0; }
             else if (act == ACT_GENERATE) {
-                uint8_t *sm, *z3;
-                if (store_load_base(&sm, &z3, err, sizeof err)) { ui_idle(&ui); note(err); welcome_open(); }
+                uint8_t *sm, *z3 = NULL;
+                if (ui.game_mode == SMZ_MODE_SM ? store_load_sm(&sm, err, sizeof err) : store_load_base(&sm, &z3, err, sizeof err)) { ui_idle(&ui); note(err); welcome_open(); }
                 else {
                     ui_busy(&ui, "Generating...");
                     fit_width(ren);
@@ -3219,7 +3245,7 @@ static void window_main(int start_slot)
                         int on = ui_online_now(&ui), kind = ui_run_weekly(&ui) ? 3 : ui_run_monthly(&ui) ? 2 : 1;
                         rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
                         j.run.created = j.run.last_played = (int64_t)time(NULL) * 1000;
-                        if (store_write(j.run.rom_path, j.rom, SMZ_HOST_ROM_SIZE) == 0 && store_run_save(slot + 1, &j.run) == 0) {
+                        if (store_write(j.run.rom_path, j.rom, smz_mode_rom_size(j.run.mode)) == 0 && store_run_save(slot + 1, &j.run) == 0) {
                             online_mark_run(slot + 1, on, kind);
                             refill_slots();
                             pending_play = slot; pending_state_only = 0;

@@ -9,8 +9,21 @@
 #define SRAM_ZELDA 0x0000        /* 0xA06000 */
 #define SRAM_METROID 0x20C0      /* 0xA160C0 */
 
+static int g_sm_alone;
+
+void smz3_set_mode(int mode) { g_sm_alone = mode == 2; }
+int smz3_sm_alone(void) { return g_sm_alone; }
+
+/* Super Metroid alone: the item bits of the last used save slot ($70:1FEC; slots of 0x65C bytes from $70:0010, $7ED870 at +0xB0). */
+static size_t sm_slot_items(const uint8_t *sram, size_t sram_len)
+{
+    unsigned slot = sram_len > 0x1FEC ? sram[0x1FEC] : 0;
+    return 0x10 + (slot < 3 ? slot : 0) * 0x65C + 0xB0;
+}
+
 smz3_game smz3_current_game(const uint8_t *sram, size_t sram_len)
 {
+    if (g_sm_alone) return SMZ3_GAME_METROID;
     if (sram_len <= SRAM_GAME) return SMZ3_GAME_NONE;
     switch (sram[SRAM_GAME]) {
     case 0x00: return SMZ3_GAME_ZELDA;
@@ -35,6 +48,13 @@ int smz3_zelda_room_location(unsigned room)
  * Mother Brain's death (0xA17402) and at the Triforce room (0xA17506). */
 int smz3_run_finished(const uint8_t *wram, size_t wram_len, const uint8_t *sram, size_t sram_len)
 {
+    /* Super Metroid alone: the gunship AI at $A2:AA4F (enemy word $0FB2, as above) once the timebomb is set (event 0x0E,
+     * $7ED821 bit 6, set when Mother Brain dies), or game state 0x26/0x27 (Zebes explodes, credits) as a fallback. */
+    if (g_sm_alone) {
+        if (wram_len <= 0xD821) return 0;
+        unsigned state = wram[WRAM_METROID_STATE] | wram[WRAM_METROID_STATE + 1] << 8;
+        return state == 0x26 || state == 0x27 || ((wram[0xD821] & 0x40) && (wram[0xFB2] | wram[0xFB3] << 8) == 0xAA4F);
+    }
     smz3_game g = smz3_current_game(sram, sram_len);
     if (g == SMZ3_GAME_CREDITS) return 1;
     if (sram_len <= 0x3506 || !sram[0x3402]) return 0;
@@ -84,7 +104,8 @@ int smz3_location_cleared(const smz3_location *loc, smz3_game current,
     if (current == SMZ3_GAME_METROID) {
         base = wram + WRAM_METROID; len = wram_len > WRAM_METROID ? wram_len - WRAM_METROID : 0;
     } else {
-        base = sram + SRAM_METROID; len = sram_len > SRAM_METROID ? sram_len - SRAM_METROID : 0;
+        size_t o = g_sm_alone ? sm_slot_items(sram, sram_len) : SRAM_METROID;
+        base = sram + o; len = sram_len > o ? sram_len - o : 0;
     }
     if (loc->addr >= len) return -1;
     return (base[loc->addr] & loc->flag) != 0;
@@ -102,14 +123,15 @@ void smz3_summarize(const uint8_t *wram, size_t wram_len,
     smz3_game from = save_only ? SMZ3_GAME_NONE : out->game;
     if ((!out->started || out->game == SMZ3_GAME_NONE) && !save_only) {
         for (unsigned i = 0; i < smz3_location_count; i++) {
-            if (smz3_locations[i].game == SMZ3_GAME_ZELDA) out->zelda_total++;
-            else out->metroid_total++;
+            if (smz3_locations[i].game != SMZ3_GAME_ZELDA) out->metroid_total++;
+            else if (!g_sm_alone) out->zelda_total++;
         }
         return;
     }
 
     for (unsigned i = 0; i < smz3_location_count; i++) {
         const smz3_location *loc = &smz3_locations[i];
+        if (g_sm_alone && loc->game == SMZ3_GAME_ZELDA) continue;
         int cleared = smz3_location_cleared(loc, from, wram, wram_len, sram, sram_len);
         if (loc->game == SMZ3_GAME_ZELDA) {
             out->zelda_total++;

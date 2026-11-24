@@ -1,13 +1,14 @@
 diff --git a/Makefile b/Makefile
-index 31fa536..7e5d3b0 100644
+index 31fa536..2bb5e8b 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -90,13 +90,16 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
+@@ -90,13 +90,17 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
  # rcheevos (RetroAchievements) is third-party code, 
  # so don't apply our strict warnings or -Werror to it.
  # It has warnings that would otherwise stop the build.
 +# the shared SMZ3 C core is built as it is in the other frontends, without this project's -Werror
 +smz3_%.o: CFLAGS := $(filter-out -Werror,$(CFLAGS)) -w
++sm_%.o: CFLAGS := $(filter-out -Werror,$(CFLAGS)) -w
  rcheevos/%.o: CFLAGS := $(filter-out -Werror -Wno-register,$(CFLAGS)) -w \
                          -Wno-error=incompatible-pointer-types -Wno-error=int-conversion
  
@@ -20,16 +21,16 @@ index 31fa536..7e5d3b0 100644
  
  #---------------------------------------------------------------------------------
  # list of directories containing libraries, this must be the top level containing
-@@ -132,7 +135,7 @@ RCHEEVOS_CFILES    := $(foreach d,$(RCHEEVOS_SRCDIRS),$(patsubst $(SOURCES)/%,%,
+@@ -132,7 +136,7 @@ RCHEEVOS_CFILES    := $(foreach d,$(RCHEEVOS_SRCDIRS),$(patsubst $(SOURCES)/%,%,
  # exclude optional raintegration and libretro
  RCHEEVOS_CFILES    := $(filter-out rcheevos/src/rc_client_raintegration.c rcheevos/src/rc_libretro.c,$(RCHEEVOS_CFILES))
  
 -CFILES             := $(RCHEEVOS_CFILES)
-+CFILES             := $(RCHEEVOS_CFILES) $(patsubst $(SOURCES)/%,%,$(wildcard $(SOURCES)/smz3_*.c))
++CFILES             := $(RCHEEVOS_CFILES) $(patsubst $(SOURCES)/%,%,$(wildcard $(SOURCES)/smz3_*.c $(SOURCES)/sm_*.c))
  CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
  			Snes9x/fxinst.cpp Snes9x/fxemu.cpp \
  			Snes9x/ppu.cpp Snes9x/ppuvsect.cpp Snes9x/hwregisters.cpp \
-@@ -149,7 +152,7 @@ CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
+@@ -149,7 +153,7 @@ CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
  			3dsgpu.cpp 3dssound.cpp 3dsfont.cpp 3dsglyphs.cpp 3dsui.cpp 3dsui_notif.cpp 3dsui_img.cpp 3dsimg_cache.cpp 3dsexit.cpp \
  			3dsconfig.cpp 3dsfiles.cpp 3dsinput.cpp 3dslcd.cpp \
  			3dsimpl.cpp 3dsimpl_tilecache.cpp 3dsimpl_gpu.cpp 3dsthemes.cpp 3dssettings.cpp \
@@ -2508,10 +2509,10 @@ index 0000000..aa631ac
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..5fefd14
+index 0000000..bc3b0b6
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,5965 @@
+@@ -0,0 +1,6001 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2539,6 +2540,7 @@ index 0000000..5fefd14
 +#include "smz3_goalicons.h"
 +#include "smz3_romderived.h"
 +#include "smz3_rewind.h"
++#include "smz3_sm.h"
 +// from smz3_rom.h, whose generator headers stay out of C++
 +int smz_rom_shortcut_hooks(uint8_t *rom);
 +void smz_rom_checksum(uint8_t *rom);
@@ -2743,7 +2745,8 @@ index 0000000..5fefd14
 +    rename(OLD_DIR, SMZ_DIR);
 +}
 +
-+static bool findBaseRoms(unsigned char **sm, unsigned char *z3Out)
++// smOnly: Super Metroid alone needs only its ROM (z3Out may then be NULL and is not written).
++static bool findBaseRoms(unsigned char **sm, unsigned char *z3Out, bool smOnly = false)
 +{
 +    wrongRom[0] = 0;
 +    static const char *dirs[] = {SMZ_DIR, SMZ_DIR "/base", "sdmc:/roms/snes", "sdmc:/roms", "sdmc:/ROMs", "sdmc:/", OLD_DIR "/base"};
@@ -2759,7 +2762,7 @@ index 0000000..5fefd14
 +        if (strcmp(md5, sm_ ? SMZ_MD5_SM : SMZ_MD5_Z3)) {
 +            if (!wrongRom[0]) snprintf(wrongRom, sizeof wrongRom, sm_ ? "Super Metroid ROM must be (JU), md5 21f3e98d" : "ALttP ROM must be Japanese v1.0 (03a63945)");
 +        } else if (sm_ && !*sm) { memmove(b, b + off, len - off); *sm = b; b = NULL; }
-+        else if (!sm_ && !z3) { memcpy(z3Out, b + off, len - off); z3 = true; }
++        else if (!sm_ && !z3 && z3Out) { memcpy(z3Out, b + off, len - off); z3 = true; }
 +    };
 +    for (const char *d : dirs) {
 +        DIR *dir = opendir(d);
@@ -2773,7 +2776,7 @@ index 0000000..5fefd14
 +            bool rom = st.st_size == 0x300000 || st.st_size == 0x300200 || st.st_size == 0x100000 || st.st_size == 0x100200;
 +            bool zip = st.st_size > 1000 && st.st_size < 0x500000 && strlen(e->d_name) > 4 && !strcasecmp(e->d_name + strlen(e->d_name) - 4, ".zip");
 +            if (!rom && !zip) continue;
-+            if (rom && (st.st_size >= 0x300000 ? *sm != NULL : z3)) continue;   // that one is found already
++            if (rom && (st.st_size >= 0x300000 ? *sm != NULL : z3 || smOnly)) continue;   // that one is found already (or not needed)
 +            size_t len;
 +            unsigned char *b = readFile(path, &len);
 +            if (b && rom) offer(b, len);
@@ -2789,8 +2792,9 @@ index 0000000..5fefd14
 +            free(b);
 +        }
 +        closedir(dir);
-+        if (*sm && z3) return true;
++        if (*sm && (z3 || smOnly)) return true;
 +    }
++    if (*sm && smOnly) return true;
 +    if (*sm && !z3) { free(*sm); *sm = NULL; }
 +    return false;
 +}
@@ -3325,8 +3329,9 @@ index 0000000..5fefd14
 +    unsigned char *scratch = romScratch();
 +    job.rom = scratch;
 +    job.z3 = scratch + SMZ_HOST_ROM_SIZE;
-+    if (!findBaseRoms(&job.sm, job.z3)) {
-+        snprintf(message, cap, "%s", wrongRom[0] ? wrongRom : "Put both ROMs (or a zip) in " SMZ_DIR);
++    bool smRun = u->game_mode == SMZ_MODE_SM;   // Super Metroid alone: its ROM only, a 4 MB ROM out
++    if (!findBaseRoms(&job.sm, job.z3, smRun)) {
++        snprintf(message, cap, "%s", wrongRom[0] ? wrongRom : smRun ? "Put the Super Metroid ROM (or a zip) in " SMZ_DIR : "Put both ROMs (or a zip) in " SMZ_DIR);
 +        return false;
 +    }
 +    job.ui = u;
@@ -3385,12 +3390,14 @@ index 0000000..5fefd14
 +                return false;
 +            }
 +            r.created = (int64_t)time(NULL) * 1000;
-+            r.zelda_total = 216; r.metroid_total = 100;
++            r.mode = smRun ? SMZ_MODE_SM : SMZ_MODE_SMZ3;
++            r.zelda_total = smRun ? 0 : 216; r.metroid_total = 100;
++            size_t romSize = smz_mode_rom_size(r.mode);
 +            FILE *f = fopen(r.rom_path, "wb");
-+            if (f) { ok = fwrite(job.rom, 1, SMZ_HOST_ROM_SIZE, f) == SMZ_HOST_ROM_SIZE; fclose(f); }
++            if (f) { ok = fwrite(job.rom, 1, romSize, f) == romSize; fclose(f); }
 +            if (ok) {
-+                // the helps of the run: "mode count used given" and then the hints that may be asked for
-+                int mode = u->value[UIO_HELP], count = u->value[UIO_HELPS];
++                // the helps of the run: "mode count used given" and then the hints that may be asked for (none for Super Metroid)
++                int mode = smRun ? 2 : u->value[UIO_HELP], count = u->value[UIO_HELPS];
 +                char helpPath[300];
 +                snprintf(helpPath, sizeof helpPath, "%.250s.help", r.rom_path);
 +                FILE *h = fopen(helpPath, "wb");
@@ -3694,6 +3701,11 @@ index 0000000..5fefd14
 +    bool ladderFailed = false;
 +    u64 nextWorld = 0;   // the world goals: fetched once they come on screen, then once a minute while they stay
 +    bool worldShown = false;
++    {   // Super Metroid alone needs only its ROM: looked for until it is found, once per menu
++        static bool smFound;
++        if (!smFound) { unsigned char *sm = NULL; smFound = findBaseRoms(&sm, NULL, true); free(sm); }
++        ui_game_state(&ui, SMZ_MODE_SM, smFound ? UI_GAME_READY : UI_GAME_NO_ROM);
++    }
 +    refreshSlots(&ui);
 +    if (left == SMZ_DAILY_SLOT && ui.daily_on) ui.daily_sel = 1;
 +    else if (left >= 0 && left < ui.slot_count) {   // one step down onto it, so the list scrolls the way the pad does
@@ -3863,6 +3875,7 @@ index 0000000..5fefd14
 +                    // On the 3DS the picture is the pause menu's Screen option, the same for every run (the run's own screen
 +                    // shape and filter are the Thor's and the PC's).
 +                    applyScreen();
++                    smz3_set_mode(r.mode);   // the tracker reads memory the way the run's ROM keeps it
 +                    mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777); addShortcutHooks(r.rom_path); snprintf(romPathOut, cap, "%s", r.rom_path); gPlaySlot = slot; chosen = true; break; }
 +            }
 +        }
@@ -4303,6 +4316,8 @@ index 0000000..5fefd14
 +static int64_t dchatShown;   // the newest line told; -1 until the first answer, whose older lines are told nowhere
 +static char dchatMine[12], dchatSent[84];   // this player's id in the chat, learned from the line it sent last
 +static char runName[64];
++static char runHash[40];
++static bool invShown(unsigned i) { return !smz3_sm_alone() || smz3_inventory_items[i].game != SMZ3_GAME_ZELDA; }   // Super Metroid alone: Samus's items only
 +static bool finishedBefore = false;   // the run had ended when it was loaded
 +static bool goalsRun;   // a monthly or weekly run: the RUN tab shows its goals instead of the completion bars
 +static int needGanon = 7, needTower = 7, needTourian = 4;   // from the run's settings
@@ -4358,9 +4373,12 @@ index 0000000..5fefd14
 +
 +static void buildRegions()
 +{
-+    if (nRegions) return;
++    static int builtSm = -1;   // Super Metroid alone lists only its own regions
++    if (nRegions && builtSm == smz3_sm_alone()) return;
++    nRegions = 0;
++    builtSm = smz3_sm_alone();
 +    int n = 0;
-+    for (int g = SMZ3_GAME_ZELDA; g <= SMZ3_GAME_METROID; g++)
++    for (int g = builtSm ? SMZ3_GAME_METROID : SMZ3_GAME_ZELDA; g <= SMZ3_GAME_METROID; g++)
 +        for (unsigned i = 0; i < smz3_location_count && i < SMZ_TRK_MAX_LOCS; i++) {
 +            const smz3_location &l = smz3_locations[i];
 +            if ((int)l.game != g) continue;
@@ -4484,8 +4502,13 @@ index 0000000..5fefd14
 +    for (int i = 0; i < 4; i++, x += h + 1) drawIcon(getIcon(TOKENS[i]), x, y, h, h, trk.boss_mask >> i & 1 ? 256 : 70);
 +    x += 4;
 +    int gw = h * 7 / 10;
-+    for (int n = 1; n <= 7; n++, x += gw + 1) drawGem(x, y, gw, h, trk.crystal_mask >> (n - 1) & 1, n == 5 || n == 6);
++    for (int n = 1; n <= 7 && !smz3_sm_alone(); n++, x += gw + 1) drawGem(x, y, gw, h, trk.crystal_mask >> (n - 1) & 1, n == 5 || n == 6);
 +}
++
++// Super Metroid alone: only the combined map's Metroid half, from x 488 of the half-size map, centred and zoomed to it.
++#define SM_MAP_X0 488
++static float mapHomeX() { return smz3_sm_alone() ? 1055 : 811; }
++static float mapHomeZoom() { return smz3_sm_alone() ? 0.27f : 0.19f; }
 +
 +static void drawMap(TrkMapView &v, int ax, int ay, int aw, int ah, bool mini)
 +{
@@ -4503,6 +4526,8 @@ index 0000000..5fefd14
 +        if (x1 <= ax || y1 <= ay || x0 >= ax + aw || y0 >= ay + ah) continue;
 +        mapPixels(v, ax, ay, aw, ah, x0, y0, x1, y1, 0);
 +    }
++    bool sm = smz3_sm_alone();
++    if (sm) { int cut = (int)floorf(ox + SM_MAP_X0 * v.zoom); if (cut > ax) fill(ax, ay, cut < ax + aw ? cut : ax + aw, ay + ah, 0x000000); }
 +    auto isSeen = [&](float x, float y) {
 +        for (int i = 0; i < ns; i++) if (x >= seen[i].x && x < seen[i].x + seen[i].w && y >= seen[i].y && y < seen[i].y + seen[i].h) return true;
 +        return false;
@@ -4513,6 +4538,7 @@ index 0000000..5fefd14
 +    for (int k = 0; k < m.n_markers; k++) {
 +        int i = m.markers[k].index;
 +        if (i < 0 || i >= (int)smz3_location_count || i >= SMZ_TRK_MAX_LOCS) continue;
++        if (sm && smz3_locations[i].game == SMZ3_GAME_ZELDA) continue;
 +        float px = ox + m.markers[k].x * v.zoom, py = oy + m.markers[k].y * v.zoom;
 +        if (px < ax - 8 || py < ay - 8 || px > ax + aw + 8 || py > ay + ah + 8) continue;
 +        if (discoveredOnly && !isSeen((float)m.markers[k].x, (float)m.markers[k].y)) continue;
@@ -4542,7 +4568,7 @@ index 0000000..5fefd14
 +    SmzBossMark boss[16];
 +    int nb = Memory.RAM ? smz_disc_boss_marks(&disc, Memory.RAM, 0x20000, boss, 16) : 0;
 +    for (int i = 0; i < nb; i++) {
-+        if (discoveredOnly && !isSeen(boss[i].x, boss[i].y)) continue;
++        if ((discoveredOnly && !isSeen(boss[i].x, boss[i].y)) || (sm && boss[i].x < SM_MAP_X0)) continue;
 +        int px = (int)(ox + boss[i].x * v.zoom), py = (int)(oy + boss[i].y * v.zoom), h = (int)(3 + 3 * v.zoom);
 +        if (h > 7) h = 7;
 +        fill(px - h, py - h, px + h, py + h, 0x000000);
@@ -5739,20 +5765,23 @@ index 0000000..5fefd14
 +    else if (goalsRun) y = drawGoals(x, y, cw);
 +    else if (rg.on) y = drawRaceStandings(x, y, cw);   // the race's top three and this player
 +    else {
-+        textf(x, y, theme.text, "Zelda  %u / %u", trk.zelda_cleared, trk.zelda_total);
-+        bar(x, y + 14, cw, 3, trk.zelda_cleared, trk.zelda_total, theme);
-+        y += 20;
++        if (trk.zelda_total) {   // none in Super Metroid alone
++            textf(x, y, theme.text, "Zelda  %u / %u", trk.zelda_cleared, trk.zelda_total);
++            bar(x, y + 14, cw, 3, trk.zelda_cleared, trk.zelda_total, theme);
++            y += 20;
++        }
 +        textf(x, y, theme.text, "Metroid  %u / %u", trk.metroid_cleared, trk.metroid_total);
 +        bar(x, y + 14, cw, 3, trk.metroid_cleared, trk.metroid_total, theme);
 +        y += 21;
 +    }
-+    int owned = 0;
-+    for (unsigned i = 0; i < smz3_inventory_count && i < SMZ_TRK_MAX_INV; i++) owned += trk.started && trk.inventory[i] > 0;
++    int owned = 0, items = 0;
++    for (unsigned i = 0; i < smz3_inventory_count && i < SMZ_TRK_MAX_INV; i++) if (invShown(i)) { items++; owned += trk.started && trk.inventory[i] > 0; }
 +    long long sec = runMs() / 1000;
 +    char pace[16] = "-";
 +    if (sec >= 300) snprintf(pace, sizeof pace, "%.1f", done * 3600.0f / sec);
-+    textf(x, y, theme.text, "Items %d / %u   %s/h", owned, smz3_inventory_count, pace);
++    textf(x, y, theme.text, "Items %d / %d   %s/h", owned, items, pace);
 +    y += 15;
++    if (runHash[0]) { textFit(x, y, cw, theme.dim, runHash); y += 15; }
 +    if (bars) { drawRewards(x, y, 15); y += 20; }
 +    else y += 4;
 +    if (trk.n_recent_items > 0 && y + 28 < y1) {
@@ -5813,13 +5842,16 @@ index 0000000..5fefd14
 +static void drawItems(int y0, int y1)
 +{
 +    const int cols = 9;
-+    int n = smz3_inventory_count < SMZ_TRK_MAX_INV ? (int)smz3_inventory_count : SMZ_TRK_MAX_INV, rows = (n + cols - 1) / cols;
++    int shown[SMZ_TRK_MAX_INV], n = 0;   // Super Metroid alone: Samus's items only
++    for (unsigned i = 0; i < smz3_inventory_count && i < SMZ_TRK_MAX_INV; i++) if (invShown(i)) shown[n++] = (int)i;
++    int rows = (n + cols - 1) / cols;
 +    int cell = (y1 - y0 - 6) / rows;
 +    if (cell > 34) cell = 34;
 +    int left = (320 - cell * cols) / 2, top = y0 + (y1 - y0 - cell * rows) / 2;
-+    for (int i = 0; i < n; i++) {
++    for (int k = 0; k < n; k++) {
++        int i = shown[k];
 +        const smz3_inv_item &it = smz3_inventory_items[i];
-+        int cx = left + i % cols * cell, cy = top + i / cols * cell, level = trk.started ? trk.inventory[i] : 0;
++        int cx = left + k % cols * cell, cy = top + k / cols * cell, level = trk.started ? trk.inventory[i] : 0;
 +        fill(cx + 1, cy + 1, cx + cell - 1, cy + cell - 1, theme.panel);
 +        drawIcon(getIcon(it.icon), cx + 2, cy + 2, cell - 4, cell - 4, level > 0 ? 256 : 52);
 +        if (level > 0 && (countedItem(it.name) || (levelItem(it.name) && level > 1))) {
@@ -5876,7 +5908,7 @@ index 0000000..5fefd14
 +static int mapButtons(const char *const **names, const int **widths)
 +{
 +    if (dungeonShowing(dv)) { *names = DUNGEON_BUTTONS; *widths = DUNGEON_W; return 4; }
-+    bool dungeons = dungeonAvailable();
++    bool dungeons = !smz3_sm_alone() && dungeonAvailable();
 +    *names = WORLD_BUTTONS + !dungeons; *widths = WORLD_W + !dungeons;
 +    return dungeons ? 5 : 4;
 +}
@@ -7130,6 +7162,7 @@ index 0000000..5fefd14
 +            snprintf(v, sizeof v, "%d%%", (int)(pct(all, allTotal) * fillP + 0.5f));
 +            int w = ui3dsGetStringWidth(v, 0, 0xffff, 20);
 +            bigText(304 - w, y, 20, fadeTo(0xFFE07A, rp), v);
++        } else if (r == 2 && !cardZT) {   // Super Metroid alone: no Zelda row
 +        } else {
 +            unsigned got = r == 2 ? cardZ : cardM, of = r == 2 ? cardZT : cardMT;
 +            text(16, y, dim, r == 2 ? "ZELDA" : "METROID");
@@ -7347,7 +7380,7 @@ index 0000000..5fefd14
 +            if (!strcmp(b, "-") && bigMap.zoom > 0.2f) bigMap.zoom /= 1.5f;
 +            else if (!strcmp(b, "+") && bigMap.zoom < 1.5f) bigMap.zoom *= 1.5f;
 +            else if (!strcmp(b, "FOLLOW")) bigMap.follow = !bigMap.follow;
-+            else if (!strcmp(b, "CENTER")) { if (disc.has_position) { bigMap.cx = disc.x; bigMap.cy = disc.y; } else { bigMap.cx = 811; bigMap.cy = 479; bigMap.zoom = 0.19f; } }
++            else if (!strcmp(b, "CENTER")) { if (disc.has_position) { bigMap.cx = disc.x; bigMap.cy = disc.y; } else { bigMap.cx = mapHomeX(); bigMap.cy = 479; bigMap.zoom = mapHomeZoom(); } }
 +            else if (!strcmp(b, "DUNGEON")) { if (haveLive) { dv.picked = false; dv.world = false; } else dungeonPick(dv, dv.d, dv.picked ? dv.idx : dmeta.below[dv.d]); }
 +            else if (!strcmp(b, "<")) dungeonStep(dv, -1);
 +            else if (!strcmp(b, ">")) dungeonStep(dv, 1);
@@ -7552,7 +7585,10 @@ index 0000000..5fefd14
 +        memset(&r0, 0, sizeof r0);
 +        if (curSlot >= 0 && runLoad(rp, &r0) == 0) smz_tracker_reset(&trk, r0.play_ms, r0.save_ms, r0.save_zelda, r0.save_metroid);
 +        else smz_tracker_reset(&trk, 0, 0, 0, 0);
++        smz3_set_mode(r0.mode);
 +        snprintf(runName, sizeof runName, "%s", r0.name);
++        const char *hp = strstr(r0.settings, "\"hash\":\"");   // Super Metroid's seed hash, as its file select screen shows it
++        snprintf(runHash, sizeof runHash, "%.*s", hp ? (int)strcspn(hp + 8, "\"") : 0, hp ? hp + 8 : "");
 +        smz_goal_from_settings(r0.settings, &trk.goal);   // a daily challenge or a Draft ends at its goal
 +        trk.counts = &goalc;   // a Draft's kills and rupees goals
 +        if (curSlot == SMZ_DAILY_SLOT) trk.min_end_ms = SMZ_DAILY_MIN_MS;   // the server takes no daily time under this
@@ -7608,8 +7644,8 @@ index 0000000..5fefd14
 +        helpNote[0] = 0;
 +        tab = TAB_RUN;
 +        memset(scrollY, 0, sizeof scrollY);
-+        bigMap = {811, 479, 0.19f, false};
-+        miniMap = {811, 479, 0.45f, true};
++        bigMap = {mapHomeX(), 479, mapHomeZoom(), false};
++        miniMap = {mapHomeX(), 479, 0.45f, true};
 +    }
 +    if (goalsPending) { goalsPending = false; smz_counters_load(&goalc, goalsLoaded); }
 +    u64 nowMs = osGetTime();
@@ -7645,7 +7681,7 @@ index 0000000..5fefd14
 +        snprintf(rp, sizeof rp, "%s/slot%d.run", runDir(), curSlot);
 +        bool have = runLoad(rp, &r1) == 0 && trk.started;
 +        if (have) smz_counters_text(&goalc, r1.goals, sizeof r1.goals);
-+        if (have && nowMs >= nextGoals) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
++        if (have && nowMs >= nextGoals && !smz3_sm_alone()) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
 +        if (have && finishedBefore) {   // it keeps its result; its rewards only add up
 +            r1.boss_mask |= trk.boss_mask; r1.crystal_mask |= trk.crystal_mask;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
@@ -7764,7 +7800,7 @@ index 0000000..5fefd14
 +        if (trk.save_ms > 0) { r.save_ms = trk.save_ms; r.save_zelda = trk.save_zelda; r.save_metroid = trk.save_metroid; }
 +    }
 +    if (runSave(rp, &r) == 0) smz_tracker_commit(&trk);
-+    if (report) smzOnlineGoalsReport(curSlot + 1, r.created, smzOnlineSlotKind(curSlot) > 0, r.goals);
++    if (report && !smz3_sm_alone()) smzOnlineGoalsReport(curSlot + 1, r.created, smzOnlineSlotKind(curSlot) > 0, r.goals);
 +}
 +
 +void smz3RunClosing(void) { if (smz3IsRun()) goalsLeave(false); }
@@ -7929,11 +7965,12 @@ index 0000000..5fefd14
 +    clock[strlen(clock) - 3] = 0;   // the hundredths are the ladder's
 +    text(x, t + 37, ID_DIM, finished ? "FINISHED IN" : "PLAY TIME");
 +    text(x + iw, t + 37, finished ? ID_GREEN : ID_TEXT, clock, HALIGN_RIGHT);
-+    idleBar("ZELDA", r.zelda_cleared, r.zelda_total, x, t + 53, iw, ID_GREEN);
-+    idleBar("METROID", r.metroid_cleared, r.metroid_total, x, t + 73, iw, ID_BLUE);
++    int sm = r.mode == SMZ_MODE_SM ? 20 : 0;   // Super Metroid alone: no Zelda bar
++    if (!sm) idleBar("ZELDA", r.zelda_cleared, r.zelda_total, x, t + 53, iw, ID_GREEN);
++    idleBar("METROID", r.metroid_cleared, r.metroid_total, x, t + 73 - sm, iw, ID_BLUE);
 +    // the options that differ from the defaults, from the settings' "diff" list
 +    const char *d = strstr(r.settings, "\"diff\":[");
-+    int y = t + 95, bottom = t + h - 20, count = 0, shown = 0;
++    int y = t + 95 - sm, bottom = t + h - 20, count = 0, shown = 0;
 +    for (const char *q = d ? d + 8 : NULL; q && *q == '"'; count++) {
 +        const char *e = strchr(q + 1, '"');
 +        if (!e) break;
