@@ -124,18 +124,76 @@ static int insert(char *json, size_t cap, size_t at, const char *text)
     return 0;
 }
 
+static SmzMapRandoFn g_mr_fn;
+static int g_mr_state;
+static char g_mr_error[120];
+
+void smz_sm_set_maprando(SmzMapRandoFn fn, int state) { g_mr_fn = fn; g_mr_state = fn ? state : SMZ_MR_NONE; }
+int smz_sm_maprando_state(void) { return g_mr_state; }
+int smz_sm_is_maprando(const char *json) { return json && strstr(json, "\"generator\":\"maprando\"") != NULL; }
+const char *smz_sm_error(int rc) { return rc == SMZ_SM_ERR_MAPRANDO ? g_mr_error : rc == -6 ? "The Samus sprite is not valid" : NULL; }
+
+/* A string field of a flat JSON object, "" when missing. */
+static void json_field(const char *json, const char *key, char *out, size_t cap)
+{
+    char pat[32];
+    snprintf(pat, sizeof pat, "\"%s\":\"", key);
+    const char *p = strstr(json, pat);
+    out[0] = 0;
+    if (p) snprintf(out, cap, "%.*s", (int)strcspn(p + strlen(pat), "\""), p + strlen(pat));
+}
+
+/* The run's Map Rando settings as the crate takes them: its "sm" object without "generator". */
+static int mr_settings(const char *json, char *out, size_t cap)
+{
+    const char *p = strstr(json, "\"sm\":{"), *end = p ? strchr(p, '}') : NULL;
+    if (!end) return -1;
+    p += 5;
+    static const char GEN[] = "\"generator\":\"maprando\"";
+    const char *g = strstr(p, GEN);
+    if (!g || g > end) return -1;
+    const char *after = g + sizeof GEN - 1;
+    if (*after == ',') after++;
+    int n = snprintf(out, cap, "%.*s%.*s", (int)(g - p), p, (int)(end + 1 - after), after);
+    if (n < 0 || (size_t)n >= cap) return -1;
+    if (n > 2 && out[n - 2] == ',') { out[n - 2] = '}'; out[n - 1] = 0; }
+    return 0;
+}
+
+static int mr_generate(const char *json, const uint8_t *sm, uint8_t *rom_out, size_t cap, char *words, size_t wcap)
+{
+    char settings[256], info[512], seed[24];
+    if (!g_mr_fn || g_mr_state != SMZ_MR_READY) { snprintf(g_mr_error, sizeof g_mr_error, "Map Rando is not available here"); return SMZ_SM_ERR_MAPRANDO; }
+    if (mr_settings(json, settings, sizeof settings)) return -5;
+    json_field(json, "seed", seed, sizeof seed);
+    info[0] = 0;
+    if (g_mr_fn(settings, strtoull(seed, NULL, 10), sm, SMZ_SM_BASE_SIZE, rom_out, cap, info, sizeof info)) {
+        json_field(info, "error", g_mr_error, sizeof g_mr_error);
+        if (!g_mr_error[0]) snprintf(g_mr_error, sizeof g_mr_error, "Map Rando failed");
+        return SMZ_SM_ERR_MAPRANDO;
+    }
+    json_field(info, "hash", words, wcap);
+    return 0;
+}
+
 int smz_sm_generate(char *json, size_t json_cap, const uint8_t *sm, const uint8_t *samus_rdc, size_t samus_len,
                     uint8_t *rom_out, size_t cap)
 {
     SmGenSettings s;
     uint8_t hash[4];
-    if (smz_settings_mode(json) != SMZ_MODE_SM || sm_settings(json, &s)) return -5;
-    int rc = sm_generate(&s, sm, rom_out, cap, NULL, NULL, hash);
-    if (rc) return rc;
-    if (samus_rdc && sprite_apply(rom_out, samus_rdc, samus_len)) return -6;
     char words[64], add[96];
+    if (smz_settings_mode(json) != SMZ_MODE_SM) return -5;
+    if (smz_sm_is_maprando(json)) {
+        int rc = mr_generate(json, sm, rom_out, cap, words, sizeof words);
+        if (rc) return rc;
+    } else {
+        if (sm_settings(json, &s)) return -5;
+        int rc = sm_generate(&s, sm, rom_out, cap, NULL, NULL, hash);
+        if (rc) return rc;
+        if (samus_rdc && sprite_apply(rom_out, samus_rdc, samus_len)) return -6;
+        smz_sm_hash_text(rom_out, SMZ_SM_ROM_SIZE, words, sizeof words);
+    }
     const char *diff = strstr(json, "\"diff\":[");
-    smz_sm_hash_text(rom_out, SMZ_SM_ROM_SIZE, words, sizeof words);
     if (diff && !strstr(json, "\"hash\":\"")) {
         snprintf(add, sizeof add, "\"Hash: %s\"%s", words, diff[8] == ']' ? "" : ",");
         insert(json, json_cap, (size_t)(diff - json) + 8, add);
@@ -165,6 +223,7 @@ int smz_sm_proof_logic(const char *json, const SmzProof *p, SmzProofVerdict *v)
 {
     static SmSeed seed;
     SmGenSettings s;
+    if (smz_sm_is_maprando(json)) return 0;   /* Map Rando's logic is the crate's: only the time and rate rules apply */
     if (sm_settings(json, &s) || sm_fill(&seed, &s)) return -1;
     SmProg prog;
     memset(&prog, 0, sizeof prog);

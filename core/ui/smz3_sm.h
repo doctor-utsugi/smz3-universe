@@ -13,11 +13,25 @@
 size_t smz_mode_rom_size(int mode);
 
 /* Generates the run of a "game":"sm" settings JSON (ui_settings_json) from the JU ROM in sm into rom_out (cap at least
- * SMZ_SM_ROM_SIZE), with the Samus sprite of samus_rdc (NULL: the original). The seed hash the file select screen shows is
+ * SMZ_SM_ROM_SIZE), with the Samus sprite of samus_rdc (NULL: the original; a Map Rando seed takes none). The seed hash the file select screen shows is
  * added to json ("hash", and the first "diff" line), which has room for json_cap bytes. 0, or a negative sm_generate error
  * (-5 the settings are not Super Metroid's, -6 the sprite is not a Samus RDC). */
 int smz_sm_generate(char *json, size_t json_cap, const uint8_t *sm, const uint8_t *samus_rdc, size_t samus_len,
                     uint8_t *rom_out, size_t cap);
+
+/* Map Rando (blkerby/MapRandomizer) as each host has it: the crate on PC and Android, the server's BPS patch on the 3DS.
+ * settings is the run's "sm" object without "generator" ({"preset","skill"}, upstream names), sm the JU ROM; the seed's
+ * 4 MB ROM goes to out and its info JSON ({"hash",...}, or {"error"}) to info. 0, or -1. */
+typedef int (*SmzMapRandoFn)(const char *settings, uint64_t seed, const uint8_t *sm, size_t sm_len, uint8_t *out, size_t cap,
+                             char *info, size_t info_cap);
+enum { SMZ_MR_NONE, SMZ_MR_READY, SMZ_MR_OFFLINE };   /* not on this host; ready; needs a connection the host lacks now */
+#define SMZ_SM_ERR_MAPRANDO -10                         /* smz_sm_generate: Map Rando failed, smz_sm_error says why */
+void smz_sm_set_maprando(SmzMapRandoFn fn, int state);
+int smz_sm_maprando_state(void);
+/* Whether a run's settings JSON is a Map Rando seed ("sm":{"generator":"maprando",...}). */
+int smz_sm_is_maprando(const char *json);
+/* What a smz_sm_generate error means for the player, NULL for the codes they cannot act on. */
+const char *smz_sm_error(int rc);
 
 /* The seed hash of a generated ROM, the four words of its file select screen ("GEEMER RIPPER ATOMIC POWAMP"). */
 void smz_sm_hash_text(const uint8_t *rom, size_t len, char *out, size_t cap);

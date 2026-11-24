@@ -38,7 +38,9 @@ typedef struct {
 /* The running ROM's SMZ_MODE_* (0 SMZ3, 1 ALttP alone, 2 SM alone), set by the hosts; a single game counts only its own
  * checks. SM alone has its own three-slot SRAM; ALttP alone keeps the combo's Zelda layout (z3randomizer's sram.asm). */
 void smz3_set_mode(int mode);
+#define SMZ3_MAPRANDO 0x10   /* or'ed into smz3_set_mode's mode: SM alone built by Map Rando, which keeps 0xA00 byte save slots */
 int smz3_sm_alone(void);
+int smz3_maprando(void);
 int smz3_z3_alone(void);
 /* Whether the running mode has this game's checks and items. */
 int smz3_mode_has(smz3_game game);

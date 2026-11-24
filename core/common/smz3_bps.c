@@ -44,7 +44,7 @@ int smz_bps_apply(const uint8_t *patch, size_t n, const uint8_t *src, size_t src
     num(patch, end, &at, &t);
     if (num(patch, end, &at, &meta) || meta > end - at) return -1;
     at += meta;
-    if (s_size != src_n || crc32(src, src_n) != le32(patch + n - 12)) return -1;
+    if (s_size != src_n || crc32(src, src_n) != le32(patch + n - 12)) return -2;
     size_t o = 0, s_rel = 0, t_rel = 0;
     while (at < end) {
         uint64_t a, off;

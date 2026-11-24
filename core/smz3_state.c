@@ -9,18 +9,20 @@
 #define SRAM_ZELDA 0x0000        /* 0xA06000 */
 #define SRAM_METROID 0x20C0      /* 0xA160C0 */
 
-static int g_sm_alone, g_z3_alone;
+static int g_sm_alone, g_z3_alone, g_maprando;
 
-void smz3_set_mode(int mode) { g_sm_alone = mode == 2; g_z3_alone = mode == 1; }
+void smz3_set_mode(int mode) { g_sm_alone = (mode & 15) == 2; g_z3_alone = (mode & 15) == 1; g_maprando = g_sm_alone && (mode & SMZ3_MAPRANDO); }
 int smz3_sm_alone(void) { return g_sm_alone; }
+int smz3_maprando(void) { return g_maprando; }
 int smz3_z3_alone(void) { return g_z3_alone; }
 int smz3_mode_has(smz3_game game) { return game == SMZ3_GAME_ZELDA ? !g_sm_alone : !g_z3_alone; }
 
-/* Super Metroid alone: the item bits of the last used save slot ($70:1FEC; slots of 0x65C bytes from $70:0010, $7ED870 at +0xB0). */
+/* Super Metroid alone: the item bits of the last used save slot ($70:1FEC; slots of 0x65C bytes from $70:0010, $7ED870 at +0xB0).
+ * Map Rando's saveload.asm moves the slots to $0010, $0A10 and $1410. */
 static size_t sm_slot_items(const uint8_t *sram, size_t sram_len)
 {
     unsigned slot = sram_len > 0x1FEC ? sram[0x1FEC] : 0;
-    return 0x10 + (slot < 3 ? slot : 0) * 0x65C + 0xB0;
+    return 0x10 + (slot < 3 ? slot : 0) * (g_maprando ? 0xA00 : 0x65C) + 0xB0;
 }
 
 smz3_game smz3_current_game(const uint8_t *sram, size_t sram_len)

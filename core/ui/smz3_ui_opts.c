@@ -8,6 +8,7 @@
 #include "smz3_jingles_data.h"
 #include "smz3_runlogic.h"
 #include "smz3_run.h"
+#include "smz3_sm.h"
 #include "z3_generate.h"
 
 static const char *const N_KEYS[] = {"None", "Both games", "Zelda only", "Metroid only", "Random"};
@@ -21,6 +22,11 @@ static const char *const N_WALL[] = {"Easy", "Normal", "Medium", "Hard"};
 static const char *const N_MODE[] = {"Vanilla", "All Dungeons", "Spazer Hunt"};
 static const char *const N_SMLOGIC[] = {"Casual", "Tournament"};
 static const char *const N_SMPLACE[] = {"Full", "Major/minor split"};
+static const char *const N_SMGEN[] = {"Classic", "Map Rando"};
+/* Map Rando: the shown names, then upstream's preset names (data/presets of the packed data) in the same order */
+static const char *const N_MRPRESET[] = {"Beginner", "Season 5", "Mentor Tournament", "Expert Challenge"};
+static const char *const MR_PRESETS[] = {"Default", "Community Race Season 5", "Mentor Tournament", "Summer Series Expert Challenge"};
+static const char *const N_MRSKILL[] = {"Preset's own", "Basic", "Medium", "Hard", "Very Hard", "Expert", "Extreme", "Insane", "Beyond"};
 /* A Link to the Past alone: the values of Z3_OPTIONS (core/z3gen/z3_options_gen.c) in its order, so an index is a value there */
 static const char *const N_Z3STATE[] = {"Standard", "Open", "Inverted", "Retro"};
 static const char *const N_Z3GOAL[] = {"Defeat Ganon", "Fast Ganon", "All Dungeons", "Master Sword Pedestal", "Triforce Pieces", "Ganonhunt", "Completionist"};
@@ -98,6 +104,9 @@ const UiOptDef UI_OPTS[] = {
     {"SmLogic", "Logic", "Casual expects only easy moves; Tournament may ask for harder ones.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMLOGIC},
     {"SmPlacement", "Item placement", "Split keeps major items on major spots and minor ones on minor spots.", OPT_ENUM, LEVEL_RUN, 0, 1, 1, N_SMPLACE},
     {"SmRace", "Race seed", "No spoiler: the same seed number gives another seed.", OPT_BOOL, LEVEL_RUN, 0, 1, 0, 0},
+    {"SmGenerator", "Generator", "Classic is tewtal's randomizer; Map Rando (blkerby) rebuilds the whole map, as SM races do.", OPT_ENUM, LEVEL_RUN, 0, 1, 0, N_SMGEN},
+    {"SmMrPreset", "Preset", "Map Rando's settings: Beginner for a first seed, Season 5 is the community race league.", OPT_ENUM, LEVEL_RUN, 0, 3, 1, N_MRPRESET},
+    {"SmMrSkill", "Skill level", "The tricks Map Rando's logic may ask for.", OPT_ENUM, LEVEL_RUN, 0, 8, 0, N_MRSKILL},
     /* A Link to the Past alone (alttpr's options, z3_option_set): only shown, saved and written to the settings in that mode */
     {"Z3WorldState", "World state", "Open starts in Link's house; Standard with the escape; Inverted in the Dark World; Retro buys arrows and keys.", OPT_ENUM, LEVEL_RUN, 0, 3, 1, N_Z3STATE},
     {"Z3Goal", "Goal", "What ends the run.", OPT_ENUM, LEVEL_RUN, 0, 6, 0, N_Z3GOAL},
@@ -126,8 +135,8 @@ static const char *const Z3_KEYS[] = {"world_state", "goals", "tower_open", "gan
     "menu_speed", "quickswap", "boss_shuffle"};
 #define O_Z3N (int)(sizeof Z3_KEYS / sizeof Z3_KEYS[0])   /* the last UI_OPTS rows, one per Z3_OPTIONS entry */
 #define O_Z30 (UI_OPT_COUNT - O_Z3N)
-#define O_SM0 (O_Z30 - 3)
-enum { O_SMLOGIC, O_SMPLACE, O_SMRACE };   /* after O_SM0 */
+#define O_SM0 (O_Z30 - 6)
+enum { O_SMLOGIC, O_SMPLACE, O_SMRACE, O_SMGEN, O_MRPRESET, O_MRSKILL };   /* after O_SM0 */
 
 static const Z3Option *z3_opt(int o)
 {
@@ -150,8 +159,8 @@ const char *const UI_TABS[LEVEL_ITEMS][24] = {
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", "ShowReachable", "ShowFixedKeys", "MusicPackage", NULL},
 };
 const char *const UI_TABS_SM[LEVEL_ITEMS][24] = {
-    {"SmLogic", "SmPlacement", "SaveStates", "Rewind", NULL},
-    {"Seed", "SmLogic", "SmPlacement", "SmRace", "MapMode", NULL},
+    {"SmGenerator", "SmLogic", "SmPlacement", "SmMrPreset", "SmMrSkill", "SaveStates", "Rewind", NULL},
+    {"Seed", "SmGenerator", "SmLogic", "SmPlacement", "SmRace", "SmMrPreset", "SmMrSkill", "MapMode", NULL},
     {NULL},
     {NULL},
     {"ScreenFilter", "ScreenShape", "SaveStates", "Rewind", NULL},
@@ -239,6 +248,19 @@ void ui_apply_run_settings(SmzUi *u, const char *json)
     if (smz_settings_mode(json) == SMZ_MODE_SM) {
         const char *seed = strstr(json, "\"seed\":\"");
         u->value[O_SEED] = seed ? atoi(seed + 8) : 0;
+        u->value[O_SM0 + O_SMGEN] = smz_sm_is_maprando(json);
+        u->value[O_SM0 + O_MRPRESET] = UI_OPTS[O_SM0 + O_MRPRESET].def;
+        u->value[O_SM0 + O_MRSKILL] = 0;
+        for (int k = 0; k < (int)(sizeof MR_PRESETS / sizeof *MR_PRESETS); k++) {
+            char pat[64];
+            snprintf(pat, sizeof pat, "\"preset\":\"%s\"", MR_PRESETS[k]);
+            if (strstr(json, pat)) u->value[O_SM0 + O_MRPRESET] = k;
+        }
+        for (int k = 1; k < (int)(sizeof N_MRSKILL / sizeof *N_MRSKILL); k++) {
+            char pat[64];
+            snprintf(pat, sizeof pat, "\"skill\":\"%s\"", N_MRSKILL[k]);
+            if (strstr(json, pat)) u->value[O_SM0 + O_MRSKILL] = k;
+        }
         u->value[O_SM0 + O_SMLOGIC] = !strstr(json, "\"logic\":\"casual\"");
         u->value[O_SM0 + O_SMPLACE] = !strstr(json, "\"placement\":\"full\"");
         u->value[O_SM0 + O_SMRACE] = strstr(json, "\"race\":\"true\"") != NULL;
@@ -295,9 +317,13 @@ int ui_opt_cosmetic(int i)
 int ui_opt_hidden(const SmzUi *u, int i)
 {
     int sm = u->game_mode == SMZ_MODE_SM, z3 = u->game_mode == SMZ_MODE_Z3;   /* each game shows only its own options */
+    int mr = sm && u->value[O_SM0 + O_SMGEN];   /* Map Rando has its own options, map and Samus */
     if (i >= O_Z30) return !z3;
-    if (i >= O_SM0) return !sm;
+    if (i == O_SM0 + O_SMGEN) return !sm || (!mr && smz_sm_maprando_state() == SMZ_MR_NONE);
+    if (i >= O_SM0 + O_MRPRESET) return !mr;
+    if (i >= O_SM0) return !sm || mr;
     if (z3) return !(i == O_SEED || i == O_LINK || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_SAVES || i == O_REWIND);
+    if (mr) return !(i == O_SEED || i == O_FILTER || i == O_SHAPE || i == O_SAVES || i == O_REWIND);
     if (sm) return !(i == O_SEED || i == O_SAMUS || i == O_MAP || i == O_FILTER || i == O_SHAPE || i == O_SAVES || i == O_REWIND);
     int mode = u->value[O_MODE];
     if (i == O_HELPS) return u->value[O_HELP] != 1;
@@ -329,17 +355,23 @@ static int sm_settings_json(const SmzUi *u, int32_t seed_if_random, char *out, s
     int si = u->value[O_SAMUS];
     if (si > 0 && si < u->sprite_count[1]) snprintf(samus, sizeof samus, "%s", u->sprites[1][si]);
     /* every online run sets Race (no spoiler), as the server rebuilds its seed: the monthly, the weekly and an uploaded run */
-    int race = u->value[O_SM0 + O_SMRACE] || u->run_mode >= 4 || ui_online_now(u);
+    int race = u->value[O_SM0 + O_SMRACE] || u->run_mode >= 4 || ui_online_now(u), mr = u->value[O_SM0 + O_SMGEN], skill = u->value[O_SM0 + O_MRSKILL];
+    char gen[160];
+    if (mr) snprintf(gen, sizeof gen, "\"generator\":\"maprando\",\"preset\":\"%s\"%s%s%s", MR_PRESETS[u->value[O_SM0 + O_MRPRESET]],
+                     skill ? ",\"skill\":\"" : "", skill ? N_MRSKILL[skill] : "", skill ? "\"" : "");
+    else snprintf(gen, sizeof gen, "\"logic\":\"%s\",\"goal\":\"defeatmb\",\"placement\":\"%s\",\"race\":\"%s\"",
+                  u->value[O_SM0 + O_SMLOGIC] ? "tournament" : "casual", u->value[O_SM0 + O_SMPLACE] ? "split" : "full", race ? "true" : "false");
+    if (mr) samus[0] = 0;
     int n = snprintf(out, cap,
-        "{\"game\":\"sm\",\"seed\":\"%d\",\"sm\":{\"logic\":\"%s\",\"goal\":\"defeatmb\",\"placement\":\"%s\",\"race\":\"%s\"},"
+        "{\"game\":\"sm\",\"seed\":\"%d\",\"sm\":{%s},"
         "\"mapMode\":\"%s\",\"saveStates\":%s,\"rewind\":%s,\"defaultRules\":%s,\"screenFilter\":\"%s\",\"screenShape\":\"%s\",\"samusSprite\":\"%s\","
         "\"linkSprite\":\"\",\"helpMode\":\"none\",\"helpCount\":0,\"plando\":\"\",\"musicPackage\":\"\",\"lightDarkRooms\":false,\"nerfedCharge\":false,"
         "\"quickMorph\":false,\"showReachable\":false,\"showFixedKeys\":false,\"diff\":[",
-        u->value[O_SEED] ? u->value[O_SEED] : seed_if_random, u->value[O_SM0 + O_SMLOGIC] ? "tournament" : "casual",
-        u->value[O_SM0 + O_SMPLACE] ? "split" : "full", race ? "true" : "false",
-        u->value[O_MAP] ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
+        u->value[O_SEED] ? u->value[O_SEED] : seed_if_random, gen,
+        u->value[O_MAP] && !mr ? "discovered" : "all", u->value[O_SAVES] ? "true" : "false", u->value[O_REWIND] ? "true" : "false",
         ui_is_default(u) ? "true" : "false", FILTER[u->value[O_FILTER]], SHAPE[u->value[O_SHAPE]], samus);
     for (int i = O_SM0, first = 1; i < O_Z30 && n < (int)cap; i++) {   /* "Label: value" for the run's info screen */
+        if (ui_opt_hidden(u, i) || (i == O_SM0 + O_SMGEN && !mr)) continue;
         char v[44];
         ui_value_text(u, i, v, sizeof v);
         n += snprintf(out + n, cap - n, "%s\"%s: %s\"", first ? "" : ",", UI_OPTS[i].label, v);

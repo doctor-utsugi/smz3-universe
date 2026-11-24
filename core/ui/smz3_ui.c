@@ -7,6 +7,7 @@
 #include "smz3_ui.h"
 #include "smz3_goal.h"
 #include "smz3_run.h"
+#include "smz3_sm.h"
 
 #define ROW_H 20
 #define LIST_Y 44
@@ -155,9 +156,24 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 #define LOGO_MS 2000
 #define HOME_ROWS 4
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
-static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row */
+static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: About */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Sound", "music, chime, rival notes"},
-    {0, "Player", "name, country"}, {UI_OPT_QUIT, "Quit", ""}};
+    {0, "Player", "name, country"}, {-2, "About", "credits, licences"}, {UI_OPT_QUIT, "Quit", ""}};
+/* The About screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices). */
+static const char *const ABOUT_LINES[] = {
+    "#Randomizers",
+    "SMZ3 and Super Metroid: tewtal (MIT)",
+    "A Link to the Past: sporchia, alttpr (MIT)",
+    "z3randomizer: KatDevsGames (MIT)",
+    "Enemizer: Zarby89 (MIT)",
+    "Map Rando: maddo, kyleb (blkerby) (MIT)",
+    "Map Rando logic: sm-json-data, by the",
+    "  ALttP and SM randomizer communities",
+    "  (CC BY 4.0)",
+    "#Emulation",
+    "Snes9x, snes9x_3ds, Lemuroid, LibretroDroid",
+};
+#define ABOUT_COUNT (int)(sizeof ABOUT_LINES / sizeof ABOUT_LINES[0])
 #define OPTION_KINDS (int)(sizeof OPTION_ROWS / sizeof OPTION_ROWS[0])
 
 void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
@@ -178,8 +194,10 @@ void ui_tick(SmzUi *u, int ms)
 static int option_rows(const SmzUi *u, int *kind)
 {
     int n = 0;
-    for (int i = 0; i < OPTION_KINDS; i++)
-        if (OPTION_ROWS[i].bit < 0 ? u->update[0] : OPTION_ROWS[i].bit ? u->options_mask & OPTION_ROWS[i].bit : u->player_on) kind[n++] = i;
+    for (int i = 0; i < OPTION_KINDS; i++) {
+        int bit = OPTION_ROWS[i].bit;
+        if (bit == -2 || (bit == -1 ? u->update[0] : bit ? u->options_mask & bit : u->player_on)) kind[n++] = i;
+    }
     return n;
 }
 
@@ -249,6 +267,7 @@ static void options_input(SmzUi *u, UiButton b)
     if (b == BTN_UP || b == BTN_DOWN) *c = (*c + (b == BTN_UP ? n - 1 : 1)) % n;
     else if (b == BTN_A && *c < n) {
         int bit = OPTION_ROWS[kind[*c]].bit;
+        if (bit == -2) { u->screen = UI_ABOUT; return; }
         if (bit < 0) {
             if (u->update_install) u->action = ACT_UPDATE;
             else snprintf(u->notice, sizeof u->notice, "smz3-universe.duckdns.org/download");
@@ -524,6 +543,9 @@ static int opt_by_key(const char *key, size_t len)
     for (int i = 0; i < UI_OPT_COUNT; i++) if (!strncmp(UI_OPTS[i].key, key, len) && !UI_OPTS[i].key[len]) return i;
     return -1;
 }
+
+/* A Map Rando seed takes no sprite: its ROM is upstream's own */
+static int maprando_run(const SmzUi *u) { int i = opt_by_key("SmGenerator", 11); return sm_mode(u) && i >= 0 && u->value[i]; }
 
 /* the choices a saved custom does not carry: they depend on the files of this device */
 static int spec_skips(int i) { return i == 0 || i == UIO_LINK || i == UIO_SAMUS || i == UIO_PLANDO || i == UIO_MUSIC; }
@@ -1156,12 +1178,14 @@ void ui_preset(SmzUi *u, int mode)
 
 void ui_apply_spec(SmzUi *u, const char *spec) { apply_spec(u, spec); }
 
-static int mode_rows(const SmzUi *u) { return 3 + (u->saved_count > 0 && !single_game(u)) + (online_game(u) && u->monthly_seed > 0) + (online_game(u) && u->weekly_seed > 0); }
+static int maprando_row(const SmzUi *u) { return sm_mode(u) && smz_sm_maprando_state() != SMZ_MR_NONE; }
+static int mode_rows(const SmzUi *u) { return 3 + maprando_row(u) + (u->saved_count > 0 && !single_game(u)) + (online_game(u) && u->monthly_seed > 0) + (online_game(u) && u->weekly_seed > 0); }
 
 /* 0 Cozy, 1 Original, 2 Custom, 3 Saved customs, 4 Monthly seed, 5 Weekly run (the rows that apply, in this order) */
 static int mode_kind(const SmzUi *u, int row)
 {
-    int kinds[6] = {0, 1, 2}, n = 3;
+    int kinds[7] = {0, 1, 2}, n = 3;
+    if (maprando_row(u)) kinds[n++] = 6;
     if (u->saved_count > 0 && !single_game(u)) kinds[n++] = 3;   /* saved customs carry SMZ3 options */
     if (online_game(u) && u->monthly_seed > 0) kinds[n++] = 4;   /* the server's seeds: none for an offline game */
     if (online_game(u) && u->weekly_seed > 0) kinds[n++] = 5;
@@ -1298,6 +1322,7 @@ static void start_input(SmzUi *u, UiButton b)
         *cur = (*cur + d) % rows;
         if (*cur == 2 && (!u->player_on || !ui_run_ladder(u))) *cur = (*cur + d) % rows;   /* a local-only run has no online row to pick */
         if (*cur == 0 && sm_mode(u)) *cur = (*cur + d) % rows;   /* Super Metroid alone: Samus only */
+        if (*cur == 1 && maprando_run(u)) *cur = (*cur + d) % rows;
         if (*cur == 1 && z3_mode(u)) *cur = (*cur + d) % rows;   /* A Link to the Past alone: Link only */
         if (*cur == 2 && (!u->player_on || !ui_run_ladder(u))) *cur = (*cur + d) % rows;
     }
@@ -1350,6 +1375,10 @@ static void mode_input(SmzUi *u, UiButton b)
         begin_run(u, 5, "Weekly", weekly(u)->spec);
         snprintf(u->start_label, sizeof u->start_label, "Weekly %s", u->weekly_label);
         for (int i = 0; i < UI_OPT_COUNT; i++) if (!strcmp(UI_OPTS[i].key, "Seed")) u->value[i] = u->weekly_seed;
+        break;
+    case 6:
+        if (smz_sm_maprando_state() == SMZ_MR_OFFLINE) snprintf(u->notice, sizeof u->notice, "Map Rando needs an internet connection");
+        else begin_run(u, 2, "Map Rando", "SmGenerator=1");
         break;
     default: u->screen = UI_SAVED; u->saved_cursor = u->saved_scroll = u->saved_col = u->saved_confirm = 0; break;
     }
@@ -1474,6 +1503,7 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_RACE_SIZE: case UI_RACE_WAY: case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC:
     case UI_RACE_LIST: case UI_RACE_ROOM: case UI_RACE_READY: race_input(u, b); break;
     case UI_OPTIONS: options_input(u, b); break;
+    case UI_ABOUT: if (b == BTN_B || b == BTN_A) u->screen = UI_OPTIONS; break;
     case UI_LOGO:
     case UI_BUSY: break;
     }
@@ -2321,17 +2351,28 @@ void ui_draw(SmzUi *u)
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
         legend(u, "A Choose  B Games");
         break;
+    case UI_ABOUT: {
+        title(u, "About");
+        int pitch = (UI_H - 60) / ABOUT_COUNT < 16 ? (UI_H - 60) / ABOUT_COUNT : 16;
+        for (int i = 0; i < ABOUT_COUNT; i++) {
+            const char *l = ABOUT_LINES[i];
+            text(u, 14, 34 + i * pitch, *l == '#' ? C_GOLD : C_TEXT, 0, l + (*l == '#'));
+        }
+        hit(u, H_OPTION, u->options_cursor, 0, 28, UI_W, UI_H - 28);   /* a tap anywhere goes back */
+        legend(u, "B Back");
+        break;
+    }
     case UI_OPTIONS: {
         title(u, "Options");
-        int kind[OPTION_KINDS], n = option_rows(u, kind), pitch = n > 5 ? 30 : 34;
+        int kind[OPTION_KINDS], n = option_rows(u, kind), pitch = n > 6 ? 28 : n > 5 ? 30 : 34;
         for (int r = 0; r < n; r++) {
             int y = 36 + r * pitch, bit = OPTION_ROWS[kind[r]].bit;
             rect(u, 8, y, UI_W - 16, pitch - 6, r == u->options_cursor ? C_SEL : C_PANEL);
             hit(u, H_OPTION, r, 8, y, UI_W - 16, pitch - 6);
-            text(u, 18, y + (pitch - 18) / 2, bit < 0 ? C_GOLD : C_TEXT, 0, OPTION_ROWS[kind[r]].name);
+            text(u, 18, y + (pitch - 18) / 2, bit == -1 ? C_GOLD : C_TEXT, 0, OPTION_ROWS[kind[r]].name);
             const char *d = OPTION_ROWS[kind[r]].desc;
             if (!bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
-            if (bit < 0) { snprintf(buf, sizeof buf, u->update_install ? "install %s" : "%s is out", u->update); d = buf; }
+            if (bit == -1) { snprintf(buf, sizeof buf, u->update_install ? "install %s" : "%s is out", u->update); d = buf; }
             text(u, UI_W - 18, y + (pitch - 18) / 2, C_DIM, 2, d);
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
@@ -2347,13 +2388,14 @@ void ui_draw(SmzUi *u)
         int gap = rows > 5 ? 12 : 14, dy = (rh - gap - 14) / 2;   /* the name and its line centred in the row */
         for (int r = 0; r < rows; r++) {
             int y = 34 + r * pitch, k = mode_kind(u, r);
-            const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : weekly(u)->name;
+            const char *name = k == 0 ? chill(u)->name : k == 1 ? original(u)->name : k == 2 ? "Custom" : k == 3 ? "Saved customs" : k == 4 ? "Monthly run" : k == 6 ? "Map Rando" : weekly(u)->name;
             const char *wgoal = sm_mode(u) ? "Mother Brain" : z3_mode(u) ? "Fast Ganon, 2 crystals" : "2 crystals, 1 boss";
             char desc[48];
             if (k == 0) snprintf(desc, sizeof desc, "%s", chill(u)->desc);
             else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
             else if (k == 2) snprintf(desc, sizeof desc, "Pick every option yourself");
             else if (k == 3) snprintf(desc, sizeof desc, "%d saved", u->saved_count);
+            else if (k == 6) snprintf(desc, sizeof desc, "%s", smz_sm_maprando_state() == SMZ_MR_OFFLINE ? "Needs an internet connection" : "A rebuilt map, as SM races play it");
             else if (k == 5 && u->weekly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today, %s", u->weekly_label, wgoal);
             else if (k == 5) snprintf(desc, sizeof desc, "%s: %dd left, %s", u->weekly_label, u->weekly_days, wgoal);
             else if (u->monthly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today", u->monthly_label);
@@ -2433,9 +2475,9 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_START: {
-        snprintf(buf, sizeof buf, "%s  -  Sprites", u->start_label);
+        snprintf(buf, sizeof buf, "%s  -  %s", u->start_label, maprando_run(u) ? "Start" : "Sprites");
         title(u, buf);
-        int rh = u->player_on ? 46 : 56, step = rh + 6, g0 = sm_mode(u), g1 = z3_mode(u) ? 1 : 2;   /* one game alone: its own row */
+        int rh = u->player_on ? 46 : 56, step = rh + 6, g0 = sm_mode(u), g1 = z3_mode(u) ? 1 : maprando_run(u) ? 1 : 2;   /* one game alone: its own row */
         for (int g = g0; g < g1; g++) {
             int y = 34 + (g - g0) * step, v = u->value[g ? UIO_SAMUS : UIO_LINK];
             if (v >= u->sprite_count[g]) v = 0;

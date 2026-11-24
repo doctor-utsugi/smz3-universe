@@ -17,6 +17,7 @@ use rand::{RngCore, SeedableRng};
 use std::ffi::{CStr, c_char};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 struct State {
     dir: PathBuf,
@@ -27,6 +28,8 @@ struct State {
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+/// Attempts of the seed being built, for the hosts' progress line.
+static ATTEMPTS: AtomicU32 = AtomicU32::new(0);
 
 /// Upstream reads its data relative to the working directory (`rust/` of its checkout), so every call runs there and
 /// puts the host's directory back afterwards.
@@ -180,6 +183,7 @@ fn generate(st: &State, json: &str, seed: u64, max_attempts: u32, rom: &[u8]) ->
             let r = Randomizer::new(&map, &doors, objectives, &settings, &tiers, gd, &gd.base_links_data, &mut rng);
             for _ in 0..per_map {
                 attempt += 1;
+                ATTEMPTS.store(attempt as u32, Ordering::Relaxed);
                 let item_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
                 if let Ok((randomization, _spoiler)) = r.randomize(attempt, item_seed, display_seed, true) {
                     found = Some(randomization);
@@ -326,6 +330,7 @@ pub unsafe extern "C" fn smz_mr_generate(
         -1
     };
     let Some(st) = guard.as_ref() else { return fail("Map Rando is not loaded".into()) };
+    ATTEMPTS.store(0, Ordering::Relaxed);
     let json = unsafe { CStr::from_ptr(settings_json) }.to_string_lossy().into_owned();
     let rom = unsafe { std::slice::from_raw_parts(rom, rom_len) };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| generate(st, &json, seed, max_attempts, rom))) {
@@ -340,6 +345,11 @@ pub unsafe extern "C" fn smz_mr_generate(
         Ok(Err(e)) => fail(format!("{e:#}")),
         Err(p) => fail(panic_text(p)),
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn smz_mr_attempts() -> u32 {
+    ATTEMPTS.load(Ordering::Relaxed)
 }
 
 #[unsafe(no_mangle)]

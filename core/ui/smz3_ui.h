@@ -27,7 +27,7 @@ extern int smz_ui_w, smz_ui_h;
 
 typedef enum { BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_L, BTN_R, BTN_SELECT, BTN_START } UiButton;   /* START: only the keyboard uses it (to Save) */
 typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY, UI_LOGO, UI_HOME, UI_OPTIONS,
-               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES } UiScreen;
+               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_ABOUT } UiScreen;
 typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
