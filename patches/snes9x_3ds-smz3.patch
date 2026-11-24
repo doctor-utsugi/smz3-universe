@@ -1150,10 +1150,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..9199029
+index 0000000..df44d67
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1424 @@
+@@ -0,0 +1,1438 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1406,8 +1406,10 @@ index 0000000..9199029
 +    return kind;
 +}
 +
-+void smzOnlineMarkRun(int slot, int online, int kind)
++void smzOnlineMarkRun(int slot, int online, int kind, const char *preset)
 +{
++    remove(pathOf(ONLINE_DIR "/slot%d.preset", slot));
++    if (online && kind == 1 && preset && *preset) writeText(pathOf(ONLINE_DIR "/slot%d.preset", slot), preset, strlen(preset));
 +    remove(pathOf(ONLINE_DIR "/slot%d.token", slot));
 +    remove(pathOf(ONLINE_DIR "/slot%d.finish", slot));
 +    remove(pathOf(ONLINE_DIR "/slot%d.proof", slot));
@@ -1536,14 +1538,19 @@ index 0000000..9199029
 +
 +static char gLadder[3][16384];
 +static int gLadderState[3], gLadderMode;   // 0 idle, 1 fetching, 2 ready, 3 failed; the game they were asked for
++static char gLadderPreset[32];             // the table tab 0 was asked for
 +
 +static void laddersThread(void *)
 +{
 +    static const char *const PATH[3] = {"/api/ladder?kind=original", "/api/ladder?kind=monthly", "/api/ladder?kind=weekly"};
 +    static char buf[16384];
++    char preset[32];
++    LightLock_Lock(&gLock);
++    snprintf(preset, sizeof preset, "%s", gLadderPreset);
++    LightLock_Unlock(&gLock);
 +    for (int t = 0; t < 3; t++) {
-+        char path[64];
-+        snprintf(path, sizeof path, "%s%s", PATH[t], gameQuery('&'));
++        char path[112];
++        snprintf(path, sizeof path, "%s%s%s%s", PATH[t], gameQuery('&'), t == 0 && preset[0] ? "&preset=" : "", t == 0 ? preset : "");
 +        int ok = httpRequest("GET", path, NULL, buf, sizeof buf) == 200;
 +        LightLock_Lock(&gLock);
 +        gLadderMode = modeNow();
@@ -1823,9 +1830,15 @@ index 0000000..9199029
 +    if (exists(pathOf(ONLINE_DIR "/slot%d.token", slot))) return;
 +    int kind = smzOnlineSlotKind(slot);
 +    if (!kind) return;
-+    char id[40], req[160], reply[512], token[400];
++    char id[40], req[200], reply[512], token[400], preset[40] = "";
 +    installId(id);
-+    snprintf(req, sizeof req, "{\"install\":\"%s\",\"kind\":\"%s\"%s}", id, kind == 3 ? "weekly" : kind == 2 ? "monthly" : "original", gameField());
++    size_t pn;
++    if (char *pt = readText(pathOf(ONLINE_DIR "/slot%d.preset", slot), &pn)) {   // a race preset's table, none for Original
++        pt[strcspn(pt, "\r\n \"\\")] = 0;
++        snprintf(preset, sizeof preset, ",\"preset\":\"%.24s\"", pt);
++        free(pt);
++    }
++    snprintf(req, sizeof req, "{\"install\":\"%s\",\"kind\":\"%s\"%s%s}", id, kind == 3 ? "weekly" : kind == 2 ? "monthly" : "original", gameField(), preset);
 +    if (httpRequest("POST", "/api/start", req, reply, sizeof reply) == 200 && jsonStr(reply, "token", token, sizeof token))
 +        writeText(pathOf(ONLINE_DIR "/slot%d.token", slot), token, strlen(token));
 +}
@@ -1849,13 +1862,14 @@ index 0000000..9199029
 +    spawn(seedsThread, NULL);
 +}
 +
-+void smzOnlineRequestLadders(void)
++void smzOnlineRequestLadders(const char *preset)
 +{
 +    lockInit();
 +    netUp();   // without httpc the thread fails at once, and the menu shows the card offline
 +    LightLock_Lock(&gLock);
 +    bool busy = gLadderState[0] || gLadderState[1] || gLadderState[2];   // asked, or an answer not taken yet (the menu asks every frame)
 +    for (int t = 0; t < 3 && !busy; t++) gLadderState[t] = 1;
++    if (!busy) snprintf(gLadderPreset, sizeof gLadderPreset, "%s", preset ? preset : "");
 +    LightLock_Unlock(&gLock);
 +    if (!busy && !spawn(laddersThread, NULL)) for (int t = 0; t < 3; t++) unbusy(&gLadderState[t]);
 +}
@@ -2580,10 +2594,10 @@ index 0000000..9199029
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..4862d0b
+index 0000000..2c4963b
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,131 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2602,7 +2616,8 @@ index 0000000..4862d0b
 +int smzOnlineSlotKind(int slot);
 +// The run's own kind (1 original, 2 monthly, 3 weekly), also when it was made offline; 0 for an unknown older run.
 +int smzOnlineRunMode(int slot);
-+void smzOnlineMarkRun(int slot, int online, int kind);
++// preset: the race preset's table the run counts on (ui_run_preset_key), "" for Original.
++void smzOnlineMarkRun(int slot, int online, int kind, const char *preset);
 +
 +// Starts the seeds fetch (SMZ3's) and sends every game's finished runs that are waiting. Safe to call again: it asks again until
 +// both seeds came.
@@ -2613,8 +2628,8 @@ index 0000000..4862d0b
 +bool smzOnlineTakeMonthly(char label[16], int *seed, int *days, int *mode);
 +bool smzOnlineTakeWeekly(char label[16], int *seed, int *days, int *mode);
 +// The online tables (0 original, 1 monthly, 2 weekly): Request starts the fetch, Take returns each answer once it is there (state 1 ready,
-+// 2 failed; the JSON is the server's /api/ladder answer).
-+void smzOnlineRequestLadders(void);
++// 2 failed; the JSON is the server's /api/ladder answer). Tab 0 is preset's table (ui_ladder_preset_key), Original for "".
++void smzOnlineRequestLadders(const char *preset);
 +int smzOnlineTakeLadder(int tab, char *out, size_t cap);
 +// The world goals of the month (/api/goals): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
 +void smzOnlineRequestGoals(void);
@@ -2716,7 +2731,7 @@ index 0000000..4862d0b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..e323254
+index 0000000..e613b71
 --- /dev/null
 +++ b/source/smz3run.cpp
 @@ -0,0 +1,6100 @@
@@ -3626,7 +3641,7 @@ index 0000000..e323254
 +                }
 +                snprintf(path, sizeof path, "%s/slot%d.run", runDir(), slot);
 +                ok = runSave(path, &r) == 0;
-+                if (ok) smzOnlineMarkRun(slot, dailyCheck ? 0 : ui_online_now(u), ui_run_weekly(u) ? 3 : ui_run_monthly(u) ? 2 : 1);
++                if (ok) smzOnlineMarkRun(slot, dailyCheck ? 0 : ui_online_now(u), ui_run_weekly(u) ? 3 : ui_run_monthly(u) ? 2 : 1, ui_run_preset_key(u));
 +            }
 +            if (!ok) snprintf(message, cap, "Cannot write to " RUN_DIR);
 +        } else if (job.rc == -1 && ipsFailed[0]) {
@@ -3744,7 +3759,7 @@ index 0000000..e323254
 +    snprintf(path, sizeof path, "%s/slot%d.run", runDir(), SMZ_RACE_SLOT);
 +    SmzRun r;
 +    if (ok && runLoad(path, &r) == 0) {
-+        smzOnlineMarkRun(SMZ_RACE_SLOT, 0, 1);   // never on a ladder of its own: the race has its own
++        smzOnlineMarkRun(SMZ_RACE_SLOT, 0, 1, "");   // never on a ladder of its own: the race has its own
 +        char old[PATH_MAX];
 +        file3dsGetRelatedPath(r.rom_path, old, sizeof old, ".srm", "saves");   // an earlier game of the same name
 +        remove(old);
@@ -3908,7 +3923,7 @@ index 0000000..e323254
 +    if (smzRunMode != SMZ_MODE_SMZ3) ui_game_enter(&ui, smzRunMode);   // a run of another game left: back to that game's list
 +    smzOnlineStartup();
 +    smzOnlineSeedsFor(smzRunMode);
-+    smzOnlineRequestLadders();   // the bottom screen shows them from the start
++    smzOnlineRequestLadders(ui_ladder_preset_key(&ui));   // the bottom screen shows them from the start
 +    ui_ladder_enable(&ui, 1);
 +    ui_daily_enable(&ui, 1);
 +    ui_home_enable(&ui, UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
@@ -3965,7 +3980,7 @@ index 0000000..e323254
 +            smzOnlineSeedsFor(smzRunMode);
 +        }
 +        if (ui.daily.loaded == 0) smzDailyRequestInfo();   // asked again until this game's answer comes (one at a time)
-+        if (ui.ladder[0].loaded == 0) smzOnlineRequestLadders();
++        if (ui.ladder[0].loaded == 0) smzOnlineRequestLadders(ui_ladder_preset_key(&ui));
 +        lastTick = osGetTime();
 +        UiButton b;
 +        bool have = true;
@@ -4036,7 +4051,7 @@ index 0000000..e323254
 +                smz_sm_set_maprando(smzMapRandoFetch, smzMapRandoOnline() ? SMZ_MR_READY : SMZ_MR_OFFLINE);
 +                if (!monthly[0].have || !weekly[0].have) smzOnlineStartup();
 +                if (smzRunMode != SMZ_MODE_SMZ3 && (!monthly[smzRunMode].have || !weekly[smzRunMode].have)) smzOnlineSeedsFor(smzRunMode);
-+                if (ladderFailed) { ladderFailed = false; smzOnlineRequestLadders(); }
++                if (ladderFailed) { ladderFailed = false; smzOnlineRequestLadders(ui_ladder_preset_key(&ui)); }
 +                if (ui.daily.loaded < 0) smzDailyRequestInfo();
 +            }
 +            if (ui_player_dirty(&ui)) { char profile[96]; ui_player_text(&ui, profile, sizeof profile); smzOnlineProfileSave(profile); }
@@ -4084,7 +4099,7 @@ index 0000000..e323254
 +                updating = true;
 +                smzUpdateStart(versionJson);
 +            }
-+            if (act == ACT_LADDER) smzOnlineRequestLadders();
++            if (act == ACT_LADDER) smzOnlineRequestLadders(ui_ladder_preset_key(&ui));
 +            else if (act == ACT_DELETE) { deleteRun(slot); refreshSlots(&ui); }
 +            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }
 +            if (act == ACT_DAILY && dailyKept(ui.daily.window)) { act = ACT_CONTINUE; slot = SMZ_DAILY_SLOT; }
