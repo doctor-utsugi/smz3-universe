@@ -387,7 +387,8 @@ JNIEXPORT jbyteArray JNICALL NATIVE(generateSm)(JNIEnv *env, jclass cls, jbyteAr
     int rc = rom ? smz_sm_generate(g_sm_json, sizeof g_sm_json, (const uint8_t *)smb, (const uint8_t *)sam,
                                    sam ? (size_t)(*env)->GetArrayLength(env, samusRdc) : 0, rom, SMZ_SM_ROM_SIZE) : -1;
     jbyteArray result = NULL;
-    if (rc) snprintf(g_error, sizeof g_error, rc == -6 ? "the sprite file is not valid" : "generation failed (%d)", rc);
+    if (rc && smz_sm_error(rc)) snprintf(g_error, sizeof g_error, "%s", smz_sm_error(rc));
+    else if (rc) snprintf(g_error, sizeof g_error, "generation failed (%d)", rc);
     else {
         result = (*env)->NewByteArray(env, SMZ_SM_ROM_SIZE);
         (*env)->SetByteArrayRegion(env, result, 0, SMZ_SM_ROM_SIZE, (const jbyte *)rom);
@@ -399,6 +400,55 @@ JNIEXPORT jbyteArray JNICALL NATIVE(generateSm)(JNIEnv *env, jclass cls, jbyteAr
 }
 
 JNIEXPORT jstring JNICALL NATIVE(smLastSettings)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, g_sm_json); }
+
+/* Map Rando (core/maprando, built with cargo-ndk): its packed data, extracted from the APK's assets by MapRando.kt. */
+#ifdef SMZ_MAPRANDO
+#include "smz3_maprando.h"
+
+static char g_mr_dir[512];
+static volatile int g_mr_phase;   /* 0 idle, 1 loading the data, 2 building the seed */
+
+static int mr_generate(const char *settings, uint64_t seed, const uint8_t *sm, size_t sm_len, uint8_t *out, size_t cap,
+                       char *info, size_t info_cap)
+{
+    char err[300];
+    g_mr_phase = 1;
+    if (smz_mr_init(g_mr_dir, err, sizeof err)) {
+        for (char *c = err; *c; c++) if (*c == '"' || *c == '\\' || *c < ' ') *c = '\'';
+        snprintf(info, info_cap, "{\"error\":\"%s\"}", err);
+        g_mr_phase = 0;
+        return -1;
+    }
+    g_mr_phase = 2;
+    int rc = smz_mr_generate(settings, seed, 0, sm, sm_len, out, cap, info, info_cap);
+    smz_mr_free();   /* about 600 MB the game does not need */
+    g_mr_phase = 0;
+    return rc;
+}
+#endif
+
+JNIEXPORT jboolean JNICALL NATIVE(mapRandoSetup)(JNIEnv *env, jclass cls, jstring dir)
+{
+#ifdef SMZ_MAPRANDO
+    const char *d = (*env)->GetStringUTFChars(env, dir, NULL);
+    snprintf(g_mr_dir, sizeof g_mr_dir, "%s", d);
+    (*env)->ReleaseStringUTFChars(env, dir, d);
+    smz_sm_set_maprando(mr_generate, SMZ_MR_READY);
+    return JNI_TRUE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
+/* -1 idle, 0 loading Map Rando's data, else 1 + the attempts of the seed being built. */
+JNIEXPORT jint JNICALL NATIVE(mapRandoProgress)(JNIEnv *env, jclass cls)
+{
+#ifdef SMZ_MAPRANDO
+    return g_mr_phase == 1 ? 0 : g_mr_phase == 2 ? 1 + (jint)smz_mr_attempts() : -1;
+#else
+    return -1;
+#endif
+}
 
 /* Which randomizer's ROM the reads follow (smz3_set_mode): set when a run starts, in each process that reads memory. */
 JNIEXPORT void JNICALL NATIVE(setMode)(JNIEnv *env, jclass cls, jint mode) { smz3_set_mode(mode); }

@@ -1,8 +1,8 @@
 diff --git a/lemuroid-app/build.gradle.kts b/lemuroid-app/build.gradle.kts
-index 741cef4..c4b1685 100644
+index 741cef4..a7d9a0e 100644
 --- a/lemuroid-app/build.gradle.kts
 +++ b/lemuroid-app/build.gradle.kts
-@@ -9,10 +9,18 @@ plugins {
+@@ -9,10 +9,20 @@ plugins {
  }
  
  android {
@@ -12,6 +12,8 @@ index 741cef4..c4b1685 100644
 +            version = "3.22.1"
 +        }
 +    }
++    // Map Rando's packed data, zipped there by build-android.sh and unpacked once into the app's storage (MapRando.kt)
++    sourceSets["main"].assets.srcDir("../../../build/android-assets")
      defaultConfig {
          versionCode = 252
          versionName = "1.17.0" // Always remember to update Cores Tag!
@@ -22,7 +24,7 @@ index 741cef4..c4b1685 100644
      }
      flavorDimensions += listOf("opensource", "cores")
  
-@@ -72,6 +80,8 @@ android {
+@@ -72,6 +82,8 @@ android {
              // Stripping created some issues with some libretro cores such as ppsspp
              keepDebugSymbols += setOf("*/*/*_libretro_android.so")
              useLegacyPackaging = true
@@ -31,7 +33,7 @@ index 741cef4..c4b1685 100644
          }
          resources {
              excludes += setOf("META-INF/DEPENDENCIES", "META-INF/library_release.kotlin_module")
-@@ -96,12 +106,12 @@ android {
+@@ -96,12 +108,12 @@ android {
              isMinifyEnabled = true
              signingConfig = signingConfigs["release"]
              proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
@@ -46,7 +48,7 @@ index 741cef4..c4b1685 100644
          }
      }
  
-@@ -125,6 +135,7 @@ android {
+@@ -125,6 +137,7 @@ android {
  }
  
  dependencies {
@@ -1389,10 +1391,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..8053d1d
+index 0000000..12ff544
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1079 @@
+@@ -0,0 +1,1088 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1648,7 +1650,7 @@ index 0000000..8053d1d
 +
 +    fun refreshSlots() {
 +        RunStore.loadAll(context).forEachIndexed { i, run ->
-+            Smz3Native.uiSetSlot(i, run != null, run?.name ?: "", run?.let { summary(context, it).replace("\n", " · ").take(38) } ?: "")
++            Smz3Native.uiSetSlot(i, run != null, run?.name ?: "", run?.let { summary(it) } ?: "")
 +            if (run != null) { Smz3Native.uiSetSlotStats(i, run.zeldaCleared, run.zeldaTotal, run.metroidCleared, run.metroidTotal, run.playTimeMs, run.game, run.bossMask, run.crystalMask); Smz3Native.uiSetSlotRules(i, run.settings) }
 +            Smz3Native.uiSetSlotOnline(i, if (run != null) OnlineLadder.slotKind(context, i) else 0)
 +        }
@@ -1682,6 +1684,7 @@ index 0000000..8053d1d
 +
 +    DisposableEffect(Unit) {
 +        Smz3Native.uiInit()
++        MapRando.setup(context)
 +        Smz3Native.uiGameState(SMZ_MODE_SM, UI_GAME_NO_ROM)   // until their ROMs are found (checkSmRom)
 +        Smz3Native.uiGameState(SMZ_MODE_Z3, UI_GAME_NO_ROM)
 +        Smz3Native.uiSetSlotCount(RunStore.SLOTS)
@@ -1822,7 +1825,14 @@ index 0000000..8053d1d
 +        version++
 +        val raw = Smz3Native.uiSettingsJson(java.security.SecureRandom().nextInt(Int.MAX_VALUE))
 +        val samus = JSONObject(raw).optString("samusSprite").takeIf { it.isNotEmpty() }?.let { spriteFile(context, 1, "$it.rdc") }
-+        val (rom, settings) = RunGenerator.generateSm(sm, raw, samus)
++        // a Map Rando seed takes half a minute on the Thor: its progress replaces the busy line meanwhile
++        val mr = MapRando.isMapRando(raw)
++        val since = System.currentTimeMillis()
++        val ticker = if (mr) scope.launch { while (true) { Smz3Native.uiBusy(MapRando.progressText(since)); version++; kotlinx.coroutines.delay(500) } } else null
++        val (rom, settings) = try {
++            if (mr) withContext(Dispatchers.IO) { MapRando.ensure(context) }
++            RunGenerator.generateSm(sm, raw, samus)
++        } finally { ticker?.cancel() }
 +        val json = JSONObject(settings)
 +        val seed = json.optString("seed")
 +        val name = Smz3Native.uiRunLabel().ifBlank { "Run ${slot + 1}" }
@@ -1958,6 +1968,7 @@ index 0000000..8053d1d
 +        fun rdc(game: Int, key: String) = settings.optString(key).takeIf { it.isNotEmpty() }
 +            ?.let { spriteFile(context, game, "$it.rdc") }
 +        if (RunStore.mode == "sm") {
++            if (MapRando.isMapRando(raw)) withContext(Dispatchers.IO) { MapRando.ensure(context) }
 +            val (rom, kept) = RunGenerator.generateSm(sm, raw, rdc(1, "samusSprite"))
 +            Smz3Native.setMode(SMZ_MODE_SM)
 +            return Triple(rom, JSONObject(kept).optString("seed"), kept)
@@ -3219,10 +3230,10 @@ index 0000000..91f0bba
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 new file mode 100644
-index 0000000..fbccecd
+index 0000000..e341844
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,164 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -3269,6 +3280,9 @@ index 0000000..fbccecd
 +
 +    /** [mode] as the core's SMZ_MODE_* (0 SMZ3, 1 ALttP, 2 Super Metroid). */
 +    fun modeIndex() = when (mode) { "z3" -> 1; "sm" -> 2; else -> 0 }
++
++    /** What the memory reads follow for a run of the game shown: its mode, with SMZ3_MAPRANDO (0x10) for a Map Rando seed. */
++    fun stateMode(settings: String?) = modeIndex() or (if (mode == "sm" && MapRando.isMapRando(settings)) 0x10 else 0)
 +
 +    fun runsDir(context: Context) = runsDir(context, mode)
 +
@@ -3386,32 +3400,20 @@ index 0000000..fbccecd
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt
 new file mode 100644
-index 0000000..788d635
+index 0000000..cfd51c2
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,11 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
-+import android.content.Context
-+import android.text.format.DateFormat
-+import java.util.Date
-+
-+/** Two-line text for a run: checks cleared, play time, where it was left and when. */
-+internal fun summary(context: Context, run: Run): String {
++/** A run's row text as the other versions write it (smz_run_summary): the checks cleared and the play time, short enough for the row. */
++internal fun summary(run: Run): String {
 +    val sec = run.playTimeMs / 1000
 +    val time = "%d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60)
-+    val last = if (run.lastPlayedAt == 0L) "never played" else DateFormat.getMediumDateFormat(context).format(Date(run.lastPlayedAt))
-+    val game = when (run.game) {
-+        1 -> "in A Link to the Past"
-+        2 -> "in Super Metroid"
-+        3 -> "finished"
-+        else -> "not started"
-+    }
 +    val checks = if (RunStore.mode == "sm") "Metroid ${run.metroidCleared}/${run.metroidTotal}"   // a single game: its own count
 +        else if (RunStore.mode == "z3") "Zelda ${run.zeldaCleared}/${run.zeldaTotal}"
-+        else "Zelda ${run.zeldaCleared}/${run.zeldaTotal} · Metroid ${run.metroidCleared}/${run.metroidTotal}"
-+    return "$checks\n" +
-+        "$time played · $game · $last"
++        else "Zelda ${run.zeldaCleared}/${run.zeldaTotal} - Metroid ${run.metroidCleared}/${run.metroidTotal}"
++    return "$checks - $time"
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/Smz3Music.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/Smz3Music.kt
 new file mode 100644
@@ -5665,10 +5667,10 @@ index 0000000..96cc28c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt
 new file mode 100644
-index 0000000..f5a5aae
+index 0000000..6bf12f4
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalsView.kt
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,185 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -5698,14 +5700,16 @@ index 0000000..f5a5aae
 +    private var ganonNeeds = 7
 +    private var towerNeeds = 7
 +    private var tourianNeeds = 4
++    private var fastGanon = false   // alttpr's Fast Ganon: the pyramid is open and the tower does not count
 +    private var textColor = Color.WHITE
 +    private var dimColor = Color.GRAY
 +    private var accentColor = Color.YELLOW
 +    private var face: Typeface? = null
 +
-+    fun setRules(ganonCrystals: Int, towerCrystals: Int, tourianBosses: Int) {
++    fun setRules(ganonCrystals: Int, towerCrystals: Int, tourianBosses: Int, fastGanon: Boolean = false) {
++        this.fastGanon = fastGanon
 +        ganonNeeds = ganonCrystals.coerceIn(0, 7)
-+        towerNeeds = towerCrystals.coerceIn(0, 7)
++        towerNeeds = if (fastGanon) 0 else towerCrystals.coerceIn(0, 7)
 +        tourianNeeds = tourianBosses.coerceIn(0, 4)
 +        invalidate()
 +    }
@@ -5833,6 +5837,7 @@ index 0000000..f5a5aae
 +                finished -> "Beaten"
 +                tower > 0 -> "Tower: $tower crystal${if (tower == 1) "" else "s"} more"
 +                ganon > 0 -> "Ganon: $ganon crystal${if (ganon == 1) "" else "s"} more"
++                fastGanon -> "Ganon vulnerable"
 +                else -> "Tower open"
 +            }
 +            write(canvas, ganonNote, w, y + row * 0.68f, 11f, if (finished || (tower <= 0 && ganon <= 0)) ok else dimColor, Paint.Align.RIGHT)
@@ -6678,10 +6683,10 @@ index 0000000..6aac24b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
 new file mode 100644
-index 0000000..bb9bef5
+index 0000000..5d062de
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MapView.kt
-@@ -0,0 +1,517 @@
+@@ -0,0 +1,523 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -7064,6 +7069,12 @@ index 0000000..bb9bef5
 +
 +    override fun onDraw(canvas: Canvas) {
 +        canvas.drawColor(Color.parseColor("#0B0E12"))
++        if (Smz3Tracker.mapRando) {   // its rooms are moved: the vanilla map would point the wrong way
++            val note = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#8793A6"); textAlign = Paint.Align.CENTER; textSize = minOf(width / 22f, 15f * resources.displayMetrics.density) }
++            canvas.drawText("Map Rando rebuilds the map:", width / 2f, height / 2f - note.textSize * 0.2f, note)
++            canvas.drawText("see the game's own map", width / 2f, height / 2f + note.textSize * 1.1f, note)
++            return
++        }
 +        if (panel.showsDungeon()) { panel.drawDungeon(canvas, width, height); if (follow) drawZoom(canvas); postInvalidateDelayed(175); return }
 +        val bmp = bitmap ?: return
 +        if (follow) centerOnPlayer() else if (following) keepCentered()
@@ -7272,10 +7283,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..8350ca0
+index 0000000..e547fb5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,176 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7327,6 +7338,10 @@ index 0000000..8350ca0
 +
 +    /** Super Metroid alone: the 4 MB ROM of a "game":"sm" settings JSON from the 3 MB Super Metroid ROM, or null (see [lastError]). */
 +    @JvmStatic external fun generateSm(sm: ByteArray, settingsJson: String, samusRdc: ByteArray?): ByteArray?
++    /** Offers Map Rando with its unpacked data folder; false when this build has no Map Rando. */
++    @JvmStatic external fun mapRandoSetup(dataDir: String): Boolean
++    /** -1 idle, 0 loading Map Rando's data, else 1 + the attempts of the seed being built. */
++    @JvmStatic external fun mapRandoProgress(): Int
 +
 +    /** The settings given to the last [generateSm], with the seed hash it added. */
 +    @JvmStatic external fun smLastSettings(): String
@@ -7528,10 +7543,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..2d5ed64
+index 0000000..821188c
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1166 @@
+@@ -0,0 +1,1168 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -8382,8 +8397,10 @@ index 0000000..2d5ed64
 +            Smz3ScreenMode.setMode(context, modes[(Smz3ScreenMode.mode(context).ordinal + 1) % modes.size])
 +        }.layoutParams.width = dp(150)
 +        column.addView(label(12f, Role.DIM).apply { text = "Dual puts the tracker on a second screen, single puts it over the game (R3 or the pad's tracker button). It changes from the next game."; setPadding(0, dp(6), 0, 0) })
-+        column.addView(label(13f, Role.DIM).apply { text = "DUNGEON MAPS"; setPadding(0, dp(18), 0, 0) })
-+        spinRow("Fixed keys", { if (Smz3Help.current().fixedKeys) "Shown" else "Hidden" }) { Smz3Help.setFixedKeys(context, !Smz3Help.current().fixedKeys) }
++        if (!Smz3Tracker.smAlone) {   // A Link to the Past's dungeons only
++            column.addView(label(13f, Role.DIM).apply { text = "DUNGEON MAPS"; setPadding(0, dp(18), 0, 0) })
++            spinRow("Fixed keys", { if (Smz3Help.current().fixedKeys) "Shown" else "Hidden" }) { Smz3Help.setFixedKeys(context, !Smz3Help.current().fixedKeys) }
++        }
 +        column.addView(label(13f, Role.DIM).apply { text = "ITEM SHORTCUTS  (the row over the RUN tab's map)"; setPadding(0, dp(18), 0, 0) })
 +        spinRow("Shortcut row", { if (Smz3Shortcuts.rowShown(context)) "Shown" else "Hidden" }) { Smz3Shortcuts.setRowShown(context, !Smz3Shortcuts.rowShown(context)); shortcutShown = "" }
 +        spinRow("Weapon row", { if (Smz3Shortcuts.weaponRowShown(context)) "Shown" else "Hidden" }) { Smz3Shortcuts.setWeaponRowShown(context, !Smz3Shortcuts.weaponRowShown(context)); shortcutShown = "" }
@@ -8452,7 +8469,7 @@ index 0000000..2d5ed64
 +                val set = runCatching { org.json.JSONObject(com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.load(context, slot)!!.settings) }.getOrNull()
 +                val z3 = set?.optJSONObject("z3")
 +                if (Smz3Tracker.z3Alone && z3 != null) {   // alttpr's keys; "random" counts as all seven
-+                    goals.setRules(z3.optString("ganon_open").toIntOrNull() ?: 7, z3.optString("tower_open").toIntOrNull() ?: 7, 0)
++                    goals.setRules(z3.optString("ganon_open").toIntOrNull() ?: 7, z3.optString("tower_open").toIntOrNull() ?: 7, 0, z3.optString("goals") == "fast_ganon")
 +                    goalsRun = true
 +                } else if (set != null) {
 +                    goals.setRules(set.optInt("ganonCrystals", 7), set.optInt("ganonsTowerCrystals", 7), set.optInt("tourianBosses", 4))
@@ -9334,10 +9351,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..341b1ac
+index 0000000..780416d
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,480 @@
+@@ -0,0 +1,484 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -9420,6 +9437,7 @@ index 0000000..341b1ac
 +
 +    /** The run is Super Metroid alone: the map shows its half only and the Zelda counters are hidden. */
 +    @Volatile var smAlone = false
++    @Volatile var mapRando = false   // a Map Rando seed: its map is rebuilt, so the tracker shows no map
 +
 +    /** The run is A Link to the Past alone: the map shows its half only and the Metroid counters are hidden. */
 +    @Volatile var z3Alone = false
@@ -9470,7 +9488,8 @@ index 0000000..341b1ac
 +        smAlone = RunStore.mode == "sm"
 +        z3Alone = RunStore.mode == "z3"
 +        smHash = if (smAlone || z3Alone) activeRun?.let { runCatching { org.json.JSONObject(it.settings).optString("hash") }.getOrNull() }.orEmpty() else ""
-+        Smz3Native.setMode(RunStore.modeIndex())
++        mapRando = smAlone && com.swordfish.lemuroid.app.mobile.feature.runs.MapRando.isMapRando(activeRun?.settings)
++        Smz3Native.setMode(RunStore.stateMode(activeRun?.settings))
 +        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 +        displays.registerDisplayListener(
 +            object : DisplayManager.DisplayListener {
@@ -9622,7 +9641,9 @@ index 0000000..341b1ac
 +                val slotNow = RunStore.activeSlot(context)
 +                if (slotNow != baseSlot) {
 +                    baseSlot = slotNow
-+                    Smz3Native.setMode(RunStore.modeIndex())
++                    val runNow = slotNow?.let { RunStore.load(context, it) }
++                    mapRando = smAlone && com.swordfish.lemuroid.app.mobile.feature.runs.MapRando.isMapRando(runNow?.settings)
++                    Smz3Native.setMode(RunStore.stateMode(runNow?.settings))
 +                    baseMs = slotNow?.let { RunStore.load(context, it)?.playTimeMs } ?: 0L
 +                    Smz3Native.setGoal(slotNow?.let { RunStore.load(context, it)?.settings })   // a daily challenge ends at its goal
 +                    pendingPlayTime = 0
@@ -13611,3 +13632,62 @@ index 09b87ea..4091294 100644
  
          if (gameMenuRequest.advancedCoreOptions.isNotEmpty() || gameMenuRequest.coreOptions.isNotEmpty()) {
              LemuroidSettingsMenuLink(
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
+new file mode 100644
+index 0000000..776e016
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
+@@ -0,0 +1,53 @@
++package com.swordfish.lemuroid.app.mobile.feature.runs
++
++import android.content.Context
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
++import java.io.File
++import java.util.zip.ZipInputStream
++
++/** Map Rando (core/maprando): its packed data ships as assets/maprando/data.zip and is unpacked once into the app's storage. */
++object MapRando {
++    private const val ASSET = "maprando"
++
++    private fun dataDir(context: Context) = File(context.filesDir, "maprando-data")
++
++    private fun stamp(context: Context) = runCatching { context.assets.open("$ASSET/stamp.txt").use { String(it.readBytes()).trim() } }.getOrNull()
++
++    /** Offers Map Rando in the menu when the APK carries its data; nothing is unpacked yet. */
++    fun setup(context: Context) {
++        if (stamp(context) != null) Smz3Native.mapRandoSetup(dataDir(context).path)
++    }
++
++    fun isMapRando(settings: String?) = settings?.contains("\"generator\":\"maprando\"") == true
++
++    /** Unpacks the data when this APK's differs from what is there (blocking: call it off the main thread). */
++    fun ensure(context: Context) {
++        val want = stamp(context) ?: return
++        val dir = dataDir(context)
++        val mark = File(dir, ".stamp")
++        if (mark.isFile && mark.readText() == want) return
++        dir.deleteRecursively()
++        val root = dir.canonicalPath + File.separator
++        ZipInputStream(context.assets.open("$ASSET/data.zip").buffered()).use { zip ->
++            while (true) {
++                val e = zip.nextEntry ?: break
++                val out = File(dir, e.name)
++                require(out.canonicalPath.startsWith(root)) { "bad entry ${e.name}" }
++                if (e.isDirectory) { out.mkdirs(); continue }
++                out.parentFile?.mkdirs()
++                out.outputStream().use { zip.copyTo(it) }
++            }
++        }
++        mark.writeText(want)
++    }
++
++    /** The busy line while a seed is built, from the native progress and the seconds since [since]. */
++    fun progressText(since: Long): String {
++        val s = (System.currentTimeMillis() - since) / 1000
++        return when (val p = Smz3Native.mapRandoProgress()) {
++            -1 -> "Unpacking Map Rando ... ${s}s"
++            0 -> "Loading Map Rando ... ${s}s"
++            else -> "Map Rando seed, try ${p - 1} ... ${s}s"
++        }
++    }
++}

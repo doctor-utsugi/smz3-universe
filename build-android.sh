@@ -16,6 +16,14 @@ echo "sdk.dir=$sdk" > ../LibretroDroid/local.properties
 jdk="$HOME/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2"
 [ -d "$jdk" ] && export JAVA_HOME="$jdk"   # elsewhere (the CI) JAVA_HOME already points at a JDK 21
 mkdir -p ../../build
+# Map Rando's data (tools/maprando/fetch.sh packs build/maprando-data) goes in as one zip, with a stamp that says when to unpack again
+assets="$root/build/android-assets/maprando"
+rm -rf "$assets"
+if [ -d "$root/build/maprando-data/rust" ]; then
+    mkdir -p "$assets"
+    (cd "$root/build/maprando-data" && find . -type f | LC_ALL=C sort | zip -q -X -9 "$assets/data.zip" -@)
+    md5sum "$assets/data.zip" | cut -c1-32 > "$assets/stamp.txt"
+fi
 if [ "$variant" = "release" ]; then
     # Local signing key (kept out of git); packaging the 190 MB APK needs more heap than the default 2.5 GB.
     [ -f release.jks ] || "$JAVA_HOME/bin/keytool" -genkeypair -keystore release.jks -alias lemuroid -storepass lemuroid -keypass lemuroid \
