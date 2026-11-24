@@ -1382,10 +1382,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..4275937
+index 0000000..3933aa1
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,933 @@
+@@ -0,0 +1,936 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1682,12 +1682,15 @@ index 0000000..4275937
 +    LaunchedEffect(Unit) {   // the logo's fixed 2 seconds
 +        var last = System.currentTimeMillis()
 +        while (true) {
-+            kotlinx.coroutines.delay(100)
++            val spin = Smz3Native.uiScreen() == UI_GAMES   // the carousel turns smoothly, the rest needs no fast tick
++            kotlinx.coroutines.delay(if (spin) 16 else 100)
 +            val now = System.currentTimeMillis()
 +            val logo = Smz3Native.uiScreen() == UI_LOGO
 +            Smz3Native.uiTick((now - last).toInt())
 +            last = now
-+            if (logo) version++
++            val mode = arrayOf("smz3", "z3", "sm").getOrElse(Smz3Native.uiGameMode()) { "smz3" }
++            if (mode != RunStore.mode) { RunStore.mode = mode; refreshSlots() }   // a game entered from the carousel: its own runs
++            if (logo || spin) version++
 +        }
 +    }
 +    LaunchedEffect(Unit) {   // world goal icons and the Original sprites cut from the base ROMs the first time; the ones asked for before are dropped
@@ -2321,7 +2324,7 @@ index 0000000..4275937
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..b36e5f2
+index 0000000..04194c5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 @@ -0,0 +1,249 @@
@@ -2342,8 +2345,8 @@ index 0000000..b36e5f2
 +    private const val BASE = "https://smz3-universe.duckdns.org"
 +
 +    private fun dir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
-+    private fun tokenFile(context: Context, slot: Int) = File(dir(context), "slot$slot.token")
-+    private fun finishFile(context: Context, slot: Int) = File(dir(context), "slot$slot.finish")
++    private fun tokenFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.token")
++    private fun finishFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.finish")
 +
 +    private fun installId(context: Context): String {
 +        val f = File(dir(context), "install_id")
@@ -2374,7 +2377,7 @@ index 0000000..b36e5f2
 +    /** Name and flag shown on the ladder, set in the start screen of a new run. */
 +    fun playerName(context: Context) = profile(context).first
 +
-+    private fun proofFile(context: Context, slot: Int) = File(dir(context), "slot$slot.proof")
++    private fun proofFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.proof")
 +
 +    private var proofSlot = -1
 +    private val proofSeen = HashSet<Int>()
@@ -2393,8 +2396,8 @@ index 0000000..b36e5f2
 +        if (fresh.isNotEmpty() && proofSeen.size <= 512) runCatching { file.appendText(fresh.joinToString("") { "$it $ms\n" }) }
 +    }
 +
-+    private fun onlineFile(context: Context, slot: Int) = File(dir(context), "slot$slot.online")
-+    private fun modeFile(context: Context, slot: Int) = File(dir(context), "slot$slot.mode")
++    private fun onlineFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.online")
++    private fun modeFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.mode")
 +
 +    /** Records whether the run just generated in [slot] goes to the online ladder; the answer given in the menu then. */
 +    fun markRun(context: Context, slot: Int, online: Boolean, kind: String) {
@@ -3008,10 +3011,10 @@ index 0000000..91f0bba
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 new file mode 100644
-index 0000000..1a3814c
+index 0000000..8b2a90b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,149 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -3053,16 +3056,25 @@ index 0000000..1a3814c
 +object RunStore {
 +    const val SLOTS = 32
 +
++    /** The game entered from the carousel ("smz3", "z3", "sm"): SMZ3 keeps runs/, the others runs/<id>/. */
++    @Volatile var mode = "smz3"
++
++    fun runsDir(context: Context) = File(context.filesDir, if (mode == "smz3") "runs" else "runs/$mode").apply { mkdirs() }
++
 +    /** Slot of the run being played; the tracker (which runs in the game process) writes its progress into it. */
 +    fun setActiveSlot(context: Context, slot: Int?) {
 +        val f = File(File(context.filesDir, "runs").apply { mkdirs() }, "active")
-+        if (slot == null) f.delete() else f.writeText(slot.toString())
++        if (slot == null) f.delete() else f.writeText("$slot $mode")
 +    }
 +
-+    fun activeSlot(context: Context): Int? =
-+        File(File(context.filesDir, "runs"), "active").takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull()
++    /** Also takes the run's game, so the game process reaches the same folder as the menu. */
++    fun activeSlot(context: Context): Int? {
++        val t = File(File(context.filesDir, "runs"), "active").takeIf { it.exists() }?.readText()?.trim()?.split(' ') ?: return null
++        t.getOrNull(1)?.let { mode = it }
++        return t[0].toIntOrNull()
++    }
 +
-+    private fun file(context: Context, slot: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.json")
++    private fun file(context: Context, slot: Int) = File(runsDir(context), "slot$slot.json")
 +
 +    fun load(context: Context, slot: Int): Run? {
 +        val f = file(context, slot)
@@ -3113,19 +3125,19 @@ index 0000000..1a3814c
 +        file(context, run.slot).writeText(json.toString())
 +    }
 +
-+    fun discoveryFile(context: Context, slot: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.disc.json")
++    fun discoveryFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.disc.json")
 +
-+    fun recentFile(context: Context, slot: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.recent.json")
++    fun recentFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.recent.json")
 +
 +    /** The run's world goal counters (key=n,key=n text, see smz3_counters.h). */
-+    fun goalsFile(context: Context, slot: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.goals")
++    fun goalsFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.goals")
 +
 +    /** The counters at a save state (index -1: the quick save): loading the state puts them back. */
-+    fun goalsStateFile(context: Context, slot: Int, index: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.goals.state$index")
++    fun goalsStateFile(context: Context, slot: Int, index: Int) = File(runsDir(context), "slot$slot.goals.state$index")
 +
-+    fun marksFile(context: Context, slot: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.marks.json")
++    fun marksFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.marks.json")
 +
-+    private fun romDir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
++    private fun romDir(context: Context) = runsDir(context)
 +
 +    /** The slot's ROM: the file named in its run (see [romName]) or, for runs made before stable names, the slot file. */
 +    fun romFile(context: Context, slot: Int): File {
@@ -5611,7 +5623,7 @@ index 0000000..d3cee61
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Help.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Help.kt
 new file mode 100644
-index 0000000..eaebc9d
+index 0000000..76a0cb6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Help.kt
 @@ -0,0 +1,123 @@
@@ -5665,7 +5677,7 @@ index 0000000..eaebc9d
 +        info = info.copy(fixedKeys = on)
 +    }
 +
-+    private fun file(context: Context, slot: Int) = File(File(context.filesDir, "runs").apply { mkdirs() }, "slot$slot.help.json")
++    private fun file(context: Context, slot: Int) = File(com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.runsDir(context), "slot$slot.help.json")
 +
 +    /** Loads the run's help mode and what was already asked. */
 +    @Synchronized
@@ -7005,10 +7017,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..c6ab967
+index 0000000..821ffc7
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,151 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7124,6 +7136,7 @@ index 0000000..c6ab967
 +    @JvmStatic external fun originalPreviews(sm: ByteArray, z3: ByteArray, dir: String): Int
 +    @JvmStatic external fun uiOption(opt: Int): Int
 +    @JvmStatic external fun uiScreen(): Int
++    @JvmStatic external fun uiGameMode(): Int
 +    @JvmStatic external fun uiSetSlotCount(n: Int)
 +    @JvmStatic external fun uiSlot(): Int
 +    @JvmStatic external fun romName(settingsJson: String, seed: String): String

@@ -665,6 +665,7 @@ JNIEXPORT void JNICALL NATIVE(uiSetSlotCount)(JNIEnv *env, jclass cls, jint n) {
 /* The slot the menu is on: the highlighted one in the list, the opened one in its menus. */
 JNIEXPORT jint JNICALL NATIVE(uiSlot)(JNIEnv *env, jclass cls) { return g_ui.screen == UI_SLOTS_SCREEN ? (g_ui.daily_sel ? -1 : g_ui.slot_cursor) : g_ui.screen == UI_SLOT_MENU || g_ui.screen == UI_CONFIRM ? g_ui.active_slot : -1; }
 JNIEXPORT jint JNICALL NATIVE(uiScreen)(JNIEnv *env, jclass cls) { return g_ui.screen; }
+JNIEXPORT jint JNICALL NATIVE(uiGameMode)(JNIEnv *env, jclass cls) { return g_ui.game_mode; }
 
 JNIEXPORT jstring JNICALL NATIVE(romName)(JNIEnv *env, jclass cls, jstring json, jstring seed)
 {
