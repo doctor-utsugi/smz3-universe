@@ -11,6 +11,7 @@
 //   /api/race/...: online races, see race.js
 //   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
 //   GET  /api/games                                -> {games:[...]}   the games with ladders
+//   GET  /api/maprando/seed ?settings=&seed=      -> a Map Rando seed as a BPS patch (maprando.js)
 //   GET  /download                                 -> 302 to the latest GitHub release page
 // A finished run is only accepted with a token the server signed when the run began, and its time
 // cannot be longer than the wall clock time since then or shorter than its game's MIN_MS. It must also carry a proof of run, the
@@ -157,6 +158,8 @@ const goalRoutes = require('./goals')({ DIR, send, readJson, onlyKeys, limited, 
 
 const raceRoutes = require('./race')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof: verifyChallenge });
 
+const mapRandoRoutes = require('./maprando')({ DIR, send, limited });
+
 // The newest release, asked of GitHub at most every 15 minutes so the apps never hit its rate limit.
 const RELEASES = 'doctor-utsugi/smz3-universe';
 const release = { tag: '', at: 0 };
@@ -183,6 +186,7 @@ http.createServer((req, res) => {
   if (url.pathname.startsWith('/api/daily') || url.pathname === '/api/tokens') { if (dailyRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/goals')) { if (goalRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/race/')) { if (raceRoutes(req, res, url, ip)) return; }
+  if (url.pathname.startsWith('/api/maprando/')) { if (mapRandoRoutes(req, res, url, ip)) return; }
   if (req.method === 'GET' && url.pathname === '/download') {   // the short link the apps that cannot update themselves show
     res.writeHead(302, { Location: `https://github.com/${RELEASES}/releases/latest` });
     return res.end();

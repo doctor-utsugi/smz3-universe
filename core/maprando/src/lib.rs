@@ -215,6 +215,56 @@ fn seed_hash(display_seed: usize) -> String {
     (display_seed as u32).to_le_bytes().iter().map(|&i| ENEMIES[i as usize % 32]).collect::<Vec<_>>().join(" ")
 }
 
+/// A BPS patch from source to target (byd's format, as Flips writes it): unchanged runs at the same offset are SourceRead,
+/// everything else TargetRead, which keeps a Map Rando ROM's patch to the bytes it rewrote.
+pub fn bps_encode(source: &[u8], target: &[u8]) -> Vec<u8> {
+    fn num(out: &mut Vec<u8>, mut v: u64) {
+        loop {
+            let x = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                out.push(0x80 | x);
+                break;
+            }
+            out.push(x);
+            v -= 1;
+        }
+    }
+    let same = |i: usize| i < source.len() && source[i] == target[i];
+    let mut out = b"BPS1".to_vec();
+    num(&mut out, source.len() as u64);
+    num(&mut out, target.len() as u64);
+    num(&mut out, 0);
+    let mut i = 0;
+    while i < target.len() {
+        let start = i;
+        if same(i) {
+            while i < target.len() && same(i) {
+                i += 1;
+            }
+            num(&mut out, ((i - start - 1) as u64) << 2);
+        } else {
+            // A changed run ends at the next 4 unchanged bytes, shorter matches cost more than they save.
+            while i < target.len() && !(same(i) && (1..4).all(|k| i + k >= target.len() || same(i + k))) {
+                i += 1;
+            }
+            num(&mut out, (((i - start - 1) as u64) << 2) | 1);
+            out.extend_from_slice(&target[start..i]);
+        }
+    }
+    out.extend_from_slice(&crc32fast::hash(source).to_le_bytes());
+    out.extend_from_slice(&crc32fast::hash(target).to_le_bytes());
+    let crc = crc32fast::hash(&out);
+    out.extend_from_slice(&crc.to_le_bytes());
+    out
+}
+
+/// Loads the data folder and builds a seed, for the server's command line tool.
+pub fn generate_with(data_dir: &Path, settings_json: &str, seed: u64, max_attempts: u32, rom: &[u8]) -> Result<(Vec<u8>, String)> {
+    let st = load(data_dir)?;
+    generate(&st, settings_json, seed, max_attempts, rom)
+}
+
 fn put_str(dst: *mut c_char, cap: usize, s: &str) {
     if dst.is_null() || cap == 0 {
         return;
