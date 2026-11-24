@@ -794,6 +794,10 @@ JNIEXPORT void JNICALL NATIVE(uiSetSlotOnline)(JNIEnv *env, jclass cls, jint i, 
 
 JNIEXPORT jint JNICALL NATIVE(uiOnline)(JNIEnv *env, jclass cls) { return ui_online_now(&g_ui); }
 
+/* The race preset of the run being started ("" Original), kept with it for /api/start; and the table the ladder's first tab shows. */
+JNIEXPORT jstring JNICALL NATIVE(uiRunPreset)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, ui_run_preset_key(&g_ui)); }
+JNIEXPORT jstring JNICALL NATIVE(uiLadderPreset)(JNIEnv *env, jclass cls) { return (*env)->NewStringUTF(env, ui_ladder_preset_key(&g_ui)); }
+
 JNIEXPORT jstring JNICALL NATIVE(uiPlayerChanged)(JNIEnv *env, jclass cls)
 {
     char buf[64];

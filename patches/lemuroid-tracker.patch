@@ -1391,10 +1391,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..12ff544
+index 0000000..40863b6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1088 @@
+@@ -0,0 +1,1089 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1851,7 +1851,7 @@ index 0000000..12ff544
 +                settings = settings, mapMode = json.optString("mapMode", "all"),
 +            ),
 +        )
-+        OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original")
++        OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original", Smz3Native.uiRunPreset())
 +        val game = RunGenerator.registerGame(context, retrogradeDb, slot, name)
 +        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +    }
@@ -1882,7 +1882,7 @@ index 0000000..12ff544
 +                settings = settings, mapMode = json.optString("mapMode", "all"),
 +            ),
 +        )
-+        OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original")
++        OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original", Smz3Native.uiRunPreset())
 +        val game = RunGenerator.registerGame(context, retrogradeDb, slot, name)
 +        RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +    }
@@ -1930,7 +1930,7 @@ index 0000000..12ff544
 +                        settings = settings.toString(), mapMode = settings.optString("mapMode", "all"),
 +                    ),
 +                )
-+                OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original")
++                OnlineLadder.markRun(context, slot, Smz3Native.uiOnline() == 1, if (Smz3Native.uiRunWeekly() == 1) "weekly" else if (Smz3Native.uiRunMonthly() == 1) "monthly" else "original", Smz3Native.uiRunPreset())
 +                val game = RunGenerator.registerGame(context, retrogradeDb, slot, name)
 +                RunStore.load(context, slot)?.let { RunStore.save(context, it.copy(gameId = game.id)) }
 +            }.onFailure { android.util.Log.e("NativeMenu", "generation failed", it) }
@@ -2132,7 +2132,8 @@ index 0000000..12ff544
 +            Act.LADDER -> {
 +                Thread {
 +                    val game = RunStore.mode
-+                    val tables = Array(3) { OnlineLadder.ladderJson(it, game) }
++                    val preset = Smz3Native.uiLadderPreset()
++                    val tables = Array(3) { OnlineLadder.ladderJson(it, game, preset) }
 +                    if (game == RunStore.mode) pendingLadder.set(tables)   // another game's tables are dropped
 +                }.start()
 +                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
@@ -2485,10 +2486,10 @@ index 0000000..12ff544
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..774590d
+index 0000000..b9fded4
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,270 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2560,9 +2561,13 @@ index 0000000..774590d
 +
 +    private fun onlineFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.online")
 +    private fun modeFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.mode")
++    private fun presetFile(context: Context, slot: Int) = File(RunStore.runsDir(context), "slot$slot.preset")
 +
-+    /** Records whether the run just generated in [slot] goes to the online ladder; the answer given in the menu then. */
-+    fun markRun(context: Context, slot: Int, online: Boolean, kind: String) {
++    /** Records whether the run just generated in [slot] goes to the online ladder; the answer given in the menu then. [preset] is
++     *  the race preset's table it counts on (Smz3Native.uiRunPreset), "" for Original. */
++    fun markRun(context: Context, slot: Int, online: Boolean, kind: String, preset: String = "") {
++        presetFile(context, slot).delete()
++        if (online && kind == "original" && preset.isNotEmpty()) runCatching { presetFile(context, slot).writeText(preset) }
 +        tokenFile(context, slot).delete()
 +        finishFile(context, slot).delete()
 +        proofFile(context, slot).delete()
@@ -2638,6 +2643,7 @@ index 0000000..774590d
 +        val kind = runCatching { onlineFile(context, slot).readText().trim() }.getOrNull() ?: return false
 +        val body = JSONObject().put("install", installId(context)).put("kind", kind)
 +        if (RunStore.mode != "smz3") body.put("game", RunStore.mode)   // SMZ3 sends none
++        runCatching { presetFile(context, slot).readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { body.put("preset", it) }
 +        val r = call("/api/start", body) ?: return false
 +        val token = r.optString("token").takeIf { it.isNotEmpty() } ?: return false
 +        tokenFile(context, slot).writeText(token)
@@ -2706,9 +2712,11 @@ index 0000000..774590d
 +        }
 +    }.getOrDefault(emptyList())
 +
-+    /** The server's answer for one table of [game] (0 original, 1 monthly, 2 weekly), null when it cannot be reached. Call off the main thread. */
-+    fun ladderJson(tab: Int, game: String = RunStore.mode): String? = runCatching {
-+        val c = URL("$BASE/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game)).openConnection() as HttpURLConnection
++    /** The server's answer for one table of [game] (0 original, or [preset]'s table when it is not "", 1 monthly, 2 weekly), null when it
++     *  cannot be reached. Call off the main thread. */
++    fun ladderJson(tab: Int, game: String = RunStore.mode, preset: String = ""): String? = runCatching {
++        val p = if (tab == 0 && preset.isNotEmpty()) "&preset=" + java.net.URLEncoder.encode(preset, "UTF-8") else ""
++        val c = URL("$BASE/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game) + p).openConnection() as HttpURLConnection
 +        c.connectTimeout = 8000
 +        c.readTimeout = 8000
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
@@ -7283,10 +7291,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..e547fb5
+index 0000000..d722c89
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,178 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7397,6 +7405,8 @@ index 0000000..e547fb5
 +    @JvmStatic external fun uiPlayerLoad(text: String?)
 +    @JvmStatic external fun uiPlayerChanged(): String?
 +    @JvmStatic external fun uiOnline(): Int
++    @JvmStatic external fun uiRunPreset(): String
++    @JvmStatic external fun uiLadderPreset(): String
 +    @JvmStatic external fun uiSetSlotOnline(i: Int, kind: Int)
 +    @JvmStatic external fun uiSetMonthly(mode: Int, label: String, seed: Int, days: Int)
 +    @JvmStatic external fun uiLoadChoice(slot: Int, saveMs: Long, saveZ: Int, saveM: Int, stateMs: Long, stateZ: Int, stateM: Int, zt: Int, mt: Int)
@@ -7543,10 +7553,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..821188c
+index 0000000..c731a88
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1168 @@
+@@ -0,0 +1,1177 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -7620,6 +7630,7 @@ index 0000000..821188c
 +    private val pages = mutableListOf<View>()
 +
 +    private lateinit var game: TextView
++    private lateinit var hashLine: TextView
 +    private lateinit var time: TextView
 +    private lateinit var zeldaText: TextView
 +    private lateinit var metroidText: TextView
@@ -7766,6 +7777,12 @@ index 0000000..821188c
 +            maxLines = 1   // not isSingleLine: its horizontal scrolling turns the auto-size off
 +            setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
 +        }
++        // the seed hash on a line of its own: four Map Rando words or five ALttP icons did not fit beside the name
++        hashLine = label(12f, Role.TEXT).apply {
++            maxLines = 1
++            visibility = View.GONE
++            setAutoSizeTextTypeUniformWithConfiguration(7, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
++        }
 +        percent = label(46f, Role.ACCENT).apply { includeFontPadding = false }
 +        time = label(20f, Role.TEXT)
 +        stats = label(13f, Role.TEXT).apply { setLineSpacing(0f, 1.1f) }
@@ -7780,6 +7797,7 @@ index 0000000..821188c
 +                orientation = LinearLayout.VERTICAL
 +                setPadding(dp(8), 0, 0, dp(4))
 +                addView(game, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(19)))   // auto-size needs a set box
++                addView(hashLine, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)))
 +                addView(time)
 +            },
 +            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
@@ -8631,13 +8649,14 @@ index 0000000..821188c
 +        areaBox = s.areaBox
 +        game.text = when {
 +            !s.started -> "Waiting for a file"
-+            s.game == 1 && Smz3Tracker.smHash.isNotEmpty() -> "A Link to the Past  ·  ${Smz3Tracker.smHash}"
 +            s.game == 1 -> "A Link to the Past"
-+            s.game == 2 && Smz3Tracker.smHash.isNotEmpty() -> "Super Metroid  ·  ${Smz3Tracker.smHash}"
 +            s.game == 2 -> "Super Metroid"
 +            s.game == 3 -> "Credits"
 +            else -> "Unknown"
 +        }
++        val hash = if (s.started && s.game in 1..2) Smz3Tracker.smHash else ""
++        if (hashLine.text.toString() != hash) hashLine.text = hash
++        hashLine.visibility = if (hash.isEmpty()) View.GONE else View.VISIBLE
 +        val sec = s.elapsedMs / 1000
 +        time.text = "%d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60)
 +        val cleared = s.zeldaCleared + s.metroidCleared
