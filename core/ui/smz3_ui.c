@@ -2758,7 +2758,7 @@ void ui_draw(SmzUi *u)
             text(u, UI_W - 10, y + 4, C_TEXT, 2, buf);
         }
         if (u->ladder_tab == 0 && presets) {   /* which of the game's tables: Original or a race preset, A for the next */
-            for (int k = 0, cx = 6 + (UI_W - 12) / 8 - 1; k <= presets; k++) rect(u, cx - presets * 4 + k * 8 - 2, 50, 5, 2, k == lp ? C_GOLD : C_DIM);
+            for (int k = 0, cx = 6 + (UI_W - 12) / 8 - 1; k <= presets; k++) rect(u, cx - presets * 4 + k * 8 - 2, 52, 5, 2, k == lp ? C_GOLD : C_DIM);
             legend(u, "A Next table  Left Right Tab  Up Down Scroll");
         } else legend(u, "Left Right Tab  Up Down Scroll  Select Save list");
         break;
