@@ -16,6 +16,8 @@ echo "sdk.dir=$sdk" > ../LibretroDroid/local.properties
 jdk="$HOME/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2"
 [ -d "$jdk" ] && export JAVA_HOME="$jdk"   # elsewhere (the CI) JAVA_HOME already points at a JDK 21
 mkdir -p ../../build
+# the menu music (assets/music) goes in beside the app's own smz3 assets
+mkdir -p "$root/build/android-assets/smz3" && cp "$root/assets/music/smz3_intro.mp3" "$root/build/android-assets/smz3/"
 # Map Rando's data (tools/maprando/fetch.sh packs build/maprando-data) goes in as one zip, with a stamp that says when to unpack again
 assets="$root/build/android-assets/maprando"
 rm -rf "$assets"

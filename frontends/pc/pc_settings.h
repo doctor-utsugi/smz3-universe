@@ -29,6 +29,9 @@ void settings_cycle_filter(void);
 const char *settings_aspect_name(void);
 /* Reads video.cfg and applies the saved window state; call once after the hooks are set. */
 void settings_video_load(void);
+/* The Menu music option, kept in video.cfg with the screen settings. */
+int settings_menu_music(void);
+void settings_set_menu_music(int on);
 void settings_video_save_state(void);
 /* Applies the picked window size (called when leaving full screen, where a size change waits). */
 void settings_apply_size(void);

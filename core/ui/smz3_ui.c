@@ -67,6 +67,7 @@ void ui_init(SmzUi *u)
     for (int g = 0; g < 4; g++) { strcpy(u->sprites[g][0], g == 2 ? "None" : "Original"); u->sprite_count[g] = 1; }
     strcpy(u->sprites[3][1], "Random"); u->sprite_count[3] = 2;
     u->slot_count = 4;
+    u->menu_music = 1;
     u->game_state[SMZ_MODE_Z3] = u->game_state[SMZ_MODE_SM] = UI_GAME_SOON;   /* until their generators are in */
     u->screen = UI_SLOTS_SCREEN;
     u->rng = (uint32_t)time(NULL) * 2654435761u | 1;
@@ -157,7 +158,7 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 #define HOME_ROWS 4
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
 static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: About */
-    {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Sound", "music, chime, rival notes"},
+    {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
     {0, "Player", "name, country"}, {-2, "About", "credits, licences"}, {UI_OPT_QUIT, "Quit", ""}};
 /* The About screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices). */
 static const char *const ABOUT_LINES[] = {
@@ -172,11 +173,15 @@ static const char *const ABOUT_LINES[] = {
     "  (CC BY 4.0)",
     "#Emulation",
     "Snes9x, snes9x_3ds, Lemuroid, LibretroDroid",
+    "#Music",
+    "Menu music: Doctor Utsugi (made with Suno)",
+    "dr_mp3: David Reid (public domain)",
 };
 #define ABOUT_COUNT (int)(sizeof ABOUT_LINES / sizeof ABOUT_LINES[0])
 #define OPTION_KINDS (int)(sizeof OPTION_ROWS / sizeof OPTION_ROWS[0])
 
 void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
+void ui_menu_music(SmzUi *u, int on) { u->menu_music = on; }
 void ui_home_open(SmzUi *u) { u->screen = UI_LOGO; u->logo_ms = LOGO_MS; u->home_cursor = 0; }
 void ui_game_state(SmzUi *u, int mode, int state) { if (mode >= 0 && mode < SMZ_MODE_COUNT) u->game_state[mode] = state; }
 void ui_tick(SmzUi *u, int ms)
@@ -274,6 +279,7 @@ static void options_input(SmzUi *u, UiButton b)
             else snprintf(u->notice, sizeof u->notice, "smz3-universe.duckdns.org/download");
             return;
         }
+        if (bit == UI_OPT_SOUND) u->menu_music = !u->menu_music;
         if (bit) { u->action = ACT_OPTIONS; u->action_slot = bit; return; }
         u->player_opts = 1;
         u->name_for = 1;
@@ -2459,6 +2465,7 @@ void ui_draw(SmzUi *u)
             const char *d = OPTION_ROWS[kind[r]].desc;
             if (!bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
             if (bit == -1) { snprintf(buf, sizeof buf, u->update_install ? "install %s" : "%s is out", u->update); d = buf; }
+            if (bit == UI_OPT_SOUND) d = u->menu_music ? "on" : "off";
             text(u, UI_W - 18, y + (pitch - 18) / 2, C_DIM, 2, d);
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);

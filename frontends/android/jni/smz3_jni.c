@@ -593,6 +593,7 @@ JNIEXPORT jint JNICALL NATIVE(uiInput)(JNIEnv *env, jclass cls, jint button) { g
 JNIEXPORT jint JNICALL NATIVE(uiTouch)(JNIEnv *env, jclass cls, jint x, jint y) { g_ui_before = g_ui; ui_touch(&g_ui, x, y); return ui_cue(&g_ui_before, &g_ui, -1); }
 JNIEXPORT void JNICALL NATIVE(uiIdle)(JNIEnv *env, jclass cls) { ui_idle(&g_ui); }
 JNIEXPORT void JNICALL NATIVE(uiHomeEnable)(JNIEnv *env, jclass cls, jint mask) { ui_home_enable(&g_ui, mask); }
+JNIEXPORT void JNICALL NATIVE(uiMenuMusic)(JNIEnv *env, jclass cls, jboolean on) { ui_menu_music(&g_ui, on); }
 JNIEXPORT void JNICALL NATIVE(uiHomeOpen)(JNIEnv *env, jclass cls) { ui_home_open(&g_ui); }
 JNIEXPORT void JNICALL NATIVE(uiTick)(JNIEnv *env, jclass cls, jint ms) { ui_tick(&g_ui, ms); }
 

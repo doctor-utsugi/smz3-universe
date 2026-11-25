@@ -26,4 +26,11 @@ ones their repositories carry. The About screen on every host names them too.
 | [Swordfish90/Lemuroid](https://github.com/Swordfish90/Lemuroid) | Android app | GPL-3.0 |
 | [Swordfish90/LibretroDroid](https://github.com/Swordfish90/LibretroDroid) | Android emulation layer | GPL-3.0 |
 
+## Audio
+
+| Project | Used for | Licence |
+|---|---|---|
+| [mackron/dr_libs](https://github.com/mackron/dr_libs) `dr_mp3.h` (mp3-0.7.4) | Decoding the menu music on PC and 3DS (`core/common/dr_mp3.h`) | Public domain or MIT-0, David Reid |
+| `assets/music/smz3_intro.mp3` | Menu music: a mashup of A Link to the Past's Dark World and Super Metroid's Brinstar | by Doctor Utsugi, made with Suno |
+
 No ROM is shipped: every host builds its ROMs from the player's own copies of the games.

@@ -1336,7 +1336,7 @@ index 0000000..89f12d9
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/Leaderboard.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/Leaderboard.kt
 new file mode 100644
-index 0000000..cbd6dbc
+index 0000000..5004db1
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/Leaderboard.kt
 @@ -0,0 +1,49 @@
@@ -1347,8 +1347,8 @@ index 0000000..cbd6dbc
 +import org.json.JSONObject
 +import java.io.File
 +
-+/** One finished run: [isDefault] tells which of the two ladders it belongs to (default rules or custom rules). */
-+data class LeaderboardEntry(val name: String, val seed: String, val timeMs: Long, val finishedAt: Long, val isDefault: Boolean)
++/** One finished run: [isDefault] tells which of the two ladders it belongs to (default rules or custom rules), [game] its game. */
++data class LeaderboardEntry(val name: String, val seed: String, val timeMs: Long, val finishedAt: Long, val isDefault: Boolean, val game: String = "smz3")
 +
 +/** Finished runs ranked by play time, one ladder for runs with the default rules and another for custom ones. */
 +object Leaderboard {
@@ -1363,23 +1363,23 @@ index 0000000..cbd6dbc
 +            val a = JSONArray(f.readText())
 +            List(a.length()) { i ->
 +                a.getJSONObject(i).let {
-+                    LeaderboardEntry(it.getString("name"), it.optString("seed"), it.getLong("timeMs"), it.optLong("finishedAt"), it.optBoolean("default"))
++                    LeaderboardEntry(it.getString("name"), it.optString("seed"), it.getLong("timeMs"), it.optLong("finishedAt"), it.optBoolean("default"), it.optString("game", "smz3"))
 +                }
 +            }
 +        }.getOrDefault(emptyList())
 +    }
 +
-+    /** The fastest [limit] entries of one ladder, best first. */
++    /** The fastest [limit] entries of one ladder of the game shown, best first. */
 +    fun top(context: Context, isDefault: Boolean, limit: Int = 5): List<LeaderboardEntry> =
-+        all(context).filter { it.isDefault == isDefault }.sortedBy { it.timeMs }.take(limit)
++        all(context).filter { it.isDefault == isDefault && it.game == RunStore.mode }.sortedBy { it.timeMs }.take(limit)
 +
 +    @Synchronized
 +    fun add(context: Context, entry: LeaderboardEntry) {
 +        val kept = all(context).filter { !(it.finishedAt == entry.finishedAt && it.name == entry.name) } + entry
-+        val trimmed = listOf(true, false).flatMap { d -> kept.filter { it.isDefault == d }.sortedBy { it.timeMs }.take(MAX_PER_LADDER) }
++        val trimmed = kept.groupBy { it.game to it.isDefault }.values.flatMap { l -> l.sortedBy { it.timeMs }.take(MAX_PER_LADDER) }
 +        val json = JSONArray()
 +        for (e in trimmed) {
-+            json.put(JSONObject().put("name", e.name).put("seed", e.seed).put("timeMs", e.timeMs).put("finishedAt", e.finishedAt).put("default", e.isDefault))
++            json.put(JSONObject().put("name", e.name).put("seed", e.seed).put("timeMs", e.timeMs).put("finishedAt", e.finishedAt).put("default", e.isDefault).put("game", e.game))
 +        }
 +        file(context).writeText(json.toString())
 +    }
@@ -1391,10 +1391,10 @@ index 0000000..cbd6dbc
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..40863b6
+index 0000000..a2b024b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1089 @@
+@@ -0,0 +1,1100 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1453,6 +1453,7 @@ index 0000000..40863b6
 +import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3MenuSelection
 +import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish
 +import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3MenuMusic
 +import com.swordfish.lemuroid.lib.library.db.RetrogradeDatabase
 +import kotlin.math.PI
 +import kotlin.math.sin
@@ -1490,6 +1491,7 @@ index 0000000..40863b6
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_GAMES = 27          // the game carousel: Back there leaves the app
++private const val UI_OPT_SOUND = 4
 +private const val UI_OPT_QUIT = 8
 +private const val SMZ_MODE_Z3 = 1         // SMZ_MODE_* in core/ui/smz3_run.h
 +private const val SMZ_MODE_SM = 2
@@ -1583,6 +1585,7 @@ index 0000000..40863b6
 +        if (launching) return@play
 +        frozen[0] = lastCommands[0]
 +        launching = true
++        Smz3MenuMusic.pause()
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.fadeOut()
 +        scope.launch {
 +            closing.snapTo(0f)
@@ -1592,6 +1595,7 @@ index 0000000..40863b6
 +                scope.launch {
 +                    launching = false
 +                    frozen[0] = null
++                    Smz3MenuMusic.play(context)
 +                    com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.show(context)
 +                    Smz3Native.uiBusy(why.take(43))
 +                    version++
@@ -1606,9 +1610,12 @@ index 0000000..40863b6
 +    DisposableEffect(lifecycle) {
 +        val back = androidx.lifecycle.LifecycleEventObserver { _, e ->
 +            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME && launching) { launching = false; frozen[0] = null; lastScreen0Reset[0] = true }
++            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) Smz3MenuMusic.play(context)
++            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) Smz3MenuMusic.pause()
 +        }
 +        lifecycle.addObserver(back)
-+        onDispose { lifecycle.removeObserver(back) }
++        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) && !launching) Smz3MenuMusic.play(context)
++        onDispose { lifecycle.removeObserver(back); Smz3MenuMusic.release() }
 +    }
 +    LaunchedEffect(launching) {   // a game that never started (a missing ROM) gives the menu back
 +        if (launching) { kotlinx.coroutines.delay(8000); if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) { launching = false; frozen[0] = null; com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.show(context) } }
@@ -1699,7 +1706,8 @@ index 0000000..40863b6
 +        Smz3Native.uiRaceEnable(true)
 +        RaceClient.init(context)
 +        RaceClient.paused(context).let { Smz3Native.uiRaceSetPaused(it?.code ?: "", it?.resumeAt ?: 0L) }
-+        Smz3Native.uiHomeEnable(UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
++        Smz3Native.uiHomeEnable(UI_OPT_SOUND or UI_OPT_QUIT)   // the buttons are set in the game's CONFIG tab
++        Smz3Native.uiMenuMusic(Smz3MenuMusic.enabled(context))
 +        if (!homeShown) { homeShown = true; Smz3Native.uiHomeOpen() }
 +        else if (RunStore.mode != "smz3") Smz3Native.uiGameEnter(RunStore.modeIndex())   // the menu made again after a run: back in that run's game
 +        AppUpdate.latest?.let { Smz3Native.uiUpdateJson(it) }
@@ -1724,7 +1732,7 @@ index 0000000..40863b6
 +            Smz3Native.uiTick((now - last).toInt())
 +            last = now
 +            val mode = arrayOf("smz3", "z3", "sm").getOrElse(Smz3Native.uiGameMode()) { "smz3" }
-+            if (mode != RunStore.mode) { RunStore.mode = mode; refreshSlots(); dailyAgain.set(true) }   // a game entered from the carousel: its own runs and challenge
++            if (mode != RunStore.mode) { RunStore.mode = mode; refreshSlots(); dailyAgain.set(true); Smz3MenuSelection.onChange?.invoke() }   // a game entered from the carousel: its own runs and challenge
 +            if (logo || spin) version++
 +        }
 +    }
@@ -2139,7 +2147,10 @@ index 0000000..40863b6
 +                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
 +            }
 +            Act.DAILY -> startDaily()
-+            Act.OPTIONS -> if (slot == UI_OPT_QUIT) (context as? android.app.Activity)?.finish()
++            Act.OPTIONS -> when (slot) {
++                UI_OPT_QUIT -> (context as? android.app.Activity)?.finish()
++                UI_OPT_SOUND -> Smz3MenuMusic.setEnabled(context, !Smz3MenuMusic.enabled(context))
++            }
 +            Act.RACE_CREATE, Act.RACE_JOIN -> {
 +                val info = Smz3Native.uiRaceInfo()
 +                val f = RaceClient.who(context)
@@ -6340,10 +6351,10 @@ index 0000000..3d11f48
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 new file mode 100644
-index 0000000..6aac24b
+index 0000000..0996447
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,365 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.animation.ValueAnimator
@@ -6366,6 +6377,7 @@ index 0000000..6aac24b
 +import android.view.ViewGroup
 +import android.view.animation.LinearInterpolator
 +import com.swordfish.lemuroid.app.mobile.feature.runs.Leaderboard
++import com.swordfish.lemuroid.app.mobile.feature.runs.RunStore
 +import com.swordfish.lemuroid.app.mobile.feature.runs.LeaderboardEntry
 +import com.swordfish.lemuroid.app.mobile.feature.runs.OnlineLadder
 +import kotlin.math.PI
@@ -6420,15 +6432,22 @@ index 0000000..6aac24b
 +        private val logo: Bitmap? = runCatching { context.assets.open("smz3/logo.png").use { BitmapFactory.decodeStream(it) } }.getOrNull()
 +        private var online = OnlineLadder.cached(context).isNotEmpty()
 +        private var ladders = loadLadders(context)
++        private var ladderGame = RunStore.mode   // the game the tables are of: a game entered from the carousel loads its own
 +        private var tab = 0
 +        private val tabRects = List(TABS.size) { RectF() }
 +        private var u = 1f
 +
 +        init {
 +            Smz3MenuSelection.onChange = { postInvalidate() }
++            fetch(context, true)
++        }
++
++        /** Fetches the shown game's tables; a reply that comes after another game was entered is dropped. */
++        private fun fetch(context: Context, flush: Boolean) {
++            val game = RunStore.mode
 +            Thread {
-+                OnlineLadder.flush(context)
-+                if (OnlineLadder.refresh(context)) {
++                if (flush) OnlineLadder.flush(context)
++                if (OnlineLadder.refresh(context) && game == RunStore.mode) {
 +                    ladders = loadLadders(context)
 +                    online = true
 +                    postInvalidate()
@@ -6487,6 +6506,12 @@ index 0000000..6aac24b
 +        }
 +
 +        override fun onDraw(canvas: Canvas) {
++            if (ladderGame != RunStore.mode) {
++                ladderGame = RunStore.mode
++                online = OnlineLadder.cached(context).isNotEmpty()
++                ladders = loadLadders(context)
++                fetch(context, false)
++            }
 +            val w = width.toFloat()
 +            val h = height.toFloat()
 +            u = w / 320f
@@ -6526,12 +6551,17 @@ index 0000000..6aac24b
 +        private fun drawHeader(canvas: Canvas) {
 +            paint.typeface = face
 +            paint.textSize = 20f * u
-+            val title = paint.measureText("SMZ3") / u
++            val (name, subtitle) = when (RunStore.mode) {   // the game entered from the carousel
++                "z3" -> "ALttP" to "A LINK TO THE PAST · RANDOMIZER"
++                "sm" -> "Super Metroid" to "SUPER METROID · RANDOMIZER"
++                else -> "SMZ3" to "A LINK TO THE PAST · SUPER METROID"
++            }
++            val title = paint.measureText(name) / u
 +            val size = 22f
 +            val x = 160f - (size + 6f + title) / 2f   // the logo and the name centred as one row, the subtitle centred below
 +            logo?.let { canvas.drawBitmap(it, null, RectF(x * u, 6f * u, (x + size) * u, (6f + size) * u), Paint(Paint.FILTER_BITMAP_FLAG)) }
-+            text(canvas, "SMZ3", x + size + 6f, 24.5f, 20f, ACCENT)
-+            text(canvas, SUBTITLE, 160f, 39f, 6f, DIM, Paint.Align.CENTER)
++            text(canvas, name, x + size + 6f, 24.5f, 20f, ACCENT)
++            text(canvas, subtitle, 160f, 39f, 6f, DIM, Paint.Align.CENTER)
 +            val net = if (online) "ONLINE" else "OFFLINE"
 +            text(canvas, net, 304f, 13f, 5f, if (online) GREEN else DIM, Paint.Align.RIGHT)
 +            val dotX = 304f - paint.measureText(net) / u - 4f
@@ -6633,7 +6663,6 @@ index 0000000..6aac24b
 +
 +        companion object {
 +            const val ROWS = 12
-+            const val SUBTITLE = "A LINK TO THE PAST · SUPER METROID"
 +            val VERSION: String by lazy { runCatching { Smz3Native.version() }.getOrDefault("") }
 +            val TABS = listOf("ORIGINAL", "MONTHLY", "WEEKLY", "CUSTOM")
 +            val BG = Color.parseColor("#0A0E15")
@@ -7361,10 +7390,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..ba020a8
+index 0000000..679cc49
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,196 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7460,6 +7489,7 @@ index 0000000..ba020a8
 +    @JvmStatic external fun uiIdle()
 +    /** The start menu (core/ui ui_home_*): mask holds the Options rows the app opens itself (8: Quit). */
 +    @JvmStatic external fun uiHomeEnable(mask: Int)
++    @JvmStatic external fun uiMenuMusic(on: Boolean)
 +    @JvmStatic external fun uiHomeOpen()
 +    @JvmStatic external fun uiTick(ms: Int)
 +    @JvmStatic external fun uiBusy(message: String)
@@ -9489,7 +9519,7 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..4f452f6
+index 0000000..648eb77
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 @@ -0,0 +1,493 @@
@@ -9912,7 +9942,7 @@ index 0000000..4f452f6
 +                                    if (late) "After the window closed: on the late list, no prize" else "Sending the time...")
 +                            } else if (finished && slot != com.swordfish.lemuroid.app.mobile.feature.runs.RaceClient.SLOT) {   // a race has its own card
 +                                val isDefault = runCatching { org.json.JSONObject(run.settings).optBoolean("defaultRules", false) }.getOrDefault(false)
-+                                Leaderboard.add(context, LeaderboardEntry(run.name, run.seed, totalMs, System.currentTimeMillis(), isDefault))
++                                Leaderboard.add(context, LeaderboardEntry(run.name, run.seed, totalMs, System.currentTimeMillis(), isDefault, com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.mode))
 +                                if (isDefault) {
 +                                    OnlineLadder.queueFinish(context, slot, totalMs, run.seed)
 +                                    Thread { OnlineLadder.flush(context) }.start()
@@ -13837,4 +13867,70 @@ index 0000000..776e016
 +            else -> "Map Rando seed, try ${p - 1} ... ${s}s"
 +        }
 +    }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MenuMusic.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MenuMusic.kt
+new file mode 100644
+index 0000000..e470c29
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3MenuMusic.kt
+@@ -0,0 +1,60 @@
++package com.swordfish.lemuroid.app.shared.game.viewmodel
++
++import android.content.Context
++import android.animation.ValueAnimator
++import android.media.MediaPlayer
++
++/** The launcher's music (assets/smz3/smz3_intro.mp3): loops at half volume while the menu is up and the option is on. */
++object Smz3MenuMusic {
++    private const val FILE = "smz3_menu_music"
++    private const val VOLUME = 0.5f
++    private var player: MediaPlayer? = null
++    private var fade: ValueAnimator? = null
++
++    private fun prefs(context: Context) = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
++
++    fun enabled(context: Context): Boolean = prefs(context).getBoolean("on", true)
++
++    fun setEnabled(context: Context, on: Boolean) {
++        prefs(context).edit().putBoolean("on", on).apply()
++        if (on) play(context) else pause()
++    }
++
++    /** Plays from the start, when the option is on. */
++    fun play(context: Context) {
++        if (!enabled(context)) return
++        val p = player ?: runCatching {
++            context.applicationContext.assets.openFd("smz3/smz3_intro.mp3").use { fd ->
++                MediaPlayer().apply {
++                    setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
++                    isLooping = true
++                    setVolume(VOLUME, VOLUME)
++                    prepare()
++                }
++            }
++        }.getOrNull()?.also { player = it } ?: return
++        fade?.cancel()
++        fade = null
++        if (p.isPlaying) return
++        p.setVolume(VOLUME, VOLUME)
++        p.seekTo(0)
++        p.start()
++    }
++
++    /** Fades out over half a second, then pauses; a pause while fading lets the fade finish. Main thread. */
++    fun pause() {
++        val p = player?.takeIf { it.isPlaying } ?: return
++        if (fade != null) return
++        fade = ValueAnimator.ofFloat(VOLUME, 0f).setDuration(500).apply {
++            addUpdateListener { (it.animatedValue as Float).let { v -> runCatching { p.setVolume(v, v) } } }
++            addListener(object : android.animation.AnimatorListenerAdapter() {
++                override fun onAnimationEnd(a: android.animation.Animator) {
++                    if (fade === a) { fade = null; runCatching { if (p.isPlaying) p.pause() } }
++                }
++            })
++            start()
++        }
++    }
++
++    fun release() { fade?.cancel(); fade = null; player?.release(); player = null }
 +}

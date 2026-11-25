@@ -120,6 +120,7 @@ typedef struct {
     int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
     int game_mode, game_cursor, game_spin, game_state[3];   /* the game entered (SMZ_MODE_*) / the carousel's front card / where it is turned to, in thousandths of a card / UI_GAME_* per game */
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
+    int menu_music;   /* the Menu music row's value: the host plays the menu's music while it is 1 */
     struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started, find_ms;   /* find_ms: since the list was last asked for */
              char code[8];                    /* the code typed to join, or the room picked in the list */
              char paused_code[8];             /* a paused race kept on this device ("" none), and when it goes on */
@@ -255,6 +256,9 @@ const char *ui_run_label(const SmzUi *u);
  * The Player row is there whenever ui_player_enable is on. ui_home_open shows the logo; the host calls ui_tick every frame. */
 enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8 };
 void ui_home_enable(SmzUi *u, int mask);
+/* The UI_OPT_SOUND row is the Menu music toggle: A flips u->menu_music and comes back as ACT_OPTIONS for the host to save
+ * and apply. ui_menu_music sets the saved value at start-up (default on). */
+void ui_menu_music(SmzUi *u, int on);
 void ui_home_open(SmzUi *u);
 /* The game carousel, the first screen after the logo: the three games turn on a ring and A enters one (u->game_mode), which
  * opens the start menu above for that game; B there turns back to the carousel. The host sets each game's state. */

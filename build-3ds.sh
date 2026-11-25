@@ -18,6 +18,9 @@ for f in smz3_state smz3_locations smz3_inventory; do cp "$ROOT/core/$f.c" sourc
 cp "$ROOT"/core/smgen/sm_*.[ch] source/
 # the BPS reader for the Map Rando seeds the server sends (core/common)
 cp "$ROOT"/core/common/smz3_bps.[ch] source/
+# the MP3 decoder and the menu music (smz3music.cpp)
+cp "$ROOT"/core/common/dr_mp3.h source/
+cp "$ROOT"/assets/music/smz3_intro.mp3 romfs/smz3/
 sed -i 's#"../gen/smz3_rng.h"#"smz3_rng.h"#' source/sm_fill.h
 python3 "$ROOT"/tools/gen_sm_ips_c.py "$ROOT"/patches/sm_randomizer.ips source/sm_ips_data.c
 # and the A Link to the Past one (core/z3gen), its includes already plain

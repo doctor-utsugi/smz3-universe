@@ -14,6 +14,7 @@
 #include "pc_emu.h"
 #include "pc_assets.h"
 #include "pc_sfx.h"
+#include "pc_menumusic.h"
 #include "smz3_counters.h"
 #include "pc_gfx.h"
 #include "pc_help.h"
@@ -3108,7 +3109,9 @@ static void window_main(int start_slot)
     online_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
-    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_QUIT);
+    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_QUIT);
+    ui_menu_music(&ui, settings_menu_music());
+    menumusic_set(ui.menu_music);
     ui_race_enable(&ui, 1);
     race_paused_show();
     if (start_slot < 0) ui_home_open(&ui);   /* a run named on the command line skips the start menu */
@@ -3159,9 +3162,11 @@ static void window_main(int start_slot)
         }
         race_answers();
         if (pending_play >= 0) {
-            if (!instant && !launch_at) launch_at = SDL_GetTicks();
+            if (!instant && !launch_at) { launch_at = SDL_GetTicks(); menumusic_fade(); }
             if (instant || SDL_GetTicks() - launch_at >= LAUNCH_MS) {
+                menumusic_set(0);
                 play(pending_play, pending_state_only);
+                menumusic_set(ui.menu_music);
                 if (pending_play == RACE_SLOT - 1) { race_forget(); ui_race_end(&ui); race_paused_show(); }   /* a race is played once, or kept paused */
                 pending_play = -1;
                 launch_at = 0;
@@ -3315,6 +3320,7 @@ static void window_main(int start_slot)
             else if (act == ACT_RACE_START) { pending_play = RACE_SLOT - 1; pending_state_only = 0; instant = 1; }   /* the start is the server's: no fade to wait */
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
                 if (slot == UI_OPT_QUIT) quit_menu();
+                else if (slot == UI_OPT_SOUND) { settings_set_menu_music(ui.menu_music); menumusic_set(ui.menu_music); }
                 else settings_open_page(slot == UI_OPT_VIDEO);
             }
             else if (act == ACT_UPDATE && !g_update_state) {

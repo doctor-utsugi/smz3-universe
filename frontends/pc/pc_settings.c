@@ -29,6 +29,7 @@ static const char *const MM_SIDES[] = {"Right", "Left", "Off"};
 static const char *const MM_SIZES[] = {"Small", "Medium", "Large"};
 static const char *const SCREENS[] = {"Auto", "Single", "Dual"};
 static int ff_speed = 4;
+static int menu_music = 1;
 static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide, screens;   /* screens: 0 auto, 1 single, 2 dual */   /* ch_hide: bits of the daily challenge info not shown in game */
 #define ROW_H 22
 #define SHOWN 8
@@ -56,12 +57,14 @@ const char *settings_aspect_name(void) { return ASPECTS[vid_aspect]; }
 
 static void video_save(void)
 {
-    char t[176];
-    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\nscreens=%d\nff=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, screens, ff_speed);
+    char t[200];
+    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\nscreens=%d\nff=%d\nmenu_music=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, screens, ff_speed, menu_music);
     store_write(store_path("video.cfg"), t, (size_t)n);
 }
 
 void settings_video_save_state(void) { video_save(); }
+int settings_menu_music(void) { return menu_music; }
+void settings_set_menu_music(int on) { menu_music = on; video_save(); }
 
 static void apply_size(void)
 {
@@ -91,6 +94,7 @@ void settings_video_load(void)
             else if (!strncmp(line, "filter=", 7) && v >= 0 && v < 4) vid_filter = v;
             else if (!strncmp(line, "challenge_hide=", 15)) ch_hide = v & 15;
             else if (!strncmp(line, "screens=", 8) && v >= 0 && v < 3) screens = v;
+            else if (!strncmp(line, "menu_music=", 11)) menu_music = v != 0;
             else if (!strncmp(line, "ff=", 3) && (v == 2 || v == 3 || v == 4 || v == 6 || v == 8)) ff_speed = v;
         }
         free(t);

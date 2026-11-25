@@ -1,5 +1,5 @@
 diff --git a/Makefile b/Makefile
-index 31fa536..3ac0329 100644
+index 31fa536..db7cc2d 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -90,13 +90,17 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
@@ -35,7 +35,7 @@ index 31fa536..3ac0329 100644
  			3dsconfig.cpp 3dsfiles.cpp 3dsinput.cpp 3dslcd.cpp \
  			3dsimpl.cpp 3dsimpl_tilecache.cpp 3dsimpl_gpu.cpp 3dsthemes.cpp 3dssettings.cpp \
 -			3dslog.cpp 3dsra.cpp 3dsra_http.cpp 3dsra_ui.cpp
-+			3dslog.cpp 3dsra.cpp 3dsra_http.cpp 3dsra_ui.cpp smz3run.cpp smz3online.cpp
++			3dslog.cpp 3dsra.cpp 3dsra_http.cpp 3dsra_ui.cpp smz3run.cpp smz3online.cpp smz3music.cpp
  SFILES             := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
  PICAFILES          := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
  SHLISTFILES        := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
@@ -2731,10 +2731,10 @@ index 0000000..2c4963b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..3bad20c
+index 0000000..116e640
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6175 @@
+@@ -0,0 +1,6191 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2765,6 +2765,7 @@ index 0000000..3bad20c
 +#include "smz3_sm.h"
 +#include "smz3_z3.h"
 +#include "smz3_smmap.h"
++#include "smz3music.h"
 +// from smz3_rom.h, whose generator headers stay out of C++
 +int smz_rom_shortcut_hooks(uint8_t *rom);
 +void smz_rom_checksum(uint8_t *rom);
@@ -3550,6 +3551,7 @@ index 0000000..3bad20c
 +{
 +    GenJob job;
 +    memset(&job, 0, sizeof job);
++    smz3MusicStop();   // a build is the console's whole attention; the menu starts it again when it stays up
 +    freePreviews();   // the sprite picker's pictures: the ROMs and the patches want the room
 +    char heapBefore[96];
 +    heapNote(heapBefore, sizeof heapBefore);
@@ -3790,7 +3792,9 @@ index 0000000..3bad20c
 +    else if (act == ACT_RACE_KICK && slot >= 0 && slot < u->race.room.n) { snprintf(f, sizeof f, "\"pid\":\"%s\"", u->race.room.p[slot].pid); smzRaceSend("kick", f, true); }
 +    else if (act == ACT_RACE_LEAVE) smzRaceSend("leave", "", true);
 +    else if (act == ACT_RACE_READY) {   // the game is built with the skins picked, then the server hears both
-+        if (!raceBuild(u, note, cap)) ui_race_fail(u, note);
++        bool built = raceBuild(u, note, cap);
++        smz3MusicStart();   // the ready room is still the menu
++        if (!built) ui_race_fail(u, note);
 +        else {
 +            char l[72], sa[72];
 +            smz_race_quote(u->sprites[0][u->value[UIO_LINK]], l, sizeof l);
@@ -3927,7 +3931,8 @@ index 0000000..3bad20c
 +    smzOnlineRequestLadders(ui_ladder_preset_key(&ui));   // the bottom screen shows them from the start
 +    ui_ladder_enable(&ui, 1);
 +    ui_daily_enable(&ui, 1);
-+    ui_home_enable(&ui, UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
++    ui_home_enable(&ui, UI_OPT_SOUND | UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
++    ui_menu_music(&ui, smz3MusicEnabled());
 +    ui_race_enable(&ui, 1);
 +    if (fromRace) ui_race_end(&ui);   // a race is played once: the start menu
 +    racePausedShow(&ui);
@@ -4093,6 +4098,7 @@ index 0000000..3bad20c
 +            int act = ui.action, slot = ui.action_slot;
 +            ui.action = ACT_NONE;
 +            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { quitAsked = true; break; }
++            if (act == ACT_OPTIONS && slot == UI_OPT_SOUND) smz3MusicSetEnabled(ui.menu_music);
 +            if (act == ACT_UPDATE && !updating) {
 +                char m[44];
 +                snprintf(m, sizeof m, "Downloading %s...", ui.update);
@@ -4102,7 +4108,7 @@ index 0000000..3bad20c
 +            }
 +            if (act == ACT_LADDER) smzOnlineRequestLadders(ui_ladder_preset_key(&ui));
 +            else if (act == ACT_DELETE) { deleteRun(slot); refreshSlots(&ui); }
-+            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }
++            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { smz3MusicStart(); ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }
 +            if (act == ACT_DAILY && dailyKept(ui.daily.window)) { act = ACT_CONTINUE; slot = SMZ_DAILY_SLOT; }
 +            if (act >= ACT_RACE_CREATE && act <= ACT_RACE_START) raceAction(&ui, act, slot, note, sizeof note);
 +            if (act == ACT_RACE_START) { act = ACT_CONTINUE; slot = SMZ_RACE_SLOT; }   // the start is the server's: the game loads now
@@ -4111,7 +4117,7 @@ index 0000000..3bad20c
 +                ui_busy(&ui, "Generating the seed ...");
 +                drawUi(&ui);
 +                bool made = generateRun(&ui, slot, note, sizeof note);
-+                if (!made) { ui_idle(&ui); ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); }
++                if (!made) { smz3MusicStart(); ui_idle(&ui); ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); }
 +                ui_idle(&ui);
 +                refreshSlots(&ui);
 +                if (made) act = ACT_LOAD_SAVE;
@@ -4127,6 +4133,7 @@ index 0000000..3bad20c
 +                if (act == ACT_CONTINUE && hasState && r.save_ms > 0 && (r.game == 3 || r.play_ms - r.save_ms > 10000)) {   // a finished run's clock is frozen
 +                    ui_load_choice(&ui, slot, r.save_ms, r.save_zelda, r.save_metroid, r.play_ms, r.zelda_cleared, r.metroid_cleared, r.zelda_total, r.metroid_total);
 +                } else if (loaded) {
++                    smz3MusicStop();
 +                    launchFade(&ui);
 +                    deriveFromRoms(&ui);
 +                    gNextStates = states;
@@ -4178,7 +4185,16 @@ index 0000000..3bad20c
 +{
 +    topBegin();
 +    idleKey[0] = 0;
++    smz3MusicStart();
++    static bool heapLogged;   // once a boot: the heap while the menu music plays
++    if (!heapLogged) {
++        heapLogged = true;
++        char h[96];
++        heapNote(h, sizeof h);
++        if (FILE *lf = fopen(SMZ_DIR "/gen.log", "a")) { fprintf(lf, "menu music on: %s\n", h); fclose(lf); }
++    }
 +    bool chosen = runMenu(romPathOut, cap);
++    smz3MusicStop();
 +    topEnd();
 +    return chosen;
 +}
@@ -8981,5 +8997,160 @@ index 0000000..e2e20cd
 +// The item shortcuts a New 3DS button can be bound to: the five ALttP slots, then each beam and weapon.
 +int smz3ShortcutKeyCount(void);
 +const char *smz3ShortcutKeyName(int i);
++
++#endif
+diff --git a/source/smz3music.cpp b/source/smz3music.cpp
+new file mode 100644
+index 0000000..82c35fa
+--- /dev/null
++++ b/source/smz3music.cpp
+@@ -0,0 +1,122 @@
++#include <3ds.h>
++#include <stdio.h>
++#include <string.h>
++#include <malloc.h>
++#define DR_MP3_IMPLEMENTATION
++#define DR_MP3_NO_STDIO
++#include "dr_mp3.h"
++#include "smz3music.h"
++#include "smz3run.h"
++
++#define CH 5   // the SNES plays on 0 and the menu's sounds on 1 to 4 (smz3run.cpp)
++#define BUFS 4
++#define FRAMES 4096
++#define OPT_FILE SMZ_DIR "/menu_music.txt"
++
++static FILE *file;
++static drmp3 *mp3;
++static ndspWaveBuf wave[BUFS];
++static int16_t *pcm;
++static Thread thread;
++static volatile bool running;
++static int enabled = -1;
++
++static size_t readCb(void *f, void *out, size_t n) { return fread(out, 1, n, (FILE *)f); }
++static drmp3_bool32 seekCb(void *f, int off, drmp3_seek_origin o)
++{
++    return fseek((FILE *)f, off, o == DRMP3_SEEK_SET ? SEEK_SET : o == DRMP3_SEEK_END ? SEEK_END : SEEK_CUR) == 0;
++}
++static drmp3_bool32 tellCb(void *f, drmp3_int64 *pos) { long p = ftell((FILE *)f); *pos = p; return p >= 0; }
++
++static bool fill(ndspWaveBuf *w)
++{
++    int16_t *out = (int16_t *)w->data_vaddr;
++    drmp3_uint64 got = 0;
++    while (got < FRAMES) {
++        drmp3_uint64 n = drmp3_read_pcm_frames_s16(mp3, FRAMES - got, out + got * 2);
++        if (!n) { if (!drmp3_seek_to_pcm_frame(mp3, 0)) return false; continue; }   // the end: round again
++        got += n;
++    }
++    w->nsamples = FRAMES;
++    DSP_FlushDataCache(out, FRAMES * 4);
++    ndspChnWaveBufAdd(CH, w);
++    return true;
++}
++
++// Above the menu loop's priority, so a busy menu (drawing, a download) does not starve it; it sleeps between refills.
++static void feed(void *)
++{
++    while (running) {
++        for (int i = 0; i < BUFS && running; i++)
++            if (wave[i].status == NDSP_WBUF_DONE || wave[i].status == NDSP_WBUF_FREE)
++                if (!fill(&wave[i])) running = false;
++        svcSleepThread(10000000LL);
++    }
++}
++
++static bool openDecoder(void)
++{
++    if (mp3) return true;
++    file = fopen("romfs:/smz3/smz3_intro.mp3", "rb");
++    mp3 = file ? (drmp3 *)malloc(sizeof *mp3) : NULL;
++    if (mp3 && drmp3_init(mp3, readCb, seekCb, tellCb, NULL, file, NULL)) return true;
++    free(mp3); mp3 = NULL;
++    if (file) fclose(file);
++    file = NULL;
++    return false;
++}
++
++void smz3MusicStart(void)
++{
++    if (running || !smz3MusicEnabled() || !openDecoder()) return;
++    pcm = (int16_t *)linearAlloc(BUFS * FRAMES * 4);
++    if (!pcm) return;
++    drmp3_seek_to_pcm_frame(mp3, 0);   // every return to the menu starts the track again
++    float mix[12] = {0.5f, 0.5f};   // half volume
++    ndspChnReset(CH);
++    ndspChnSetInterp(CH, NDSP_INTERP_LINEAR);
++    ndspChnSetRate(CH, (float)mp3->sampleRate);
++    ndspChnSetFormat(CH, NDSP_FORMAT_STEREO_PCM16);
++    ndspChnSetMix(CH, mix);
++    memset(wave, 0, sizeof wave);
++    for (int i = 0; i < BUFS; i++) { wave[i].data_vaddr = pcm + i * FRAMES * 2; wave[i].status = NDSP_WBUF_FREE; }
++    s32 prio = 0x30;
++    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
++    running = true;
++    thread = threadCreate(feed, NULL, 64 * 1024, prio > 0x18 ? prio - 1 : prio, -2, false);
++    if (!thread) { running = false; linearFree(pcm); pcm = NULL; }
++}
++
++void smz3MusicStop(void)
++{
++    if (!thread) return;
++    for (int i = 1; i <= 10; i++) {   // half a second down to silence
++        float mix[12] = {0.5f - 0.05f * i, 0.5f - 0.05f * i};
++        ndspChnSetMix(CH, mix);
++        svcSleepThread(50000000LL);
++    }
++    running = false;
++    threadJoin(thread, U64_MAX);
++    threadFree(thread);
++    thread = NULL;
++    ndspChnWaveBufClear(CH);
++    ndspChnReset(CH);
++    linearFree(pcm);
++    pcm = NULL;
++}
++
++bool smz3MusicEnabled(void)
++{
++    if (enabled < 0) {
++        enabled = 1;
++        if (FILE *f = fopen(OPT_FILE, "r")) { int v; if (fscanf(f, "%d", &v) == 1) enabled = v != 0; fclose(f); }
++    }
++    return enabled;
++}
++
++void smz3MusicSetEnabled(bool on)
++{
++    enabled = on;
++    if (FILE *f = fopen(OPT_FILE, "w")) { fprintf(f, "%d\n", on ? 1 : 0); fclose(f); }
++    if (on) smz3MusicStart(); else smz3MusicStop();
++}
+diff --git a/source/smz3music.h b/source/smz3music.h
+new file mode 100644
+index 0000000..3d666af
+--- /dev/null
++++ b/source/smz3music.h
+@@ -0,0 +1,21 @@
++// The launcher's music (romfs:/smz3/smz3_intro.mp3): loops at half volume on ndsp channel 5 while the menu is up.
++#ifndef SMZ3MUSIC_H
++#define SMZ3MUSIC_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Plays from the start, when the Menu music option is on.
++void smz3MusicStart(void);
++// Fades out over half a second, then stops and frees the thread and the wave buffers (the decoder stays open).
++void smz3MusicStop(void);
++// The option, kept in menu_music.txt under SMZ_DIR (on when the file is missing).
++bool smz3MusicEnabled(void);
++void smz3MusicSetEnabled(bool on);
++
++#ifdef __cplusplus
++}
++#endif
 +
 +#endif
