@@ -4585,7 +4585,7 @@ index 0000000..079412a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Discovery.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Discovery.kt
 new file mode 100644
-index 0000000..6f3a761
+index 0000000..3366f5f
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Discovery.kt
 @@ -0,0 +1,227 @@
@@ -4725,7 +4725,7 @@ index 0000000..6f3a761
 +            // Houses and caves: the room number is the check address of the chest inside, so the map can place Link there
 +            // even when the game was entered indoors (no overworld position seen yet).
 +            val room = u16(w, 0xA0)
-+            val marker = Smz3Native.zeldaRoomLocation(room).let { if (it >= 0) markerPos[it] else null }
++            val marker = Smz3Native.zeldaRoomLocation(room).let { i -> if (i >= 0) markerPos[i]?.let { MapPosition(it.x, it.y + Smz3Native.markerDy(i)) } else null }   // Inverted: Link's House is in the Dark World
 +            position = marker ?: lastOverworld ?: position
 +            return
 +        }

@@ -155,7 +155,7 @@ static void update_zelda(SmzDiscovery *d, const uint8_t *w)
         /* houses and caves: the room number is the check address of the chest inside */
         int loc = smz3_zelda_room_location(u16(w, 0xA0));
         const SmzMarker *m = loc >= 0 ? smz_disc_marker(d, loc) : NULL;
-        if (m) { d->x = (float)m->x; d->y = (float)m->y; d->has_position = 1; }
+        if (m) { d->x = (float)m->x; d->y = (float)(m->y + smz3_marker_dy(loc)); d->has_position = 1; }
         else if (d->has_overworld) { d->x = d->ow_x; d->y = d->ow_y; d->has_position = 1; }
         return;
     }
