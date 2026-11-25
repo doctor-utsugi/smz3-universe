@@ -282,9 +282,9 @@ int online_ladder_json(int tab, const char *preset, char *out, size_t cap)
 
 int online_goals_json(char *out, size_t cap)
 {
-    char id[48], path[96];
+    char id[48], path[112];
     install_id(id);
-    snprintf(path, sizeof path, "/api/goals?install=%s", id);
+    snprintf(path, sizeof path, "/api/goals?install=%s%s", id, game_query('&'));
     return http("GET", path, NULL, out, cap) == 200;
 }
 

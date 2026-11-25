@@ -1150,10 +1150,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..df44d67
+index 0000000..57e1855
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1438 @@
+@@ -0,0 +1,1440 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1576,14 +1576,15 @@ index 0000000..df44d67
 +// ---- world goals
 +
 +static char gGoals[8192];
-+static int gGoalsState;   // 0 idle, 1 fetching, 2 ready, 3 failed
++static int gGoalsState, gGoalsMode;   // 0 idle, 1 fetching, 2 ready, 3 failed; the game they were asked for
 +
-+static void goalsThread(void *)
++static void goalsThread(void *arg)
 +{
 +    static char buf[8192];
-+    char id[40], path[96];
++    char id[40], path[112];
++    tMode = gGoalsMode = (int)(intptr_t)arg;
 +    installId(id);
-+    snprintf(path, sizeof path, "/api/goals?install=%s", id);
++    snprintf(path, sizeof path, "/api/goals?install=%s%s", id, gameQuery('&'));
 +    int ok = httpRequest("GET", path, NULL, buf, sizeof buf) == 200;
 +    LightLock_Lock(&gLock);
 +    if (ok) memcpy(gGoals, buf, sizeof buf);
@@ -1596,6 +1597,7 @@ index 0000000..df44d67
 +    lockInit();
 +    LightLock_Lock(&gLock);
 +    int r = 0;
++    if (gGoalsState >= 2 && gGoalsMode != smzRunMode) gGoalsState = 0;   // another game's, left in the carousel
 +    if (gGoalsState == 2) { snprintf(out, cap, "%s", gGoals); r = 1; gGoalsState = 0; }
 +    else if (gGoalsState == 3) { r = 2; gGoalsState = 0; }
 +    LightLock_Unlock(&gLock);
@@ -1882,7 +1884,7 @@ index 0000000..df44d67
 +    bool busy = gGoalsState == 1;
 +    if (!busy) gGoalsState = 1;
 +    LightLock_Unlock(&gLock);
-+    if (!busy && !spawn(goalsThread, NULL)) unbusy(&gGoalsState);
++    if (!busy && !spawn(goalsThread, (void *)(intptr_t)smzRunMode)) unbusy(&gGoalsState);
 +}
 +
 +void smzOnlineRequestVersion(void)
@@ -2594,7 +2596,7 @@ index 0000000..df44d67
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..2c4963b
+index 0000000..13b2a82
 --- /dev/null
 +++ b/source/smz3online.h
 @@ -0,0 +1,131 @@
@@ -2631,7 +2633,7 @@ index 0000000..2c4963b
 +// 2 failed; the JSON is the server's /api/ladder answer). Tab 0 is preset's table (ui_ladder_preset_key), Original for "".
 +void smzOnlineRequestLadders(const char *preset);
 +int smzOnlineTakeLadder(int tab, char *out, size_t cap);
-+// The world goals of the month (/api/goals): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
++// The current game's world goals of the month (/api/goals): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
 +void smzOnlineRequestGoals(void);
 +int smzOnlineTakeGoals(char *out, size_t cap);
 +// The newest release (/api/version): Request starts the fetch, Take returns 1 with the JSON once, 2 when it failed, 0 meanwhile.
@@ -2731,7 +2733,7 @@ index 0000000..2c4963b
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..116e640
+index 0000000..4e56a58
 --- /dev/null
 +++ b/source/smz3run.cpp
 @@ -0,0 +1,6191 @@
@@ -4040,7 +4042,7 @@ index 0000000..116e640
 +            int gs = smzOnlineTakeGoals(goalsJson, sizeof goalsJson);
 +            if (gs) ui_world_load_json(&ui, gs == 1 ? goalsJson : NULL);
 +            bool world = ui_world_showing(&ui) != 0;
-+            if (world && (!worldShown || osGetTime() >= nextWorld)) { nextWorld = osGetTime() + 60000; smzOnlineRequestGoals(); }
++            if (world && (!worldShown || osGetTime() >= nextWorld || !ui.world.loaded)) { nextWorld = osGetTime() + 60000; smzOnlineRequestGoals(); }
 +            worldShown = world;
 +            static SmzDailyInfo daily;
 +            int ds = smzDailyTakeInfo(&daily);

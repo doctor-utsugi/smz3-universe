@@ -1391,10 +1391,10 @@ index 0000000..5004db1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..a2b024b
+index 0000000..5b8c311
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1100 @@
+@@ -0,0 +1,1106 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1625,6 +1625,10 @@ index 0000000..a2b024b
 +    val pendingMonthly = remember { Array(3) { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) } }
 +    val pendingLadder = remember { java.util.concurrent.atomic.AtomicReference<Array<String?>?>(null) }
 +    val pendingGoals = remember { java.util.concurrent.atomic.AtomicReference<Array<String?>?>(null) }
++    val askGoals = {   // another game's goals, left in the carousel meanwhile, are dropped
++        val game = RunStore.mode
++        Thread { OnlineLadder.goalsJson(context, game).let { if (game == RunStore.mode) pendingGoals.set(arrayOf(it)) } }.start()
++    }
 +    val pendingWeekly = remember { Array(3) { java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null) } }
 +    // the daily challenge's answer (null text: offline) and the device clock when it came
 +    val pendingDaily = remember { java.util.concurrent.atomic.AtomicReference<Pair<String?, Long>?>(null) }
@@ -1777,11 +1781,13 @@ index 0000000..a2b024b
 +    LaunchedEffect(Unit) {
 +        var shown = false
 +        var next = 0L
++        var asked = ""
 +        while (true) {
 +            val showing = Smz3Native.uiWorldShowing()
-+            if (showing && (!shown || System.currentTimeMillis() >= next)) {
++            if (showing && (!shown || System.currentTimeMillis() >= next || asked != RunStore.mode)) {   // at once for a game just entered
 +                next = System.currentTimeMillis() + 60_000
-+                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
++                asked = RunStore.mode
++                askGoals()
 +            }
 +            shown = showing
 +            kotlinx.coroutines.delay(300)
@@ -2144,7 +2150,7 @@ index 0000000..a2b024b
 +                    val tables = Array(3) { OnlineLadder.ladderJson(it, game, preset) }
 +                    if (game == RunStore.mode) pendingLadder.set(tables)   // another game's tables are dropped
 +                }.start()
-+                Thread { pendingGoals.set(arrayOf(OnlineLadder.goalsJson(context))) }.start()
++                askGoals()
 +            }
 +            Act.DAILY -> startDaily()
 +            Act.OPTIONS -> when (slot) {
@@ -2497,7 +2503,7 @@ index 0000000..a2b024b
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..b9fded4
+index 0000000..46b597d
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 @@ -0,0 +1,270 @@
@@ -2733,9 +2739,9 @@ index 0000000..b9fded4
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
 +    }.getOrNull()
 +
-+    /** The world goals of the month for this install, null when the server cannot be reached. Call off the main thread. */
-+    fun goalsJson(context: Context): String? = runCatching {
-+        val c = URL("$BASE/api/goals?install=" + installId(context)).openConnection() as HttpURLConnection
++    /** One game's world goals of the month for this install, null when the server cannot be reached. Call off the main thread. */
++    fun goalsJson(context: Context, game: String = RunStore.mode): String? = runCatching {
++        val c = URL("$BASE/api/goals?install=" + installId(context) + RunStore.gameQuery(game)).openConnection() as HttpURLConnection
 +        c.connectTimeout = 8000
 +        c.readTimeout = 8000
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }

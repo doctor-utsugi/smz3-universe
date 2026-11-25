@@ -800,11 +800,12 @@ static char g_ladder[3][16384];
 static int g_ladder_state[3], g_ladder_mode[3];   /* 0 idle, 1 fetching, 2 ready, 3 failed; the game they were asked for */
 static char g_ladder_preset[32];                  /* the table tab 0 is asked for (ui_ladder_preset_key) */
 static char g_goals[8192];
-static int g_goals_state;   /* as g_ladder_state */
+static int g_goals_state, g_goals_mode;   /* as g_ladder_state; the game they were asked for */
 static void *goals_thread(void *arg)
 {
     (void)arg;
     static char buf[8192];
+    g_goals_mode = store_get_mode();
     int ok = online_goals_json(buf, sizeof buf);
     if (ok) memcpy(g_goals, buf, sizeof buf);
     g_goals_state = ok ? 2 : 3;
@@ -3264,10 +3265,10 @@ static void window_main(int start_slot)
         if (g_month_ready) { g_month_ready = 0; ui_set_monthly_game(&ui, g_month_mode, g_month, g_month_seed, online_days_left()); }
         for (int t = 0; t < 3; t++)
             if (g_ladder_state[t] >= 2) { if (g_ladder_mode[t] == ui.game_mode) ui_ladder_load_json(&ui, t, g_ladder_state[t] == 2 ? g_ladder[t] : NULL); g_ladder_state[t] = 0; }
-        if (g_goals_state >= 2) { ui_world_load_json(&ui, g_goals_state == 2 ? g_goals : NULL); g_goals_state = 0; }
+        if (g_goals_state >= 2) { if (g_goals_mode == ui.game_mode) ui_world_load_json(&ui, g_goals_state == 2 ? g_goals : NULL); g_goals_state = 0; }
         {
             static Uint32 next_world;   /* the World tab refreshes once a minute while it is shown */
-            if (ui_world_showing(&ui) && !g_goals_state && SDL_GetTicks() >= next_world) { next_world = SDL_GetTicks() + 60000; g_goals_state = 1; detach(goals_thread, NULL); }
+            if (ui_world_showing(&ui) && !g_goals_state && (SDL_GetTicks() >= next_world || !ui.world.loaded)) { next_world = SDL_GetTicks() + 60000; g_goals_state = 1; detach(goals_thread, NULL); }   /* at once for a game just entered */
         }
         if (g_week_ready) { g_week_ready = 0; ui_set_weekly_game(&ui, g_week_mode, g_week, g_week_seed, online_weekly_days_left()); }
         online_save_profile(&ui);

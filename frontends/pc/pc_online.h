@@ -27,7 +27,7 @@ int online_weekly(char label[16], int *seed);
 /* The server's answer for one ladder table (tab 0 original, or the race preset's table when preset is not "", 1 monthly, 2 weekly):
  * 1 with the JSON in out, 0 when it failed. */
 int online_ladder_json(int tab, const char *preset, char *out, size_t cap);
-/* The world goals of the month (/api/goals for this install). */
+/* The world goals of the month for the current game (/api/goals for this install). */
 int online_goals_json(char *out, size_t cap);
 /* Sends a run's world goal counters (smz_counters_text); the run is told apart by its slot and when it was made. Blocks. */
 int online_goals_report(int slot, int64_t created, int online, const char *counters);

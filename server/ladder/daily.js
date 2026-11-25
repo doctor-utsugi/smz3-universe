@@ -290,11 +290,11 @@ module.exports = function daily(ctx) {
     }
     return false;
   }
-  // For goals.js: gems from elsewhere go through the same balance, and the windows finished in time per install in a month.
+  // For goals.js: gems from elsewhere go through the same balance, and one game's windows finished in time per install in a month.
   handle.grant = (install, window, amount, why) => { grant(install, window, amount, why); save(); };
-  handle.finishesIn = month => {
+  handle.finishesIn = (month, game = 'smz3') => {
     const n = {};
-    for (const [id, list] of Object.entries(db.results)) if (dayOfWindow(id).startsWith(month)) for (const r of list) if (finishedOk(r)) n[r.install] = (n[r.install] || 0) + 1;
+    for (const [id, list] of Object.entries(db.results)) if (gameOfWindow(id) === game && dayOfWindow(id).startsWith(month)) for (const r of list) if (finishedOk(r)) n[r.install] = (n[r.install] || 0) + 1;
     return n;
   };
   handle.nameOf = install => {   // the latest name and country an install finished a daily challenge with

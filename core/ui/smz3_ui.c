@@ -213,8 +213,8 @@ static const char *const GAME_LINES[SMZ_MODE_COUNT] = {"Zelda + Metroid", "Rando
 static const char *const GAME_PICS[SMZ_MODE_COUNT] = {"logo", "link/Original", "samus/Original"};
 static const char *const GAME_SHORT[SMZ_MODE_COUNT] = {"SMZ3", "ALttP", "Super Metroid"};
 
-/* Entering another game: its own monthly and weekly seeds, and none of the last game's daily or tables (the host asks
- * the server for this game's: ui_set_monthly_game, ui_daily_set, ui_ladder_load_json). */
+/* Entering another game: its own monthly and weekly seeds, and none of the last game's daily, tables or world goals (the
+ * host asks the server for this game's: ui_set_monthly_game, ui_daily_set, ui_ladder_load_json, ui_world_load_json). */
 static void game_switch(SmzUi *u, int mode)
 {
     u->game_mode = mode;
@@ -227,6 +227,8 @@ static void game_switch(SmzUi *u, int mode)
     u->daily_has_run = 0;
     for (int t = 0; t < 3; t++) { u->ladder[t].loaded = 0; u->ladder[t].n = 0; }
     u->ladder_preset = 0;
+    memset(&u->world, 0, sizeof u->world); memset(&u->world_prev, 0, sizeof u->world_prev);   /* each game has its own world goals */
+    u->world_month = 0; u->world_cursor = u->world_top = -1;
 }
 
 void ui_game_enter(SmzUi *u, int mode)
