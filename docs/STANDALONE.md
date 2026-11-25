@@ -1,4 +1,4 @@
-# Three games: SMZ3, A Link to the Past and Super Metroid (plan, nothing built yet)
+# Three games: SMZ3, A Link to the Past and Super Metroid (plan and progress)
 
 SMZ3 Universe gets two more randomizers next to the combo: A Link to the Past alone (Z3) and Super Metroid alone (SM).
 Each one is a full mode with the same spirit as SMZ3: seeds made on the device from the player's own ROM, offline, with
@@ -96,7 +96,7 @@ the owner's answers of 2026-11-24 are folded in.
 | Hash on screen | Z3: the five file select icons, also shown in the run row and the race ready room. SM: the seed hash the base patch draws, if it draws one, else the tracker shows a name built from the seed. |
 | Tournament mode | Every online run of Z3 is built as a tournament ROM (tournament flag set, no spoiler). SM online runs set Race. Spoilers exist only for offline runs, after the run ends. |
 | Cozy | Per game, the same idea: Z3 Open with Assured sword, map/compass shuffle off, dark rooms lit; SM Casual logic; states and rewind on. Stays on the device. |
-| World goals | Z3 and SM runs count toward the zelda and metroid goals exactly as SMZ3 runs do, plus shared goals. One rupeergy balance. |
+| World goals | Each game has its own goals each month: SMZ3 from every group, Z3 from zelda and shared, SM from metroid and shared (built 2026-11-25). One rupeergy balance. |
 
 ## How it fits together
 
@@ -232,7 +232,10 @@ the discovery map logic.
   Z3 a pendant, a crystal, a dungeon, an item, a place; SM a boss, an item, an area.
 - **Races:** a room carries its game. Championship Full and Partial per game (Z3 Partial: Fast Ganon 2 or 4 crystals;
   SM Partial: none, since the base patch has one goal). Draft goals per game.
-- **World goals:** the catalog already groups goals as zelda, metroid and shared; Z3 and SM runs add to them.
+- **World goals** (built and deployed 2026-11-25): each game has its own month, keyed `YYYY-MM` for SMZ3 and
+  `z3:YYYY-MM` / `sm:YYYY-MM` for the others. `GET /api/goals?game=` picks the game; a report's game is its run id's
+  first letter (`z`, `m`, else SMZ3). Z3 draws from zelda and shared, SM from metroid and shared; `swaps` is SMZ3's
+  only. The `daily` goal counts that game's daily windows. Payouts go to the one gem balance.
 - **Web** (`smz3-universe.duckdns.org`): a game switch at the top of every table.
 - **Preset tables** (built and deployed): `PRESETS` in `server.js` lists each game's presets with the settings the
   proof checker regenerates the seed from. `/api/games` lists them; `/api/start` takes `preset` for an original run
@@ -312,12 +315,11 @@ host and called through a small C interface, the way `maprando-wasm` wraps them 
   them by count instead, so a slow console reaches the same seed as a fast one instead of giving up earlier.
 - **Ladders:** Map Rando Season 5 and Map Rando Beginner are SM preset tables (see Ladder presets, built and
   deployed). The monthly and weekly stay classic seeds for now.
-- **Tracker and proof:** the tracker's SM map does not match a rebuilt map, so it shows items and the hash only until
-  the map can be drawn from the seed's room layout. The proof checker keeps the time and rate rules only: there is no
-  logic check for a Map Rando seed (`smz_sm_proof_logic` answers "no logic" for one). A check is possible with the
-  crate's own traverser (`Randomizer::update_reachability`), but the server would have to regenerate the seed for each
-  finish (5 to 10 s and about 800 MB on the VM), rebuild the start location and hub, and map the tracker's location
-  ids to the crate's item locations. Not built; a Map Rando finish is trusted on time and rate as before.
+- **Proof:** the server checks a Map Rando finish against the seed's own logic (built 2026-11-25).
+  `smz3-maprando --check` rebuilds the seed (or reads its cached randomization), replays the hub, and walks the run's
+  checks in order with Map Rando's traversal; `maprando.js` runs it one at a time and keeps the randomization per
+  settings and seed. A run with over 1 in 10 checks out of logic is held, as in the other games; a finish waits 6 s for
+  the answer. The time and rate rules stay.
 - **Save and items:** Map Rando keeps 0xA00-byte save slots at $0010, $0A10 and $1410 (classic SM: 0x65C), items at
   +0xB0; the hosts pass `SMZ3_MAPRANDO` with the mode. Checked on a generated ROM: the 100 item PLMs keep bit index =
   location id, so the tracker's location table holds.
@@ -414,6 +416,22 @@ no ROM is shipped.
   found in each ASM before the hosts can stop the clock.
 - **Ladder trust.** Adding the settings hash check on the server changes what a finish sends; old apps must still be
   accepted for SMZ3 until they update.
+
+## Done on 2026-11-25
+
+- **Map Rando proof** checked against the seed's logic on the server (see [Map Rando](#map-rando)), and Map Rando in the
+  macOS CI build (`fetch.sh` copies the logic data with tar, the tarball ships `maprando-data`).
+- **Map patches:** single-game maps no longer show SMZ3's portals. SM's four triforce sites are redrawn from the
+  vanilla pause map; ALttP's four helmets are replaced with the overworld under them. `tools/map_portals.py` builds
+  `data/map_patches.*` once. The PC map opens on the game's own half.
+- **Inverted ALttP:** Link's House marker sits on the Dark World's bomb shop, and the position dot inside the house is
+  in the Dark World (`smz3_marker_dy`, and Android's own copy in `Smz3Discovery.kt`).
+- **World goals per game** (see Online, Server).
+- **Menu music:** `assets/music/smz3_intro.mp3` (Doctor Utsugi, made with Suno) plays at half volume on the launcher's menus
+  and fades out over half a second when a game starts; Options > Menu music turns it off. PC and 3DS decode it with
+  `dr_mp3` (3DS on ndsp channel 5), Android plays it with `MediaPlayer`.
+- **Commits** go from the repo root: the vendor trees are carried as `patches/*.patch`, and a commit from inside
+  `vendor/` lands in the vendor's own repository instead.
 
 ## Settled on 2026-11-24
 
