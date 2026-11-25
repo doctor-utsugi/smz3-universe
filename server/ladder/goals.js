@@ -13,6 +13,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const REPORTS_PER_HOUR = 40;
+const ZERO_INSTALL = '00000000-0000-0000-0000-000000000000';   // every Windows player's id before 2026-11-25
 
 module.exports = function goals(ctx) {
   const { DIR, send, readJson, onlyKeys, limited, clean, daily } = ctx;
@@ -171,6 +172,8 @@ module.exports = function goals(ctx) {
           counts[k] = Math.min(n, c.perRun || n);   // more than one run can do is cut to what one can
         }
         runs[b.run] = { counts, online: !!b.online, at: now };
+        const zero = (db.runs[m] || {})[ZERO_INSTALL];   // the run reported before under the shared Windows id moves here
+        if (zero && zero[b.run]) delete zero[b.run];
         if (b.player !== undefined) db.players[b.install] = { player: clean(b.player, 24) || 'Player', country: /^[A-Z]{2}$/.test(b.country) ? b.country : '' };
         save();
         send(res, 200, { ok: true });

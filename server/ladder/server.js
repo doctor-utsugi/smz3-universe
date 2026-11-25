@@ -269,7 +269,7 @@ http.createServer((req, res) => {
     if (limited('s', ip, START_PER_HOUR)) return send(res, 429, { error: 'slow down' });
     return readJson(req, res, b => {
       const game = gameOf(b.game), preset = presetOf(game, b.preset);
-      if (!onlyKeys(b, ['install', 'kind', 'game', 'preset']) || !game || !['original', 'monthly', 'weekly'].includes(b.kind) || !/^[0-9a-f-]{16,40}$/.test(String(b.install))) return send(res, 400, { error: 'invalid' });
+      if (!onlyKeys(b, ['install', 'kind', 'game', 'preset']) || !game || !['original', 'monthly', 'weekly'].includes(b.kind) || !dailyRoutes.validInstall(b.install)) return send(res, 400, { error: 'invalid' });
       if (preset === null || (preset && b.kind !== 'original')) return send(res, 400, { error: 'unknown preset' });
       const now = Date.now(), month = periodNow(b.kind, now);
       const id = crypto.randomBytes(8).toString('hex');

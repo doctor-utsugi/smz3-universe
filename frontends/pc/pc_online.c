@@ -9,6 +9,9 @@
 #include <string.h>
 #include <time.h>
 #include "pc_compat.h"
+#ifdef _WIN32
+#include <bcrypt.h>
+#endif
 #include "pc_online.h"
 #include "pc_store.h"
 
@@ -139,14 +142,23 @@ static char *read_text(const char *path)
     return t;
 }
 
+/* Windows builds before 2026-11-25 had no /dev/urandom and all wrote this id, so every Windows player was one install. */
+#define ZERO_ID "00000000-0000-0000-0000-000000000000"
+
 static void install_id(char out[48])
 {
     char *t = read_text(store_path("runs/install_id"));
-    if (t && strlen(t) >= 16 && strlen(t) <= 40) { snprintf(out, 48, "%s", t); out[strcspn(out, "\r\n ")] = 0; free(t); return; }
+    if (t && strlen(t) >= 16 && strlen(t) <= 40 && strncmp(t, ZERO_ID, strlen(ZERO_ID))) { snprintf(out, 48, "%s", t); out[strcspn(out, "\r\n ")] = 0; free(t); return; }
     free(t);
-    FILE *f = fopen("/dev/urandom", "rb");
     unsigned char b[16] = {0};
+#ifdef _WIN32
+    BCryptGenRandom(NULL, b, sizeof b, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+#else
+    FILE *f = fopen("/dev/urandom", "rb");
     if (f) { if (fread(b, 1, 16, f) != 16) {} fclose(f); }
+#endif
+    uint64_t x = (uint64_t)time(NULL) * 6364136223846793005ull ^ (uint64_t)(uintptr_t)&x ^ (uint64_t)clock();
+    for (int i = 0; i < 16; i++) { x ^= x << 13; x ^= x >> 7; x ^= x << 17; b[i] ^= (unsigned char)(x >> 24); }   /* never all zero, even without a system RNG */
     snprintf(out, 48, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
     store_write(store_path("runs/install_id"), out, strlen(out));
 }

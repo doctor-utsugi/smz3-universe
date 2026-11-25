@@ -160,7 +160,8 @@ module.exports = function daily(ctx) {
     if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return null;
     return { id: parts[0], install: parts[1], window: parts[3], startedAt: Number(parts[4]) };
   }
-  const validInstall = s => /^[0-9a-f-]{16,40}$/.test(String(s || ''));
+  // All zeros: what Windows builds before 2026-11-25 wrote for every player (no /dev/urandom); refused so they don't mix.
+  const validInstall = s => /^[0-9a-f-]{16,40}$/.test(String(s || '')) && !/^[0-]+$/.test(String(s));
 
   // ---------- routes ----------
   function handle(req, res, url, ip) {

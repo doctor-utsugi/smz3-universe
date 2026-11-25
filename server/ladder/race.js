@@ -251,7 +251,7 @@ module.exports = function race(ctx) {
 
   const fail = (res, code, error, more) => send(res, code, Object.assign({ error }, more));
   const okVersion = v => !VERSION || v === VERSION;
-  const validInstall = i => /^[0-9a-f-]{16,40}$/.test(String(i));
+  const validInstall = i => /^[0-9a-f-]{16,40}$/.test(String(i)) && !/^[0-]+$/.test(String(i));   // all zeros: see daily.js
 
   // A request on a room the token names: loads it, runs fn under the room's lock, stores it if fn says so.
   function onRoom(res, token, fn) {
