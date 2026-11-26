@@ -791,7 +791,7 @@ int smz_state_v14_to_143(const uint8_t *in, size_t n, uint8_t **out, size_t *out
     Ctx *c = (Ctx *)calloc(1, sizeof *c);
     if (!c) return -1;
     int rc = -1;
-    uint8_t *o = NULL;
+    uint8_t *o = NULL, *fil43 = NULL;
     if (get_struct(&bs, "CPU", CPU14, NF(CPU14), &c->cpu) || get_struct(&bs, "REG", REG_T, NF(REG_T), &c->reg)
         || get_struct(&bs, "PPU", PPU14, NF(PPU14), &c->ppu) || get_struct(&bs, "DMA", DMA14, NF(DMA14), &c->dma)
         || snd_io(&c->snd, (uint8_t *)snd->p, snd->len, 0))
@@ -828,7 +828,24 @@ int smz_state_v14_to_143(const uint8_t *in, size_t n, uint8_t **out, size_t *out
         cp->IRQActive = p->HTimerEnabled ? H_BEAM143 : V_BEAM143;
     }
 
-    for (int i = 0; i < 8; i++) c->dma.d[i].IndirectAddress = c->dma.d[i].Count;
+    /* 1.63 keeps the DMA registers in its DMA struct only; 1.43 reads $43x0-$43xF back from FillRAM (HDMA's indirect bank too) */
+    fil43 = (uint8_t *)malloc(0x8000);
+    if (!fil43) goto done;
+    memcpy(fil43, F, 0x8000);
+    for (int i = 0; i < 8; i++) {
+        Dma *d = &c->dma.d[i];
+        uint8_t *r = fil43 + 0x4300 + 16 * i;
+        d->IndirectAddress = d->Count;
+        r[0] = (uint8_t)((d->ReverseTransfer & 1) << 7 | (d->HDMAIndirectAddressing & 1) << 6 | (d->UnusedBit43x0 & 1) << 5
+                         | (d->AAddressDecrement & 1) << 4 | (d->AAddressFixed & 1) << 3 | (d->TransferMode & 7));
+        r[1] = (uint8_t)d->BAddress;
+        r[2] = (uint8_t)d->AAddress; r[3] = (uint8_t)(d->AAddress >> 8); r[4] = (uint8_t)d->ABank;
+        r[5] = (uint8_t)d->Count; r[6] = (uint8_t)(d->Count >> 8); r[7] = (uint8_t)d->IndirectBank;
+        r[8] = (uint8_t)d->Address; r[9] = (uint8_t)(d->Address >> 8);
+        r[10] = (uint8_t)((d->LineCount & 0x7f) | (d->Repeat ? 0 : 0x80));
+        r[11] = r[15] = (uint8_t)d->UnknownByte;
+    }
+    F = fil43;
 
     /* the SMP: 1.43 keeps the CPU's ports in its RAM and the IPL ROM over the RAM it hides */
     Apu *a = &c->apu;
@@ -883,6 +900,7 @@ int smz_state_v14_to_143(const uint8_t *in, size_t n, uint8_t **out, size_t *out
     rc = 0;
 done:
     free(o);
+    free(fil43);
     free(c);
     return rc;
 }
