@@ -148,5 +148,20 @@ the 3DS does too.
 
 Steps 1 to 7 are in. The client lives in `core/ui/smz3_romm.c` and `core/ui/smz3_sync.c` (step 3 named `core/romm/`).
 Checked against romm.example.com: PC to PC, PC to Thor and Thor to PC (run list, Continue pulls the save and the state,
-leaving pushes them back). The converter's 1.43 round trip of a real PC state loads on the PC at the same scene. The
-3DS sync and the converter on Azahar have not been run yet.
+leaving pushes them back). The converter's 1.43 round trip of a real PC state loads on the PC at the same scene.
+
+On Azahar the 3DS lists the account's runs, pulls the ROM, save and state, plays, and pushes on leaving. A PC state
+played on the 3DS, sent back and opened on the PC and on the Thor keeps its HUD; a native 3DS state does too. Two fixes
+came out of that:
+
+- 1.63 keeps the DMA registers only in its DMA struct, while 1.43 reads `$4300-$437F` back from FillRAM, HDMA's
+  indirect bank (`$43x7`) included. A PC state's FillRAM held open-bus bytes there, so Super Metroid's indirect HDMA
+  read the wrong bank and the HUD and door caps went. The converter now rebuilds those registers from the DMA block.
+- A run whose ROM was uploaded again under a new id answered 404 to its old ids. The sync now looks the ROM up by
+  hash again, and the run list moves a device's record to RomM's current ids.
+
+Deleting a run that a device listed but never opened left its saves and states in RomM, since the device had no file
+ids. `smz_sync_delete` now reads the run note and removes every file it lists.
+
+Not run: the 3DS on real hardware (Azahar draws Super Metroid wrong even for native runs) and the Windows build
+(it builds; it calls the system `curl.exe` like the online mode).
