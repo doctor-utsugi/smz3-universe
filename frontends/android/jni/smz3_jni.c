@@ -1202,3 +1202,332 @@ JNIEXPORT jintArray JNICALL NATIVE(z3HashIcons)(JNIEnv *env, jclass cls, jstring
     if (n) (*env)->SetIntArrayRegion(env, r, 0, n, ic);
     return r;
 }
+
+/* ---- RomM sync (core/ui/smz3_sync.h): the logic stays here, the app's Smz3SyncHost moves the bytes on the calling thread ---- */
+#include <stdarg.h>
+#include "smz3_sync.h"
+
+typedef struct { JNIEnv *env; jobject host; } JHost;
+
+static jbyteArray jbytes(JNIEnv *env, const void *p, size_t n)
+{
+    jbyteArray a = (*env)->NewByteArray(env, (jsize)n);
+    if (a && n) (*env)->SetByteArrayRegion(env, a, 0, (jsize)n, (const jbyte *)p);
+    return a;
+}
+
+/* A Java byte[] as a malloc'd buffer with a NUL after it; NULL for a null array. */
+static uint8_t *cbytes(JNIEnv *env, jbyteArray a, size_t *len)
+{
+    if (!a) return NULL;
+    jsize n = (*env)->GetArrayLength(env, a);
+    uint8_t *p = malloc((size_t)n + 1);
+    if (!p) return NULL;
+    (*env)->GetByteArrayRegion(env, a, 0, n, (jbyte *)p);
+    p[n] = 0;
+    *len = (size_t)n;
+    return p;
+}
+
+static jobject jcall(JHost *h, const char *name, const char *sig, ...)
+{
+    JNIEnv *env = h->env;
+    jclass c = (*env)->GetObjectClass(env, h->host);
+    jmethodID m = (*env)->GetMethodID(env, c, name, sig);
+    (*env)->DeleteLocalRef(env, c);
+    va_list ap;
+    va_start(ap, sig);
+    jobject r = m ? (*env)->CallObjectMethodV(env, h->host, m, ap) : NULL;
+    va_end(ap);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); r = NULL; }
+    return r;
+}
+
+static int jhttp(void *ctx, const char *method, const char *url, const char *headers, const uint8_t *body, size_t len, uint8_t **out, size_t *out_len)
+{
+    JHost *h = ctx;
+    JNIEnv *env = h->env;
+    jstring jm = (*env)->NewStringUTF(env, method);
+    jbyteArray ju = jbytes(env, url, strlen(url)), jh = headers ? jbytes(env, headers, strlen(headers)) : NULL, jb = body ? jbytes(env, body, len) : NULL;
+    jbyteArray r = jcall(h, "http", "(Ljava/lang/String;[B[B[B)[B", jm, ju, jh, jb);
+    jclass c = (*env)->GetObjectClass(env, h->host);
+    int status = (*env)->GetIntField(env, h->host, (*env)->GetFieldID(env, c, "status", "I"));
+    (*env)->DeleteLocalRef(env, c);
+    size_t n = 0;
+    uint8_t *o = r ? cbytes(env, r, &n) : NULL;
+    if (!o) { o = malloc(1); if (o) o[0] = 0; n = 0; }
+    *out = o;
+    *out_len = n;
+    (*env)->DeleteLocalRef(env, jm); (*env)->DeleteLocalRef(env, ju);
+    if (jh) (*env)->DeleteLocalRef(env, jh);
+    if (jb) (*env)->DeleteLocalRef(env, jb);
+    if (r) (*env)->DeleteLocalRef(env, r);
+    return r ? status : -1;
+}
+
+static uint8_t *jread(void *ctx, int kind, size_t *len)
+{
+    JHost *h = ctx;
+    jbyteArray r = jcall(h, "read", "(I)[B", (jint)kind);
+    uint8_t *p = cbytes(h->env, r, len);
+    if (r) (*h->env)->DeleteLocalRef(h->env, r);
+    return p;
+}
+
+static int jwrite(void *ctx, int kind, const uint8_t *data, size_t len)
+{
+    JHost *h = ctx;
+    JNIEnv *env = h->env;
+    jbyteArray a = data ? jbytes(env, data, len) : NULL;
+    jclass c = (*env)->GetObjectClass(env, h->host);
+    jmethodID m = (*env)->GetMethodID(env, c, "write", "(I[B)Z");
+    (*env)->DeleteLocalRef(env, c);
+    jboolean ok = (*env)->CallBooleanMethod(env, h->host, m, (jint)kind, a);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); ok = JNI_FALSE; }
+    if (a) (*env)->DeleteLocalRef(env, a);
+    return ok ? 0 : -1;
+}
+
+static void jstr(JNIEnv *env, jobjectArray a, int i, char *out, size_t cap)
+{
+    jstring s = (*env)->GetObjectArrayElement(env, a, i);
+    out[0] = 0;
+    if (!s) return;
+    const char *t = (*env)->GetStringUTFChars(env, s, NULL);
+    snprintf(out, cap, "%s", t);
+    (*env)->ReleaseStringUTFChars(env, s, t);
+    (*env)->DeleteLocalRef(env, s);
+}
+
+/* cfg: {romm base, token, device id, SMZ3 server, install id, device name}. */
+static void sync_setup(JNIEnv *env, jobject host, jobjectArray cfg, JHost *h, SmzRomm *r, SmzSync *s)
+{
+    h->env = env;
+    h->host = host;
+    memset(r, 0, sizeof *r);
+    r->http = jhttp;
+    r->ctx = h;
+    jstr(env, cfg, 0, r->base, sizeof r->base);
+    jstr(env, cfg, 1, r->token, sizeof r->token);
+    jstr(env, cfg, 2, r->device, sizeof r->device);
+    if (!s) return;
+    memset(s, 0, sizeof *s);
+    s->romm = r;
+    jstr(env, cfg, 3, s->server, sizeof s->server);
+    jstr(env, cfg, 4, s->install, sizeof s->install);
+    jstr(env, cfg, 5, s->device, sizeof s->device);
+}
+
+static jobjectArray jstrings(JNIEnv *env, const char *const *v, int n)
+{
+    jobjectArray r = (*env)->NewObjectArray(env, n, (*env)->FindClass(env, "java/lang/String"), NULL);
+    for (int i = 0; i < n; i++) {
+        jstring s = (*env)->NewStringUTF(env, v[i] ? v[i] : "");
+        (*env)->SetObjectArrayElement(env, r, i, s);
+        (*env)->DeleteLocalRef(env, s);
+    }
+    return r;
+}
+
+/* {device code, user code, url, interval, expires in}, or {"", why}. */
+JNIEXPORT jobjectArray JNICALL NATIVE(syncLoginStart)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg, jstring platform)
+{
+    JHost h; SmzRomm r; SmzSync s; SmzRommLogin l;
+    sync_setup(env, host, cfg, &h, &r, &s);
+    const char *p = (*env)->GetStringUTFChars(env, platform, NULL);
+    int e = smz_romm_login_start(&r, s.install, s.device, p, SMZ3_VERSION, &l);
+    (*env)->ReleaseStringUTFChars(env, platform, p);
+    if (e) { const char *v[2] = {"", r.err}; return jstrings(env, v, 2); }
+    char iv[16], ex[16];
+    snprintf(iv, sizeof iv, "%d", l.interval);
+    snprintf(ex, sizeof ex, "%d", l.expires_in);
+    const char *v[5] = {l.device_code, l.user_code, l.url, iv, ex};
+    return jstrings(env, v, 5);
+}
+
+/* {"0" token device user | "1" (not yet) | "-1" why}. */
+JNIEXPORT jobjectArray JNICALL NATIVE(syncLoginPoll)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg, jstring deviceCode)
+{
+    JHost h; SmzRomm r; SmzRommLogin l;
+    sync_setup(env, host, cfg, &h, &r, NULL);
+    memset(&l, 0, sizeof l);
+    const char *d = (*env)->GetStringUTFChars(env, deviceCode, NULL);
+    snprintf(l.device_code, sizeof l.device_code, "%s", d);
+    (*env)->ReleaseStringUTFChars(env, deviceCode, d);
+    r.token[0] = 0;
+    int p = smz_romm_login_poll(&r, &l);
+    char user[24] = "";
+    if (p == 0) smz_romm_whoami(&r, user, sizeof user);
+    const char *v[4] = {p == 0 ? "0" : p == 1 ? "1" : "-1", p == 0 ? r.token : r.err, r.device, user};
+    return jstrings(env, v, 4);
+}
+
+/* {0 the token works | 1 RomM refuses it | -1 not reached, user}. */
+JNIEXPORT jobjectArray JNICALL NATIVE(syncWhoami)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg)
+{
+    JHost h; SmzRomm r;
+    sync_setup(env, host, cfg, &h, &r, NULL);
+    char user[24] = "", rc[8];
+    snprintf(rc, sizeof rc, "%d", smz_romm_whoami(&r, user, sizeof user));
+    const char *v[2] = {rc, user};
+    return jstrings(env, v, 2);
+}
+
+/* The account's runs: per run {run id, ROM id, note id, ROM name, run text} as UTF-8 bytes; null when RomM failed. */
+JNIEXPORT jobjectArray JNICALL NATIVE(syncNotes)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg)
+{
+    JHost h; SmzRomm r;
+    sync_setup(env, host, cfg, &h, &r, NULL);
+    SmzRommNote *notes;
+    int count;
+    if (smz_romm_notes(&r, &notes, &count)) return NULL;
+    jobjectArray out = (*env)->NewObjectArray(env, count * 5, (*env)->FindClass(env, "[B"), NULL);
+    for (int i = 0; i < count; i++) {
+        char rom[96] = "", ids[2][16], *text = NULL;
+        smz_sync_note_info(notes[i].content, NULL, 0, rom, sizeof rom, NULL, &text);
+        snprintf(ids[0], sizeof ids[0], "%d", notes[i].rom_id);
+        snprintf(ids[1], sizeof ids[1], "%d", notes[i].note_id);
+        const char *v[5] = {notes[i].run_id, ids[0], ids[1], rom[0] ? rom : notes[i].rom_name, text ? text : ""};
+        for (int k = 0; k < 5; k++) {
+            jbyteArray b = jbytes(env, v[k], strlen(v[k]));
+            (*env)->SetObjectArrayElement(env, out, i * 5 + k, b);
+            (*env)->DeleteLocalRef(env, b);
+        }
+        free(text);
+    }
+    smz_romm_notes_free(notes, count);
+    return out;
+}
+
+/* Pull (push false) or push one run. run: {run id, ROM name, name, proof or ""}. Returns {result, changed, unranked,
+ * cloud device, cloud ms, why, play ms}. */
+JNIEXPORT jobjectArray JNICALL NATIVE(syncRun)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg, jboolean push, jboolean force,
+                                              jobjectArray run, jboolean online, jlong playMs, jint romId, jlong nowMs)
+{
+    JHost h; SmzRomm r; SmzSync s;
+    sync_setup(env, host, cfg, &h, &r, &s);
+    s.now_ms = nowMs;
+    char id[48], rom[96], name[48];
+    jstr(env, run, 0, id, sizeof id);
+    jstr(env, run, 1, rom, sizeof rom);
+    jstr(env, run, 2, name, sizeof name);
+    jstring jp = (*env)->GetObjectArrayElement(env, run, 3);
+    const char *proof = jp ? (*env)->GetStringUTFChars(env, jp, NULL) : NULL;
+    SmzSyncRun sr = {id, rom, name, online, playMs, proof && proof[0] ? proof : NULL, romId};
+    SmzSyncFiles fs = {jread, jwrite, &h};
+    SmzSyncResult res;
+    int rc = push ? smz_sync_push(&s, &sr, &fs, force, &res) : smz_sync_pull(&s, &sr, &fs, force, &res);
+    if (proof) (*env)->ReleaseStringUTFChars(env, jp, proof);
+    char v0[8], v1[4], v2[4], v4[24], v6[24];
+    snprintf(v0, sizeof v0, "%d", rc);
+    snprintf(v1, sizeof v1, "%d", res.changed);
+    snprintf(v2, sizeof v2, "%d", res.unranked);
+    snprintf(v4, sizeof v4, "%lld", (long long)res.cloud_at);
+    snprintf(v6, sizeof v6, "%lld", (long long)res.play_ms);
+    const char *v[7] = {v0, v1, v2, res.cloud_dev, v4, res.err, v6};
+    return jstrings(env, v, 7);
+}
+
+/* SMZ3's emulator wrote a run file (SMZ_SYNC_* kind): its hash goes into the run's sync record. */
+JNIEXPORT void JNICALL NATIVE(syncOwn)(JNIEnv *env, jclass cls, jobject host, jint kind, jbyteArray data)
+{
+    JHost h = {env, host};
+    SmzSyncFiles fs = {jread, jwrite, &h};
+    size_t n = 0;
+    uint8_t *d = cbytes(env, data, &n);
+    if (d) smz_sync_own(&fs, kind, d, n);
+    free(d);
+}
+
+/* A deleted run: its saves, states and note go from RomM too (the host reads the run's old sync record). */
+JNIEXPORT void JNICALL NATIVE(syncDelete)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg)
+{
+    JHost h; SmzRomm r;
+    sync_setup(env, host, cfg, &h, &r, NULL);
+    SmzSyncFiles fs = {jread, jwrite, &h};
+    SmzSyncRecord rec;
+    smz_sync_record_load(&fs, &rec);
+    for (int k = 0; k < SMZ_SYNC_FILES; k++) if (rec.f[k].id) smz_romm_file_delete(&r, k == SMZ_SYNC_SRM ? 's' : 't', rec.f[k].id);
+    if (rec.note_id) smz_romm_note_delete(&r, rec.rom_id, rec.note_id);
+}
+
+/* Writes a fresh sync record for a run brought from the account: revision 0, so opening it brings everything down. */
+JNIEXPORT void JNICALL NATIVE(syncNewRecord)(JNIEnv *env, jclass cls, jobject host, jint romId, jint noteId)
+{
+    JHost h = {env, host};
+    SmzSyncFiles fs = {jread, jwrite, &h};
+    SmzSyncRecord rec = {0};
+    rec.rom_id = romId;
+    rec.note_id = noteId;
+    smz_sync_record_save(&fs, &rec);
+}
+
+/* The player link: what 0 asks for a code ({"0", code} or {"-1", why}), 1 links this install with code. */
+JNIEXPORT jobjectArray JNICALL NATIVE(syncPlayer)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg, jint what, jstring code)
+{
+    JHost h; SmzRomm r; SmzSync s;
+    sync_setup(env, host, cfg, &h, &r, &s);
+    char c[8] = "";
+    int e;
+    if (what == 0) e = smz_sync_player_code(&s, c);
+    else {
+        const char *t = (*env)->GetStringUTFChars(env, code, NULL);
+        e = smz_sync_player_link(&s, t);
+        (*env)->ReleaseStringUTFChars(env, code, t);
+    }
+    const char *v[2] = {e ? "-1" : "0", e ? r.err : c};
+    return jstrings(env, v, 2);
+}
+
+/* An online run is played on one device at a time: 0 held here, 1 another device holds it, -1 not reached. */
+JNIEXPORT jint JNICALL NATIVE(syncHold)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg, jstring runId, jboolean force)
+{
+    JHost h; SmzRomm r; SmzSync s;
+    sync_setup(env, host, cfg, &h, &r, &s);
+    const char *t = (*env)->GetStringUTFChars(env, runId, NULL);
+    int e = smz_sync_hold(&s, t, force);
+    (*env)->ReleaseStringUTFChars(env, runId, t);
+    return e;
+}
+
+JNIEXPORT jstring JNICALL NATIVE(syncNewId)(JNIEnv *env, jclass cls, jchar letter, jlong entropy)
+{
+    char id[40];
+    smz_sync_new_id((char)letter, (uint64_t)entropy, id);
+    return (*env)->NewStringUTF(env, id);
+}
+
+JNIEXPORT void JNICALL NATIVE(uiCloudEnable)(JNIEnv *env, jclass cls, jboolean on) { ui_cloud_enable(&g_ui, on); }
+
+JNIEXPORT void JNICALL NATIVE(uiCloudState)(JNIEnv *env, jclass cls, jint state, jstring user, jstring server, jstring code, jstring url)
+{
+    const char *u = (*env)->GetStringUTFChars(env, user, NULL), *s = (*env)->GetStringUTFChars(env, server, NULL);
+    const char *c = (*env)->GetStringUTFChars(env, code, NULL), *l = (*env)->GetStringUTFChars(env, url, NULL);
+    ui_cloud_state(&g_ui, state, u, s, c, l);
+    (*env)->ReleaseStringUTFChars(env, user, u); (*env)->ReleaseStringUTFChars(env, server, s);
+    (*env)->ReleaseStringUTFChars(env, code, c); (*env)->ReleaseStringUTFChars(env, url, l);
+}
+
+JNIEXPORT void JNICALL NATIVE(uiCloudMsg)(JNIEnv *env, jclass cls, jstring msg)
+{
+    const char *m = (*env)->GetStringUTFChars(env, msg, NULL);
+    ui_cloud_msg(&g_ui, m);
+    (*env)->ReleaseStringUTFChars(env, msg, m);
+}
+
+JNIEXPORT void JNICALL NATIVE(uiCloudConflict)(JNIEnv *env, jclass cls, jint slot, jstring device, jstring when)
+{
+    const char *d = (*env)->GetStringUTFChars(env, device, NULL), *w = (*env)->GetStringUTFChars(env, when, NULL);
+    ui_cloud_conflict(&g_ui, slot, d, w);
+    (*env)->ReleaseStringUTFChars(env, device, d);
+    (*env)->ReleaseStringUTFChars(env, when, w);
+}
+
+/* {the run of the conflict, the link code typed}. */
+JNIEXPORT jobjectArray JNICALL NATIVE(uiCloudInfo)(JNIEnv *env, jclass cls)
+{
+    char slot[8];
+    snprintf(slot, sizeof slot, "%d", g_ui.cloud.slot);
+    const char *v[2] = {slot, g_ui.cloud.link};
+    return jstrings(env, v, 2);
+}

@@ -57,16 +57,18 @@ index 741cef4..a7d9a0e 100644
      implementation(project(":retrograde-app-shared"))
      implementation(project(":lemuroid-metadata-libretro-db"))
 diff --git a/lemuroid-app/proguard-rules.pro b/lemuroid-app/proguard-rules.pro
-index 94b735d..4d1cee7 100644
+index 94b735d..5237216 100644
 --- a/lemuroid-app/proguard-rules.pro
 +++ b/lemuroid-app/proguard-rules.pro
-@@ -85,3 +85,6 @@
+@@ -85,3 +85,8 @@
  
  ## LibretroDroid
  -keep class com.swordfish.libretrodroid.** { *; }
 +
 +## SMZ3: JNI entry points are looked up by name
 +-keep class com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native { *; }
++-keep class com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3SyncHost { *; }
++-keepclassmembers class * extends com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3SyncHost { *; }
 diff --git a/lemuroid-app/src/main/assets/smz3/map_markers.json b/lemuroid-app/src/main/assets/smz3/map_markers.json
 new file mode 100644
 index 0000000..2cb9d3e
@@ -1391,10 +1393,10 @@ index 0000000..5004db1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..5b8c311
+index 0000000..e12a88e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1106 @@
+@@ -0,0 +1,1152 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1487,7 +1489,7 @@ index 0000000..5b8c311
 +}
 +
 +private enum class Act { NONE, CONTINUE, DELETE, GENERATE, LOAD_SAVE, LOAD_STATE, LADDER, DAILY, OPTIONS,
-+    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME, UPDATE }
++    RACE_CREATE, RACE_JOIN, RACE_FIND, RACE_CLOSE, RACE_KICK, RACE_READY, RACE_LEAVE, RACE_START, RACE_RESUME, UPDATE, CLOUD }
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_GAMES = 27          // the game carousel: Back there leaves the app
@@ -1581,8 +1583,10 @@ index 0000000..5b8c311
 +    val closing = remember { Animatable(0f) }
 +    val lastCommands = remember { arrayOf<Array<String>>(emptyArray()) }
 +    val frozen = remember { arrayOf<Array<String>?>(null) }
++    val played = remember { arrayOf<Pair<String, Int>?>(null) }   // the run being played: it goes up to RomM when the menu is back
 +    val play: (Run, Boolean) -> Unit = play@{ run, state ->
 +        if (launching) return@play
++        played[0] = RunStore.mode to run.slot
 +        frozen[0] = lastCommands[0]
 +        launching = true
 +        Smz3MenuMusic.pause()
@@ -1609,7 +1613,11 @@ index 0000000..5b8c311
 +    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
 +    DisposableEffect(lifecycle) {
 +        val back = androidx.lifecycle.LifecycleEventObserver { _, e ->
-+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME && launching) { launching = false; frozen[0] = null; lastScreen0Reset[0] = true }
++            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME && launching) {
++                launching = false; frozen[0] = null; lastScreen0Reset[0] = true
++                played[0]?.let { (game, slot) -> CloudSync.left(context, game, slot) }
++                played[0] = null
++            }
 +            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) Smz3MenuMusic.play(context)
 +            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) Smz3MenuMusic.pause()
 +        }
@@ -1722,6 +1730,7 @@ index 0000000..5b8c311
 +            }
 +        }.start()
 +        Thread { DailyChallenge.flush(context) }.start()   // a challenge finished offline
++        CloudSync.attach(context)
 +        refreshSlots()
 +        onDispose { }
 +    }
@@ -1775,6 +1784,7 @@ index 0000000..5b8c311
 +            pendingLadder.getAndSet(null)?.let { tables -> tables.forEachIndexed { tab, json -> Smz3Native.uiLadderJson(tab, json) }; version++ }
 +            pendingGoals.getAndSet(null)?.let { Smz3Native.uiWorldJson(it[0]); version++ }
 +            pendingVersion.getAndSet(null)?.let { Smz3Native.uiUpdateJson(it); version++ }
++            when (CloudSync.poll(context)) { 1 -> version++; 2 -> refreshSlots() }
 +        }
 +    }
 +    // the world goals (the run list's row, the ladder's World tab): asked as soon as they come on screen, then once a minute
@@ -2121,6 +2131,46 @@ index 0000000..5b8c311
 +        }
 +    }
 +
++    fun continueRun(slot: Int) {
++        val run = RunStore.load(context, slot) ?: return
++        // a save state ahead of the game save asks which of the two to load (a finished run's clock is frozen, so
++        // it always asks); ladder runs have none
++        if (OnlineLadder.slotKind(context, slot) >= 1) play(run, false)
++        else if (run.saveMs > 0 && (run.completedAt != 0L || run.game == 3 || run.playTimeMs - run.saveMs > 10_000)) {
++            Smz3Native.uiLoadChoice(slot, run.saveMs, run.saveZelda, run.saveMetroid, run.playTimeMs, run.zeldaCleared, run.metroidCleared, run.zeldaTotal, run.metroidTotal)
++            version++
++        } else play(run, true)
++    }
++
++    /** RomM's newer files come down before a run opens, then [then]; when both sides changed the conflict screen asks instead. */
++    fun synced(slot: Int, forcePull: Boolean = false, forcePush: Boolean = false, then: () -> Unit) {
++        if (!CloudSync.signedIn() || slot >= RunStore.SLOTS) { then(); return }
++        val game = RunStore.mode
++        scope.launch {
++            var busy = false
++            val shown = launch { kotlinx.coroutines.delay(400); busy = true; Smz3Native.uiBusy("Syncing with RomM..."); version++ }
++            val r = withContext(Dispatchers.IO) { CloudSync.open(context, game, slot, forcePull, forcePush) }
++            shown.cancel()
++            if (busy) Smz3Native.uiIdle()
++            refreshSlots()
++            val result = r?.get(0)?.toIntOrNull() ?: CloudSync.OK
++            if (result == CloudSync.CONFLICT) {
++                Smz3Native.uiCloudConflict(slot, r!![3], CloudSync.whenText(r[4].toLongOrNull() ?: 0L))
++                version++
++                return@launch
++            }
++            val note = if (result == CloudSync.FAILED) "Sync: ${r!![5]}" else if (result == CloudSync.OK && r?.get(2) == "1") "Synced from outside SMZ3: unranked" else null
++            if (note != null) {
++                Smz3Native.uiBusy(note.take(43))
++                version++
++                kotlinx.coroutines.delay(2500)
++                Smz3Native.uiIdle()
++                version++
++            }
++            if (game == RunStore.mode) then()
++        }
++    }
++
 +    fun pollActions() {
 +        for (m in pendingWeekly.indices) {
 +            pendingWeekly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetWeekly(m, label, seed, daysLeftInWeek()); version++ }
@@ -2130,18 +2180,16 @@ index 0000000..5b8c311
 +        Smz3Native.uiPlayerChanged()?.let { OnlineLadder.saveProfile(context, it) }
 +        val (act, slot) = Smz3Native.uiAction().let { Act.values()[it[0]] to it[1] }
 +        when (act) {
-+            Act.CONTINUE -> RunStore.load(context, slot)?.let { run ->
-+                // a save state ahead of the game save asks which of the two to load (a finished run's clock is frozen, so
-+                // it always asks); ladder runs have none
-+                if (OnlineLadder.slotKind(context, slot) >= 1) play(run, false)
-+                else if (run.saveMs > 0 && (run.completedAt != 0L || run.game == 3 || run.playTimeMs - run.saveMs > 10_000)) {
-+                    Smz3Native.uiLoadChoice(slot, run.saveMs, run.saveZelda, run.saveMetroid, run.playTimeMs, run.zeldaCleared, run.metroidCleared, run.zeldaTotal, run.metroidTotal)
-+                    version++
-+                } else play(run, true)
++            Act.CONTINUE -> synced(slot) { continueRun(slot) }
++            Act.CLOUD -> when (slot) {
++                CloudSync.KEEP_HERE, CloudSync.KEEP_CLOUD -> Smz3Native.uiCloudInfo()[0].toIntOrNull()?.let { s ->
++                    synced(s, forcePull = slot == CloudSync.KEEP_CLOUD, forcePush = slot == CloudSync.KEEP_HERE) { continueRun(s) }
++                }
++                else -> CloudSync.action(context, slot, Smz3Native.uiCloudInfo()[1])
 +            }
 +            Act.LOAD_SAVE -> RunStore.load(context, slot)?.let { play(it, false) }
 +            Act.LOAD_STATE -> RunStore.load(context, slot)?.let { play(it, true) }
-+            Act.DELETE -> { RunStore.delete(context, slot); refreshSlots() }
++            Act.DELETE -> { CloudSync.deleted(context, slot); RunStore.delete(context, slot); refreshSlots() }
 +            Act.GENERATE -> generate(slot)
 +            Act.LADDER -> {
 +                Thread {
@@ -2503,10 +2551,10 @@ index 0000000..5b8c311
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..46b597d
+index 0000000..d4cb22e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,269 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2522,7 +2570,7 @@ index 0000000..46b597d
 + * games has its own tables: requests for a game other than SMZ3 carry its id.
 + */
 +object OnlineLadder {
-+    private const val BASE = "https://smz3-universe.duckdns.org"
++    const val BASE = "https://smz3-universe.duckdns.org"
 +
 +    private fun dir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
 +    private fun tokenFile(context: Context, slot: Int, game: String = RunStore.mode) = File(RunStore.runsDir(context, game), "slot$slot.token")
@@ -2748,7 +2796,7 @@ index 0000000..46b597d
 +    }.getOrNull()
 +
 +    /** Sends a run's world goal counters (key=n,key=n text); the run is told apart by its slot and when it was made. Call off the main thread. */
-+    fun reportGoals(context: Context, slot: Int, createdAt: Long, online: Boolean, counters: String) {
++    fun reportGoals(context: Context, runId: String, online: Boolean, counters: String) {
 +        val counts = JSONObject()
 +        for (part in counters.split(',')) {
 +            val k = part.substringBefore('=', ""); val v = part.substringAfter('=', "").toLongOrNull()
@@ -2756,8 +2804,7 @@ index 0000000..46b597d
 +        }
 +        if (counts.length() == 0) return
 +        val (name, country) = profile(context)   // the name and flag last month's top 10 shows
-+        val prefix = when (RunStore.mode) { "sm" -> "m"; "z3" -> "z"; else -> "s" }   // the games' slots apart
-+        val body = JSONObject().put("install", installId(context)).put("run", "$prefix$slot-$createdAt").put("online", online).put("counts", counts).put("player", name)
++        val body = JSONObject().put("install", installId(context)).put("run", runId).put("online", online).put("counts", counts).put("player", name)
 +        if (country.length == 2) body.put("country", country)
 +        post("/api/goals/report", body)
 +    }
@@ -3255,10 +3302,10 @@ index 0000000..91f0bba
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
 new file mode 100644
-index 0000000..e232c5f
+index 0000000..6a099a5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunStore.kt
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,180 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -3294,6 +3341,8 @@ index 0000000..e232c5f
 +    val saveMs: Long = 0,
 +    val saveZelda: Int = 0,
 +    val saveMetroid: Int = 0,
++    /** The run's id on every device (its game letter and a UUID); "" until [RunStore.save] gives a new run one. */
++    val id: String = "",
 +)
 +
 +/** 32 run slots, each a small JSON file in the app's private storage. */
@@ -3335,10 +3384,13 @@ index 0000000..e232c5f
 +        return t[0].toIntOrNull()
 +    }
 +
-+    private fun file(context: Context, slot: Int) = File(runsDir(context), "slot$slot.json")
++    private fun file(context: Context, slot: Int, game: String) = File(runsDir(context, game), "slot$slot.json")
 +
-+    fun load(context: Context, slot: Int): Run? {
-+        val f = file(context, slot)
++    /** The game letter that starts a run id. */
++    fun letter(game: String) = when (game) { "sm" -> 'm'; "z3" -> 'z'; else -> 's' }
++
++    fun load(context: Context, slot: Int, game: String = mode): Run? {
++        val f = file(context, slot, game)
 +        if (!f.exists()) return null
 +        return runCatching {
 +            JSONObject(f.readText()).let {
@@ -3366,6 +3418,8 @@ index 0000000..e232c5f
 +                    saveMs = it.optLong("saveMs"),
 +                    saveZelda = it.optInt("saveZelda"),
 +                    saveMetroid = it.optInt("saveMetroid"),
++                    // a run made before the sync keeps the id its world goal reports already used
++                    id = it.optString("id").ifEmpty { "${letter(game)}$slot-${it.getLong("createdAt")}" },
 +                )
 +            }
 +        }.getOrNull()
@@ -3374,7 +3428,10 @@ index 0000000..e232c5f
 +    fun loadAll(context: Context): List<Run?> = (0 until SLOTS).map { load(context, it) }
 +
 +    @Synchronized
-+    fun save(context: Context, run: Run) {
++    fun save(context: Context, run: Run, game: String = mode) {
++        val id = run.id.ifEmpty {
++            com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native.syncNewId(letter(game), java.security.SecureRandom().nextLong())
++        }
 +        val json = JSONObject()
 +            .put("name", run.name).put("gameId", run.gameId).put("createdAt", run.createdAt)
 +            .put("lastPlayedAt", run.lastPlayedAt).put("playTimeMs", run.playTimeMs).put("game", run.game)
@@ -3382,28 +3439,31 @@ index 0000000..e232c5f
 +            .put("metroidCleared", run.metroidCleared).put("metroidTotal", run.metroidTotal).put("bossMask", run.bossMask).put("crystalMask", run.crystalMask)
 +            .put("logic", run.logic).put("keysanity", run.keysanity)
 +            .put("romPath", run.romPath).put("seed", run.seed).put("settings", run.settings).put("mapMode", run.mapMode).put("completedAt", run.completedAt)
-+            .put("saveMs", run.saveMs).put("saveZelda", run.saveZelda).put("saveMetroid", run.saveMetroid)
-+        file(context, run.slot).writeText(json.toString())
++            .put("saveMs", run.saveMs).put("saveZelda", run.saveZelda).put("saveMetroid", run.saveMetroid).put("id", id)
++        file(context, run.slot, game).writeText(json.toString())
 +    }
 +
-+    fun discoveryFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.disc.json")
++    fun discoveryFile(context: Context, slot: Int, game: String = mode) = File(runsDir(context, game), "slot$slot.disc.json")
 +
 +    fun recentFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.recent.json")
 +
 +    /** The run's world goal counters (key=n,key=n text, see smz3_counters.h). */
-+    fun goalsFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.goals")
++    fun goalsFile(context: Context, slot: Int, game: String = mode) = File(runsDir(context, game), "slot$slot.goals")
 +
 +    /** The counters at a save state (index -1: the quick save): loading the state puts them back. */
-+    fun goalsStateFile(context: Context, slot: Int, index: Int) = File(runsDir(context), "slot$slot.goals.state$index")
++    fun goalsStateFile(context: Context, slot: Int, index: Int, game: String = mode) = File(runsDir(context, game), "slot$slot.goals.state$index")
 +
-+    fun marksFile(context: Context, slot: Int) = File(runsDir(context), "slot$slot.marks.json")
++    fun marksFile(context: Context, slot: Int, game: String = mode) = File(runsDir(context, game), "slot$slot.marks.json")
++
++    /** This device's sync record of the run (SMZ_SYNC_RECORD, core/ui/smz3_sync.h). */
++    fun syncFile(context: Context, slot: Int, game: String = mode) = File(runsDir(context, game), "slot$slot.sync")
 +
 +    private fun romDir(context: Context) = runsDir(context)
 +
 +    /** The slot's ROM: the file named in its run (see [romName]) or, for runs made before stable names, the slot file. */
-+    fun romFile(context: Context, slot: Int): File {
-+        val path = load(context, slot)?.romPath.orEmpty()
-+        return if (path.isNotEmpty()) File(path) else File(romDir(context), "smz3_run_$slot.sfc")
++    fun romFile(context: Context, slot: Int, game: String = mode): File {
++        val path = load(context, slot, game)?.romPath.orEmpty()
++        return if (path.isNotEmpty()) File(path) else File(runsDir(context, game), "smz3_run_$slot.sfc")
 +    }
 +
 +    /** The stable ROM name is computed by the shared C code (core/ui) so every device agrees on it. */
@@ -3413,16 +3473,17 @@ index 0000000..e232c5f
 +
 +    fun delete(context: Context, slot: Int) {
 +        val rom = romFile(context, slot)
-+        file(context, slot).delete()
++        file(context, slot, mode).delete()
 +        rom.delete()
 +        clearExtras(context, slot)
 +    }
 +
 +    /** The map, marks and recent lists of whatever run used the slot before: a new run starts without them. */
-+    fun clearExtras(context: Context, slot: Int) {
-+        discoveryFile(context, slot).delete()
-+        marksFile(context, slot).delete()
-+        recentFile(context, slot).delete()
++    fun clearExtras(context: Context, slot: Int, game: String = mode) {
++        discoveryFile(context, slot, game).delete()
++        marksFile(context, slot, game).delete()
++        File(runsDir(context, game), "slot$slot.recent.json").delete()
++        syncFile(context, slot, game).delete()
 +    }
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RunSummary.kt
@@ -3584,7 +3645,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..c7fd23d 100644
+index 6d06420..bd27984 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3815,7 +3876,7 @@ index 6d06420..c7fd23d 100644
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.clear()
 +        com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.activeSlot(this)?.let { slot ->   // the world goals hear about the run as it closes
 +            val run = com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.load(this, slot)
-+            if (run != null) com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.reportGoals(applicationContext, slot, run.createdAt)
++            if (run != null) com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.reportGoals(applicationContext, slot, run.id)
 +        }
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.onMenu = null
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.onCredits = null
@@ -4045,13 +4106,14 @@ index 02e981f..501e617 100644
  
          return currentState.gameData to result
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt
-index 1eea23b..789c3f7 100644
+index 1eea23b..a093905 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/GameViewModelSaves.kt
-@@ -42,24 +42,28 @@ class GameViewModelSaves(
+@@ -42,24 +42,29 @@ class GameViewModelSaves(
      suspend fun saveSlot(index: Int) {
          getCurrentSaveState()?.let {
              statesManager.setSlotSave(game, it, systemCoreConfig.coreID, index)
++            com.swordfish.lemuroid.app.mobile.feature.runs.CloudSync.own(appContext, Smz3SyncHost.Q1 + index, it.state)
 +            Smz3Tracker.saveGoalsAt(appContext, index)
              runCatching {
                  takeScreenshotPreview(index)
@@ -4086,7 +4148,7 @@ index 1eea23b..789c3f7 100644
          } catch (e: Throwable) {
              val errorMessageId =
                  when (e) {
-@@ -68,6 +72,7 @@ class GameViewModelSaves(
+@@ -68,6 +73,7 @@ class GameViewModelSaves(
                  }
              sideEffects.showToast(appContext.getString(errorMessageId))
          }
@@ -4094,7 +4156,20 @@ index 1eea23b..789c3f7 100644
      }
  
      suspend fun captureSaveSnapshot(useEmulationThread: Boolean): SaveSnapshot? {
-@@ -119,7 +124,7 @@ class GameViewModelSaves(
+@@ -87,7 +93,11 @@ class GameViewModelSaves(
+             snapshot.autoSave != null,
+         )
+         savesManager.setSaveRAM(game, snapshot.sram)
+-        snapshot.autoSave?.let { statesManager.setAutoSave(game, systemCoreConfig.coreID, it) }
++        if (snapshot.sram.isNotEmpty()) com.swordfish.lemuroid.app.mobile.feature.runs.CloudSync.own(appContext, Smz3SyncHost.SRM, snapshot.sram)
++        snapshot.autoSave?.let {
++            statesManager.setAutoSave(game, systemCoreConfig.coreID, it)
++            com.swordfish.lemuroid.app.mobile.feature.runs.CloudSync.own(appContext, Smz3SyncHost.RESUME, it.state)
++        }
+     }
+ 
+     // On some cores unserialize fails with no reason. So we need to try multiple times.
+@@ -119,7 +129,7 @@ class GameViewModelSaves(
      }
  
      private suspend fun isAutoSaveEnabled(): Boolean {
@@ -4103,7 +4178,7 @@ index 1eea23b..789c3f7 100644
      }
  
      private suspend fun takeScreenshotPreview(index: Int) {
-@@ -155,16 +160,18 @@ class GameViewModelSaves(
+@@ -155,16 +165,18 @@ class GameViewModelSaves(
              retroGameView.changeDisk(saveState.metadata.diskIndex)
          }
  
@@ -7396,10 +7471,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..679cc49
+index 0000000..2746194
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,265 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7595,6 +7670,75 @@ index 0000000..679cc49
 +    @JvmStatic external fun gameMapArea(): String
 +    /** An ALttP seed hash's five file select icons (assets smz3/items/z3hash_NN.png), empty when the text is not one. */
 +    @JvmStatic external fun z3HashIcons(text: String): IntArray
++
++    /* RomM sync (core/ui/smz3_sync.h). cfg is {RomM url, token, device id, SMZ3 server, install id, device name}; host does the
++     * HTTP and a run's files on the calling thread, so call these off the main thread. */
++    @JvmStatic external fun syncLoginStart(host: Smz3SyncHost, cfg: Array<String>, platform: String): Array<String>
++    @JvmStatic external fun syncLoginPoll(host: Smz3SyncHost, cfg: Array<String>, deviceCode: String): Array<String>
++    @JvmStatic external fun syncWhoami(host: Smz3SyncHost, cfg: Array<String>): Array<String>
++    /** Per run {run id, ROM id, note id, ROM name, run text} as UTF-8; null when RomM failed. */
++    @JvmStatic external fun syncNotes(host: Smz3SyncHost, cfg: Array<String>): Array<ByteArray>?
++    /** run: {id, ROM name, name, proof}. {result, changed, unranked, cloud device, cloud ms, why, play ms}. */
++    @JvmStatic external fun syncRun(host: Smz3SyncHost, cfg: Array<String>, push: Boolean, force: Boolean, run: Array<String>, online: Boolean,
++                                    playMs: Long, romId: Int, nowMs: Long): Array<String>
++    @JvmStatic external fun syncOwn(host: Smz3SyncHost, kind: Int, data: ByteArray)
++    @JvmStatic external fun syncDelete(host: Smz3SyncHost, cfg: Array<String>)
++    @JvmStatic external fun syncNewRecord(host: Smz3SyncHost, romId: Int, noteId: Int)
++    /** what 0: a link code, 1: link with [code]. {"0", code} or {"-1", why}. */
++    @JvmStatic external fun syncPlayer(host: Smz3SyncHost, cfg: Array<String>, what: Int, code: String): Array<String>
++    @JvmStatic external fun syncHold(host: Smz3SyncHost, cfg: Array<String>, runId: String, force: Boolean): Int
++    @JvmStatic external fun syncNewId(letter: Char, entropy: Long): String
++    @JvmStatic external fun uiCloudEnable(on: Boolean)
++    @JvmStatic external fun uiCloudState(state: Int, user: String, server: String, code: String, url: String)
++    @JvmStatic external fun uiCloudMsg(msg: String)
++    @JvmStatic external fun uiCloudConflict(slot: Int, device: String, whenText: String)
++    /** {the run of the conflict, the link code typed}. */
++    @JvmStatic external fun uiCloudInfo(): Array<String>
++}
++
++/** What the shared sync code calls back: one HTTP request, and a run's files by SMZ_SYNC_* kind (core/ui/smz3_sync.h). */
++open class Smz3SyncHost {
++    /** The last request's HTTP status. */
++    @JvmField var status = 0
++
++    /** headers holds "Name: value" lines. Null when the server was not reached. */
++    open fun http(method: String, url: ByteArray, headers: ByteArray?, body: ByteArray?): ByteArray? = runCatching {
++        val c = java.net.URL(String(url, Charsets.UTF_8)).openConnection() as java.net.HttpURLConnection
++        c.requestMethod = method
++        c.connectTimeout = 15_000
++        c.readTimeout = 120_000
++        headers?.let { String(it, Charsets.UTF_8) }?.lineSequence()?.forEach { line ->
++            val i = line.indexOf(':')
++            if (i > 0) c.setRequestProperty(line.substring(0, i).trim(), line.substring(i + 1).trim())
++        }
++        if (body != null || method == "POST" || method == "PUT") {
++            val b = body ?: ByteArray(0)
++            c.doOutput = true
++            c.setFixedLengthStreamingMode(b.size)
++            c.outputStream.use { it.write(b) }
++        }
++        val code = c.responseCode
++        val bytes = (if (code >= 400) c.errorStream else c.inputStream)?.use { it.readBytes() } ?: ByteArray(0)
++        c.disconnect()
++        status = code
++        bytes
++    }.onFailure { status = -1 }.getOrNull()
++
++    open fun read(kind: Int): ByteArray? = null
++
++    /** data null removes the file. */
++    open fun write(kind: Int, data: ByteArray?): Boolean = false
++
++    companion object {
++        const val SRM = 0
++        const val RESUME = 1
++        const val Q1 = 2
++        const val RACE = 6
++        const val RUN = 7
++        const val HELP = 8
++        const val ROM = 9
++        const val RECORD = 10
++    }
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3PortalView.kt
 new file mode 100644
@@ -9525,7 +9669,7 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..648eb77
+index 0000000..6b0c054
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 @@ -0,0 +1,493 @@
@@ -9649,10 +9793,10 @@ index 0000000..648eb77
 +    }
 +
 +    /** Sends the run's world goal counters in the background (every few minutes, at the end and when the game closes). */
-+    fun reportGoals(context: Context, slot: Int, createdAt: Long) {
++    fun reportGoals(context: Context, slot: Int, runId: String) {
 +        val text = Smz3Native.countersText()
 +        val online = OnlineLadder.slotKind(context, slot) != 0
-+        Thread { OnlineLadder.reportGoals(context, slot, createdAt, online, text) }.start()
++        Thread { OnlineLadder.reportGoals(context, runId, online, text) }.start()
 +    }
 +
 +    /** A Map Rando run's ROM goes to the game map (core/ui/smz3_smmap.c); any other run clears it. */
@@ -9982,7 +10126,7 @@ index 0000000..648eb77
 +                            RunStore.goalsFile(context, slot).writeText(Smz3Native.countersText())
 +                            if (SystemClock.elapsedRealtime() >= nextGoalsReport || finishing) {
 +                                nextGoalsReport = SystemClock.elapsedRealtime() + 300_000
-+                                reportGoals(context, slot, run.createdAt)
++                                reportGoals(context, slot, run.id)
 +                            }
 +                            if (run.completedAt == 0L) baseMs = totalMs
 +                            pendingPlayTime = 0
@@ -13638,7 +13782,7 @@ index ed9b150..50fd278 100644
  </manifest>
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
 new file mode 100644
-index 0000000..45c0007
+index 0000000..1655f82
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
 @@ -0,0 +1,93 @@
@@ -13939,4 +14083,445 @@ index 0000000..e470c29
 +    }
 +
 +    fun release() { fade?.cancel(); fade = null; player?.release(); player = null }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
+new file mode 100644
+index 0000000..1b3a13f
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
+@@ -0,0 +1,435 @@
++package com.swordfish.lemuroid.app.mobile.feature.runs
++
++import android.content.Context
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3SyncHost
++import com.swordfish.lemuroid.lib.storage.DirectoriesManager
++import org.json.JSONArray
++import org.json.JSONObject
++import java.io.ByteArrayOutputStream
++import java.io.File
++import java.util.concurrent.ConcurrentLinkedQueue
++import java.util.concurrent.Executors
++import java.util.concurrent.atomic.AtomicBoolean
++import java.util.zip.GZIPInputStream
++import java.util.zip.GZIPOutputStream
++
++/**
++ * One run's files as the shared sync code sees them (SMZ_SYNC_* kinds): Lemuroid's .srm and gzipped states, and the run
++ * itself as the SMZRUN1 text without the ROM path, with the small files beside it as "x.<name>=" lines, as the PC does.
++ */
++class RunFiles(private val context: Context, private val game: String, private val slot: Int, private val romName: String) : Smz3SyncHost() {
++    private val dir = RunStore.runsDir(context, game)
++    private val dirs by lazy { DirectoriesManager(context.applicationContext) }
++
++    private fun side(ext: String) = File(dir, "slot$slot.$ext")
++
++    private fun romFile(): File {
++        val path = RunStore.load(context, slot, game)?.romPath.orEmpty()
++        return when {
++            path.isNotEmpty() -> File(path)
++            romName.isNotEmpty() -> File(dir, romName)
++            else -> File(dir, "smz3_run_$slot.sfc")
++        }
++    }
++
++    /** Lemuroid names saves and states after the ROM file (Game.fileName). */
++    private fun srmFile() = File(dirs.getSavesDirectory(), romFile().name.substringBeforeLast('.') + ".srm")
++
++    private fun stateFile(kind: Int): File {
++        val name = romFile().name + if (kind == RESUME) ".state" else ".slot${kind - Q1 + 1}"
++        return File(File(dirs.getStatesDirectory(), "snes9x").apply { mkdirs() }, name)
++    }
++
++    override fun read(kind: Int): ByteArray? = runCatching {
++        when (kind) {
++            SRM -> srmFile().takeIf { it.length() > 0 }?.readBytes()
++            in RESUME until RACE -> stateFile(kind).takeIf { it.length() > 0 }?.let { gunzip(it.readBytes()) }
++            RUN -> runText()?.toByteArray()
++            HELP -> helpText()?.toByteArray()
++            ROM -> romFile().takeIf { it.isFile }?.readBytes()
++            RECORD -> RunStore.syncFile(context, slot, game).takeIf { it.isFile }?.readBytes()
++            else -> null
++        }
++    }.getOrNull()
++
++    override fun write(kind: Int, data: ByteArray?): Boolean = runCatching {
++        when (kind) {
++            SRM -> put(srmFile(), data)
++            in RESUME until RACE -> {
++                val f = stateFile(kind)
++                put(f, data?.let { gzip(it) })
++                put(File(f.path + ".metadata"), data?.let { "{\"diskIndex\":0,\"version\":0}".toByteArray() })
++            }
++            RUN -> applyRunText(String(data ?: return@runCatching false, Charsets.UTF_8))
++            HELP -> applyHelp(data?.let { String(it, Charsets.UTF_8) })
++            ROM -> put(romFile(), data)
++            RECORD -> put(RunStore.syncFile(context, slot, game), data)
++            RACE -> {}
++            else -> return@runCatching false
++        }
++        true
++    }.getOrDefault(false)
++
++    private fun put(f: File, data: ByteArray?) {
++        if (data == null) { f.delete(); return }
++        f.parentFile?.mkdirs()
++        val tmp = File(f.path + ".part")
++        tmp.writeBytes(data)
++        if (!tmp.renameTo(f)) { f.writeBytes(data); tmp.delete() }
++    }
++
++    private fun gunzip(b: ByteArray): ByteArray = runCatching { GZIPInputStream(b.inputStream()).use { it.readBytes() } }.getOrDefault(b)
++
++    private fun gzip(b: ByteArray): ByteArray = ByteArrayOutputStream().also { o -> GZIPOutputStream(o).use { it.write(b) } }.toByteArray()
++
++    private fun text(f: File) = f.takeIf { it.isFile }?.readText()
++
++    /** The side files the PC keeps too, by their name there; each is replaced (or removed) on every pull. */
++    private fun commonSides(): List<Pair<String, File>> = listOf("online", "token", "proof", "preset").map { it to side(it) } +
++        (0 until 4).map { "q${it + 1}.goals" to RunStore.goalsStateFile(context, slot, it, game) }
++
++    private fun runText(): String? {
++        val r = RunStore.load(context, slot, game) ?: return null
++        val goals = text(RunStore.goalsFile(context, slot, game))?.trim().orEmpty()
++        val sb = StringBuilder("SMZRUN1\n")
++        sb.append("id=${r.id}\nmode=$game\nname=${r.name}\nseed=${r.seed}\ncreated=${r.createdAt}\nplayed=${r.lastPlayedAt}\nplay_ms=${r.playTimeMs}\n")
++        sb.append("game=${r.game}\nzc=${r.zeldaCleared}\nzt=${r.zeldaTotal}\nmc=${r.metroidCleared}\nmt=${r.metroidTotal}\nbm=${r.bossMask}\ncm=${r.crystalMask}\n")
++        sb.append("sms=${r.saveMs}\nsz=${r.saveZelda}\nsm=${r.saveMetroid}\ngoals=$goals\nsettings=${r.settings}\n")
++        for ((name, f) in commonSides()) text(f)?.let { sb.append("x.$name=").append(esc(it)).append('\n') }
++        text(RunStore.discoveryFile(context, slot, game))?.let { sb.append("x.discovery=").append(esc(discoveryToText(it))).append('\n') }
++        // Android's own: the PC drops them, and a pull without them keeps what is here
++        text(RunStore.marksFile(context, slot, game))?.let { sb.append("x.marks=").append(esc(it)).append('\n') }
++        text(side("mode"))?.let { sb.append("x.mode=").append(esc(it)).append('\n') }
++        if (r.completedAt != 0L) sb.append("x.completed=${r.completedAt}\n")
++        return sb.toString()
++    }
++
++    private fun applyRunText(t: String) {
++        val fields = HashMap<String, String>()
++        val sides = HashMap<String, String>()
++        for (line in t.lineSequence()) {
++            val i = line.indexOf('=')
++            if (i <= 0) continue
++            val k = line.substring(0, i); val v = line.substring(i + 1)
++            if (k.startsWith("x.")) sides[k.substring(2)] = unesc(v) else fields[k] = v
++        }
++        val old = RunStore.load(context, slot, game)
++        val settings = fields["settings"]?.ifEmpty { null } ?: "{}"
++        val json = runCatching { JSONObject(settings) }.getOrDefault(JSONObject())
++        val seed = fields["seed"].orEmpty()
++        fun l(k: String) = fields[k]?.toLongOrNull() ?: 0L
++        fun i(k: String) = fields[k]?.toIntOrNull() ?: 0
++        val rom = old?.romPath?.takeIf { it.isNotEmpty() } ?: File(dir, romName.ifEmpty { RunStore.romName(seed, settings) }).path
++        RunStore.save(
++            context,
++            Run(
++                slot = slot, name = fields["name"].orEmpty().ifEmpty { "Run ${slot + 1}" }, gameId = old?.gameId ?: 0, createdAt = l("created"),
++                lastPlayedAt = l("played"), playTimeMs = l("play_ms"), game = i("game"),
++                zeldaCleared = i("zc"), zeldaTotal = i("zt"), metroidCleared = i("mc"), metroidTotal = i("mt"), bossMask = i("bm"), crystalMask = i("cm"),
++                logic = old?.logic ?: "Vanilla", keysanity = json.optString("keysanity", "None") != "None", romPath = rom, seed = seed, settings = settings,
++                mapMode = json.optString("mapMode", old?.mapMode ?: "all"), completedAt = sides["completed"]?.toLongOrNull() ?: old?.completedAt ?: 0L,
++                saveMs = l("sms"), saveZelda = i("sz"), saveMetroid = i("sm"), id = fields["id"].orEmpty().ifEmpty { old?.id.orEmpty() },
++            ),
++            game,
++        )
++        val goals = fields["goals"].orEmpty()
++        if (goals.isNotEmpty()) RunStore.goalsFile(context, slot, game).writeText(goals) else RunStore.goalsFile(context, slot, game).delete()
++        for ((name, f) in commonSides()) sides[name]?.let { f.writeText(it) } ?: f.delete()
++        sides["discovery"]?.let { RunStore.discoveryFile(context, slot, game).writeText(discoveryFromText(it)) } ?: RunStore.discoveryFile(context, slot, game).delete()
++        sides["marks"]?.let { RunStore.marksFile(context, slot, game).writeText(it) }
++        sides["mode"]?.let { side("mode").writeText(it) }
++    }
++
++    /** Smz3Help's JSON as the PC's help file: seed, used, fixed, revealed and the hints given. */
++    private fun helpText(): String? {
++        val r = RunStore.load(context, slot, game) ?: return null
++        val j = JSONObject(text(side("help.json")) ?: return null)
++        val s = runCatching { JSONObject(r.settings) }.getOrDefault(JSONObject())
++        val fixed = if (s.has("showFixedKeys")) s.optBoolean("showFixedKeys") else r.name == "Cozy run"
++        val sb = StringBuilder("seed=${r.seed}\nused=${j.optInt("used")}\nfixed=${if (fixed) 1 else 0}\nrevealed=")
++        j.optJSONArray("revealed")?.let { a -> for (k in 0 until a.length()) sb.append(a.getInt(k)).append(',') }
++        sb.append('\n')
++        j.optJSONArray("hints")?.let { a -> for (k in 0 until a.length()) sb.append("hint=").append(a.getString(k)).append('\n') }
++        return sb.toString()
++    }
++
++    private fun applyHelp(t: String?) {
++        val f = side("help.json")
++        if (t == null) { f.delete(); return }
++        val seed = RunStore.load(context, slot, game)?.seed
++        var used = 0
++        val hints = JSONArray()
++        val revealed = JSONArray()
++        for (line in t.lineSequence()) when {
++            line.startsWith("seed=") -> if (line.substring(5) != seed) { f.delete(); return }   // another run's
++            line.startsWith("used=") -> used = line.substring(5).toIntOrNull() ?: 0
++            line.startsWith("hint=") -> hints.put(line.substring(5))
++            line.startsWith("revealed=") -> line.substring(9).split(',').mapNotNull { it.toIntOrNull() }.forEach { revealed.put(it) }
++        }
++        f.writeText(JSONObject().put("used", used).put("hints", hints).put("revealed", revealed).toString())
++    }
++
++    companion object {
++        fun esc(t: String) = t.replace("\\", "\\\\").replace("\r", "").replace("\n", "\\n")
++
++        fun unesc(t: String): String {
++            val sb = StringBuilder()
++            var i = 0
++            while (i < t.length) {
++                val c = t[i]
++                if (c == '\\' && i + 1 < t.length) { i++; sb.append(if (t[i] == 'n') '\n' else t[i]) } else sb.append(c)
++                i++
++            }
++            return sb.toString()
++        }
++
++        /** Smz3Discovery's JSON as smz_disc_save's text ("rooms 1 2" / "screens 0 1" / "dungeons A;B;"), and back. */
++        fun discoveryToText(json: String): String {
++            val o = runCatching { JSONObject(json) }.getOrDefault(JSONObject())
++            fun list(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.get(it).toString() } }.orEmpty()
++            return "rooms" + list("rooms").joinToString("") { " $it" } + "\nscreens" + list("screens").joinToString("") { " $it" } +
++                "\ndungeons " + list("dungeons").joinToString("") { "$it;" } + "\n"
++        }
++
++        fun discoveryFromText(t: String): String {
++            val o = JSONObject()
++            for (line in t.lineSequence()) when {
++                line.startsWith("rooms") -> o.put("rooms", JSONArray(line.substring(5).trim().split(' ').mapNotNull { it.toIntOrNull() }))
++                line.startsWith("screens") -> o.put("screens", JSONArray(line.substring(7).trim().split(' ').mapNotNull { it.toIntOrNull() }))
++                line.startsWith("dungeons") -> o.put("dungeons", JSONArray(line.substring(8).split(';').map { it.trim() }.filter { it.isNotEmpty() }))
++            }
++            return o.toString()
++        }
++    }
++}
++
++/**
++ * Cloud sync with RomM (docs/PLAN_ROMM_SYNC.md), the PC's pc_sync.c for Android: the sign-in kept in sync.txt, runs pulled
++ * before they open and pushed after they close, account runs brought into free slots. The logic is the shared C code.
++ */
++object CloudSync {
++    private const val DEFAULT_ROMM = "https://romm.example.com"
++    const val OK = 0
++    const val CONFLICT = 1
++    const val HELD = 3
++    const val FAILED = 4
++    // UI_CLOUD_* and CLOUD_* in core/ui/smz3_ui.h
++    private const val STATE_OUT = 0
++    private const val STATE_WAITING = 1
++    private const val STATE_IN = 2
++    const val SIGN_IN = 1
++    const val CANCEL = 2
++    const val SYNC = 3
++    const val CODE = 4
++    const val LINK = 5
++    const val SIGN_OUT = 6
++    const val KEEP_HERE = 7
++    const val KEEP_CLOUD = 8
++
++    /** One sync call at a time, in the order asked (an open waits for the push before it). */
++    private val worker = Executors.newSingleThreadExecutor()
++    @Volatile private var base = DEFAULT_ROMM
++    @Volatile private var token = ""
++    @Volatile private var device = ""
++    @Volatile private var user = ""
++    @Volatile private var loaded = false
++    @Volatile private var listedOnce = false
++    @Volatile private var loginState = 0   // 0 idle, 1 waiting for approval, 2 signed in, 3 failed
++    @Volatile private var loginCancel = false
++    @Volatile private var code = ""
++    @Volatile private var url = ""
++    private var shownWaiting = false
++    private val messages = ConcurrentLinkedQueue<String>()
++    private val listDone = AtomicBoolean(false)
++    private val net = Smz3SyncHost()
++
++    private fun configFile(context: Context) = File(context.filesDir, "sync.txt")
++
++    private fun load(context: Context) {
++        if (loaded) return
++        loaded = true
++        runCatching {
++            for (line in configFile(context).readLines()) {
++                val k = line.substringBefore('=', ""); val v = line.substringAfter('=', "")
++                when (k) { "romm" -> if (v.isNotEmpty()) base = v; "token" -> token = v; "device" -> device = v; "user" -> user = v }
++            }
++        }
++    }
++
++    private fun save(context: Context) {
++        runCatching { configFile(context).writeText("romm=$base\ntoken=$token\ndevice=$device\nuser=$user\n") }
++    }
++
++    fun signedIn() = token.isNotEmpty()
++
++    private fun host() = base.substringAfter("://")
++
++    private fun cfg(context: Context) = arrayOf(base, token, device, OnlineLadder.BASE, OnlineLadder.installIdFor(context), "Android " + android.os.Build.MODEL)
++
++    private fun say(m: String) { messages.add(m) }
++
++    /** After Smz3Native.uiInit: turns the Options row on; the first time, signed in, brings the account's runs here. */
++    fun attach(context: Context) {
++        load(context)
++        Smz3Native.uiCloudEnable(true)
++        showState()
++        if (signedIn() && !listedOnce) { listedOnce = true; list(context) }
++    }
++
++    private fun showState() {
++        if (signedIn()) Smz3Native.uiCloudState(STATE_IN, user, host(), "", "") else Smz3Native.uiCloudState(STATE_OUT, "", host(), "", "")
++    }
++
++    /** On the main thread: shows what the background calls finished. 0 nothing, 1 redraw, 2 the run list changed. */
++    fun poll(context: Context): Int {
++        var r = 0
++        if (loginState == 1 && !shownWaiting) { shownWaiting = true; Smz3Native.uiCloudState(STATE_WAITING, "", host(), code, url); r = 1 }
++        if (loginState == 2) { loginState = 0; shownWaiting = false; showState(); Smz3Native.uiCloudMsg("Signed in"); list(context); r = 1 }
++        if (loginState == 3) { loginState = 0; shownWaiting = false; showState(); r = 1 }
++        while (true) { Smz3Native.uiCloudMsg(messages.poll() ?: break); r = 1 }
++        if (listDone.getAndSet(false)) r = 2
++        return r
++    }
++
++    private fun login(context: Context) {
++        val c = cfg(context).also { it[1] = "" }
++        val start = Smz3Native.syncLoginStart(net, c, "Android")
++        if (start[0].isEmpty()) { say(start[1].take(47)); loginState = 3; return }
++        code = start[1]
++        url = start[2].substringAfter("://")
++        loginState = 1
++        val interval = (start[3].toIntOrNull() ?: 5).coerceAtLeast(1) * 1000L
++        val end = System.currentTimeMillis() + (start[4].toLongOrNull() ?: 600) * 1000
++        var p = "1"
++        while (p == "1" && !loginCancel && System.currentTimeMillis() < end) {
++            Thread.sleep(interval)
++            if (loginCancel) break
++            val q = Smz3Native.syncLoginPoll(net, c, start[0])
++            p = q[0]
++            if (p == "0") { token = q[1]; device = q[2]; user = q[3]; save(context) }
++            else if (p == "-1") say(q[1].take(47))
++        }
++        if (p == "0" && !loginCancel) loginState = 2
++        else { if (!loginCancel && p == "1") say("The code expired: sign in again"); loginState = 3 }
++    }
++
++    private fun game(runId: String) = when (runId.firstOrNull()) { 'z' -> "z3"; 'm' -> "sm"; else -> "smz3" }
++
++    /** Brings the account's runs that are on no slot here into free slots, every game. */
++    private fun listRuns(context: Context) {
++        val notes = Smz3Native.syncNotes(net, cfg(context)) ?: return
++        for (n in 0 until notes.size / 5) {
++            val f = notes.copyOfRange(n * 5, n * 5 + 5).map { String(it, Charsets.UTF_8) }
++            val (runId, romId, noteId, rom, text) = f
++            if (text.isEmpty()) continue
++            val game = game(runId)
++            val runs = (0 until RunStore.SLOTS).map { RunStore.load(context, it, game) }
++            if (runs.any { it?.id == runId }) continue
++            val slot = runs.indexOfFirst { it == null }.takeIf { it >= 0 } ?: continue
++            RunStore.clearExtras(context, slot, game)
++            File(RunStore.runsDir(context, game), "slot$slot.help.json").delete()
++            val files = RunFiles(context, game, slot, rom)
++            if (files.write(Smz3SyncHost.RUN, text.toByteArray())) Smz3Native.syncNewRecord(files, romId.toIntOrNull() ?: 0, noteId.toIntOrNull() ?: 0)
++        }
++    }
++
++    private fun list(context: Context) {
++        val app = context.applicationContext
++        worker.execute {
++            runCatching {
++                if (signedIn()) {
++                    val who = Smz3Native.syncWhoami(net, cfg(app))
++                    if (who[0] == "1") { token = ""; save(app); say("RomM signed this device out"); loginState = 3 }
++                    else if (who[0] == "0") listRuns(app)
++                }
++            }.onFailure { android.util.Log.e("CloudSync", "list failed", it) }
++            listDone.set(true)
++        }
++    }
++
++    /** The Cloud sync screen's rows (ACT_CLOUD); the conflict choice is the menu's, see [open]. */
++    fun action(context: Context, what: Int, link: String) {
++        val app = context.applicationContext
++        when (what) {
++            SIGN_IN -> if (loginState != 1) {
++                loginCancel = false
++                Smz3Native.uiCloudMsg("Asking RomM for a code...")
++                Thread { runCatching { login(app) }.onFailure { say("Sign-in failed"); loginState = 3 } }.start()
++            }
++            CANCEL -> { loginCancel = true; Smz3Native.uiCloudState(STATE_OUT, "", host(), "", "") }
++            SIGN_OUT -> {
++                worker.execute { token = ""; device = ""; user = ""; save(app) }
++                Smz3Native.uiCloudState(STATE_OUT, "", host(), "", "")
++                Smz3Native.uiCloudMsg("Signed out: the runs here stay")
++            }
++            SYNC -> { Smz3Native.uiCloudMsg("Syncing..."); list(app) }
++            CODE -> {
++                Smz3Native.uiCloudMsg("Asking the server for a code...")
++                Thread { val r = Smz3Native.syncPlayer(net, cfg(app), 0, ""); say(if (r[0] == "0") "On the other device enter ${r[1]}" else r[1].take(47)) }.start()
++            }
++            LINK -> Thread { val r = Smz3Native.syncPlayer(net, cfg(app), 1, link); say(if (r[0] == "0") "Linked: one player on both devices" else r[1].take(47)) }.start()
++        }
++    }
++
++    private fun online(context: Context, game: String, slot: Int) =
++        runCatching { File(RunStore.runsDir(context, game), "slot$slot.online").readText().trim() }.getOrNull() in setOf("original", "monthly", "weekly")
++
++    private fun job(context: Context, game: String, slot: Int, push: Boolean, force: Boolean): Array<String>? {
++        val run = RunStore.load(context, slot, game) ?: return null
++        val files = RunFiles(context, game, slot, "")
++        val online = online(context, game, slot)
++        val proof = if (online) runCatching { File(RunStore.runsDir(context, game), "slot$slot.proof").readText() }.getOrDefault("") else ""
++        if (online && !push) Smz3Native.syncHold(net, cfg(context), run.id, true)   // playing it here takes it over
++        val rom = RunStore.romName(run.seed, run.settings)
++        val r = Smz3Native.syncRun(files, cfg(context), push, force, arrayOf(run.id, rom, run.name, proof), online, run.playTimeMs, 0, System.currentTimeMillis())
++        if (!push && online && r[0] == "0" && r[2] == "1" && game == RunStore.mode) OnlineLadder.markRun(context, slot, false, "")   // files made outside SMZ3
++        return r
++    }
++
++    /** Before a run starts: RomM's newer files come down (forcePull keeps RomM's, forcePush this device's). Blocks: call off the
++     *  main thread. {result, changed, unranked, cloud device, cloud ms, why}; null when there was nothing to do. */
++    fun open(context: Context, game: String, slot: Int, forcePull: Boolean, forcePush: Boolean): Array<String>? {
++        if (!signedIn() || slot >= RunStore.SLOTS) return null
++        val app = context.applicationContext
++        return worker.submit<Array<String>?> {
++            runCatching { job(app, game, slot, forcePush, forcePull || forcePush) }.onFailure { android.util.Log.e("CloudSync", "open failed", it) }.getOrNull()
++        }.get()
++    }
++
++    /** After a run: what changed goes up, in the background. */
++    fun left(context: Context, game: String, slot: Int) {
++        if (!signedIn() || slot >= RunStore.SLOTS) return
++        val app = context.applicationContext
++        worker.execute {
++            val r = runCatching { job(app, game, slot, true, false) }.onFailure { android.util.Log.e("CloudSync", "push failed", it) }.getOrNull() ?: return@execute
++            when (r[0].toIntOrNull()) {
++                CONFLICT -> say("A run changed elsewhere too: open it to choose")
++                HELD -> say("Another device took this run over")
++                FAILED -> say(r[5].take(47))
++            }
++        }
++    }
++
++    /** SMZ3's emulator wrote a file of the run being played (in the game's process): its hash goes into the sync record. */
++    fun own(context: Context, kind: Int, data: ByteArray) {
++        runCatching {
++            val slot = RunStore.activeSlot(context) ?: return
++            if (slot < RunStore.SLOTS) Smz3Native.syncOwn(RunFiles(context, RunStore.mode, slot, ""), kind, data)
++        }
++    }
++
++    /** A run is being deleted here: it goes from RomM too. Call before its files go. */
++    fun deleted(context: Context, slot: Int) {
++        if (!signedIn() || slot >= RunStore.SLOTS) return
++        val record = runCatching { RunStore.syncFile(context, slot).readBytes() }.getOrNull() ?: return
++        val app = context.applicationContext
++        worker.execute {
++            val host = object : Smz3SyncHost() { override fun read(kind: Int) = if (kind == RECORD) record else null }
++            runCatching { Smz3Native.syncDelete(host, cfg(app)) }
++        }
++    }
++
++    /** "there on 26 Nov, 14:05", for the conflict screen. */
++    fun whenText(ms: Long): String = java.text.SimpleDateFormat("'there on' d MMM, HH:mm", java.util.Locale.ENGLISH).format(java.util.Date(ms))
 +}
