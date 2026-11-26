@@ -14,6 +14,8 @@ for f in smz3_generate smz3_fill smz3_world smz3_world_gen smz3_rng smz3_patch s
 done
 cp "$ROOT"/core/gen/smz3_*.h source/
 for f in smz3_state smz3_locations smz3_inventory; do cp "$ROOT/core/$f.c" source/; done
+# the save state converter between this emulator and the libretro core (core/state)
+cp "$ROOT"/core/state/smz3_statecvt.[ch] source/
 # the Super Metroid generator (core/smgen), flat beside the rest: its one relative include is made plain
 cp "$ROOT"/core/smgen/sm_*.[ch] source/
 # the BPS reader for the Map Rando seeds the server sends (core/common)

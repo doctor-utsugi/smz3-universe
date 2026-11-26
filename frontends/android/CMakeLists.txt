@@ -8,6 +8,7 @@ add_library(smz3core SHARED
     ../../core/smz3_state.c
     ../../core/smz3_inventory.c
     ../../core/smz3_locations.c
+    ../../core/state/smz3_statecvt.c
     ../../core/gen/smz3_generate.c
     ../../core/gen/smz3_rom.c
     ../../core/gen/smz3_patch.c
