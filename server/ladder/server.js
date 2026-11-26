@@ -10,6 +10,7 @@
 //   /api/daily..., /api/tokens: the daily timed challenge, see daily.js
 //   /api/goals...: the world goals of the month, see goals.js
 //   /api/race/...: online races, see race.js
+//   /api/player..., /api/sync/...: one player on every device and the RomM sync's hashes and holds, see players.js
 //   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
 //   GET  /api/games                                -> {games:[...], presets:{game:[{key, name}]}}   the games with ladders
 //   GET  /api/maprando/seed ?settings=&seed=      -> a Map Rando seed as a BPS patch (maprando.js)
@@ -199,11 +200,20 @@ function readJson(req, res, then) {
 const verifyChallenge = (kind, period, b, timeMs, done) => verifyProof('smz3', kind, period, b, timeMs, done);
 
 const CLOCK_SHIFT = Number(process.env.DAILY_CLOCK_SHIFT_MS || 0);   // local tests only: moves the daily challenge's clock
-const dailyRoutes = require('./daily')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof: verifyChallenge, now: CLOCK_SHIFT ? () => Date.now() + CLOCK_SHIFT : undefined });
+// Every route but players.js sees a device's player id in place of its install id (players.js, PLAN_ROMM_SYNC.md).
+let playerOf = install => install;
+const readPlayerJson = (req, res, then) => readJson(req, res, b => {
+  if (b && typeof b.install === 'string') b.install = playerOf(b.install);
+  then(b);
+});
+const dailyRoutes = require('./daily')({ DIR, hmac, send, readJson: readPlayerJson, onlyKeys, limited, clean, verifyProof: verifyChallenge, now: CLOCK_SHIFT ? () => Date.now() + CLOCK_SHIFT : undefined });
 
-const goalRoutes = require('./goals')({ DIR, send, readJson, onlyKeys, limited, clean, daily: dailyRoutes });
+const goalRoutes = require('./goals')({ DIR, send, readJson: readPlayerJson, onlyKeys, limited, clean, daily: dailyRoutes });
 
-const raceRoutes = require('./race')({ DIR, hmac, send, readJson, onlyKeys, limited, clean, verifyProof: verifyChallenge });
+const raceRoutes = require('./race')({ DIR, hmac, send, readJson: readPlayerJson, onlyKeys, limited, clean, verifyProof: verifyChallenge });
+
+const playerRoutes = require('./players')({ DIR, send, readJson, onlyKeys, limited, validInstall: dailyRoutes.validInstall });
+playerOf = playerRoutes.of;
 
 const mapRandoRoutes = require('./maprando')({ DIR, send, limited });
 
@@ -230,6 +240,8 @@ http.createServer((req, res) => {
   if (url.pathname.startsWith('/api/')) console.log(new Date().toISOString(), req.method, url.pathname);
   if (req.method === 'OPTIONS') return send(res, 204, '');
   if (req.method === 'GET' && url.pathname === '/') return send(res, 200, page, 'text/html');
+  if (url.pathname === '/api/player' || url.pathname.startsWith('/api/player/') || url.pathname.startsWith('/api/sync/')) { if (playerRoutes(req, res, url, ip)) return; }
+  if (url.searchParams.has('install')) url.searchParams.set('install', playerOf(url.searchParams.get('install')));
   if (url.pathname.startsWith('/api/daily') || url.pathname === '/api/tokens') { if (dailyRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/goals')) { if (goalRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/race/')) { if (raceRoutes(req, res, url, ip)) return; }
@@ -267,7 +279,7 @@ http.createServer((req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/api/start') {
     if (limited('s', ip, START_PER_HOUR)) return send(res, 429, { error: 'slow down' });
-    return readJson(req, res, b => {
+    return readPlayerJson(req, res, b => {
       const game = gameOf(b.game), preset = presetOf(game, b.preset);
       if (!onlyKeys(b, ['install', 'kind', 'game', 'preset']) || !game || !['original', 'monthly', 'weekly'].includes(b.kind) || !dailyRoutes.validInstall(b.install)) return send(res, 400, { error: 'invalid' });
       if (preset === null || (preset && b.kind !== 'original')) return send(res, 400, { error: 'unknown preset' });
@@ -287,7 +299,7 @@ http.createServer((req, res) => {
       const body = parts.slice(0, -1).join('.');
       const sig = Buffer.from(parts[parts.length - 1]), want = Buffer.from(hmac(body));
       if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return send(res, 400, { error: 'invalid' });
-      const [id, install, kind, month, startedAt] = parts, game = parts.length >= 7 ? gameOf(parts[5]) : 'smz3';
+      const [id, startedBy, kind, month, startedAt] = parts, install = playerOf(startedBy), game = parts.length >= 7 ? gameOf(parts[5]) : 'smz3';
       if (!game) return send(res, 400, { error: 'unknown game' });
       const preset = parts.length === 8 ? presetOf(game, parts[6]) : '';
       if (!preset && parts.length === 8) return send(res, 400, { error: 'unknown preset' });
