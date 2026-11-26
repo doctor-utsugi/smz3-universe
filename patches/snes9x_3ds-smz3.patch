@@ -361,7 +361,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..796b8f6 100644
+index 3692a54..97d6ac2 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -14,6 +14,7 @@
@@ -699,7 +699,7 @@ index 3692a54..796b8f6 100644
          t3dsStartTimer(TIMER_RUN_ONE_FRAME);
          impl3dsRunOneFrame(firstFrame, skipDrawing);
          t3dsStopTimer(TIMER_RUN_ONE_FRAME);
-+        smz3TrackerFrame(totalFrames % 60 == 0);
++        smz3TrackerFrame(totalFrames % 60 == 0, (long)(svcGetSystemTick() - startFrameTick));
  
  
          long actualTicksThisFrame = (long)(svcGetSystemTick() - startFrameTick);
@@ -2765,10 +2765,10 @@ index 0000000..be959cd
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..4944c0b
+index 0000000..152fcb4
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6234 @@
+@@ -0,0 +1,6238 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -5339,6 +5339,7 @@ index 0000000..4944c0b
 +static bool rwOpen;
 +static int rwCmd, rwEvery = 10, rwTouch = -1, rwTouchDir, rwDirShown;   // rwCmd: 1 play from here, 2 back to now, 3 open
 +static unsigned rwFrames;
++static bool gTight;   // Old 3DS: the game left this frame no room for the rewind history or a tracker redraw
 +static float rwAcc;
 +static u64 rwDirSince, rwNextTick;
 +#define RW_BUF_CAP (512 * 1024)
@@ -5390,7 +5391,7 @@ index 0000000..4944c0b
 +static void rewindFrame()
 +{
 +    if (!gRewindRun || cardState) { if (rw || rwBuf) rewindFree(); return; }
-+    if (!rwOpen && !pvOpen && ++rwFrames % rwEvery == 0) rewindPush();
++    if (!rwOpen && !pvOpen && ++rwFrames >= (unsigned)rwEvery && !gTight) { rwFrames = 0; rewindPush(); }
 +    int cmd = rwCmd;
 +    rwCmd = 0;
 +    if (cmd == 3 && !rwOpen && rw && smz_rewind_count(rw) > 1) {
@@ -8367,10 +8368,13 @@ index 0000000..4944c0b
 +    return want;
 +}
 +
-+void smz3TrackerFrame(bool tick)
++void smz3TrackerFrame(bool tick, long frameTicks)
 +{
-+    static int sinceDraw = 0;
++    static int sinceDraw = 0, tightFrames = 0;
 +    if (strncmp(Memory.ROMFilename, RUN_DIR "/", sizeof RUN_DIR) != 0 || !Memory.RAM || !Memory.SRAM) return;
++    // An Old 3DS has little time left after a Super Metroid frame: the heavy work waits for a frame with room, half a second at most
++    gTight = !settings3DS.isNew3DS && frameTicks > settings3DS.TicksPerFrame * 3 / 4 && tightFrames < 30;
++    tightFrames = gTight ? tightFrames + 1 : 0;
 +    sinceDraw++;
 +    static u64 lastFrameMs;
 +    u64 now = osGetTime();
@@ -8394,7 +8398,7 @@ index 0000000..4944c0b
 +    int every = visor ? 3 : 4;   // a blend of the whole screen costs ~5 ms on an Old 3DS: the visor at 20 fps, the portal at 15
 +    if ((portal || visor) && sinceDraw >= every) dirty = true;
 +    if (portalEnd) { if (!portal) portalAt = 0; if (!visor) visorAt = 0; dirty = true; }   // then the tracker alone, at once
-+    if (dirty && (tick || sinceDraw >= 3 || cardState || ((portal || visor) && sinceDraw >= every) || portalEnd)) { trackerDraw(); sinceDraw = 0; }   // a drag redraws at most every third frame
++    if (dirty && !gTight && (tick || sinceDraw >= 3 || cardState || ((portal || visor) && sinceDraw >= every) || portalEnd)) { trackerDraw(); sinceDraw = 0; }   // a drag redraws at most every third frame
 +}
 +
 +
@@ -9005,7 +9009,7 @@ index 0000000..4944c0b
 +}
 diff --git a/source/smz3run.h b/source/smz3run.h
 new file mode 100644
-index 0000000..731e96c
+index 0000000..464e375
 --- /dev/null
 +++ b/source/smz3run.h
 @@ -0,0 +1,69 @@
@@ -9033,8 +9037,8 @@ index 0000000..731e96c
 +bool smz3TakeQuit(void);
 +
 +// The run tracker on the second screen; call every frame while emulating, with tick set about once a second (the run is
-+// read then; touches redraw in between). Does nothing for other games.
-+void smz3TrackerFrame(bool tick);
++// read then; touches redraw in between). frameTicks is what this frame took. Does nothing for other games.
++void smz3TrackerFrame(bool tick, long frameTicks);
 +// Touch input while emulating (keys from hidKeysDown / hidKeysHeld). True when the tracker took the touch, so it must not
 +// open the emulator's menu; false for other games and for the tracker's pause button.
 +bool smz3TrackerTouch(unsigned keysDown, unsigned keysHeld);
