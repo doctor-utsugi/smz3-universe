@@ -315,7 +315,9 @@ int online_goals_report(int slot, int64_t created, int online, const char *count
 {
     char id[48], run[64], body[2048], reply[256];
     install_id(id);
-    snprintf(run, sizeof run, "%s%d-%lld", store_get_mode() == SMZ_MODE_SM ? "m" : store_get_mode() == SMZ_MODE_Z3 ? "z" : "s", slot, (long long)created);   /* the games' slots apart */
+    SmzRun r;
+    if (store_run_load(slot, &r) == 0 && r.id[0]) snprintf(run, sizeof run, "%s", r.id);   /* the same run on every device */
+    else snprintf(run, sizeof run, "%s%d-%lld", store_get_mode() == SMZ_MODE_SM ? "m" : store_get_mode() == SMZ_MODE_Z3 ? "z" : "s", slot, (long long)created);
     int n = snprintf(body, sizeof body, "{\"install\":\"%s\",\"run\":\"%s\",\"online\":%s,\"counts\":{", id, run, online ? "true" : "false");
     for (const char *p = counters; p && *p && n < (int)sizeof body - 64;) {
         const char *eq = strchr(p, '='), *end = strchr(p, ',');

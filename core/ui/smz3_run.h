@@ -12,6 +12,7 @@ int smz_mode_of(const char *id);            /* NULL or "" is SMZ3; -1 for an unk
 int smz_settings_mode(const char *json);    /* the "game" of a settings JSON; SMZ3 when it has none, -1 when unknown */
 
 typedef struct {
+    char id[40];                 /* the run's id on every device: its game letter and a UUID ("" in runs older than the sync) */
     char name[24];
     char seed[16];
     char rom_path[256];

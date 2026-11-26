@@ -31,8 +31,8 @@ int smz_run_save(const char *path, const SmzRun *r)
 {
     FILE *f = fopen(path, "w");
     if (!f) return -1;
-    fprintf(f, "SMZRUN1\nmode=%s\nname=%s\nseed=%s\nrom=%s\ncreated=%lld\nplayed=%lld\nplay_ms=%lld\ngame=%d\nzc=%d\nzt=%d\nmc=%d\nmt=%d\nbm=%d\ncm=%d\nsms=%lld\nsz=%d\nsm=%d\ngoals=%s\nsettings=%s\n",
-            smz_mode_id(r->mode), r->name, r->seed, r->rom_path, (long long)r->created, (long long)r->last_played, (long long)r->play_ms, r->game,
+    fprintf(f, "SMZRUN1\nid=%s\nmode=%s\nname=%s\nseed=%s\nrom=%s\ncreated=%lld\nplayed=%lld\nplay_ms=%lld\ngame=%d\nzc=%d\nzt=%d\nmc=%d\nmt=%d\nbm=%d\ncm=%d\nsms=%lld\nsz=%d\nsm=%d\ngoals=%s\nsettings=%s\n",
+            r->id, smz_mode_id(r->mode), r->name, r->seed, r->rom_path, (long long)r->created, (long long)r->last_played, (long long)r->play_ms, r->game,
             r->zelda_cleared, r->zelda_total, r->metroid_cleared, r->metroid_total, r->boss_mask, r->crystal_mask, (long long)r->save_ms, r->save_zelda, r->save_metroid, r->goals, r->settings);
     return fclose(f) ? -1 : 0;
 }
@@ -43,16 +43,18 @@ int smz_run_load(const char *path, SmzRun *r)
 {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
-    static char line[4200];
+    enum { LINE = 4200 };
+    char *line = malloc(LINE);   /* not static: the PC loads runs on its sync threads too */
     memset(r, 0, sizeof *r);
-    if (!fgets(line, sizeof line, f) || strncmp(line, "SMZRUN1", 7)) { fclose(f); return -1; }
-    while (fgets(line, sizeof line, f)) {
+    if (!line || !fgets(line, LINE, f) || strncmp(line, "SMZRUN1", 7)) { free(line); fclose(f); return -1; }
+    while (fgets(line, LINE, f)) {
         line[strcspn(line, "\r\n")] = 0;
         char *v = strchr(line, '=');
         if (!v) continue;
         *v++ = 0;
         if (!strcmp(line, "name")) copy(r->name, sizeof r->name, v);
-        else if (!strcmp(line, "mode")) { if ((r->mode = smz_mode_of(v)) < 0) { fclose(f); return -1; } }   /* a game this build lacks */
+        else if (!strcmp(line, "id")) copy(r->id, sizeof r->id, v);
+        else if (!strcmp(line, "mode")) { if ((r->mode = smz_mode_of(v)) < 0) { free(line); fclose(f); return -1; } }   /* a game this build lacks */
         else if (!strcmp(line, "seed")) copy(r->seed, sizeof r->seed, v);
         else if (!strcmp(line, "rom")) copy(r->rom_path, sizeof r->rom_path, v);
         else if (!strcmp(line, "settings")) copy(r->settings, sizeof r->settings, v);
@@ -71,6 +73,7 @@ int smz_run_load(const char *path, SmzRun *r)
         else if (!strcmp(line, "cm")) r->crystal_mask = atoi(v);
         else if (!strcmp(line, "goals")) copy(r->goals, sizeof r->goals, v);
     }
+    free(line);
     fclose(f);
     return r->name[0] ? 0 : -1;
 }

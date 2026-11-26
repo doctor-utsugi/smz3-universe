@@ -38,6 +38,8 @@
 #include "pc_maprando.h"
 #include "pc_race.h"
 #include "pc_store.h"
+#include "pc_sync.h"
+#include "smz3_sync.h"
 #include "smz3_host.h"
 #include "smz3_rom.h"
 #include "smz3_md5.h"
@@ -908,6 +910,7 @@ static int quick_state(int slot, int q, int save)
         size_t n = emu_state_size();
         uint8_t *buf = malloc(n);
         int ok = buf && emu_state_save(buf, n) == 0 && store_write(path, buf, n) == 0;
+        if (ok) sync_own(slot, SMZ_SYNC_Q1 + q, buf, n);
         free(buf);
         char t[640];
         if (ok && smz_counters_text(&g_goalc, t, sizeof t) >= 0) store_write(store_path("runs/slot%d.q%d.goals", slot + 1, q + 1), t, strlen(t));   /* loading it puts the counters back here */
@@ -2466,7 +2469,7 @@ static void play(int slot, int game_save_only)
                 if (dead_bosses) smz_prepared_apply(dead_bosses, (uint8_t *)wram, wl, sram, sl);   /* the emulator's own RAM */
                 smz_tracker_tick(&trk, wram, wl, sram, sl, dt, fast ? ff : 1);
                 smz_counters_tick(&g_goalc, trk.started ? (int)trk.game : 0, wram, wl, sram, sl, (int)(trk.zelda_cleared + trk.metroid_cleared));
-                if (trk.save_changed) store_write(store_path("runs/slot%d.srm", slot + 1), sram, sl);
+                if (trk.save_changed && store_write(store_path("runs/slot%d.srm", slot + 1), sram, sl) == 0) sync_own(slot, SMZ_SYNC_SRM, sram, sl);
                 if (daily && trk.started && smz_daily_note_began(&dr, online_now_ms())) online_daily_save(&dr);   /* the clock starts with the game, as in the ladder */
                 if (rg.on && trk.started && ((trk.boss_mask & ~rg.bosses) || (trk.crystal_mask & 0x7F & ~rg.crystals))) {   /* news for the rivals */
                     static const char *const BOSS[4] = {"beat Kraid", "beat Phantoon", "beat Draygon", "beat Ridley"};
@@ -2780,11 +2783,11 @@ static void play(int slot, int game_save_only)
     size_t wl;
     emu_wram(&wl);
     sram = emu_sram(&sl);
-    if (sram) store_write(store_path("runs/slot%d.srm", slot + 1), sram, sl);
+    if (sram && store_write(store_path("runs/slot%d.srm", slot + 1), sram, sl) == 0) sync_own(slot, SMZ_SYNC_SRM, sram, sl);
     if (states) {
         size_t n = emu_state_size();
         uint8_t *buf = malloc(n);
-        if (buf && emu_state_save(buf, n) == 0) store_write(store_path("runs/slot%d.state", slot + 1), buf, n);
+        if (buf && emu_state_save(buf, n) == 0 && store_write(store_path("runs/slot%d.state", slot + 1), buf, n) == 0) sync_own(slot, SMZ_SYNC_RESUME, buf, n);
         free(buf);
     }
     snapshot_run(&run, &trk, finished);
@@ -3108,6 +3111,7 @@ static void window_main(int start_slot)
     refill_sprites();
     refill_slots();
     online_init(&ui);
+    sync_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
     ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_QUIT);
@@ -3146,6 +3150,7 @@ static void window_main(int start_slot)
         if (saved) { saved[n] = 0; ui_saved_load(&ui, saved); free(saved); }
     }
     int running = 1, pending_play = start_slot, pending_state_only = 0, instant = start_slot >= 0;   /* a run named on the command line starts at once */
+    if (pending_play >= 0 && sync_open(&ui, pending_play, ui_present)) pending_play = -1, instant = 0;
     Uint32 next_daily = 0, next_version = 0, launch_at = 0;   /* launch_at: when the menu began going to black for the game */
     Uint32 last_tick = SDL_GetTicks();
     while (running && !g_menu_quit) {
@@ -3162,11 +3167,13 @@ static void window_main(int start_slot)
             last_tick = now;
         }
         race_answers();
+        if (sync_poll(&ui)) refill_slots();
         if (pending_play >= 0) {
             if (!instant && !launch_at) { launch_at = SDL_GetTicks(); menumusic_fade(); }
             if (instant || SDL_GetTicks() - launch_at >= LAUNCH_MS) {
                 menumusic_set(0);
                 play(pending_play, pending_state_only);
+                sync_left(pending_play);
                 menumusic_set(ui.menu_music);
                 if (pending_play == RACE_SLOT - 1) { race_forget(); ui_race_end(&ui); race_paused_show(); }   /* a race is played once, or kept paused */
                 pending_play = -1;
@@ -3280,6 +3287,8 @@ static void window_main(int start_slot)
             UiAction act = ui.action;
             int slot = ui.action_slot;
             ui.action = ACT_NONE;
+            if (act == ACT_CLOUD && (slot = sync_action(&ui, slot, ui_present)) >= 0) act = ACT_CONTINUE;   /* a conflict settled: the run goes on */
+            else if (act == ACT_CONTINUE && sync_open(&ui, slot, ui_present)) act = ACT_NONE;   /* RomM's newer files first, or the choice */
             if (act == ACT_LADDER) { snprintf(g_ladder_preset, sizeof g_ladder_preset, "%s", ui_ladder_preset_key(&ui)); for (int t = 0; t < 3; t++) g_ladder_state[t] = 1; detach(ladder_thread, NULL); if (!g_goals_state) { g_goals_state = 1; detach(goals_thread, NULL); } }
             else if (act == ACT_RACE_CREATE || act == ACT_RACE_JOIN) {
                 char who[256], f[384];
@@ -3335,7 +3344,7 @@ static void window_main(int start_slot)
                 if (daily_begin(err, sizeof err) == 0) { pending_play = DAILY_SLOT - 1; pending_state_only = 0; }
                 else { note(err); next_daily = 0; }
             }
-            else if (act == ACT_DELETE) { store_run_delete(slot + 1); refill_slots(); }
+            else if (act == ACT_DELETE) { sync_deleted(slot); store_run_delete(slot + 1); refill_slots(); }
             else if (act == ACT_CONTINUE) {
                 SmzRun r;
                 if (store_run_load(slot + 1, &r) == 0 && json_flag(r.settings, "saveStates", 0) && r.save_ms > 0 && (r.game == 3 || r.play_ms - r.save_ms > 10000)
@@ -3532,6 +3541,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
     update_cleanup();
     window_main(start);
+    sync_quit();
     SDL_Quit();
     if (g_restart) update_restart(argv);
     return 0;

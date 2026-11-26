@@ -23,6 +23,7 @@ add_library(smz3core SHARED
     ../../core/gen/smz3_goalicons.c
     ../../core/gen/smz3_romderived.c
     ../../core/gen/smz3_dungeonmaps.c
+    ../../core/gen/smz3_md5.c
     ../../core/ui/smz3_ui.c
     ../../core/ui/smz3_ui_opts.c
     ../../core/ui/smz3_run.c
@@ -34,6 +35,7 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_runlogic.c
     ../../core/ui/smz3_tracker.c
     ../../core/ui/smz3_smmap.c
+    ../../core/ui/smz3_json.c ../../core/ui/smz3_romm.c ../../core/ui/smz3_sync.c
     ../../core/ui/smz3_rewind.c
     ../../core/ui/smz3_sm.c
     ../../core/smgen/sm_generate.c

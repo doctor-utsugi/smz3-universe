@@ -157,9 +157,9 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 #define LOGO_MS 2000
 #define HOME_ROWS 4
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
-static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits */
+static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits, -3: Cloud sync */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
-    {0, "Player", "name, country"}, {-2, "Credits", "authors, licences"}, {UI_OPT_QUIT, "Quit", ""}};
+    {0, "Player", "name, country"}, {-3, "Cloud sync", "RomM"}, {-2, "Credits", "authors, licences"}, {UI_OPT_QUIT, "Quit", ""}};
 /* The Credits screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices).
    Lines starting with '#' are headings; keep each line within 40 characters for the 320-pixel screens. */
 static const char *const CREDITS_LINES[] = {
@@ -241,7 +241,7 @@ static int option_rows(const SmzUi *u, int *kind)
     int n = 0;
     for (int i = 0; i < OPTION_KINDS; i++) {
         int bit = OPTION_ROWS[i].bit;
-        if (bit == -2 || (bit == -1 ? u->update[0] : bit ? u->options_mask & bit : u->player_on)) kind[n++] = i;
+        if (bit == -2 || (bit == -3 ? u->cloud.on : bit == -1 ? u->update[0] : bit ? u->options_mask & bit : u->player_on)) kind[n++] = i;
     }
     return n;
 }
@@ -317,6 +317,59 @@ static void credits_input(SmzUi *u, UiButton b)
     if (*s < 0) *s = 0;
 }
 
+/* The Cloud sync rows for the sign-in state: CLOUD_* each. */
+static int cloud_rows(const SmzUi *u, int *row)
+{
+    int n = 0;
+    if (u->cloud.state == UI_CLOUD_OUT) row[n++] = CLOUD_SIGN_IN;
+    else if (u->cloud.state == UI_CLOUD_WAITING) row[n++] = CLOUD_CANCEL;
+    else { row[n++] = CLOUD_SYNC; row[n++] = CLOUD_CODE; row[n++] = CLOUD_LINK; row[n++] = CLOUD_SIGN_OUT; }
+    return n;
+}
+
+static void cloud_input(SmzUi *u, UiButton b)
+{
+    int row[6], n = cloud_rows(u, row), *c = &u->cloud.cursor;
+    if (b == BTN_B) { u->screen = UI_OPTIONS; return; }
+    if (b == BTN_UP || b == BTN_DOWN) { *c = (*c + (b == BTN_UP ? n - 1 : 1)) % n; return; }
+    if (b != BTN_A || *c >= n) return;
+    if (row[*c] == CLOUD_LINK) { u->name_for = 4; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; return; }
+    u->action = ACT_CLOUD;
+    u->action_slot = row[*c];
+    u->cloud.msg[0] = 0;
+}
+
+static void cloud_conflict_input(SmzUi *u, UiButton b)
+{
+    int *c = &u->cloud.cursor;
+    if (b == BTN_B) { u->screen = UI_SLOTS_SCREEN; return; }
+    if (b == BTN_UP || b == BTN_DOWN) *c = !*c;
+    else if (b == BTN_A) { u->action = ACT_CLOUD; u->action_slot = *c ? CLOUD_KEEP_CLOUD : CLOUD_KEEP_HERE; u->screen = UI_SLOTS_SCREEN; }
+}
+
+void ui_cloud_enable(SmzUi *u, int on) { u->cloud.on = on; }
+
+void ui_cloud_state(SmzUi *u, int state, const char *user, const char *server, const char *code, const char *url)
+{
+    u->cloud.state = state;
+    snprintf(u->cloud.user, sizeof u->cloud.user, "%s", user ? user : "");
+    snprintf(u->cloud.server, sizeof u->cloud.server, "%s", server ? server : "");
+    snprintf(u->cloud.code, sizeof u->cloud.code, "%s", code ? code : "");
+    snprintf(u->cloud.url, sizeof u->cloud.url, "%s", url ? url : "");
+    if (u->cloud.cursor >= 4 || state != UI_CLOUD_IN) u->cloud.cursor = 0;
+}
+
+void ui_cloud_msg(SmzUi *u, const char *msg) { snprintf(u->cloud.msg, sizeof u->cloud.msg, "%s", msg ? msg : ""); }
+
+void ui_cloud_conflict(SmzUi *u, int slot, const char *device, const char *when)
+{
+    u->cloud.slot = slot;
+    u->cloud.cursor = 0;
+    snprintf(u->cloud.dev, sizeof u->cloud.dev, "%s", device && *device ? device : "another device");
+    snprintf(u->cloud.when, sizeof u->cloud.when, "%s", when ? when : "");
+    u->screen = UI_CLOUD_CONFLICT;
+}
+
 static void options_input(SmzUi *u, UiButton b)
 {
     int kind[OPTION_KINDS], n = option_rows(u, kind), *c = &u->options_cursor;
@@ -326,6 +379,7 @@ static void options_input(SmzUi *u, UiButton b)
     else if (b == BTN_A && *c < n) {
         int bit = OPTION_ROWS[kind[*c]].bit;
         if (bit == -2) { u->credits_scroll = 0; u->screen = UI_CREDITS; return; }
+        if (bit == -3) { u->cloud.cursor = 0; u->cloud.msg[0] = 0; u->screen = UI_CLOUD; return; }
         if (bit < 0) {
             if (u->update_install) u->action = ACT_UPDATE;
             else snprintf(u->notice, sizeof u->notice, "smz3-universe.duckdns.org/download");
@@ -1331,7 +1385,7 @@ static int mode_kind(const SmzUi *u, int row)
 static void name_input(SmzUi *u, UiButton b)
 {
     int c = u->key_cursor;
-    UiScreen back = u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
+    UiScreen back = u->name_for == 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
     if (b == BTN_B) { u->screen = back; return; }
     if (b == BTN_START) { u->key_cursor = KEY_COUNT + 2; return; }   /* to Save */
     if (b == BTN_L) { if (u->name_len) u->name[--u->name_len] = 0; return; }
@@ -1359,6 +1413,17 @@ static void name_input(SmzUi *u, UiButton b)
             int len = u->name_len;
             while (len && u->name[len - 1] == ' ') u->name[--len] = 0;
             if (!len) break;
+            if (u->name_for == 4) {   /* a link code: its digits */
+                int k = 0;
+                for (int i = 0; u->name[i] && k < (int)sizeof u->cloud.link - 1; i++) if (u->name[i] >= '0' && u->name[i] <= '9') u->cloud.link[k++] = u->name[i];
+                u->cloud.link[k] = 0;
+                u->screen = UI_CLOUD;
+                if (k != 6) { ui_cloud_msg(u, "A link code has 6 digits"); break; }
+                u->action = ACT_CLOUD;
+                u->action_slot = CLOUD_LINK;
+                ui_cloud_msg(u, "Linking...");
+                break;
+            }
             if (u->name_for == 2) {   /* a room code */
                 int k = 0;
                 for (int i = 0; u->name[i] && k < (int)sizeof u->race.code - 1; i++) if (u->name[i] != ' ') u->race.code[k++] = u->name[i];
@@ -1643,6 +1708,8 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_RACE_LIST: case UI_RACE_ROOM: case UI_RACE_READY: race_input(u, b); break;
     case UI_OPTIONS: options_input(u, b); break;
     case UI_CREDITS: credits_input(u, b); break;
+    case UI_CLOUD: cloud_input(u, b); break;
+    case UI_CLOUD_CONFLICT: cloud_conflict_input(u, b); break;
     case UI_LOGO:
     case UI_BUSY: break;
     }
@@ -1718,6 +1785,7 @@ void ui_touch(SmzUi *u, int x, int y)
         case H_GAME: if (t->idx == u->game_cursor) ui_input(u, BTN_A); else u->game_cursor = t->idx; break;   /* a side card turns to the front first */
         case H_OPTION: u->options_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_CREDITS: ui_input(u, t->idx < 0 ? BTN_L : t->idx > 0 ? BTN_R : BTN_B); break;
+        case H_CLOUD: if (t->idx < 0) ui_input(u, BTN_B); else { u->cloud.cursor = t->idx; ui_input(u, BTN_A); } break;
         case H_RACE: u->race.cursor = t->idx; ui_input(u, BTN_A); break;
         }
         return;
@@ -2516,6 +2584,50 @@ void ui_draw(SmzUi *u)
         legend(u, more ? "Up Down Scroll  L R Page  B Back" : "B Back");
         break;
     }
+    case UI_CLOUD: {
+        static const char *const NAMES[] = {"", "Sign in to RomM", "Cancel", "Sync now", "Link another device", "Enter a link code", "Sign out"};
+        static const char *const DESCS[] = {"", "with a code, on its page", "", "runs, saves and states", "show a code for it", "from another device", ""};
+        title(u, "Cloud sync");
+        if (u->cloud.state == UI_CLOUD_IN) {
+            snprintf(buf, sizeof buf, "Signed in as %s", u->cloud.user);
+            text(u, UI_W / 2, 36, C_TEXT, 1, buf);
+            text(u, UI_W / 2, 52, C_DIM, 1, u->cloud.server);
+        } else if (u->cloud.state == UI_CLOUD_WAITING) {
+            text(u, UI_W / 2, 32, C_DIM, 1, "On your phone or PC, open");
+            text(u, UI_W / 2, 46, C_CYAN, 1, u->cloud.url);
+            text(u, UI_W / 2, 60, C_DIM, 1, "sign in and enter this code:");
+        } else text(u, UI_W / 2, 44, C_DIM, 1, "Your runs, saves and states on every device");
+        if (u->cloud.state == UI_CLOUD_WAITING) { rect(u, UI_W / 2 - 70, 76, 140, 30, C_PANEL); text(u, UI_W / 2, 84, C_GOLD, 1, u->cloud.code); }
+        int row[6], n = cloud_rows(u, row), y0 = u->cloud.state == UI_CLOUD_WAITING ? 116 : 72;
+        for (int r = 0; r < n; r++) {
+            int y = y0 + r * 30;
+            rect(u, 8, y, UI_W - 16, 26, r == u->cloud.cursor ? C_SEL : C_PANEL);
+            hit(u, H_CLOUD, r, 8, y, UI_W - 16, 26);
+            text(u, 18, y + 5, C_TEXT, 0, NAMES[row[r]]);
+            text(u, UI_W - 18, y + 5, C_DIM, 2, DESCS[row[r]]);
+        }
+        if (u->cloud.msg[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->cloud.msg);
+        legend(u, "A Choose  B Back");
+        break;
+    }
+    case UI_CLOUD_CONFLICT: {
+        title(u, "Which one to keep?");
+        text(u, UI_W / 2, 36, C_TEXT, 1, "This run changed on this device");
+        snprintf(buf, sizeof buf, "and on %.30s", u->cloud.dev);
+        text(u, UI_W / 2, 52, C_TEXT, 1, buf);
+        if (u->cloud.when[0]) text(u, UI_W / 2, 68, C_DIM, 1, u->cloud.when);
+        for (int r = 0; r < 2; r++) {
+            int y = 96 + r * 34;
+            rect(u, 8, y, UI_W - 16, 28, r == u->cloud.cursor ? C_SEL : C_PANEL);
+            hit(u, H_CLOUD, r, 8, y, UI_W - 16, 28);
+            if (r) snprintf(buf, sizeof buf, "Keep %.28s's", u->cloud.dev);
+            text(u, 18, y + 6, C_TEXT, 0, r ? buf : "Keep this device's");
+        }
+        text(u, UI_W / 2, 170, C_DIM, 1, "The other one is replaced");
+        hit(u, H_CLOUD, -1, 0, UI_H - 24, UI_W, 24);
+        legend(u, "A Keep  B Not now");
+        break;
+    }
     case UI_OPTIONS: {
         title(u, "Options");
         int kind[OPTION_KINDS], n = option_rows(u, kind), pitch = n > 6 ? 28 : n > 5 ? 30 : 34;
@@ -2528,6 +2640,7 @@ void ui_draw(SmzUi *u)
             if (!bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
             if (bit == -1) { snprintf(buf, sizeof buf, u->update_install ? "install %s" : "%s is out", u->update); d = buf; }
             if (bit == UI_OPT_SOUND) d = u->menu_music ? "on" : "off";
+            if (bit == -3) d = u->cloud.state == UI_CLOUD_IN ? u->cloud.user : "off";
             text(u, UI_W - 18, y + (pitch - 18) / 2, C_DIM, 2, d);
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
@@ -2595,7 +2708,7 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_NAME: {
-        title(u, u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
+        title(u, u->name_for == 4 ? "Link code" : u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
         char field[40];
         snprintf(field, sizeof field, "%s_", u->name);
         rect(u, 10, 32, UI_W - 20, 24, C_PANEL);
@@ -2607,7 +2720,7 @@ void ui_draw(SmzUi *u)
             hit(u, H_KEY, k, x, y, 28, 28);
             text(u, x + 14, y + 8, C_TEXT, 1, ch);
         }
-        const char *const CTRL[KEY_CTRL] = {"Space", "Delete", u->name_for == 2 ? "Join" : "Save", "Cancel"};
+        const char *const CTRL[KEY_CTRL] = {"Space", "Delete", u->name_for == 2 || u->name_for == 4 ? "Join" : "Save", "Cancel"};
         for (int k = 0; k < KEY_CTRL; k++) {
             int x = 10 + k * 75;
             rect(u, x, 186, 73, 26, KEY_COUNT + k == u->key_cursor ? C_SEL : C_PANEL);

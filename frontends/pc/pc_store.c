@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "pc_compat.h"
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -12,6 +13,7 @@
 #include "pc_store.h"
 #include "pc_ips.h"
 #include "smz3_md5.h"
+#include "smz3_sync.h"
 
 static void mkdirs(const char *path)
 {
@@ -208,8 +210,27 @@ const uint8_t *store_ips(void *user, const char *name, size_t *len)
     return NULL;
 }
 
-int store_run_load(int slot, SmzRun *r) { return smz_run_load(store_path("runs/slot%d.run", slot), r); }
-int store_run_save(int slot, const SmzRun *r) { return smz_run_save(store_path("runs/slot%d.run", slot), r); }
+static char mode_letter(int mode) { return mode == SMZ_MODE_SM ? 'm' : mode == SMZ_MODE_Z3 ? 'z' : 's'; }
+
+/* A run made before the sync keeps the id its world goal reports already used; a new one gets a UUID. */
+int store_run_load(int slot, SmzRun *r)
+{
+    if (smz_run_load(store_path("runs/slot%d.run", slot), r)) return -1;
+    if (!r->id[0]) {
+        snprintf(r->id, sizeof r->id, "%c%d-%lld", mode_letter(store_get_mode()), slot, (long long)r->created);
+        smz_run_save(store_path("runs/slot%d.run", slot), r);
+    }
+    return 0;
+}
+
+int store_run_save(int slot, const SmzRun *r)
+{
+    if (r->id[0]) return smz_run_save(store_path("runs/slot%d.run", slot), r);
+    SmzRun c = *r;
+    uint64_t e = (uint64_t)time(NULL) * 1000003u ^ (uint64_t)(uintptr_t)&c ^ (uint64_t)clock() << 20 ^ (uint64_t)slot << 40;
+    smz_sync_new_id(mode_letter(r->mode), e, c.id);
+    return smz_run_save(store_path("runs/slot%d.run", slot), &c);
+}
 
 void store_run_delete(int slot)
 {
@@ -219,6 +240,7 @@ void store_run_delete(int slot)
     remove(store_path("runs/slot%d.srm", slot));
     remove(store_path("runs/slot%d.state", slot));
     remove(store_path("runs/slot%d.help", slot));
+    remove(store_path("runs/slot%d.sync", slot));
     for (int q = 1; q <= 4; q++) {   /* the quick states (QSLOTS): a new run here must not load the old one's */
         remove(store_path("runs/slot%d.q%d.state", slot, q));
         remove(store_path("runs/slot%d.q%d.goals", slot, q));
