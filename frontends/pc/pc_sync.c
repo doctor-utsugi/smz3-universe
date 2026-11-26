@@ -239,6 +239,8 @@ static uint8_t *files_read(void *ctx, int kind, size_t *len)
         sj_add(&b, "\n", 1);
         free(s);
     }
+    char *other = (char *)store_read(slot_file(f, "xother"), &n);
+    if (other) { sj_add(&b, other, n); free(other); }
     if (b.failed) { sj_free(&b); return NULL; }
     *len = b.n;
     return (uint8_t *)b.p;
@@ -258,20 +260,28 @@ static int files_write(void *ctx, int kind, const uint8_t *data, size_t len)
     if (!t) return -1;
     memcpy(t, data, len);
     t[len] = 0;
-    SjBuf run = {0};
+    SjBuf run = {0}, other = {0};
     for (int i = 0; i < SIDE_N; i++) remove(slot_file(f, SIDE[i]));
     for (char *line = strtok(t, "\n"); line; line = strtok(NULL, "\n")) {
         if (!strncmp(line, "x.", 2)) {
             char *v = strchr(line, '=');
             if (!v) continue;
-            *v++ = 0;
-            for (int i = 0; i < SIDE_N; i++) if (!strcmp(line + 2, SIDE[i])) { size_t n = unesc(v); store_write(slot_file(f, SIDE[i]), v, n); }
+            int known = 0;
+            for (int i = 0; i < SIDE_N; i++) if (!strncmp(line + 2, SIDE[i], (size_t)(v - line - 2)) && !SIDE[i][v - line - 2]) {
+                known = 1;
+                size_t n = unesc(v + 1);
+                store_write(slot_file(f, SIDE[i]), v + 1, n);
+            }
+            if (!known) { sj_add(&other, line, strlen(line)); sj_add(&other, "\n", 1); }   /* another device's own (Android's marks): kept for it */
             continue;
         }
         sj_add(&run, line, strlen(line));
         sj_add(&run, "\n", 1);
     }
     free(t);
+    if (other.n) store_write(slot_file(f, "xother"), other.p, other.n);
+    else remove(slot_file(f, "xother"));
+    sj_free(&other);
     sj_fmt(&run, "rom=%s\n", kind_path(f, SMZ_SYNC_ROM));
     int e = run.failed ? -1 : store_write(slot_file(f, "run"), run.p, run.n);
     sj_free(&run);

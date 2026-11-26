@@ -241,6 +241,7 @@ void store_run_delete(int slot)
     remove(store_path("runs/slot%d.state", slot));
     remove(store_path("runs/slot%d.help", slot));
     remove(store_path("runs/slot%d.sync", slot));
+    remove(store_path("runs/slot%d.xother", slot));
     for (int q = 1; q <= 4; q++) {   /* the quick states (QSLOTS): a new run here must not load the old one's */
         remove(store_path("runs/slot%d.q%d.state", slot, q));
         remove(store_path("runs/slot%d.q%d.goals", slot, q));

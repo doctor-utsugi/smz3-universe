@@ -357,6 +357,7 @@ void ui_cloud_state(SmzUi *u, int state, const char *user, const char *server, c
     snprintf(u->cloud.code, sizeof u->cloud.code, "%s", code ? code : "");
     snprintf(u->cloud.url, sizeof u->cloud.url, "%s", url ? url : "");
     if (u->cloud.cursor >= 4 || state != UI_CLOUD_IN) u->cloud.cursor = 0;
+    if (state == UI_CLOUD_WAITING) u->cloud.msg[0] = 0;   /* the code replaces "Asking RomM for a code..." */
 }
 
 void ui_cloud_msg(SmzUi *u, const char *msg) { snprintf(u->cloud.msg, sizeof u->cloud.msg, "%s", msg ? msg : ""); }
