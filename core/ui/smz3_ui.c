@@ -157,27 +157,67 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 #define LOGO_MS 2000
 #define HOME_ROWS 4
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
-static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: About */
+static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
-    {0, "Player", "name, country"}, {-2, "About", "credits, licences"}, {UI_OPT_QUIT, "Quit", ""}};
-/* The About screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices). */
-static const char *const ABOUT_LINES[] = {
+    {0, "Player", "name, country"}, {-2, "Credits", "authors, licences"}, {UI_OPT_QUIT, "Quit", ""}};
+/* The Credits screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices).
+   Lines starting with '#' are headings; keep each line within 40 characters for the 320-pixel screens. */
+static const char *const CREDITS_LINES[] = {
     "#Randomizers",
-    "SMZ3 and Super Metroid: tewtal (MIT)",
-    "A Link to the Past: sporchia, alttpr (MIT)",
-    "z3randomizer: KatDevsGames (MIT)",
-    "Enemizer: Zarby89 (MIT)",
-    "Map Rando: maddo, kyleb (blkerby) (MIT)",
+    "SMZ3 and Super Metroid randomizers:",
+    "  Thomas Backmark (tewtal) - MIT",
+    "Super Metroid base patch: tewtal - MIT",
+    "A Link to the Past randomizer (alttpr):",
+    "  sporchia - MIT, with thanks to",
+    "  Dessyreqt, Christos, Smallhacker",
+    "  and KatDevsGames",
+    "z3randomizer base patch: KatDevsGames,",
+    "  Equilateral IT - MIT",
+    "Enemizer boss shuffle: Zarby89 - MIT",
+    "Map Rando: maddo, kyleb - MIT",
     "Map Rando logic: sm-json-data, by the",
     "  ALttP and SM randomizer communities",
-    "  (CC BY 4.0)",
+    "  - CC BY 4.0",
+    "SMZ3 Cas' Randomizer patches, map",
+    "  icons and texts: TheTrackerCouncil,",
+    "  Laura Verdoes - MIT",
+    "#Sprites",
+    "Link and Samus sprites: their authors,",
+    "  collected in SMZ3 Cas' Sprites",
+    "Item icons: SMZ3 Cas' Sprites",
+    "Tracker configs: SMZ3 Cas' Configs",
+    "  (TheTrackerCouncil)",
+    "Hash icons: z3randomizer",
     "#Emulation",
-    "Snes9x, snes9x_3ds, Lemuroid, LibretroDroid",
+    "Snes9x: Gary Henderson, Jerremy Koot,",
+    "  BearOso and the Snes9x team",
+    "  - Snes9x licence, non-commercial",
+    "Snes9x libretro core: libretro",
+    "snes9x_3ds: bubble2k16, matbo87",
+    "  - Snes9x licence, non-commercial",
+    "rcheevos: RetroAchievements.org - MIT",
+    "Lemuroid, LibretroDroid: Swordfish90",
+    "  - GPL-3.0",
+    "#Tools and libraries",
+    "asar: Alcaro, based on xkas by byuu",
+    "  - LGPL-3.0",
+    "SDL2: Sam Lantinga - zlib",
+    "stb_image: Sean Barrett - public domain",
+    "dr_mp3: David Reid - public domain",
+    "libctru, citro3d: devkitPro - zlib",
+    "libpng, zlib",
     "#Music",
-    "Menu music: Doctor Utsugi (made with Suno)",
-    "dr_mp3: David Reid (public domain)",
+    "Menu music: Doctor Utsugi, made with Suno",
+    "#The games",
+    "Super Metroid and The Legend of Zelda:",
+    "  A Link to the Past (c) Nintendo.",
+    "  This app is not made, endorsed or",
+    "  supported by Nintendo. No ROM is",
+    "  included: it uses your own copies.",
 };
-#define ABOUT_COUNT (int)(sizeof ABOUT_LINES / sizeof ABOUT_LINES[0])
+#define CREDITS_COUNT (int)(sizeof CREDITS_LINES / sizeof CREDITS_LINES[0])
+#define CREDITS_PITCH 16
+#define CREDITS_SHOWN ((UI_H - 34 - 22) / CREDITS_PITCH)
 #define OPTION_KINDS (int)(sizeof OPTION_ROWS / sizeof OPTION_ROWS[0])
 
 void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
@@ -267,6 +307,16 @@ static void home_input(SmzUi *u, UiButton b)
     else snprintf(u->notice, sizeof u->notice, "Online races need a connection");
 }
 
+static void credits_input(SmzUi *u, UiButton b)
+{
+    int last = CREDITS_COUNT > CREDITS_SHOWN ? CREDITS_COUNT - CREDITS_SHOWN : 0, *s = &u->credits_scroll;
+    if (b == BTN_B || b == BTN_A) u->screen = UI_OPTIONS;
+    else if (b == BTN_DOWN || b == BTN_UP) *s += b == BTN_DOWN ? 1 : -1;
+    else if (b == BTN_RIGHT || b == BTN_R || b == BTN_LEFT || b == BTN_L) *s += (b == BTN_RIGHT || b == BTN_R ? 1 : -1) * CREDITS_SHOWN;
+    if (*s > last) *s = last;
+    if (*s < 0) *s = 0;
+}
+
 static void options_input(SmzUi *u, UiButton b)
 {
     int kind[OPTION_KINDS], n = option_rows(u, kind), *c = &u->options_cursor;
@@ -275,7 +325,7 @@ static void options_input(SmzUi *u, UiButton b)
     if (b == BTN_UP || b == BTN_DOWN) *c = (*c + (b == BTN_UP ? n - 1 : 1)) % n;
     else if (b == BTN_A && *c < n) {
         int bit = OPTION_ROWS[kind[*c]].bit;
-        if (bit == -2) { u->screen = UI_ABOUT; return; }
+        if (bit == -2) { u->credits_scroll = 0; u->screen = UI_CREDITS; return; }
         if (bit < 0) {
             if (u->update_install) u->action = ACT_UPDATE;
             else snprintf(u->notice, sizeof u->notice, "smz3-universe.duckdns.org/download");
@@ -1592,7 +1642,7 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_RACE_SIZE: case UI_RACE_WAY: case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC:
     case UI_RACE_LIST: case UI_RACE_ROOM: case UI_RACE_READY: race_input(u, b); break;
     case UI_OPTIONS: options_input(u, b); break;
-    case UI_ABOUT: if (b == BTN_B || b == BTN_A) u->screen = UI_OPTIONS; break;
+    case UI_CREDITS: credits_input(u, b); break;
     case UI_LOGO:
     case UI_BUSY: break;
     }
@@ -1614,7 +1664,7 @@ UiCue ui_cue(const SmzUi *a, const SmzUi *z, int b)
         z->online_cursor != a->online_cursor || z->start_cursor != a->start_cursor || z->start_col != a->start_col ||
         z->lc.cursor != a->lc.cursor || z->daily_sel != a->daily_sel || z->daily_cursor != a->daily_cursor ||
         z->rules_scroll != a->rules_scroll || z->ladder_scroll != a->ladder_scroll || z->slot_scroll != a->slot_scroll || z->world_cursor != a->world_cursor ||
-        z->home_cursor != a->home_cursor || z->options_cursor != a->options_cursor || z->race.cursor != a->race.cursor)
+        z->home_cursor != a->home_cursor || z->options_cursor != a->options_cursor || z->credits_scroll != a->credits_scroll || z->race.cursor != a->race.cursor)
         return UI_CUE_MOVE;
     return UI_CUE_NONE;
 }
@@ -1667,6 +1717,7 @@ void ui_touch(SmzUi *u, int x, int y)
         case H_HOME: u->home_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_GAME: if (t->idx == u->game_cursor) ui_input(u, BTN_A); else u->game_cursor = t->idx; break;   /* a side card turns to the front first */
         case H_OPTION: u->options_cursor = t->idx; ui_input(u, BTN_A); break;
+        case H_CREDITS: ui_input(u, t->idx < 0 ? BTN_L : t->idx > 0 ? BTN_R : BTN_B); break;
         case H_RACE: u->race.cursor = t->idx; ui_input(u, BTN_A); break;
         }
         return;
@@ -2445,15 +2496,24 @@ void ui_draw(SmzUi *u)
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
         legend(u, "A Choose  B Games");
         break;
-    case UI_ABOUT: {
-        title(u, "About");
-        int pitch = (UI_H - 60) / ABOUT_COUNT < 16 ? (UI_H - 60) / ABOUT_COUNT : 16;
-        for (int i = 0; i < ABOUT_COUNT; i++) {
-            const char *l = ABOUT_LINES[i];
-            text(u, 14, 34 + i * pitch, *l == '#' ? C_GOLD : C_TEXT, 0, l + (*l == '#'));
+    case UI_CREDITS: {
+        title(u, "Credits");
+        int shown = CREDITS_SHOWN, top = u->credits_scroll, more = CREDITS_COUNT > shown;
+        for (int i = 0; i < shown && top + i < CREDITS_COUNT; i++) {
+            const char *l = CREDITS_LINES[top + i];
+            text(u, 14, 34 + i * CREDITS_PITCH, *l == '#' ? C_GOLD : C_TEXT, 0, l + (*l == '#'));
         }
-        hit(u, H_OPTION, u->options_cursor, 0, 28, UI_W, UI_H - 28);   /* a tap anywhere goes back */
-        legend(u, "B Back");
+        if (more) {   /* page arrows on the right; a tap anywhere else goes back */
+            int h = (UI_H - 64) / 2;
+            rect(u, UI_W - 24, 32, 22, h, C_PANEL);
+            text(u, UI_W - 13, 32 + h / 2 - 6, top > 0 ? C_ACCENT : C_DIM, 1, "^");
+            hit(u, H_CREDITS, -1, UI_W - 24, 32, 22, h);
+            rect(u, UI_W - 24, 40 + h, 22, h, C_PANEL);
+            text(u, UI_W - 13, 40 + h + h / 2 - 6, top + shown < CREDITS_COUNT ? C_ACCENT : C_DIM, 1, "v");
+            hit(u, H_CREDITS, 1, UI_W - 24, 40 + h, 22, h);
+        }
+        hit(u, H_CREDITS, 0, 0, 28, UI_W, UI_H - 28);
+        legend(u, more ? "Up Down Scroll  L R Page  B Back" : "B Back");
         break;
     }
     case UI_OPTIONS: {

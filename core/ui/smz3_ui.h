@@ -27,7 +27,7 @@ extern int smz_ui_w, smz_ui_h;
 
 typedef enum { BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_L, BTN_R, BTN_SELECT, BTN_START } UiButton;   /* START: only the keyboard uses it (to Save) */
 typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY, UI_LOGO, UI_HOME, UI_OPTIONS,
-               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_ABOUT } UiScreen;
+               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_CREDITS } UiScreen;
 typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
@@ -65,7 +65,7 @@ enum { C_BG, C_PANEL, C_SEL, C_TEXT, C_DIM, C_ACCENT, C_WARN, C_GREEN, C_CYAN, C
 #define UI_COLORS 22
 
 typedef struct { int16_t x, y, w, h; uint8_t kind; int16_t idx; } UiHit;
-enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME };
+enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME, H_CREDITS };
 
 /* One game's monthly and weekly seeds as the host gave them (ui_set_monthly_game, ui_set_weekly_game). */
 typedef struct { char monthly_label[16]; int monthly_seed, monthly_days; char weekly_label[16]; int weekly_seed, weekly_days; } UiGamePeriods;
@@ -128,6 +128,7 @@ typedef struct {
              SmzRaceRoom rooms[RACE_ROOMS];
              SmzRace room; } race;            /* the online race being set up (see ui_race_*) */
     int rules_scroll;            /* first row shown on the rules screen */
+    int credits_scroll;          /* first line shown on the Credits screen */
     int start_cursor, start_col;  /* sprite screen: row (Link, Samus, Start) and column (sprite, Random) */
     UiScreen start_from;
     uint32_t rng;

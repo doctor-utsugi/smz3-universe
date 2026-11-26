@@ -326,7 +326,7 @@ host and called through a small C interface, the way `maprando-wasm` wraps them 
 - **End of run:** Map Rando's `hook_samus_enter_ship` tests event 0x0E and the gunship code at $A2:AA09 still sets
   $0FB2 to $AA4F, so the classic SM check (event 0x0E and $0FB2 == $AA4F) holds unchanged.
 - **Licences:** Map Rando is MIT (Copyright (c) 2023 maddo, kyleb); sm-json-data is CC BY 4.0. Both are credited on
-  every host's About screen and in `THIRD_PARTY.md`.
+  every host's Credits screen and in `THIRD_PARTY.md`.
 - **Tracker map:** a Map Rando run's map tab shows the game's own pause map, built from the running game by
   `core/ui/smz3_smmap.c` the way `map_area.asm`, `map_progress_maintain.asm`, `item_dots_disappear.asm` and
   `special_door_reveal.asm` build it: the area tilemaps ($82:964A), tiles ($E2:8000) and pause palette of the ROM,
@@ -397,7 +397,7 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 Everything ported is MIT, which needs the copyright notice kept: sporchia/alttp_php_randomizer, KatDevsGames/z3randomizer,
 tewtal/SMZ3Randomizer (`Randomizer.SuperMetroid`), tewtal/sm_randomizer_rom, Zarby89/Enemizer (Copyright (c) 2023
 Zarby89; its boss shuffle and base patch are in `core/z3gen/z3_enemizer*`, ported from the cassidoxa/Enimizer fork alttpr
-runs, which declares no licence of its own). A `THIRD_PARTY.md` lists them with their notices, and the About screen
+runs, which declares no licence of its own). A `THIRD_PARTY.md` lists them with their notices, and the Credits screen
 names them. Map Rando's logic data is CC BY 4.0 and needs attribution; its submodules have their own licences, to be
 read before any decision. The base patches carry reassembled game code, the same position SMZ3's patches are in today;
 no ROM is shipped.
