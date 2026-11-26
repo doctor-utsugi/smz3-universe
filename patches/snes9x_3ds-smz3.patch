@@ -353,7 +353,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..b472798 100644
+index 3692a54..796b8f6 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -14,6 +14,7 @@
@@ -463,6 +463,15 @@ index 3692a54..b472798 100644
      AddMenuPicker(items, "  Scale Filter"_s, "Applies when the game screen is stretched/zoomed in.\n\"Sharp\" may distort details,\n\"Balanced\" has minor performance impact."_s,
          makeOptionsForScreenFilter(), static_cast<int>(settings3DS.ScreenFilter), DIALOG_TYPE_INFO, true,
          []( int val ) {
+@@ -1383,7 +1421,7 @@ bool settingsReadWriteFullListByGame(bool writeMode)
+     config3dsReadWriteInt32(stream, writeMode, "SRAMInterval=%d\n", &settings3DS.SRAMSaveInterval, 0, 4);
+     config3dsReadWriteEnum(stream, writeMode, "ForceSRAMWrite=%d\n", &settings3DS.ForceSRAMWriteOnPause, 0, 1);
+     config3dsReadWriteEnum(stream, writeMode, "BindCirclePad=%d\n", &settings3DS.BindCirclePad, 0, 1);
+-    config3dsReadWriteInt32(stream, writeMode, "LastSaveSlot=%d\n", &settings3DS.CurrentSaveSlot, 0, 5);
++    config3dsReadWriteInt32(stream, writeMode, "LastSaveSlot=%d\n", &settings3DS.CurrentSaveSlot, 0, SAVESLOTS_MAX);
+ 
+     static const char *buttonName[10] = {"A", "B", "X", "Y", "L", "R", "ZL", "ZR", "SELECT","START"};
+     char keyBuf[64];
 @@ -1557,6 +1595,20 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
  
      config3dsReadWriteEnum(stream, writeMode, "ShowFPS=%d\n", &settings3DS.ShowFPS, 0, 1);
@@ -761,9 +770,18 @@ index 4593f02..5dc990d 100644
      
      settings3DS.TicksPerFrame = TICKS_PER_FRAME_SNES_NTSC;
 diff --git a/source/3dssettings.h b/source/3dssettings.h
-index 463301f..9e29245 100644
+index 463301f..0d63add 100644
 --- a/source/3dssettings.h
 +++ b/source/3dssettings.h
+@@ -22,7 +22,7 @@
+ #define SCREEN_BOTTOM_WIDTH     320
+ #define SCREEN_HEIGHT           240
+ 
+-#define SAVESLOTS_MAX   5
++#define SAVESLOTS_MAX   4
+ 
+ #define HOTKEY_OPEN_MENU            0
+ #define HOTKEY_FAST_FORWARD_TOGGLE  1
 @@ -173,6 +173,8 @@ typedef struct {
      bool                ShowFPS;
  
@@ -2733,10 +2751,10 @@ index 0000000..13b2a82
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..0daed4c
+index 0000000..62568d8
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6191 @@
+@@ -0,0 +1,6192 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3606,14 +3624,11 @@ index 0000000..0daed4c
 +        if (t) { threadJoin(t, U64_MAX); threadFree(t); }
 +        else genThread(&job);
 +        if (job.rc == 0) {
-+            char name[96];
-+            smz_run_rom_name(job.json, job.seedText, name, sizeof name);
 +            mkdir(SMZ_DIR, 0777); mkdir(RUN_DIR, 0777); mkdir(runDir(), 0777); mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777);
 +            SmzRun r;
 +            memset(&r, 0, sizeof r);
 +            snprintf(r.name, sizeof r.name, "%s", ui_run_label(u)[0] ? ui_run_label(u) : "Run");
 +            snprintf(r.seed, sizeof r.seed, "%s", job.seedText);
-+            snprintf(r.rom_path, sizeof r.rom_path, "%s/%s", runDir(), name);
 +            snprintf(r.settings, sizeof r.settings, "%s", job.json);
 +            if (dailyCheck && smz_daily_mark_settings(r.settings, sizeof r.settings, dailyCheck, dailySettings)) {
 +                snprintf(message, cap, "The challenge's settings do not fit");
@@ -3627,6 +3642,10 @@ index 0000000..0daed4c
 +                free(job.link); free(job.samus); free(job.sm);
 +                return false;
 +            }
++            // named from the final settings, as the PC and Android do, so every device finds the same ROM
++            char name[96];
++            smz_run_rom_name(r.settings, r.seed, name, sizeof name);
++            snprintf(r.rom_path, sizeof r.rom_path, "%s/%s", runDir(), name);
 +            r.created = (int64_t)time(NULL) * 1000;
 +            r.mode = smRun ? SMZ_MODE_SM : z3Run ? SMZ_MODE_Z3 : SMZ_MODE_SMZ3;
 +            r.zelda_total = smRun ? 0 : 216; r.metroid_total = z3Run ? 0 : 100;
