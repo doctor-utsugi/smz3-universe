@@ -7676,7 +7676,7 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..2d6dffc
+index 0000000..f498504
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 @@ -0,0 +1,1209 @@
@@ -8828,10 +8828,10 @@ index 0000000..2d6dffc
 +        rewards.set(s.bossMask, s.crystalMask)
 +        goals.set(s.bossMask, s.crystalMask, s.game == 3)
 +        renderRecentItems(s.recentItems)
-+        // Regions nearest to being finished: a goal to aim for that the game screen does not show.
++        // Regions nearest to being finished, from half done on: a goal to aim for that the game screen does not show.
 +        val nearly = regions
 +            .map { r -> Triple(r, r.locations.count { it in s.cleared }, r.locations.size) }
-+            .filter { (_, done, size) -> done in 1 until size }
++            .filter { (_, done, size) -> done * 2 >= size && done < size }
 +            .sortedBy { (_, done, size) -> size - done }
 +            .take(3)
 +        closest.text = if (nearly.isEmpty()) "" else "NEARLY DONE\n" + nearly.take(2).joinToString("\n") { (r, _, size) -> "${r.name}: ${size - r.locations.count { it in s.cleared }} left" }

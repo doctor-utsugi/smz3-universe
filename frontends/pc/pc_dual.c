@@ -334,10 +334,10 @@ static void run_left(float x, float top, float cw, float h)
         }
         y += (t->n_recent_items + 1) / 2 * 22 * u + 4 * u;
     }
-    int best[2] = {-1, -1};   /* the regions nearest to being finished */
+    int best[2] = {-1, -1};   /* the regions nearest to being finished, from half done on */
     for (int r = 0; r < n_regions; r++) {
         int d = region_done(&regions[r]), left = regions[r].n - d;
-        if (d < 1 || !left) continue;
+        if (d * 2 < regions[r].n || !left) continue;
         for (int k = 0; k < 2; k++)
             if (best[k] < 0 || left < regions[best[k]].n - region_done(&regions[best[k]])) {
                 if (k == 0) best[1] = best[0];

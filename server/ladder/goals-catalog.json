@@ -36,8 +36,8 @@
     {"key": "botwoon", "group": "metroid", "title": "Defeat Botwoon", "sprite": "boss/botwoon", "target": 20, "min": 1, "perRun": 1},
     {"key": "goldentorizo", "group": "metroid", "title": "Defeat Golden Torizo", "sprite": "boss/goldentorizo", "target": 15, "min": 1, "perRun": 1},
     {"key": "swaps", "group": "shared", "games": ["smz3"], "title": "Travel between the games", "sprite": "shared/portal", "target": 1500, "min": 10, "perRun": 300},
-    {"key": "items", "group": "shared", "title": "Collect items", "sprite": "shared/items", "target": 8000, "min": 40, "perRun": 400},
-    {"key": "runs", "group": "shared", "title": "Finish runs", "sprite": "boss/motherbrain", "target": 25, "min": 1, "perRun": 1},
-    {"key": "daily", "group": "shared", "title": "Finish daily challenges", "sprite": "shared/daily", "target": 60, "min": 1, "server": true}
+    {"key": "items", "group": "shared", "title": "Collect items", "sprite": "shared/items", "sprites": {"sm": "metroid/missile"}, "target": 8000, "min": 40, "perRun": 400},
+    {"key": "runs", "group": "shared", "title": "Finish runs", "sprite": "boss/motherbrain", "sprites": {"z3": "boss/ganon"}, "target": 25, "min": 1, "perRun": 1},
+    {"key": "daily", "group": "shared", "title": "Finish daily challenges", "sprite": "shared/daily", "sprites": {"z3": "zelda/heart", "sm": "metroid/etank"}, "target": 60, "min": 1, "server": true}
   ]
 }

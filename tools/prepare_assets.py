@@ -74,10 +74,13 @@ goals_dst.mkdir(exist_ok=True)
 GOAL_ICONS = {"boss_kraid": "kraid", "boss_phantoon": "phantoon", "boss_draygon": "draygon", "boss_ridley": "ridley",
               "boss_sporespawn": "spore spawn", "boss_crocomire": "crocomire", "boss_botwoon": "botwoon", "boss_motherbrain": "mother brain",
               "boss_agahnim": "../Dungeons/agahnim", "boss_goldentorizo": "bomb torizo",
-              "zelda_rupee": "twenty rupees", "shared_items": "chest", "shared_portal": "other game item", "shared_daily": "important other game item"}
+              "zelda_rupee": "twenty rupees", "shared_items": "chest", "shared_portal": "other game item", "shared_daily": "important other game item",
+              "zelda_heart": "heart container", "metroid_missile": "missile", "metroid_etank": "energy tank"}
 for key, name in GOAL_ICONS.items():
     shutil.copyfile(items_src / (name + ".png"), goals_dst / (key + ".png"))
-print(len(GOAL_ICONS), "goal icons copied")
+# ALttP's "Finish runs": the head of the sprite set's Ganon (its preview shows him whole)
+Image.open(root / "vendor/SMZ3CasSprites/Sprites/Link/ganon.2.png").convert("RGBA").crop((0, 0, 64, 56)).save(goals_dst / "boss_ganon.png")
+print(len(GOAL_ICONS) + 1, "goal icons copied")
 
 # IPS patches the on-device generator applies, and the options panel description (gen-cli schema)
 ips_src = root / "vendor/SMZ3Randomizer/src/TrackerCouncil.Smz3.SeedGenerator/FileData/IpsPatches"

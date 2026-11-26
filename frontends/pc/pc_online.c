@@ -232,6 +232,17 @@ int online_days_left(void)
 }
 
 /* The fixed seed of this period: fetched, or the copy saved for the same period. */
+/* "2026-W48": the ISO week by hand, since Windows' strftime has no %G or %V. */
+static void iso_week(const struct tm *g, char *out, size_t cap)
+{
+    int year = g->tm_year + 1900, thursday = g->tm_yday - (g->tm_wday + 6) % 7 + 3;
+#define DAYS(y) (((y) % 4 == 0 && (y) % 100 != 0) || (y) % 400 == 0 ? 366 : 365)
+    if (thursday < 0) { year--; thursday += DAYS(year); }
+    else if (thursday >= DAYS(year)) { thursday -= DAYS(year); year++; }
+#undef DAYS
+    snprintf(out, cap, "%04d-W%02d", year, thursday / 7 + 1);
+}
+
 static int fetch_period(const char *path, const char *file, const char *key, int weekly, char label[16], int *seed)
 {
     char body[512], s[32], m[16], url[64];
@@ -246,7 +257,7 @@ static int fetch_period(const char *path, const char *file, const char *key, int
         struct tm g;
         gmtime_r(&now, &g);
         char cur[16];
-        if (weekly) { strftime(cur, sizeof cur, "%G-W%V", &g); }
+        if (weekly) iso_week(&g, cur, sizeof cur);
         else strftime(cur, sizeof cur, "%Y-%m", &g);
         if (!strcmp(cur, m) && atoi(s) > 0) { snprintf(label, 16, "%s", m); *seed = atoi(s); ok = 1; }
     }

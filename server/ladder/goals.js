@@ -31,6 +31,7 @@ module.exports = function goals(ctx) {
   const keyOf = (game, ym) => game === 'smz3' ? ym : game + ':' + ym;
   const gameOfKey = k => k.includes(':') ? k.slice(0, k.indexOf(':')) : 'smz3';
   const ymOf = k => k.slice(-7);
+  const spriteOf = (c, game) => (c.sprites && c.sprites[game]) || c.sprite;   // a shared goal can draw a game's own icon
   const gameOfRun = run => run[0] === 'z' ? 'z3' : run[0] === 'm' ? 'sm' : 'smz3';
   // Before the games had their own goals every run reported into SMZ3's month: unpaid months give the others back.
   for (const [k, byInst] of Object.entries(db.runs)) {
@@ -108,7 +109,7 @@ module.exports = function goals(ctx) {
       month: ymOf(pm), counted: p.counted, gems: mo.paid[install] || 0,
       goals: mo.goals.map(g => {
         const c = cat.goals.find(x => x.key === g.key) || {}, list = contributors(pm, cat, g.key), rank = list.findIndex(([i]) => i === install);
-        return { key: g.key, title: c.title, sprite: c.sprite, target: g.target, total: t.all[g.key] || 0, mine: t.mine[g.key] || 0,
+        return { key: g.key, title: c.title, sprite: spriteOf(c, gameOfKey(pm)), target: g.target, total: t.all[g.key] || 0, mine: t.mine[g.key] || 0,
           rank: rank + 1, players: list.length,
           top: list.slice(0, 10).map(([i, n]) => { const w = who(i); return `${w.player}|${w.country}|${n}`; }).join(';') };
       }),
@@ -148,7 +149,7 @@ module.exports = function goals(ctx) {
       const m = keyOf(game, monthOf(now)), mo = month(m, cat), t = totals(m, cat, daily.validInstall(install) ? install : null);
       const goals = mo.goals.map(g => {
         const c = cat.goals.find(x => x.key === g.key) || {};
-        return { key: g.key, title: c.title, sprite: c.sprite, target: g.target, total: t.all[g.key] || 0, min: c.min, mine: t.mine[g.key] || 0 };
+        return { key: g.key, title: c.title, sprite: spriteOf(c, game), target: g.target, total: t.all[g.key] || 0, min: c.min, mine: t.mine[g.key] || 0 };
       });
       const p = payout(mo.goals, cat, t.mine, t.all), pm = db.months[prevMonth(m)];
       send(res, 200, { now, month: ymOf(m), game, endsAt: monthEnd(m), onlineOnly: !!cat.onlineOnly, goals, counted: p.counted, gemsIfMet: p.gemsIfMet,
