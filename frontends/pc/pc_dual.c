@@ -384,7 +384,7 @@ static void shortcut_cell(float x, float y, float w, float h, int id, int hit, i
 /* The rows over the mini map: five ALttP slots, or the beams owned and under them the HUD weapons owned. Returns the y under them. */
 static float shortcut_rows(float x, float y, float w)
 {
-    int game = F.t->started ? (int)F.t->game : 0, on = (game == SMZ3_GAME_ZELDA || game == SMZ3_GAME_METROID) && sc_row_shown() && !smz3_z3_alone() && !smz3_sm_alone();   /* the single-game ROMs have no shortcut hooks */
+    int game = F.t->started ? (int)F.t->game : 0, on = (game == SMZ3_GAME_ZELDA || game == SMZ3_GAME_METROID) && sc_row_shown() && !smz3_sm_alone();   /* Super Metroid's ROM alone has no shortcut hooks */
     if (on && game == SMZ3_GAME_ZELDA) {
         for (int i = 0; i < SC_SLOTS; i++) shortcut_cell(x + i * w / SC_SLOTS, y + 2 * u, w / SC_SLOTS, 44 * u, sc_slot(i), HIT_SLOT, i);
         y += 48 * u;

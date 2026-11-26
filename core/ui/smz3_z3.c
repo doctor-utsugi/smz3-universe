@@ -66,6 +66,7 @@ static int sprite_apply(uint8_t *rom, const uint8_t *rdc, size_t len)
 static int z3_settings(const char *json, Z3GenSettings *s, uint32_t *seed)
 {
     z3_settings_default(s);
+    s->quickswap = 1;   /* on by default in the options, which then leave it out of the JSON */
     const char *p = strstr(json, "\"z3\":{"), *sd = strstr(json, "\"seed\":\"");
     if (!p || !sd) return -1;
     *seed = (uint32_t)strtoul(sd + 8, NULL, 10);
@@ -101,6 +102,7 @@ int smz_z3_generate(char *json, size_t json_cap, const uint8_t *z3, const uint8_
     int rc = -3;
     for (int k = 0; (rc == -3 || rc == -4) && k < SMZ_Z3_SEED_TRIES; k++) rc = z3_generate(&s, z3, SMZ_Z3_BASE_SIZE, rom_out, cap, seed + (uint32_t)k, NULL, NULL);
     if (rc) return rc;
+    if (!z3_rom_shortcut_hooks(rom_out)) z3_rom_update_checksum(rom_out);   /* kept out of z3_generate, alttpr's own ROM */
     if (link_rdc && sprite_apply(rom_out, link_rdc, link_len)) return SMZ_Z3_ERR_SPRITE;
     if (strstr(json, "\"lightDarkRooms\":true")) {
         /* as SMZ3's LightDarkRooms: bit 0 of each room header's first byte is the dark flag, headers through the table at $04:F1E2 */

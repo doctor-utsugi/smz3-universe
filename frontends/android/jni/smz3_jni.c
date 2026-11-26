@@ -9,6 +9,7 @@
 #include "smz3_rewind.h"
 #include "smz3_version.h"
 #include "smz3_rom.h"
+#include "z3_rom.h"
 
 #define NATIVE(name) Java_com_swordfish_lemuroid_app_shared_game_viewmodel_Smz3Native_##name
 
@@ -50,14 +51,21 @@ JNIEXPORT jintArray JNICALL NATIVE(preparedPokes)(JNIEnv *env, jclass cls, jbyte
     return r;
 }
 
-/* Adds the shortcut hooks to a run's ROM made before them; null when it already has them or is not an SMZ3 ROM. */
+/* Adds the shortcut hooks to a run's ROM made before them; null when it already has them or is neither an SMZ3 nor an
+ * alttpr ROM. */
 JNIEXPORT jbyteArray JNICALL NATIVE(addShortcutHooks)(JNIEnv *env, jclass cls, jbyteArray rom)
 {
     jsize n = (*env)->GetArrayLength(env, rom);
-    if (n < 0x410000) return NULL;
+    if (n < 0x410000 && n != 0x200000) return NULL;
     jbyte *b = (*env)->GetByteArrayElements(env, rom, NULL);
-    int ok = smz_rom_shortcut_hooks((uint8_t *)b) == 0;
-    if (ok) smz_rom_checksum((uint8_t *)b);
+    int ok;
+    if (n == 0x200000) {
+        ok = z3_rom_shortcut_hooks((uint8_t *)b) == 0;
+        if (ok) z3_rom_update_checksum((uint8_t *)b);
+    } else {
+        ok = smz_rom_shortcut_hooks((uint8_t *)b) == 0;
+        if (ok) smz_rom_checksum((uint8_t *)b);
+    }
     (*env)->ReleaseByteArrayElements(env, rom, b, ok ? 0 : JNI_ABORT);
     return ok ? rom : NULL;
 }

@@ -192,7 +192,7 @@ Every place in `docs/` and the code that assumes a 6 MB combo ROM branches on th
 | Checks from WRAM 0x7EF000 (Zelda) and 0x7ED870 (Metroid) | `smz3_state.c:62-91` | Same WRAM in vanilla, so the reads stay; the SRAM copies move to each standalone layout |
 | Boss counters read the other game's parked copy in combo SRAM (`room*2+1` for Zelda, `0x2078+area` for Metroid) | `smz3_counters.c:57-69` (`bosses_beaten`) | Z3 and SM read only their own game, from WRAM; the SRAM branch is SMZ3 only |
 | Combined offsets in the ROM | sprites, shortcut hooks, `smz_rom_start_sm/z3`, checksum at 0x40FFB0, light dark rooms, SM default controls | LoROM offsets per standalone ROM, or the option is dropped where the base patch has its own |
-| Hooks need the 6 MB ROM | 3DS `smz3run.cpp:905`, shortcut hooks | Shortcuts per game need hooks in each standalone ROM; until then the shortcut row is off in that mode |
+| Hooks need the 6 MB ROM | 3DS `smz3run.cpp:905`, shortcut hooks | Shortcuts per game need hooks in each standalone ROM: Z3 has its own (`z3_rom_shortcut_hooks`), SM's row stays off until it gets one |
 
 What stays as it is: save states and rewind (`smz3_rewind.c`), the `challenge` flag that blocks them, the enemy, kill
 and rupee counters (`smz3_counters.c:82-106` reads only vanilla WRAM, so Zelda and Metroid enemies count the same),
@@ -369,7 +369,7 @@ Each step ships on every version (PC, Linux handhelds, Android and the Thor, 3DS
 7. **Z3 on the hosts** and **Z3 online**, as steps 3 and 4.
    Hosts done, offline (see Z3.md, step 7): PC, 3DS and Android generate and track Z3 runs. A single-game run shows
    nothing of the other game on the second screen: no portals on its half of the map, no Dungeons button in SM, no
-   other game's bosses, crystals, counters or items (SMZ3 54, SM 21, Z3 33), no shortcut rows.
+   other game's bosses, crystals, counters or items (SMZ3 54, SM 21, Z3 33), no shortcut rows in SM.
    Online done and deployed: ladders, Original monthly, a Fast Ganon 2-crystal weekly, the proof checker on z3gen's
    logic, the daily (`z3-<date>-<n>`), Championship rooms and world goals; every online Z3 run is a tournament ROM.
 8. **Z3 next options**, then glitched logic.

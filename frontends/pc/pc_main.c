@@ -39,6 +39,7 @@
 #include "pc_race.h"
 #include "pc_store.h"
 #include "pc_sync.h"
+#include "z3_rom.h"
 #include "smz3_sync.h"
 #include "smz3_host.h"
 #include "smz3_rom.h"
@@ -1967,7 +1968,9 @@ static void play(int slot, int game_save_only)
     uint8_t *rom = store_read(romp, &rl);
     if (!rom || rl != smz_mode_rom_size(run.mode)) { free(rom); note("the ROM of this run is missing; make a new run"); return; }
     music_prepare(romp, run.settings, run.seed);
-    if (run.mode == SMZ_MODE_SMZ3 && !smz_rom_shortcut_hooks(rom)) smz_rom_checksum(rom);   /* a run made before the item shortcuts; a single game has no hooks */
+    /* a run made before the item shortcuts; Super Metroid alone has no hooks */
+    if (run.mode == SMZ_MODE_SMZ3 && !smz_rom_shortcut_hooks(rom)) smz_rom_checksum(rom);
+    else if (run.mode == SMZ_MODE_Z3 && !z3_rom_shortcut_hooks(rom)) z3_rom_update_checksum(rom);
     int ok = emu_open(rom, rl, romp) == 0;
     map_game_rom(rom, rl);
     free(rom);

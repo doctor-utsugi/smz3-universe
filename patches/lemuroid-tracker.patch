@@ -6089,10 +6089,10 @@ index 0000000..76a0cb6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
 new file mode 100644
-index 0000000..0f59f32
+index 0000000..c0265ae
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,195 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -6119,6 +6119,9 @@ index 0000000..0f59f32
 +    FAST_FORWARD("Fast forward", listOf(KeyEvent.KEYCODE_BUTTON_R2)),
 +    NEXT_SLOT("Next save slot", listOf(KeyEvent.KEYCODE_BUTTON_L2, KeyEvent.KEYCODE_BUTTON_R1)),
 +    REWIND("Rewind", listOf(KeyEvent.KEYCODE_BUTTON_L2, KeyEvent.KEYCODE_BUTTON_L1)),
++
++    /** Pressed on the tracker's own screen, which a touch gave the pad to: the pad goes back to the game. */
++    FOCUS_GAME("Back to the game", listOf(KeyEvent.KEYCODE_BUTTON_THUMBL)),
 +}
 +
 +/**
@@ -6238,12 +6241,23 @@ index 0000000..0f59f32
 +                !Smz3Rewind.allowed(context) -> h.hotkeyToast("Rewind is off in this run")
 +                Smz3Rewind.open() -> Smz3Rewind.heldOnOpen(keys(context, action).filter { it in pressed })
 +            }
++            Smz3HotkeyAction.FOCUS_GAME -> {}
 +            Smz3HotkeyAction.NEXT_SLOT -> {
 +                val next = slot(context) % SLOTS + 1
 +                setSlot(context, next)
 +                h.hotkeyToast("Save slot $next")
 +            }
 +        }
++    }
++
++    /** On the tracker's screen: true when [event] completes the FOCUS_GAME combo, [held] being that screen's keys down. */
++    fun focusGameKey(context: Context, event: KeyEvent, held: MutableSet<Int>): Boolean {
++        val code = event.keyCode
++        if (event.action == KeyEvent.ACTION_UP) { held.remove(code); return false }
++        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return false
++        held.add(code)
++        val keys = keys(context, Smz3HotkeyAction.FOCUS_GAME)
++        return code in keys && held.containsAll(keys)
 +    }
 +
 +    /** Returns true when the key was taken by a hotkey and must not reach the game. */
@@ -6264,6 +6278,7 @@ index 0000000..0f59f32
 +        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return code in consumed
 +        pressed.add(code)
 +        val match = Smz3HotkeyAction.entries
++            .filter { it != Smz3HotkeyAction.FOCUS_GAME }   // L3 + R3 opens the menu from the game
 +            .map { it to keys(context, it) }
 +            .filter { (_, keys) -> code in keys && pressed.containsAll(keys) }
 +            .maxByOrNull { (_, keys) -> keys.size } ?: return false
@@ -7821,10 +7836,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..f498504
+index 0000000..998a458
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1209 @@
+@@ -0,0 +1,1235 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -7863,6 +7878,32 @@ index 0000000..f498504
 +
 +    fun render(snapshot: Smz3Snapshot) {
 +        panel?.render(snapshot)
++    }
++
++    private val held = HashSet<Int>()
++
++    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
++        if (Smz3Hotkeys.focusGameKey(context, event, held)) {
++            focusGame()
++            return true
++        }
++        return super.dispatchKeyEvent(event)
++    }
++
++    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
++        val w = window
++        if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN && w != null && (w.attributes.flags and NOT_FOCUSABLE) != 0) w.clearFlags(NOT_FOCUSABLE)
++        return super.dispatchTouchEvent(event)
++    }
++
++    /** A screen with no focusable window passes the input focus to the game's, until the next touch here takes it back. */
++    private fun focusGame() {
++        held.clear()
++        window?.addFlags(NOT_FOCUSABLE)
++    }
++
++    private companion object {
++        const val NOT_FOCUSABLE = android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 +    }
 +}
 +
@@ -8168,9 +8209,9 @@ index 0000000..f498504
 +
 +    /** The rows over the mini map: five ALttP slots, or the beams owned and under them the HUD weapons owned. */
 +    private fun renderShortcuts(game: Int) {
-+        val single = Smz3Tracker.z3Alone || Smz3Tracker.smAlone   // the single-game ROMs have no shortcut hooks
-+        val on = (game == 1 || game == 2) && Smz3Shortcuts.rowShown(context) && !single
-+        val weaponsOn = game == 2 && Smz3Shortcuts.weaponRowShown(context) && !single
++        val smAlone = Smz3Tracker.smAlone   // Super Metroid's ROM alone has no shortcut hooks
++        val on = (game == 1 || game == 2) && Smz3Shortcuts.rowShown(context) && !smAlone
++        val weaponsOn = game == 2 && Smz3Shortcuts.weaponRowShown(context) && !smAlone
 +        val slots = List(Smz3Shortcuts.SLOTS) { Smz3Shortcuts.slot(context, it) }
 +        val key = "$on $weaponsOn $game $slots ${Smz3Shortcuts.owned} ${Smz3Shortcuts.active} ${theme.accent}"
 +        if (key == shortcutShown) return
@@ -9455,7 +9496,7 @@ index 0000000..039ea09
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt
 new file mode 100644
-index 0000000..5693c1e
+index 0000000..bb1becb
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Shortcuts.kt
 @@ -0,0 +1,148 @@
@@ -9570,7 +9611,7 @@ index 0000000..5693c1e
 +        }
 +        val mapped = padBindings?.invoke(event.device)?.get(InputKey(code))?.keyCode ?: code
 +        SNES_KEYS[mapped]?.let { return "the SNES $it button" }
-+        Smz3HotkeyAction.entries.firstOrNull { code in Smz3Hotkeys.keys(context, it) }?.let { action ->
++        Smz3HotkeyAction.entries.firstOrNull { it != Smz3HotkeyAction.FOCUS_GAME && code in Smz3Hotkeys.keys(context, it) }?.let { action ->
 +            return "the ${action.title} hotkey (" + Smz3Hotkeys.keys(context, action).joinToString(" + ") { Smz3Hotkeys.name(it) } + ")"
 +        }
 +        padShortcuts.values.flatten().firstOrNull { code in it.keys }?.let { return "the emulator's ${it.type.displayName()} shortcut (${it.name})" }

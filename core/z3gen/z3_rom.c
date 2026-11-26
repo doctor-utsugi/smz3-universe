@@ -542,6 +542,32 @@ void z3_rom_cosmetics(uint8_t *rom, const Z3GenSettings *g)
     if (g->quickswap >= 0) w8(rom, 0x18004B, g->quickswap ? 0x01 : 0x00);
 }
 
+int z3_rom_shortcut_hooks(uint8_t *rom)
+{
+    /* the frame hook at $00:8056 calls $A1:8000; the new hook goes in the unused end of bank $3F (PC 0x1FFF00) */
+    enum { SITE = 0x000056, HOOK = 0x1FFF00 };
+    static const uint8_t CALL[4] = {0x22, 0x00, 0x80, 0xA1}, TO_HOOK[4] = {0x22, 0x00, 0xFF, 0xBF};
+    /* bit 7 of the Y item ($0202) asks for $0D:DB7F while on foot, as the SMZ3 ROM's hook (smz_rom_shortcut_hooks) */
+    static const uint8_t CODE[] = {
+        0x08, 0xE2, 0x30,               /* PHP : SEP #$30 */
+        0xAF, 0x02, 0x02, 0x7E,         /* LDA $7E0202 */
+        0x10, 0x16,                     /* BPL done */
+        0x29, 0x7F,                     /* AND #$7F */
+        0x8F, 0x02, 0x02, 0x7E,         /* STA $7E0202 */
+        0xAF, 0x10, 0x00, 0x7E,         /* LDA $7E0010: the module */
+        0xC9, 0x07, 0xF0, 0x04,         /* CMP #$07 : BEQ refresh (dungeon) */
+        0xC9, 0x09, 0xD0, 0x04,         /* CMP #$09 : BNE done (overworld) */
+        0x22, 0x7F, 0xDB, 0x0D,         /* refresh: JSL $0DDB7F, the HUD's Y item icon and $0303 */
+        0x28,                           /* done: PLP */
+        0x5C, 0x00, 0x80, 0xA1,         /* JML $A18000: the frame hook this replaces */
+    };
+    if (memcmp(rom + SITE, CALL, 4)) return -1;
+    for (size_t i = 0; i < sizeof CODE; i++) if (rom[HOOK + i] != 0x00) return -1;
+    wbytes(rom, HOOK, CODE, sizeof CODE);
+    wbytes(rom, SITE, TO_HOOK, 4);
+    return 0;
+}
+
 /* The web flow never calls it (prepSeed returns a patch; resources/js/rom.js fixes the checksum on save); the
    alttp:randomize console command does, before saving. */
 void z3_rom_update_checksum(uint8_t *rom)

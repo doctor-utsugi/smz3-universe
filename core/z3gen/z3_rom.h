@@ -15,5 +15,8 @@ void z3_rom_set_seed_string(uint8_t *rom, const char *s21);        /* setSeedStr
 void z3_rom_set_hash(uint8_t *rom, const uint8_t icons[5]);        /* setStartScreenHash at 0x180215 */
 void z3_rom_cosmetics(uint8_t *rom, const Z3GenSettings *g);       /* heart beep, menu speed, quickswap if != -1 */
 void z3_rom_update_checksum(uint8_t *rom);                         /* Rom::updateChecksum (LoROM) */
+/* The hook that redraws the Y item the item shortcuts set (core/ui/smz3_shortcuts.h). 0 when added, -1 when the ROM
+   already has it or is not an alttpr ROM; the checksum is left to the caller. */
+int z3_rom_shortcut_hooks(uint8_t *rom);
 
 #endif

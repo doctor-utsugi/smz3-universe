@@ -2765,10 +2765,10 @@ index 0000000..be959cd
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..344a594
+index 0000000..4944c0b
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6231 @@
+@@ -0,0 +1,6234 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2803,6 +2803,9 @@ index 0000000..344a594
 +// from smz3_rom.h, whose generator headers stay out of C++
 +int smz_rom_shortcut_hooks(uint8_t *rom);
 +void smz_rom_checksum(uint8_t *rom);
++// and from z3_rom.h
++int z3_rom_shortcut_hooks(uint8_t *rom);
++void z3_rom_update_checksum(uint8_t *rom);
 +}
 +
 +extern "C" {
@@ -3708,10 +3711,10 @@ index 0000000..344a594
 +{
 +    size_t len = 0;
 +    unsigned char *rom = readFile(romPath, &len);
-+    if (rom && len == SMZ_HOST_ROM_SIZE && smz_rom_shortcut_hooks(rom) == 0) {
-+        smz_rom_checksum(rom);
-+        if (FILE *f = fopen(romPath, "r+b")) { fwrite(rom, 1, len, f); fclose(f); }
-+    }
++    bool added = false;
++    if (rom && len == SMZ_HOST_ROM_SIZE && smz_rom_shortcut_hooks(rom) == 0) { smz_rom_checksum(rom); added = true; }
++    else if (rom && len == SMZ_Z3_ROM_SIZE && z3_rom_shortcut_hooks(rom) == 0) { z3_rom_update_checksum(rom); added = true; }
++    if (added) if (FILE *f = fopen(romPath, "r+b")) { fwrite(rom, 1, len, f); fclose(f); }
 +    free(rom);
 +}
 +
@@ -5106,7 +5109,7 @@ index 0000000..344a594
 +static int scCells(int *ids, int row)
 +{
 +    scLoad();
-+    if (!trk.started || !scShown[row] || smz3_z3_alone() || smz3_sm_alone()) return 0;   // the single-game ROMs have no shortcut hooks
++    if (!trk.started || !scShown[row] || smz3_sm_alone()) return 0;   // Super Metroid's ROM alone has no shortcut hooks
 +    if (trk.game == SMZ3_GAME_ZELDA) {
 +        if (row) return 0;
 +        for (int i = 0; i < SC_SLOTS; i++) ids[i] = scSlots[i];
