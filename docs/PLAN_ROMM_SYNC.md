@@ -143,3 +143,10 @@ install on a test machine (port 8095) goes away.
 
 Each step ships on its own: after step 5, PC, Thor and RGDS share the player, runs, saves and states; after step 7
 the 3DS does too.
+
+## Status (2026-11-26)
+
+Steps 1 to 7 are in. The client lives in `core/ui/smz3_romm.c` and `core/ui/smz3_sync.c` (step 3 named `core/romm/`).
+Checked against romm.example.com: PC to PC, PC to Thor and Thor to PC (run list, Continue pulls the save and the state,
+leaving pushes them back). The converter's 1.43 round trip of a real PC state loads on the PC at the same scene. The
+3DS sync and the converter on Azahar have not been run yet.
