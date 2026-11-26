@@ -76,6 +76,7 @@ void ui_init(SmzUi *u)
 
 void ui_set_slot_count(SmzUi *u, int n)
 {
+    u->launching = 0;
     u->slot_count = n < 1 ? 1 : n > UI_SLOTS ? UI_SLOTS : n;
     if (u->slot_cursor >= u->slot_count) u->slot_cursor = 0;
 }
@@ -1596,6 +1597,7 @@ static void mode_input(SmzUi *u, UiButton b)
 
 void ui_input(SmzUi *u, UiButton b)
 {
+    u->launching = 0;
     if (b == BTN_START && u->screen != UI_NAME) return;
     if (u->screen == UI_LOGO) return;   /* its 2 seconds can't be skipped */
     u->notice[0] = 0;
@@ -1631,7 +1633,7 @@ void ui_input(SmzUi *u, UiButton b)
         else if (b == BTN_B) u->screen = UI_SLOTS_SCREEN;
         else if (b == BTN_A) {
             if (u->menu_cursor) { u->screen = UI_CONFIRM; u->confirm_cursor = 0; }   /* Cancel is the default */
-            else { u->action = ACT_CONTINUE; u->action_slot = u->active_slot; u->screen = UI_SLOTS_SCREEN; }
+            else { u->action = ACT_CONTINUE; u->action_slot = u->active_slot; u->screen = UI_SLOTS_SCREEN; u->launching = 1; }
         }
         break;
     case UI_CONFIRM:
@@ -1744,6 +1746,7 @@ UiCue ui_cue(const SmzUi *a, const SmzUi *z, int b)
 
 void ui_touch(SmzUi *u, int x, int y)
 {
+    u->launching = 0;
     for (int i = 0; i < u->hit_count; i++) {
         const UiHit *t = &u->hit[i];
         if (x < t->x || y < t->y || x >= t->x + t->w || y >= t->y + t->h) continue;
@@ -2332,6 +2335,8 @@ static void race_draw(SmzUi *u)
 void ui_draw(SmzUi *u)
 {
     char buf[64], val[44];
+    int listed = u->screen;
+    if (u->launching && u->screen == UI_SLOTS_SCREEN) u->screen = UI_SLOT_MENU;
     u->cmd_count = 0;
     u->hit_count = 0;
     rect(u, 0, 0, UI_W, UI_H, C_BG);
@@ -2965,4 +2970,5 @@ void ui_draw(SmzUi *u)
     }
     smz_ui_w = full;
     smz_ui_h = full_h;
+    u->screen = listed;
 }

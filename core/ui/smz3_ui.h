@@ -136,6 +136,7 @@ typedef struct {
     uint32_t rng;
     UiAction action;             /* set by an input event, read and cleared by the host */
     int action_slot;
+    int launching;   /* Continue was picked: the run's menu stays drawn, not the list, until the game is up */
     char status[44];
     UiCmd cmd[UI_MAX_CMDS];
     int cmd_count;
