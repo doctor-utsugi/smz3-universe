@@ -1,5 +1,5 @@
 diff --git a/Makefile b/Makefile
-index 31fa536..db7cc2d 100644
+index 31fa536..24d5aa8 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -90,13 +90,17 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
@@ -35,7 +35,7 @@ index 31fa536..db7cc2d 100644
  			3dsconfig.cpp 3dsfiles.cpp 3dsinput.cpp 3dslcd.cpp \
  			3dsimpl.cpp 3dsimpl_tilecache.cpp 3dsimpl_gpu.cpp 3dsthemes.cpp 3dssettings.cpp \
 -			3dslog.cpp 3dsra.cpp 3dsra_http.cpp 3dsra_ui.cpp
-+			3dslog.cpp 3dsra.cpp 3dsra_http.cpp 3dsra_ui.cpp smz3run.cpp smz3online.cpp smz3music.cpp
++			3dslog.cpp 3dsra.cpp 3dsra_http.cpp 3dsra_ui.cpp smz3run.cpp smz3online.cpp smz3music.cpp smz3sync.cpp
  SFILES             := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
  PICAFILES          := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
  SHLISTFILES        := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
@@ -97,7 +97,7 @@ index 591688c..0eb3100 100644
  
      TEX_COUNT,
 diff --git a/source/3dsimpl.cpp b/source/3dsimpl.cpp
-index d4fca8e..34f0969 100644
+index d4fca8e..f62115c 100644
 --- a/source/3dsimpl.cpp
 +++ b/source/3dsimpl.cpp
 @@ -8,6 +8,7 @@
@@ -274,6 +274,14 @@ index d4fca8e..34f0969 100644
  	}
  	return success;
  }
+@@ -1345,6 +1419,7 @@ void S9xAutoSaveSRAM (void)
+ 
+ 	if (path[0] != '\0') {
+ 		Memory.SaveSRAM (path);
++		smz3SramSaved(path);
+ 	}
+ 
+     // instead of starting NDSP, we continue to mix 
 diff --git a/source/3dsinput.cpp b/source/3dsinput.cpp
 index c8b5241..d7673cd 100644
 --- a/source/3dsinput.cpp
@@ -1168,10 +1176,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..57e1855
+index 0000000..fa27141
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1440 @@
+@@ -0,0 +1,1444 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1397,6 +1405,8 @@ index 0000000..57e1855
 +    out[32] = 0;
 +    writeText(ONLINE_DIR "/install_id", out, 32);
 +}
++
++void smzOnlineInstallId(char out[40]) { installId(out); }
 +
 +// ---- per slot files: .mode (the run's kind, online or not), .online (kind on the ladder), .token, .finish ("time seed"), .proof
 +
@@ -1648,7 +1658,7 @@ index 0000000..57e1855
 +    return r;
 +}
 +
-+struct GoalReport { int slot; bool online; int64_t created; char text[640]; };
++struct GoalReport { int slot; bool online; int64_t created; char run[48], text[640]; };
 +
 +static void goalsReportThread(void *arg)
 +{
@@ -1656,7 +1666,8 @@ index 0000000..57e1855
 +    char id[40], run[64], reply[256], body[2048], name[32], country[4];
 +    installId(id);
 +    playerOf(name, country);
-+    snprintf(run, sizeof run, "%s%d-%lld", modeNow() == SMZ_MODE_SM ? "m" : modeNow() == SMZ_MODE_Z3 ? "z" : "s", g->slot, (long long)g->created);   // the games' slots apart
++    if (g->run[0]) snprintf(run, sizeof run, "%s", g->run);   // the same run on every device
++    else snprintf(run, sizeof run, "%s%d-%lld", modeNow() == SMZ_MODE_SM ? "m" : modeNow() == SMZ_MODE_Z3 ? "z" : "s", g->slot, (long long)g->created);   // the games' slots apart
 +    int n = snprintf(body, sizeof body, "{\"install\":\"%s\",\"run\":\"%s\",\"online\":%s,\"player\":\"%s\",", id, run, g->online ? "true" : "false", name);
 +    if (country[0]) n += snprintf(body + n, sizeof body - (size_t)n, "\"country\":\"%s\",", country);
 +    n += snprintf(body + n, sizeof body - (size_t)n, "\"counts\":{");
@@ -1917,7 +1928,7 @@ index 0000000..57e1855
 +    if (!busy && !spawn(versionThread, NULL)) unbusy(&gVersionState);
 +}
 +
-+void smzOnlineGoalsReport(int slot, int64_t created, bool online, const char *counters)
++void smzOnlineGoalsReport(int slot, int64_t created, const char *runId, bool online, const char *counters)
 +{
 +    if (!counters || !*counters) return;
 +    netUp();
@@ -1925,6 +1936,7 @@ index 0000000..57e1855
 +    GoalReport *g = (GoalReport *)calloc(1, sizeof *g);
 +    if (!g) return;
 +    g->slot = slot; g->online = online; g->created = created;
++    snprintf(g->run, sizeof g->run, "%s", runId ? runId : "");
 +    snprintf(g->text, sizeof g->text, "%s", counters);
 +    spawn(goalsReportThread, g);
 +}
@@ -2614,10 +2626,10 @@ index 0000000..57e1855
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..13b2a82
+index 0000000..be959cd
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,133 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2666,8 +2678,10 @@ index 0000000..13b2a82
 +int smzUpdateProgress(void);
 +// After a .cia install: starts the new title once the app closes; false for the .3dsx or when the console says no.
 +bool smzUpdateRelaunch(void);
-+// Sends a run's goal counters (smz_counters_text) on a thread; slot as in the run id "s<slot>-<created>".
-+void smzOnlineGoalsReport(int slot, int64_t created, bool online, const char *counters);
++// Sends a run's goal counters (smz_counters_text) on a thread under runId, or "s<slot>-<created>" for a run older than the sync.
++void smzOnlineGoalsReport(int slot, int64_t created, const char *runId, bool online, const char *counters);
++// This install's id, made on first use.
++void smzOnlineInstallId(char out[40]);
 +// The player's profile file text ("name\tCC\tmode"), and saving it back.
 +bool smzOnlineProfileLoad(char *out, size_t cap);
 +void smzOnlineProfileSave(const char *text);
@@ -2751,10 +2765,10 @@ index 0000000..13b2a82
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..62568d8
+index 0000000..344a594
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6192 @@
+@@ -0,0 +1,6231 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2810,6 +2824,7 @@ index 0000000..62568d8
 +#include "3dsui_notif.h"
 +#include "smz3run.h"
 +#include "smz3online.h"
++#include "smz3sync.h"
 +
 +#define OLD_DIR "sdmc:/SMZ3"   // the data folder of older builds
 +#define RUN_DIR SMZ_DIR "/runs"
@@ -3648,6 +3663,7 @@ index 0000000..62568d8
 +            snprintf(r.rom_path, sizeof r.rom_path, "%s/%s", runDir(), name);
 +            r.created = (int64_t)time(NULL) * 1000;
 +            r.mode = smRun ? SMZ_MODE_SM : z3Run ? SMZ_MODE_Z3 : SMZ_MODE_SMZ3;
++            smz3SyncNewId(r.id);
 +            r.zelda_total = smRun ? 0 : 216; r.metroid_total = z3Run ? 0 : 100;
 +            size_t romSize = smz_mode_rom_size(r.mode);
 +            FILE *f = fopen(r.rom_path, "wb");
@@ -3701,10 +3717,33 @@ index 0000000..62568d8
 +
 +static void deleteRun(int slot)
 +{
-+    char path[96];
++    char path[96], other[96];
 +    snprintf(path, sizeof path, "%s/slot%d.run", runDir(), slot);
-+    SmzRun r;
-+    if (runLoad(path, &r) == 0 && r.rom_path[0]) remove(r.rom_path);
++    SmzRun r, o;
++    bool shared = false;   // two runs of one seed share the ROM and its saves here
++    if (runLoad(path, &r) == 0 && r.rom_path[0]) {
++        for (int i = 0; i < UI_SLOTS && !shared; i++) {
++            snprintf(other, sizeof other, "%s/slot%d.run", runDir(), i);
++            shared = i != slot && runLoad(other, &o) == 0 && !strcmp(o.rom_path, r.rom_path);
++        }
++        if (!shared) {   // a new run of the same ROM must not find this one's saves and states
++            static const char *const EXT[] = {".srm", ".auto.frz", ".1.frz", ".2.frz", ".3.frz", ".4.frz"};
++            char f[PATH_MAX], g[PATH_MAX + 8];
++            for (int i = 0; i < 6; i++) {
++                file3dsGetRelatedPath(r.rom_path, f, sizeof f, EXT[i], i ? "savestates" : "saves");
++                remove(f);
++                snprintf(g, sizeof g, "%s.goals", f); remove(g);
++                snprintf(g, sizeof g, "%s.v14", f); remove(g);
++            }
++            snprintf(f, sizeof f, "%.250s.help", r.rom_path);
++            remove(f);
++            remove(r.rom_path);
++        }
++    }
++    snprintf(other, sizeof other, "%s/slot%d.sync", runDir(), slot);
++    remove(other);
++    snprintf(other, sizeof other, "%s/slot%d.xother", runDir(), slot);
++    remove(other);
 +    remove(path);
 +}
 +
@@ -3907,12 +3946,15 @@ index 0000000..62568d8
 +static bool quitAsked;   // Options > Quit: the app closes once the menu returns
 +bool smz3TakeQuit(void) { bool q = quitAsked; quitAsked = false; return q; }
 +
++static SmzUi *gMenuUi;   // what presentMenu draws while a sync call blocks the menu
++static void presentMenu() { drawUi(gMenuUi); drawIdlePanel(gMenuUi); }
++
 +static bool runMenu(char *romPathOut, size_t cap)
 +{
 +    static SmzUi ui;
 +    static char linkNames[UI_MAX_SPRITES][32], samusNames[UI_MAX_SPRITES][32];
 +    int left = smz3IsRun() ? gPlaySlot : -1;   // the run just left keeps the cursor
-+    if (smz3IsRun()) { goalsLeave(true); impl3dsSaveStateAuto(); }   // now, while the flags still belong to the run that was being played
++    if (smz3IsRun()) { goalsLeave(true); impl3dsSaveStateAuto(); smz3SyncLeft(gPlaySlot); }   // now, while the flags still belong to the run that was being played
 +    bool fromRace = raceLeave();
 +    trackerRelease();   // the game's map pictures (about 4 MB) wait on the heap otherwise, through the next generation
 +    rewindFree();
@@ -3955,6 +3997,8 @@ index 0000000..62568d8
 +    ui_home_enable(&ui, UI_OPT_SOUND | UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
 +    ui_menu_music(&ui, smz3MusicEnabled());
 +    ui_race_enable(&ui, 1);
++    smz3SyncMenu(&ui, ui.slot_count);
++    gMenuUi = &ui;
 +    if (fromRace) ui_race_end(&ui);   // a race is played once: the start menu
 +    racePausedShow(&ui);
 +    static bool booted;
@@ -4089,6 +4133,7 @@ index 0000000..62568d8
 +                else ui_race_update(&ui, raceJson, smzDailyNowMs());
 +            }
 +            smzRaceSetSince(ui.race.room.since);
++            if (smz3SyncPoll(&ui)) refreshSlots(&ui);
 +        }
 +        if (updating) {
 +            char m[44], err[40];
@@ -4118,7 +4163,9 @@ index 0000000..62568d8
 +        if (ui.action != ACT_NONE) {
 +            int act = ui.action, slot = ui.action_slot;
 +            ui.action = ACT_NONE;
-+            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { quitAsked = true; break; }
++            if (act == ACT_CLOUD) { int s = smz3SyncAction(&ui, slot, presentMenu); act = s >= 0 ? ACT_CONTINUE : ACT_NONE; slot = s; }   // a conflict settled: the run goes on
++            else if (act == ACT_CONTINUE && smz3SyncOpen(&ui, slot, presentMenu)) act = ACT_NONE;   // RomM's newer files first, or the choice
++            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { ui_busy(&ui, "Finishing the uploads ..."); drawUi(&ui); smz3SyncQuit(); quitAsked = true; break; }
 +            if (act == ACT_OPTIONS && slot == UI_OPT_SOUND) smz3MusicSetEnabled(ui.menu_music);
 +            if (act == ACT_UPDATE && !updating) {
 +                char m[44];
@@ -4128,7 +4175,7 @@ index 0000000..62568d8
 +                smzUpdateStart(versionJson);
 +            }
 +            if (act == ACT_LADDER) smzOnlineRequestLadders(ui_ladder_preset_key(&ui));
-+            else if (act == ACT_DELETE) { deleteRun(slot); refreshSlots(&ui); }
++            else if (act == ACT_DELETE) { smz3SyncDeleted(slot); deleteRun(slot); refreshSlots(&ui); }
 +            else if (act == ACT_DAILY && !dailyBegin(&ui, note, sizeof note)) { smz3MusicStart(); ui_busy(&ui, note); drawUi(&ui); svcSleepThread(2500000000LL); ui_idle(&ui); }
 +            if (act == ACT_DAILY && dailyKept(ui.daily.window)) { act = ACT_CONTINUE; slot = SMZ_DAILY_SLOT; }
 +            if (act >= ACT_RACE_CREATE && act <= ACT_RACE_START) raceAction(&ui, act, slot, note, sizeof note);
@@ -8114,7 +8161,7 @@ index 0000000..62568d8
 +        snprintf(rp, sizeof rp, "%s/slot%d.run", runDir(), curSlot);
 +        bool have = runLoad(rp, &r1) == 0 && trk.started;
 +        if (have) smz_counters_text(&goalc, r1.goals, sizeof r1.goals);
-+        if (have && nowMs >= nextGoals) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
++        if (have && nowMs >= nextGoals) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, r1.id, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
 +        if (have && finishedBefore) {   // it keeps its result; its rewards only add up
 +            r1.boss_mask |= trk.boss_mask; r1.crystal_mask |= trk.crystal_mask;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
@@ -8213,7 +8260,13 @@ index 0000000..62568d8
 +    int n = smz_counters_text(&goalc, t, sizeof t);
 +    FILE *f = n >= 0 ? fopen(gp, "wb") : NULL;   // loading the state puts the counters back to this point
 +    if (f) { fwrite(t, 1, (size_t)n, f); fclose(f); }
++    size_t l = strlen(path);
++    int q = l > 6 && !strcmp(path + l - 4, ".frz") && path[l - 6] == '.' ? path[l - 5] - '0' : 0;
++    if (l > 9 && !strcmp(path + l - 9, ".auto.frz")) smz3SyncOwn(gPlaySlot, SMZ_SYNC_RESUME, path);
++    else if (q >= 1 && q <= 4) smz3SyncOwn(gPlaySlot, SMZ_SYNC_Q1 + q - 1, path);
 +}
++
++void smz3SramSaved(const char *path) { if (smz3IsRun()) smz3SyncOwn(gPlaySlot, SMZ_SYNC_SRM, path); }
 +
 +// Leaving the run: its file keeps the counters, and the server gets them.
 +static void goalsLeave(bool report)
@@ -8233,7 +8286,7 @@ index 0000000..62568d8
 +        if (trk.save_ms > 0) { r.save_ms = trk.save_ms; r.save_zelda = trk.save_zelda; r.save_metroid = trk.save_metroid; }
 +    }
 +    if (runSave(rp, &r) == 0) smz_tracker_commit(&trk);
-+    if (report) smzOnlineGoalsReport(curSlot + 1, r.created, smzOnlineSlotKind(curSlot) > 0, r.goals);
++    if (report) smzOnlineGoalsReport(curSlot + 1, r.created, r.id, smzOnlineSlotKind(curSlot) > 0, r.goals);
 +}
 +
 +void smz3RunClosing(void) { if (smz3IsRun()) goalsLeave(false); }
@@ -8949,10 +9002,10 @@ index 0000000..62568d8
 +}
 diff --git a/source/smz3run.h b/source/smz3run.h
 new file mode 100644
-index 0000000..e2e20cd
+index 0000000..731e96c
 --- /dev/null
 +++ b/source/smz3run.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,69 @@
 +#ifndef SMZ3RUN_H
 +#define SMZ3RUN_H
 +
@@ -8996,6 +9049,8 @@ index 0000000..e2e20cd
 +// recent lists drop what it undid.
 +void smz3StateSaved(const char *path);
 +void smz3StateLoaded(const char *path);
++// The emulator wrote the run's SRAM to path (the cloud sync trusts what this emulator wrote).
++void smz3SramSaved(const char *path);
 +// The app is closing: the run being played keeps its world goal counters.
 +void smz3RunClosing(void);
 +
@@ -9018,6 +9073,848 @@ index 0000000..e2e20cd
 +// The item shortcuts a New 3DS button can be bound to: the five ALttP slots, then each beam and weapon.
 +int smz3ShortcutKeyCount(void);
 +const char *smz3ShortcutKeyName(int i);
++
++#endif
+diff --git a/source/smz3sync.cpp b/source/smz3sync.cpp
+new file mode 100644
+index 0000000..177f6fb
+--- /dev/null
++++ b/source/smz3sync.cpp
+@@ -0,0 +1,797 @@
++// Cloud sync on the 3DS: frontends/pc/pc_sync.c over libcurl, with this emulator's paths and states.
++#include "smz3sync.h"
++#include "smz3online.h"
++#include "smz3run.h"
++#include "3dsfiles.h"
++#include "3dslog.h"
++
++#include <3ds.h>
++#include <malloc.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <time.h>
++#include <unistd.h>
++#define CURL_STATICLIB
++#include <curl/curl.h>
++
++extern "C" {
++#include "smz3_json.h"
++#include "smz3_md5.h"
++#include "smz3_run.h"
++#include "smz3_statecvt.h"
++#include "smz3_version.h"
++}
++
++#define DEFAULT_ROMM "https://romm.example.com"
++#define DEFAULT_SERVER "https://smz3-universe.duckdns.org"
++#define SYNC_TXT SMZ_DIR "/sync.txt"
++#define SOC_SIZE 0x100000
++
++static LightLock gLock;   // one sync call at a time
++static bool gLockReady;
++static SmzRomm gRomm;
++static char gUser[24], gServer[128];
++static int gSlots = 4;
++static volatile int gPending;   // background uploads running
++static char gLink[8];
++
++static void lockInit() { if (!gLockReady) { LightLock_Init(&gLock); gLockReady = true; } }
++
++// ---- transport: curl with the app's certificate store, the socket service held for one sync call
++
++struct Sink { uint8_t *p; size_t n, cap; bool failed; };
++
++static size_t sinkWrite(char *d, size_t size, size_t count, void *user)
++{
++    Sink *s = (Sink *)user;
++    size_t n = size * count;
++    if (s->n + n + 1 > s->cap) {
++        size_t cap = s->cap ? s->cap : 4096;
++        while (cap < s->n + n + 1) cap *= 2;
++        uint8_t *p = (uint8_t *)realloc(s->p, cap);
++        if (!p) { s->failed = true; return 0; }
++        s->p = p; s->cap = cap;
++    }
++    memcpy(s->p + s->n, d, n);
++    s->n += n;
++    return n;
++}
++
++static int http(void *, const char *method, const char *url, const char *headers, const uint8_t *body, size_t len, uint8_t **out, size_t *outLen)
++{
++    static bool curlReady;
++    if (!curlReady) curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
++    Sink s = {};
++    long status = -1;
++    CURL *c = curlReady ? curl_easy_init() : NULL;
++    if (c) {
++        struct curl_slist *hl = curl_slist_append(NULL, "Expect:");   // no 100-continue round trip before an upload
++        char line[1200];
++        for (const char *h = headers; h && *h;) {
++            const char *e = strchr(h, '\n');
++            size_t n = e ? (size_t)(e - h) : strlen(h);
++            if (n && n < sizeof line) { memcpy(line, h, n); line[n] = 0; hl = curl_slist_append(hl, line); }
++            h = e ? e + 1 : h + n;
++        }
++        curl_easy_setopt(c, CURLOPT_URL, url);
++        curl_easy_setopt(c, CURLOPT_USERAGENT, "smz3-3ds");
++        curl_easy_setopt(c, CURLOPT_CAINFO, "romfs:/smz3/cacert.pem");
++        curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 20L);
++        curl_easy_setopt(c, CURLOPT_LOW_SPEED_LIMIT, 1L);
++        curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 60L);
++        curl_easy_setopt(c, CURLOPT_HTTPHEADER, hl);
++        curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, sinkWrite);
++        curl_easy_setopt(c, CURLOPT_WRITEDATA, &s);
++        if (body || strcmp(method, "GET")) {
++            curl_easy_setopt(c, CURLOPT_POSTFIELDS, body ? (const char *)body : "");
++            curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)(body ? len : 0));
++            if (strcmp(method, "POST")) curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method);
++        }
++        CURLcode rc = curl_easy_perform(c);
++        if (rc == CURLE_OK) curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
++        else log3dsWrite("sync %s %s: curl %d", method, url, (int)rc);
++        curl_easy_cleanup(c);
++        curl_slist_free_all(hl);
++    }
++    if (s.failed) status = -1;
++    if (!s.p) s.p = (uint8_t *)malloc(1);
++    if (s.p) s.p[s.n] = 0;
++    *out = s.p;
++    *outLen = s.p ? s.n : 0;
++    return status > 0 ? (int)status : -1;
++}
++
++// The socket service for one sync call; another user of it (RetroAchievements) may hold it already.
++struct Net { u32 *buf; bool own; };
++static Net netUp()
++{
++    Net n = {(u32 *)memalign(0x1000, SOC_SIZE), false};
++    n.own = n.buf && R_SUCCEEDED(socInit(n.buf, SOC_SIZE));
++    if (!n.own) { free(n.buf); n.buf = NULL; }
++    return n;
++}
++static void netDown(Net &n) { if (n.own) { socExit(); free(n.buf); } n.buf = NULL; n.own = false; }
++
++// ---- files
++
++static uint8_t *readFile(const char *path, size_t *len)
++{
++    FILE *f = fopen(path, "rb");
++    if (!f) return NULL;
++    fseek(f, 0, SEEK_END);
++    long n = ftell(f);
++    fseek(f, 0, SEEK_SET);
++    uint8_t *b = (uint8_t *)malloc(n > 0 ? n + 1 : 1);
++    if (b && fread(b, 1, n, f) != (size_t)n) { free(b); b = NULL; }
++    fclose(f);
++    if (b) { b[n] = 0; *len = (size_t)n; }
++    return b;
++}
++
++static int writeFile(const char *path, const void *data, size_t len)
++{
++    char dir[256];
++    snprintf(dir, sizeof dir, "%s", path);
++    for (char *p = strchr(dir + 6, '/'); p; p = strchr(p + 1, '/')) { *p = 0; mkdir(dir, 0777); *p = '/'; }
++    FILE *f = fopen(path, "wb");
++    if (!f) return -1;
++    bool ok = fwrite(data, 1, len, f) == len;
++    return fclose(f) == 0 && ok ? 0 : -1;
++}
++
++static char modeLetter(int mode) { return mode == SMZ_MODE_Z3 ? 'z' : mode == SMZ_MODE_SM ? 'm' : 's'; }
++
++// The runs of a game: SMZ3's in runs/, the others in runs/<id>/; their online files likewise under online/.
++static void runDirOf(int mode, char *out, size_t cap)
++{
++    if (mode == SMZ_MODE_SMZ3) snprintf(out, cap, SMZ_DIR "/runs");
++    else snprintf(out, cap, SMZ_DIR "/runs/%s", smz_mode_id(mode));
++}
++
++static void slotFile(int mode, int slot, const char *ext, char *out, size_t cap)
++{
++    char dir[64];
++    runDirOf(mode, dir, sizeof dir);
++    snprintf(out, cap, "%s/slot%d.%s", dir, slot, ext);
++}
++
++static void onlineFile(int mode, int slot, const char *ext, char *out, size_t cap)
++{
++    if (mode == SMZ_MODE_SMZ3) snprintf(out, cap, SMZ_DIR "/online/slot%d.%s", slot, ext);
++    else snprintf(out, cap, SMZ_DIR "/online/%s/slot%d.%s", smz_mode_id(mode), slot, ext);
++}
++
++// ---- sign-in, kept in sync.txt
++
++static void configSave()
++{
++    char t[1500];
++    int n = snprintf(t, sizeof t, "romm=%s\ntoken=%s\ndevice=%s\nuser=%s\n", gRomm.base, gRomm.token, gRomm.device, gUser);
++    if (strcmp(gServer, DEFAULT_SERVER)) n += snprintf(t + n, sizeof t - (size_t)n, "server=%s\n", gServer);
++    writeFile(SYNC_TXT, t, (size_t)n);
++}
++
++static void configLoad()
++{
++    memset(&gRomm, 0, sizeof gRomm);
++    gRomm.http = http;
++    snprintf(gRomm.base, sizeof gRomm.base, DEFAULT_ROMM);
++    snprintf(gServer, sizeof gServer, DEFAULT_SERVER);
++    size_t n;
++    char *t = (char *)readFile(SYNC_TXT, &n);
++    if (!t) return;
++    for (char *line = strtok(t, "\n"); line; line = strtok(NULL, "\n")) {
++        line[strcspn(line, "\r")] = 0;
++        char *v = strchr(line, '=');
++        if (!v) continue;
++        *v++ = 0;
++        if (!strcmp(line, "romm") && *v) snprintf(gRomm.base, sizeof gRomm.base, "%s", v);
++        else if (!strcmp(line, "server") && *v) snprintf(gServer, sizeof gServer, "%s", v);
++        else if (!strcmp(line, "token")) snprintf(gRomm.token, sizeof gRomm.token, "%s", v);
++        else if (!strcmp(line, "device")) snprintf(gRomm.device, sizeof gRomm.device, "%s", v);
++        else if (!strcmp(line, "user")) snprintf(gUser, sizeof gUser, "%s", v);
++    }
++    free(t);
++}
++
++static const char *serverHost() { const char *b = gRomm.base, *p = strstr(b, "://"); return p ? p + 3 : b; }
++
++static void deviceName(char *out, size_t cap)
++{
++    bool n3ds = false;
++    APT_CheckNew3DS(&n3ds);
++    snprintf(out, cap, "%s", n3ds ? "New 3DS" : "3DS");
++}
++
++static void syncCtx(SmzSync *s)
++{
++    memset(s, 0, sizeof *s);
++    s->romm = &gRomm;
++    snprintf(s->server, sizeof s->server, "%s", gServer);
++    char id[40];
++    smzOnlineInstallId(id);
++    snprintf(s->install, sizeof s->install, "%s", id);
++    deviceName(s->device, sizeof s->device);
++    s->now_ms = smzDailyNowMs();
++}
++
++static bool signedIn() { return gRomm.token[0] != 0; }
++
++// ---- a run's files
++
++struct RunFiles { int slot, mode; char rom[256]; };
++
++// The small files beside a run travel inside its run text as "x.<name>=<escaped text>" lines, named as on the PC.
++static const char *const SIDE[] = {"online", "token", "proof", "discovery", "preset", "q1.goals", "q2.goals", "q3.goals", "q4.goals"};
++#define SIDE_N (int)(sizeof SIDE / sizeof SIDE[0])
++
++static void sidePath(const RunFiles *f, int i, char *out, size_t cap)
++{
++    if (i < 3 || i == 4) onlineFile(f->mode, f->slot, SIDE[i], out, cap);
++    else if (i == 3) slotFile(f->mode, f->slot, "discovery", out, cap);
++    else {
++        char ext[16];
++        snprintf(ext, sizeof ext, ".%d.frz.goals", i - 4);
++        file3dsGetRelatedPath(f->rom, out, cap, ext, "savestates");
++    }
++}
++
++static bool isState(int kind) { return kind >= SMZ_SYNC_RESUME && kind <= SMZ_SYNC_Q4; }
++
++static bool kindPath(const RunFiles *f, int kind, char *out, size_t cap)
++{
++    char ext[16];
++    switch (kind) {
++    case SMZ_SYNC_SRM: file3dsGetRelatedPath(f->rom, out, cap, ".srm", "saves"); return true;
++    case SMZ_SYNC_RESUME: file3dsGetRelatedPath(f->rom, out, cap, ".auto.frz", "savestates"); return true;
++    case SMZ_SYNC_Q1: case SMZ_SYNC_Q2: case SMZ_SYNC_Q3: case SMZ_SYNC_Q4:
++        snprintf(ext, sizeof ext, ".%d.frz", kind - SMZ_SYNC_Q1 + 1);
++        file3dsGetRelatedPath(f->rom, out, cap, ext, "savestates");
++        return true;
++    case SMZ_SYNC_HELP: snprintf(out, cap, "%s.help", f->rom); return true;
++    case SMZ_SYNC_RECORD: slotFile(f->mode, f->slot, "sync", out, cap); return true;
++    case SMZ_SYNC_ROM: snprintf(out, cap, "%s", f->rom); return true;
++    default: return false;
++    }
++}
++
++// A state that came from RomM keeps its libretro bytes in <state>.v14 ("<md5 of the 1.43 file>\n" first) while the
++// emulator has not written the state again, so reading it back gives the same bytes and hash as RomM's.
++static uint8_t *stateRead(const char *path, size_t *len)
++{
++    size_t n;
++    uint8_t *d = readFile(path, &n);
++    if (!d) return NULL;
++    char kept[300], md5[33];
++    snprintf(kept, sizeof kept, "%.295s.v14", path);
++    size_t kn;
++    uint8_t *k = readFile(kept, &kn);
++    if (k && kn > 33 && k[32] == '\n') {
++        smz_md5_hex(d, n, md5);
++        if (!memcmp(k, md5, 32)) { free(d); memmove(k, k + 33, kn - 33); *len = kn - 33; return k; }
++    }
++    free(k);
++    if (smz_state_format(d, n) != SMZ_STATE_143) { *len = n; return d; }
++    uint8_t *v = NULL;
++    size_t vn = 0;
++    int e = smz_state_143_to_v14(d, n, &v, &vn);
++    free(d);
++    if (e) { log3dsWrite("sync: %s does not convert", path); return NULL; }
++    *len = vn;
++    return v;
++}
++
++static int stateWrite(const char *path, const uint8_t *data, size_t len)
++{
++    char kept[300];
++    snprintf(kept, sizeof kept, "%.295s.v14", path);
++    remove(kept);
++    if (smz_state_format(data, len) != SMZ_STATE_V14) return writeFile(path, data, len);
++    uint8_t *o = NULL;
++    size_t on = 0;
++    if (smz_state_v14_to_143(data, len, &o, &on)) return -1;
++    int e = writeFile(path, o, on);
++    if (!e) {
++        char md5[33];
++        smz_md5_hex(o, on, md5);
++        md5[32] = '\n';
++        FILE *f = fopen(kept, "wb");
++        if (f) { fwrite(md5, 1, 33, f); fwrite(data, 1, len, f); fclose(f); }
++    }
++    free(o);
++    return e;
++}
++
++static void esc(SjBuf *b, const char *t, size_t n)
++{
++    for (size_t i = 0; i < n; i++) {
++        if (t[i] == '\\') sj_add(b, "\\\\", 2);
++        else if (t[i] == '\n') sj_add(b, "\\n", 2);
++        else if (t[i] != '\r') sj_add(b, t + i, 1);
++    }
++}
++
++static size_t unesc(char *t)
++{
++    size_t n = 0;
++    for (char *p = t; *p; p++) {
++        if (*p == '\\' && p[1]) { p++; t[n++] = *p == 'n' ? '\n' : *p; }
++        else t[n++] = *p;
++    }
++    t[n] = 0;
++    return n;
++}
++
++static uint8_t *filesRead(void *ctx, int kind, size_t *len)
++{
++    RunFiles *f = (RunFiles *)ctx;
++    char path[300];
++    if (kind == SMZ_SYNC_RACE) return NULL;
++    if (isState(kind)) { kindPath(f, kind, path, sizeof path); return stateRead(path, len); }
++    if (kind != SMZ_SYNC_RUN) return kindPath(f, kind, path, sizeof path) ? readFile(path, len) : NULL;
++    size_t n;
++    slotFile(f->mode, f->slot, "run", path, sizeof path);
++    char *t = (char *)readFile(path, &n);
++    if (!t) return NULL;
++    SjBuf b = {};
++    for (char *line = strtok(t, "\n"); line; line = strtok(NULL, "\n"))
++        if (strncmp(line, "rom=", 4)) { sj_add(&b, line, strlen(line)); sj_add(&b, "\n", 1); }   // where the ROM lies is this device's own
++    free(t);
++    for (int i = 0; i < SIDE_N; i++) {
++        sidePath(f, i, path, sizeof path);
++        char *s = (char *)readFile(path, &n);
++        if (!s) continue;
++        sj_fmt(&b, "x.%s=", SIDE[i]);
++        esc(&b, s, n);
++        sj_add(&b, "\n", 1);
++        free(s);
++    }
++    slotFile(f->mode, f->slot, "xother", path, sizeof path);
++    if (char *other = (char *)readFile(path, &n)) { sj_add(&b, other, n); free(other); }
++    if (b.failed) { sj_free(&b); return NULL; }
++    *len = b.n;
++    return (uint8_t *)b.p;
++}
++
++static int filesWrite(void *ctx, int kind, const uint8_t *data, size_t len)
++{
++    RunFiles *f = (RunFiles *)ctx;
++    char path[300];
++    if (kind == SMZ_SYNC_RACE) return 0;
++    if (kind != SMZ_SYNC_RUN) {
++        if (!kindPath(f, kind, path, sizeof path)) return -1;
++        if (!data) {
++            remove(path);
++            if (isState(kind)) { strcat(path, ".v14"); remove(path); }
++            return 0;
++        }
++        return isState(kind) ? stateWrite(path, data, len) : writeFile(path, data, len);
++    }
++    char *t = (char *)malloc(len + 1);
++    if (!t) return -1;
++    memcpy(t, data, len);
++    t[len] = 0;
++    SjBuf run = {}, other = {};
++    for (int i = 0; i < SIDE_N; i++) { sidePath(f, i, path, sizeof path); remove(path); }
++    for (char *line = strtok(t, "\n"); line; line = strtok(NULL, "\n")) {
++        if (!strncmp(line, "x.", 2)) {
++            char *v = strchr(line, '=');
++            if (!v) continue;
++            bool known = false;
++            for (int i = 0; i < SIDE_N; i++)
++                if (!strncmp(line + 2, SIDE[i], (size_t)(v - line - 2)) && !SIDE[i][v - line - 2]) {
++                    known = true;
++                    size_t n = unesc(v + 1);
++                    sidePath(f, i, path, sizeof path);
++                    writeFile(path, v + 1, n);
++                }
++            if (!known) { sj_add(&other, line, strlen(line)); sj_add(&other, "\n", 1); }   // another device's own (Android's marks): kept for it
++            continue;
++        }
++        sj_add(&run, line, strlen(line));
++        sj_add(&run, "\n", 1);
++    }
++    free(t);
++    slotFile(f->mode, f->slot, "xother", path, sizeof path);
++    if (other.n) writeFile(path, other.p, other.n);
++    else remove(path);
++    sj_free(&other);
++    sj_fmt(&run, "rom=%s\n", f->rom);
++    slotFile(f->mode, f->slot, "run", path, sizeof path);
++    int e = run.failed ? -1 : writeFile(path, run.p, run.n);
++    sj_free(&run);
++    return e;
++}
++
++static void romOf(const SmzRun *r, RunFiles *f)
++{
++    if (!strncmp(r->rom_path, "sdmc:/SMZ3/", 11)) snprintf(f->rom, sizeof f->rom, SMZ_DIR "/%s", r->rom_path + 11);   // a run from before the data folder moved
++    else snprintf(f->rom, sizeof f->rom, "%s", r->rom_path);
++}
++
++// The run in a slot as the sync sees it; -1 when the slot is empty. A run older than the sync gets the id its goal reports
++// already used, so the server counts it once.
++static int runOf(int slot, int mode, SmzRun *r, RunFiles *f, SmzSyncRun *sr, char romName[96], char **proof)
++{
++    char path[300];
++    slotFile(mode, slot, "run", path, sizeof path);
++    if (smz_run_load(path, r)) return -1;
++    if (!r->id[0]) {
++        snprintf(r->id, sizeof r->id, "%c%d-%lld", modeLetter(mode), slot + 1, (long long)r->created);
++        smz_run_save(path, r);
++    }
++    memset(f, 0, sizeof *f);
++    f->slot = slot; f->mode = mode;
++    romOf(r, f);
++    smz_run_rom_name(r->settings, r->seed, romName, 96);
++    memset(sr, 0, sizeof *sr);
++    sr->run_id = r->id; sr->rom_name = romName; sr->name = r->name; sr->play_ms = r->play_ms;
++    onlineFile(mode, slot, "online", path, sizeof path);
++    sr->online = access(path, F_OK) == 0;
++    size_t n;
++    onlineFile(mode, slot, "proof", path, sizeof path);
++    *proof = sr->online ? (char *)readFile(path, &n) : NULL;
++    sr->proof = *proof;
++    return 0;
++}
++
++// ---- background calls and what they leave for the menu
++
++static volatile int gLoginState, gListDone, gMsgReady;   // gLoginState: 0 idle, 1 waiting, 2 signed in, 3 failed
++static char gMsg[48], gCode[16], gUrl[96];
++static SmzRommLogin gLogin;
++static volatile bool gLoginCancel;
++
++static void say(const char *m) { snprintf(gMsg, sizeof gMsg, "%.47s", m); gMsgReady = 1; }
++
++// curl and mbedtls's handshake want a big stack; below the menu's priority, so a sync never holds up a frame
++static bool start(ThreadFunc fn, void *arg) { return threadCreate(fn, arg, 256 * 1024, 0x38, -2, true) != NULL; }
++
++static void loginThread(void *)
++{
++    LightLock_Lock(&gLock);
++    Net net = netUp();
++    char id[40], name[48];
++    smzOnlineInstallId(id);
++    deviceName(name, sizeof name);
++    SmzRomm r = gRomm;
++    r.token[0] = 0;
++    if (smz_romm_login_start(&r, id, name, "3DS", SMZ3_VERSION, &gLogin)) { say(r.err); gLoginState = 3; netDown(net); LightLock_Unlock(&gLock); return; }
++    snprintf(gCode, sizeof gCode, "%.15s", gLogin.user_code);
++    snprintf(gUrl, sizeof gUrl, "%.95s", strstr(gLogin.url, "://") ? strstr(gLogin.url, "://") + 3 : gLogin.url);
++    gLoginState = 1;
++    int p = 1;
++    for (u64 end = osGetTime() + (u64)gLogin.expires_in * 1000; p == 1 && !gLoginCancel && osGetTime() < end;) {
++        for (u64 wake = osGetTime() + (u64)(gLogin.interval > 0 ? gLogin.interval : 5) * 1000; !gLoginCancel && osGetTime() < wake;) svcSleepThread(200000000LL);
++        if (!gLoginCancel) p = smz_romm_login_poll(&r, &gLogin);
++    }
++    if (p == 0 && !gLoginCancel) {
++        smz_romm_whoami(&r, gUser, sizeof gUser);
++        snprintf(gRomm.token, sizeof gRomm.token, "%s", r.token);
++        snprintf(gRomm.device, sizeof gRomm.device, "%s", r.device);
++        configSave();
++        gLoginState = 2;
++    } else {
++        if (!gLoginCancel) say(p == 1 ? "The code expired: sign in again" : r.err);
++        gLoginState = 3;
++    }
++    netDown(net);
++    LightLock_Unlock(&gLock);
++}
++
++// True when another slot of the game holds a run on the ROM at path (two runs of one seed share their saves here).
++static bool romInUse(int mode, const char *rom, int except)
++{
++    for (int s = 0; s < gSlots; s++) {
++        char path[300];
++        SmzRun r;
++        slotFile(mode, s, "run", path, sizeof path);
++        if (s != except && !smz_run_load(path, &r) && !strcmp(r.rom_path, rom)) return true;
++    }
++    return false;
++}
++
++// Brings the account's runs that are on no slot here into free slots, every game.
++static void listRuns()
++{
++    SmzRommNote *notes;
++    int count;
++    if (smz_romm_notes(&gRomm, &notes, &count)) return;
++    for (int i = 0; i < count; i++) {
++        char letter = notes[i].run_id[0];
++        int mode = letter == 'z' ? SMZ_MODE_Z3 : letter == 'm' ? SMZ_MODE_SM : SMZ_MODE_SMZ3, freeSlot = -1;
++        bool here = false;
++        for (int s = 0; s < gSlots && !here; s++) {
++            char path[300];
++            SmzRun r;
++            slotFile(mode, s, "run", path, sizeof path);
++            if (smz_run_load(path, &r)) { if (freeSlot < 0) freeSlot = s; continue; }
++            if (!r.id[0]) snprintf(r.id, sizeof r.id, "%c%d-%lld", modeLetter(mode), s + 1, (long long)r.created);   // the id its first sync gives it
++            here = !strcmp(r.id, notes[i].run_id);
++        }
++        char *text = NULL, rom[96];
++        if (!here && freeSlot >= 0 && !smz_sync_note_info(notes[i].content, NULL, 0, rom, sizeof rom, NULL, &text) && text && text[0]) {
++            RunFiles f = {freeSlot, mode, ""};
++            char dir[64], path[300];
++            runDirOf(mode, dir, sizeof dir);
++            snprintf(f.rom, sizeof f.rom, "%s/%s", dir, rom);
++            if (!romInUse(mode, f.rom, freeSlot)) {   // what a deleted run of the same ROM left must not look like changes here
++                for (int k = 0; k < SMZ_SYNC_KINDS; k++) if (k != SMZ_SYNC_RUN && k != SMZ_SYNC_ROM && kindPath(&f, k, path, sizeof path)) filesWrite(&f, k, NULL, 0);
++            }
++            onlineFile(mode, freeSlot, "mode", path, sizeof path);
++            remove(path);
++            SmzSyncFiles fs = {filesRead, filesWrite, &f};
++            SmzSyncRecord rec;
++            memset(&rec, 0, sizeof rec);
++            rec.rom_id = notes[i].rom_id;
++            rec.note_id = notes[i].note_id;   // revision 0: opening it brings everything down
++            if (!filesWrite(&f, SMZ_SYNC_RUN, (const uint8_t *)text, strlen(text))) smz_sync_record_save(&fs, &rec);
++        }
++        free(text);
++    }
++    smz_romm_notes_free(notes, count);
++}
++
++static void listThread(void *)
++{
++    LightLock_Lock(&gLock);
++    if (signedIn()) {
++        Net net = netUp();
++        int who = smz_romm_whoami(&gRomm, NULL, 0);
++        if (who == 1) { gRomm.token[0] = 0; configSave(); say("RomM signed this device out"); gLoginState = 3; }
++        else if (who == 0) listRuns();
++        else say("RomM is not reachable");
++        netDown(net);
++    }
++    gListDone = 1;
++    LightLock_Unlock(&gLock);
++}
++
++void smz3SyncMenu(SmzUi *u, int slots)
++{
++    static bool loaded;
++    lockInit();
++    gSlots = slots < 1 ? 1 : slots > UI_SLOTS ? UI_SLOTS : slots;
++    if (!loaded) {
++        loaded = true;
++        configLoad();
++        if (signedIn()) start(listThread, NULL);
++    }
++    ui_cloud_enable(u, 1);
++    if (gLoginState == 1) ui_cloud_state(u, UI_CLOUD_WAITING, NULL, serverHost(), gCode, gUrl);
++    else if (signedIn()) ui_cloud_state(u, UI_CLOUD_IN, gUser, serverHost(), NULL, NULL);
++    else ui_cloud_state(u, UI_CLOUD_OUT, NULL, serverHost(), NULL, NULL);
++}
++
++bool smz3SyncPoll(SmzUi *u)
++{
++    static int shown;
++    if (gLoginState == 1 && shown != 1) { shown = 1; ui_cloud_state(u, UI_CLOUD_WAITING, NULL, serverHost(), gCode, gUrl); }
++    if (gLoginState == 2) {
++        gLoginState = 0; shown = 0;
++        ui_cloud_state(u, UI_CLOUD_IN, gUser, serverHost(), NULL, NULL);
++        ui_cloud_msg(u, "Signed in");
++        start(listThread, NULL);
++    }
++    if (gLoginState == 3) { gLoginState = 0; shown = 0; ui_cloud_state(u, UI_CLOUD_OUT, NULL, serverHost(), NULL, NULL); }
++    if (gMsgReady) { gMsgReady = 0; ui_cloud_msg(u, gMsg); }
++    if (gListDone) { gListDone = 0; return true; }
++    return false;
++}
++
++// ---- opening and leaving a run
++
++struct Job { int slot, mode, rc; bool forcePull, forcePush, unranked; volatile bool done; SmzSyncResult res; };
++
++static void openThread(void *arg)
++{
++    Job *j = (Job *)arg;
++    LightLock_Lock(&gLock);
++    SmzRun r; RunFiles f; SmzSyncRun sr; char rom[96], *proof;
++    j->rc = SMZ_SYNC_OK;
++    if (signedIn() && !runOf(j->slot, j->mode, &r, &f, &sr, rom, &proof)) {
++        Net net = netUp();
++        SmzSync s;
++        syncCtx(&s);
++        SmzSyncFiles fs = {filesRead, filesWrite, &f};
++        if (sr.online) smz_sync_hold(&s, r.id, 1);   // playing it here takes it over; offline it plays as before
++        j->rc = j->forcePush ? smz_sync_push(&s, &sr, &fs, 1, &j->res) : smz_sync_pull(&s, &sr, &fs, j->forcePull, &j->res);
++        j->unranked = j->rc == SMZ_SYNC_OK && j->res.unranked && sr.online;   // files made outside SMZ3
++        netDown(net);
++        free(proof);
++    }
++    j->done = true;
++    LightLock_Unlock(&gLock);
++}
++
++static bool runJob(SmzUi *u, Job *j, void (*present)(void))
++{
++    j->mode = smzRunMode;
++    Thread t = threadCreate(openThread, j, 256 * 1024, 0x38, -2, false);
++    if (!t) return false;
++    bool busy = false;
++    for (u64 since = osGetTime(); !j->done; svcSleepThread(30000000LL)) {
++        if (osGetTime() - since > 400) { busy = true; ui_busy(u, "Syncing with RomM..."); if (present) present(); }
++    }
++    threadJoin(t, U64_MAX);
++    threadFree(t);
++    if (busy) ui_idle(u);
++    if (j->unranked) smzOnlineMarkRun(j->slot, 0, smzOnlineRunMode(j->slot) ? smzOnlineRunMode(j->slot) : 1, NULL);
++    if (j->rc == SMZ_SYNC_CONFLICT) {
++        char when[40];
++        time_t at = (time_t)(j->res.cloud_at / 1000);
++        struct tm tm;
++        gmtime_r(&at, &tm);
++        strftime(when, sizeof when, "there on %d %b, %H:%M", &tm);
++        ui_cloud_conflict(u, j->slot, j->res.cloud_dev, when);
++        return true;
++    }
++    if (j->rc == SMZ_SYNC_FAILED) snprintf(u->notice, sizeof u->notice, "Sync: %.30s", j->res.err);
++    if (j->rc == SMZ_SYNC_OK && j->res.unranked) snprintf(u->notice, sizeof u->notice, "Synced from outside SMZ3: unranked");
++    return false;
++}
++
++bool smz3SyncOpen(SmzUi *u, int slot, void (*present)(void))
++{
++    if (!signedIn() || slot < 0 || slot >= gSlots) return false;   // the daily and race slots stay on this device
++    Job j = {};
++    j.slot = slot;
++    return runJob(u, &j, present);
++}
++
++static void leftThread(void *arg)
++{
++    Job *j = (Job *)arg;
++    LightLock_Lock(&gLock);
++    SmzRun r; RunFiles f; SmzSyncRun sr; char rom[96], *proof;
++    if (signedIn() && !runOf(j->slot, j->mode, &r, &f, &sr, rom, &proof)) {
++        Net net = netUp();
++        SmzSync s;
++        syncCtx(&s);
++        SmzSyncFiles fs = {filesRead, filesWrite, &f};
++        j->rc = smz_sync_push(&s, &sr, &fs, 0, &j->res);
++        if (j->rc == SMZ_SYNC_CONFLICT) say("A run changed elsewhere too: open it to choose");
++        else if (j->rc == SMZ_SYNC_HELD) say("Another device took this run over");
++        else if (j->rc == SMZ_SYNC_FAILED || j->rc == SMZ_SYNC_OFFLINE) say(j->res.err);
++        netDown(net);
++        free(proof);
++    }
++    __sync_sub_and_fetch(&gPending, 1);
++    LightLock_Unlock(&gLock);
++    free(j);
++}
++
++void smz3SyncLeft(int slot)
++{
++    if (!signedIn() || slot < 0 || slot >= gSlots) return;
++    Job *j = (Job *)calloc(1, sizeof *j);
++    if (!j) return;
++    j->slot = slot;
++    j->mode = smzRunMode;
++    __sync_add_and_fetch(&gPending, 1);
++    if (!start(leftThread, j)) { __sync_sub_and_fetch(&gPending, 1); free(j); }
++}
++
++void smz3SyncOwn(int slot, int kind, const char *path)
++{
++    if (slot < 0 || slot >= gSlots || kind < 0 || kind >= SMZ_SYNC_FILES) return;
++    SmzRun r;
++    RunFiles f = {slot, smzRunMode, ""};
++    char rp[300];
++    slotFile(f.mode, slot, "run", rp, sizeof rp);
++    if (smz_run_load(rp, &r)) return;
++    romOf(&r, &f);
++    if (isState(kind)) { char kept[300]; snprintf(kept, sizeof kept, "%.295s.v14", path); remove(kept); }   // the emulator's own bytes now
++    size_t n = 0;
++    uint8_t *d = isState(kind) ? stateRead(path, &n) : readFile(path, &n);
++    if (!d) return;
++    SmzSyncFiles fs = {filesRead, filesWrite, &f};
++    smz_sync_own(&fs, kind, d, n);
++    free(d);
++}
++
++struct Gone { SmzSyncRecord rec; };
++
++static void deleteThread(void *arg)
++{
++    Gone *g = (Gone *)arg;
++    LightLock_Lock(&gLock);
++    Net net = netUp();
++    for (int k = 0; k < SMZ_SYNC_FILES; k++) if (g->rec.f[k].id) smz_romm_file_delete(&gRomm, k == SMZ_SYNC_SRM ? 's' : 't', g->rec.f[k].id);
++    if (g->rec.note_id) smz_romm_note_delete(&gRomm, g->rec.rom_id, g->rec.note_id);
++    netDown(net);
++    __sync_sub_and_fetch(&gPending, 1);
++    LightLock_Unlock(&gLock);
++    free(g);
++}
++
++void smz3SyncDeleted(int slot)
++{
++    if (!signedIn() || slot < 0 || slot >= gSlots) return;
++    Gone *g = (Gone *)calloc(1, sizeof *g);
++    if (!g) return;
++    RunFiles f = {slot, smzRunMode, ""};
++    SmzSyncFiles fs = {filesRead, filesWrite, &f};
++    smz_sync_record_load(&fs, &g->rec);
++    if (!g->rec.note_id) { free(g); return; }
++    __sync_add_and_fetch(&gPending, 1);
++    if (!start(deleteThread, g)) { __sync_sub_and_fetch(&gPending, 1); free(g); }
++}
++
++void smz3SyncNewId(char out[40])
++{
++    uint64_t e = osGetTime() * 1000003ull ^ svcGetSystemTick() << 20 ^ (uint64_t)(uintptr_t)out;
++    smz_sync_new_id(modeLetter(smzRunMode), e, out);
++}
++
++// ---- the Cloud sync screen
++
++static void linkThread(void *arg)
++{
++    int what = (int)(intptr_t)arg;
++    LightLock_Lock(&gLock);   // the socket service and curl's setup are one caller's at a time
++    Net net = netUp();
++    SmzSync s;
++    syncCtx(&s);
++    SmzRomm r = gRomm;   // only its transport and err are used
++    s.romm = &r;
++    if (what == CLOUD_CODE) {
++        char code[8];
++        if (smz_sync_player_code(&s, code)) say(r.err);
++        else { char m[48]; snprintf(m, sizeof m, "On the other device enter %s", code); say(m); }
++    } else if (what == CLOUD_LINK) say(smz_sync_player_link(&s, gLink) ? r.err : "Linked: one player on both devices");
++    netDown(net);
++    LightLock_Unlock(&gLock);
++}
++
++int smz3SyncAction(SmzUi *u, int what, void (*present)(void))
++{
++    lockInit();
++    switch (what) {
++    case CLOUD_SIGN_IN:
++        if (gLoginState == 1) break;
++        gLoginCancel = false;
++        ui_cloud_msg(u, "Asking RomM for a code...");
++        if (!start(loginThread, NULL)) ui_cloud_msg(u, "Not enough memory");
++        break;
++    case CLOUD_CANCEL:
++        gLoginCancel = true;
++        ui_cloud_state(u, UI_CLOUD_OUT, NULL, serverHost(), NULL, NULL);
++        break;
++    case CLOUD_SIGN_OUT:
++        LightLock_Lock(&gLock);
++        gRomm.token[0] = gRomm.device[0] = gUser[0] = 0;
++        configSave();
++        LightLock_Unlock(&gLock);
++        ui_cloud_state(u, UI_CLOUD_OUT, NULL, serverHost(), NULL, NULL);
++        ui_cloud_msg(u, "Signed out: the runs here stay");
++        break;
++    case CLOUD_SYNC:
++        ui_cloud_msg(u, "Syncing...");
++        start(listThread, NULL);
++        break;
++    case CLOUD_CODE:
++        ui_cloud_msg(u, "Asking the server for a code...");
++        start(linkThread, (void *)(intptr_t)CLOUD_CODE);
++        break;
++    case CLOUD_LINK:
++        snprintf(gLink, sizeof gLink, "%s", u->cloud.link);
++        start(linkThread, (void *)(intptr_t)CLOUD_LINK);
++        break;
++    case CLOUD_KEEP_HERE: case CLOUD_KEEP_CLOUD: {
++        Job j = {};
++        j.slot = u->cloud.slot;
++        if (what == CLOUD_KEEP_HERE) j.forcePush = true; else j.forcePull = true;
++        if (runJob(u, &j, present) || j.rc != SMZ_SYNC_OK) return -1;
++        return u->cloud.slot;
++    }
++    }
++    return -1;
++}
++
++void smz3SyncQuit(void)
++{
++    for (u64 since = osGetTime(); gPending > 0 && osGetTime() - since < 30000;) svcSleepThread(50000000LL);
++}
+diff --git a/source/smz3sync.h b/source/smz3sync.h
+new file mode 100644
+index 0000000..9df90f6
+--- /dev/null
++++ b/source/smz3sync.h
+@@ -0,0 +1,33 @@
++#ifndef SMZ3SYNC_H
++#define SMZ3SYNC_H
++
++#include <stddef.h>
++
++extern "C" {
++#include "smz3_sync.h"
++#include "smz3_ui.h"
++}
++
++// Cloud sync on the 3DS (docs/PLAN_ROMM_SYNC.md), as frontends/pc/pc_sync.c does it. Slots are 0-based and belong to the
++// game entered (smzRunMode). States go up in the libretro core's format and come down in this emulator's (core/state).
++
++// Each time the run menu opens: the Options row, and the first time the account's runs in free slots (of the first slots).
++void smz3SyncMenu(SmzUi *u, int slots);
++// Each frame: shows what the background calls finished. True when the run list changed (the caller refreshes the slots).
++bool smz3SyncPoll(SmzUi *u);
++// ACT_CLOUD. present redraws the menu while a call blocks. Returns the slot to start playing, or -1.
++int smz3SyncAction(SmzUi *u, int what, void (*present)(void));
++// Before a run starts: RomM's newer files come down. True when it must not start now (a conflict to choose).
++bool smz3SyncOpen(SmzUi *u, int slot, void (*present)(void));
++// After a run: what changed goes up, in the background.
++void smz3SyncLeft(int slot);
++// The emulator wrote a run file (an SMZ_SYNC_* kind below SMZ_SYNC_FILES) at path.
++void smz3SyncOwn(int slot, int kind, const char *path);
++// A run is being deleted here: it goes from RomM too. Call before the local files go.
++void smz3SyncDeleted(int slot);
++// A new run's id (smz_sync_new_id) for the game entered.
++void smz3SyncNewId(char out[40]);
++// At exit: waits a little for the uploads still running.
++void smz3SyncQuit(void);
 +
 +#endif
 diff --git a/source/smz3music.cpp b/source/smz3music.cpp
