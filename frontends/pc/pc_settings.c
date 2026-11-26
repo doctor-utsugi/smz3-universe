@@ -398,12 +398,12 @@ void settings_draw(float k, float ox, float oy)
     const char *title = screen == S_MAIN ? "Settings" : screen == S_FILES ? "Find the ROM files" : screen == S_VIDEO ? "Video" : screen == S_SC || screen == S_SCBIND ? "Item shortcuts" : "Buttons and keys";
     gfx_logo(ox + 8 * k, oy + 2 * k, 24 * k, 1);
     text(k, ox, oy, 38, 6, 5, 0, title);
-    const char *hint = "A choose   B back";
+    const char *hint = "A Choose  B Back";
     (void)hint;
     if (screen == S_MAIN) {
         static const char *const L[] = {"Buttons and keys", "Video", "Item shortcuts", "Quit"};
         for (int i = 0; i < MAIN_COUNT; i++) row(k, ox, oy, i, L[i], NULL, i == cursor);
-        hint = "A choose   B back";
+        hint = "A Choose  B Back";
     } else if (screen == S_VIDEO) {
         for (int i = 0; i < SHOWN && scroll + i < VIDEO_COUNT; i++) {
             int r = scroll + i;
@@ -413,7 +413,7 @@ void settings_draw(float k, float ox, float oy)
             snprintf(v, sizeof v, "< %s >", val);
             row(k, ox, oy, i, lab, v, r == cursor);
         }
-        hint = "Left Right change   B back";
+        hint = "Left Right Change  B Back";
     } else if (screen == S_SC || screen == S_SCBIND) {
         for (int i = 0; i < SHOWN && scroll + i < SC_COUNT + 1; i++) {
             int r = scroll + i;
@@ -424,7 +424,7 @@ void settings_draw(float k, float ox, float oy)
             row(k, ox, oy, i, lab, val, r == cursor);
         }
         text(k, ox, oy, 12, 32 + SHOWN * ROW_H - 1, sc_msg[0] ? 5 : 4, 0, sc_msg[0] ? sc_msg : "Equips the item on Y, or turns the beam on or off");
-        hint = "A bind   B back   L R page";
+        hint = "A Bind  L R Page  B Back";
         if (screen == S_SCBIND) {
             rect(k, ox, oy, 20, 80, 280, 80, 2);
             rect(k, ox, oy, 20, 80, 280, 3, 5);
@@ -449,7 +449,7 @@ void settings_draw(float k, float ox, float oy)
             else row(k, ox, oy, i, r == PA_COUNT ? "Item shortcuts" : r == PA_COUNT + 1 ? "Reset to defaults" : "Back", NULL, r == cursor);
         }
         if (sc_msg[0]) text(k, ox, oy, 12, 32 + SHOWN * ROW_H - 1, 5, 0, sc_msg);
-        hint = "A change   B back";
+        hint = "A Change  B Back";
         if (screen == S_REBIND) {
             rect(k, ox, oy, 20, 80, 280, 80, 2);
             rect(k, ox, oy, 20, 80, 280, 3, 5);
@@ -477,7 +477,7 @@ void settings_draw(float k, float ox, float oy)
         }
         size_t l = strlen(cwd);
         text(k, ox, oy, 12, 206, 4, 0, l > 44 ? cwd + l - 44 : cwd);
-        hint = "A open   B close   L R page";
+        hint = "A Open  L R Page  B Close";
     }
     help_bar_hint(k, ox, oy, hint);
 }

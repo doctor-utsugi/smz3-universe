@@ -291,15 +291,20 @@ static void games_input(SmzUi *u, UiButton b)
     }
 }
 
+/* Online draft is SMZ3's: ALttP and Super Metroid leave its row out. */
+static int home_row_shown(const SmzUi *u, int r) { return r != 1 || !single_game(u); }
+
 static void home_input(SmzUi *u, UiButton b)
 {
     if (b == BTN_B) { u->screen = UI_GAMES; u->notice[0] = 0; return; }
-    if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
+    if (b == BTN_UP || b == BTN_DOWN) {
+        do u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
+        while (!home_row_shown(u, u->home_cursor));
+    }
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
     else if (!online_game(u)) snprintf(u->notice, sizeof u->notice, "Online races come later for this game");
-    else if (single_game(u) && u->home_cursor == 1) snprintf(u->notice, sizeof u->notice, "Online draft is SMZ3 only for now");
     else if (u->race.on) {   /* one kind of race, up to 8: the first screen is there only to pick a paused race back up */
         u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->race.size = 8; u->race.cursor = 0;
         u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY;
@@ -2547,19 +2552,20 @@ void ui_draw(SmzUi *u)
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
-        legend(u, "Left/Right Turn  A Choose");
+        legend(u, "Left Right Turn  A Choose");
         break;
     }
     case UI_HOME:
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
         text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
-        for (int r = 0; r < HOME_ROWS; r++) {
-            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u) || (r == 1 && single_game(u)));   /* the online rows, without a connection (Draft is SMZ3's) */
+        for (int r = 0, shown = 0; r < HOME_ROWS; r++) {
+            if (!home_row_shown(u, r)) continue;
+            int y = 70 + shown++ * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
             rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
             hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
             text(u, 38, y + 8, off ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
-            if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, u->race.on && online_game(u) ? "SMZ3 only" : "Offline");
+            if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, "Offline");
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
