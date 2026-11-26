@@ -131,9 +131,9 @@ jobs:
         run: |
           git clone -q https://github.com/Swordfish90/Lemuroid.git vendor/Lemuroid
           git -C vendor/Lemuroid checkout -q 3625bc121d5d79fd4b80ce930fb0f3236c9334e8
-          # only the snes9x core of lemuroid-cores: the app packages no other
+          # lemuroid-cores without its prebuilt cores: build-android.sh builds the only one the app packages (snes9x)
           git clone -q --filter=blob:none --no-checkout https://github.com/Swordfish90/LemuroidCores vendor/Lemuroid/lemuroid-cores
-          git -C vendor/Lemuroid/lemuroid-cores sparse-checkout set --no-cone '/*' '!*.so' '*snes9x*.so'
+          git -C vendor/Lemuroid/lemuroid-cores sparse-checkout set --no-cone '/*' '!*.so'
           git -C vendor/Lemuroid/lemuroid-cores checkout -q fee2e824525daa22bcf318f96127fe43fa8a15ad
           git clone -q https://github.com/Swordfish90/LibretroDroid.git vendor/LibretroDroid
           git -C vendor/LibretroDroid checkout -q 8835c3098514390a271e36983957f7bb5f40abf1

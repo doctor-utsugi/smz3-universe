@@ -7,12 +7,24 @@ root="$(cd "$(dirname "$0")" && pwd)"
 variant="${1:-debug}"
 python3 "$root/tools/gen_app_icon.py"
 cd "$root/vendor/Lemuroid"
-# the CI fetches only the snes9x core of lemuroid-cores (the whole submodule is 6 GB)
+# the CI fetches lemuroid-cores without its prebuilt cores (the whole submodule is 6 GB)
 [ -e lemuroid-cores/.git ] || git submodule update --init --depth 1
 git -C ../LibretroDroid submodule update --init --depth 1
 sdk="${ANDROID_HOME:-$HOME/Android/Sdk}"
 echo "sdk.dir=$sdk" > local.properties
 echo "sdk.dir=$sdk" > ../LibretroDroid/local.properties
+# snes9x is built from the PC's source and commit, so both write the same save states (#!s9xsnp:0014)
+s9x="$root/vendor/snes9x_libretro"
+s9x_commit=fae2fea08f74180759ef540ee94259213f503480   # keep in step with build-pc.sh
+[ -d "$s9x/.git" ] || git clone -q https://github.com/libretro/snes9x.git "$s9x"
+git -C "$s9x" checkout -q "$s9x_commit"
+ndk="${ANDROID_NDK_HOME:-$(ls -d "$sdk"/ndk/* | sort -V | tail -1)}"
+s9x_out="$root/build/android-snes9x"
+"$ndk/ndk-build" -s -C "$s9x/libretro/jni" APP_ABI=arm64-v8a NDK_OUT="$s9x_out/obj" NDK_LIBS_OUT="$s9x_out/libs" -j"$(getconf _NPROCESSORS_ONLN)"
+s9x_jni=lemuroid-cores/lemuroid_core_snes9x/src/main/jniLibs/arm64-v8a
+mkdir -p "$s9x_jni" && cp "$s9x_out/libs/arm64-v8a/libretro.so" "$s9x_jni/libsnes9x_libretro_android.so"
+# keeps lemuroid-cores clean, so a git diff of vendor/Lemuroid (the patch) never picks up the swapped core
+git -C lemuroid-cores update-index --skip-worktree "${s9x_jni#lemuroid-cores/}/libsnes9x_libretro_android.so" 2>/dev/null || true
 jdk="$HOME/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2"
 [ -d "$jdk" ] && export JAVA_HOME="$jdk"   # elsewhere (the CI) JAVA_HOME already points at a JDK 21
 mkdir -p ../../build
