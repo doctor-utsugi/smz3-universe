@@ -260,6 +260,19 @@ int smz_romm_note_get(SmzRomm *r, int rom_id, const char *run_id, SmzRommNote *n
     return 0;
 }
 
+int smz_romm_note_by_id(SmzRomm *r, int rom_id, int note_id, SmzRommNote *n)
+{
+    SmzRommNote *list = NULL;
+    int count = 0, found = 1;
+    if (rom_notes(r, rom_id, NULL, &list, &count)) return -1;
+    for (int i = 0; i < count; i++) {
+        if (found && list[i].note_id == note_id) { *n = list[i]; found = 0; }
+        else smz_romm_note_free(&list[i]);
+    }
+    free(list);
+    return found;
+}
+
 void smz_romm_note_free(SmzRommNote *n) { free(n->content); n->content = NULL; }
 
 void smz_romm_notes_free(SmzRommNote *notes, int count)

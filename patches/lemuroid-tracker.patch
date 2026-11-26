@@ -7471,10 +7471,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..2746194
+index 0000000..8bcfb99
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,266 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7684,6 +7684,7 @@ index 0000000..2746194
 +    @JvmStatic external fun syncOwn(host: Smz3SyncHost, kind: Int, data: ByteArray)
 +    @JvmStatic external fun syncDelete(host: Smz3SyncHost, cfg: Array<String>)
 +    @JvmStatic external fun syncNewRecord(host: Smz3SyncHost, romId: Int, noteId: Int)
++    @JvmStatic external fun syncKeepIds(host: Smz3SyncHost, romId: Int, noteId: Int)
 +    /** what 0: a link code, 1: link with [code]. {"0", code} or {"-1", why}. */
 +    @JvmStatic external fun syncPlayer(host: Smz3SyncHost, cfg: Array<String>, what: Int, code: String): Array<String>
 +    @JvmStatic external fun syncHold(host: Smz3SyncHost, cfg: Array<String>, runId: String, force: Boolean): Int
@@ -14086,10 +14087,10 @@ index 0000000..e470c29
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
 new file mode 100644
-index 0000000..1b3a13f
+index 0000000..6ef0de0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
-@@ -0,0 +1,435 @@
+@@ -0,0 +1,436 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -14417,7 +14418,8 @@ index 0000000..1b3a13f
 +            if (text.isEmpty()) continue
 +            val game = game(runId)
 +            val runs = (0 until RunStore.SLOTS).map { RunStore.load(context, it, game) }
-+            if (runs.any { it?.id == runId }) continue
++            val here = runs.indexOfFirst { it?.id == runId }
++            if (here >= 0) { Smz3Native.syncKeepIds(RunFiles(context, game, here, rom), romId.toIntOrNull() ?: 0, noteId.toIntOrNull() ?: 0); continue }
 +            val slot = runs.indexOfFirst { it == null }.takeIf { it >= 0 } ?: continue
 +            RunStore.clearExtras(context, slot, game)
 +            File(RunStore.runsDir(context, game), "slot$slot.help.json").delete()

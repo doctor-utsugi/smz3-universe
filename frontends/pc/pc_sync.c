@@ -354,6 +354,14 @@ static void *login_thread(void *arg)
 }
 
 /* Brings the account's runs that are on no slot here into free slots, every game. */
+/* A run here that RomM now keeps under other ids. */
+static void keep_ids(int mode, int slot, const SmzRommNote *n)
+{
+    RunFiles f = {slot, mode, ""};
+    SmzSyncFiles fs = {files_read, files_write, &f};
+    smz_sync_record_ids(&fs, n->rom_id, n->note_id);
+}
+
 static void list_runs(void)
 {
     SmzRommNote *notes;
@@ -367,6 +375,7 @@ static void list_runs(void)
             SmzRun r;
             if (smz_run_load(store_path("runs/slot%d.run", s), &r)) { if (free_slot < 0) free_slot = s; continue; }
             here = !strcmp(r.id, notes[i].run_id);
+            if (here) keep_ids(mode, s, &notes[i]);
         }
         char *text = NULL, rom[96];
         if (!here && free_slot > 0 && !smz_sync_note_info(notes[i].content, NULL, 0, rom, sizeof rom, NULL, &text) && text && text[0]) {
@@ -540,8 +549,7 @@ static void *delete_thread(void *arg)
 {
     Gone *g = arg;
     pthread_mutex_lock(&g_lock);
-    for (int k = 0; k < SMZ_SYNC_FILES; k++) if (g->rec.f[k].id) smz_romm_file_delete(&g_romm, k == SMZ_SYNC_SRM ? 's' : 't', g->rec.f[k].id);
-    if (g->rec.note_id) smz_romm_note_delete(&g_romm, g->rec.rom_id, g->rec.note_id);
+    smz_sync_delete(&g_romm, &g->rec);
     __sync_sub_and_fetch(&g_pending, 1);
     pthread_mutex_unlock(&g_lock);
     free(g);

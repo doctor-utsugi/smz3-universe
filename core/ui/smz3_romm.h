@@ -44,6 +44,8 @@ typedef struct { int rom_id, note_id; char run_id[48], rom_name[96], updated[40]
 int smz_romm_notes(SmzRomm *r, SmzRommNote **notes, int *count);
 /* One ROM's run note by run id: 0 found, 1 none, -1 error. */
 int smz_romm_note_get(SmzRomm *r, int rom_id, const char *run_id, SmzRommNote *n);
+/* One ROM's run note by note id: 0 found, 1 none, -1 error. */
+int smz_romm_note_by_id(SmzRomm *r, int rom_id, int note_id, SmzRommNote *n);
 void smz_romm_note_free(SmzRommNote *n);
 void smz_romm_notes_free(SmzRommNote *notes, int count);
 /* Creates the note when *note_id is 0, else replaces its content. The note is private. */

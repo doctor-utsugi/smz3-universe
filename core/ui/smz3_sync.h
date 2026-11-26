@@ -29,6 +29,10 @@ typedef struct {
 } SmzSyncRecord;
 void smz_sync_record_load(const SmzSyncFiles *fs, SmzSyncRecord *rec);
 int smz_sync_record_save(const SmzSyncFiles *fs, const SmzSyncRecord *rec);
+/* A run on this device that RomM now lists under another ROM or note id (uploaded again elsewhere): the record follows. */
+void smz_sync_record_ids(const SmzSyncFiles *fs, int rom_id, int note_id);
+/* A deleted run leaves RomM: every file its note lists, those the record knows, then the note. Blocks. */
+void smz_sync_delete(SmzRomm *r, const SmzSyncRecord *rec);
 /* Call whenever SMZ3's emulator writes a run file (kind < SMZ_SYNC_FILES): an upload whose hash differs goes up unranked. */
 void smz_sync_own(const SmzSyncFiles *fs, int kind, const uint8_t *data, size_t len);
 

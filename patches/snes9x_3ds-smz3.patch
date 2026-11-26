@@ -9077,10 +9077,10 @@ index 0000000..731e96c
 +#endif
 diff --git a/source/smz3sync.cpp b/source/smz3sync.cpp
 new file mode 100644
-index 0000000..177f6fb
+index 0000000..e3d7839
 --- /dev/null
 +++ b/source/smz3sync.cpp
-@@ -0,0 +1,797 @@
+@@ -0,0 +1,805 @@
 +// Cloud sync on the 3DS: frontends/pc/pc_sync.c over libcurl, with this emulator's paths and states.
 +#include "smz3sync.h"
 +#include "smz3online.h"
@@ -9577,6 +9577,14 @@ index 0000000..177f6fb
 +}
 +
 +// Brings the account's runs that are on no slot here into free slots, every game.
++// A run here that RomM now keeps under other ids.
++static void keepIds(int mode, int slot, const SmzRommNote *n)
++{
++    RunFiles f = {slot, mode, ""};
++    SmzSyncFiles fs = {filesRead, filesWrite, &f};
++    smz_sync_record_ids(&fs, n->rom_id, n->note_id);
++}
++
 +static void listRuns()
 +{
 +    SmzRommNote *notes;
@@ -9593,6 +9601,7 @@ index 0000000..177f6fb
 +            if (smz_run_load(path, &r)) { if (freeSlot < 0) freeSlot = s; continue; }
 +            if (!r.id[0]) snprintf(r.id, sizeof r.id, "%c%d-%lld", modeLetter(mode), s + 1, (long long)r.created);   // the id its first sync gives it
 +            here = !strcmp(r.id, notes[i].run_id);
++            if (here) keepIds(mode, s, &notes[i]);
 +        }
 +        char *text = NULL, rom[96];
 +        if (!here && freeSlot >= 0 && !smz_sync_note_info(notes[i].content, NULL, 0, rom, sizeof rom, NULL, &text) && text && text[0]) {
@@ -9782,8 +9791,7 @@ index 0000000..177f6fb
 +    Gone *g = (Gone *)arg;
 +    LightLock_Lock(&gLock);
 +    Net net = netUp();
-+    for (int k = 0; k < SMZ_SYNC_FILES; k++) if (g->rec.f[k].id) smz_romm_file_delete(&gRomm, k == SMZ_SYNC_SRM ? 's' : 't', g->rec.f[k].id);
-+    if (g->rec.note_id) smz_romm_note_delete(&gRomm, g->rec.rom_id, g->rec.note_id);
++    smz_sync_delete(&gRomm, &g->rec);
 +    netDown(net);
 +    __sync_sub_and_fetch(&gPending, 1);
 +    LightLock_Unlock(&gLock);

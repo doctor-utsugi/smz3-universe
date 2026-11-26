@@ -1447,8 +1447,7 @@ JNIEXPORT void JNICALL NATIVE(syncDelete)(JNIEnv *env, jclass cls, jobject host,
     SmzSyncFiles fs = {jread, jwrite, &h};
     SmzSyncRecord rec;
     smz_sync_record_load(&fs, &rec);
-    for (int k = 0; k < SMZ_SYNC_FILES; k++) if (rec.f[k].id) smz_romm_file_delete(&r, k == SMZ_SYNC_SRM ? 's' : 't', rec.f[k].id);
-    if (rec.note_id) smz_romm_note_delete(&r, rec.rom_id, rec.note_id);
+    smz_sync_delete(&r, &rec);
 }
 
 /* Writes a fresh sync record for a run brought from the account: revision 0, so opening it brings everything down. */
@@ -1460,6 +1459,14 @@ JNIEXPORT void JNICALL NATIVE(syncNewRecord)(JNIEnv *env, jclass cls, jobject ho
     rec.rom_id = romId;
     rec.note_id = noteId;
     smz_sync_record_save(&fs, &rec);
+}
+
+/* A run already here that RomM now lists under other ids. */
+JNIEXPORT void JNICALL NATIVE(syncKeepIds)(JNIEnv *env, jclass cls, jobject host, jint romId, jint noteId)
+{
+    JHost h = {env, host};
+    SmzSyncFiles fs = {jread, jwrite, &h};
+    smz_sync_record_ids(&fs, romId, noteId);
 }
 
 /* The player link: what 0 asks for a code ({"0", code} or {"-1", why}), 1 links this install with code. */

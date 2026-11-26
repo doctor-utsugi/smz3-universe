@@ -51,6 +51,20 @@ int smz_sync_record_save(const SmzSyncFiles *fs, const SmzSyncRecord *rec)
     return fs->write(fs->ctx, SMZ_SYNC_RECORD, (const uint8_t *)text, (size_t)n);
 }
 
+void smz_sync_record_ids(const SmzSyncFiles *fs, int rom_id, int note_id)
+{
+    SmzSyncRecord rec;
+    smz_sync_record_load(fs, &rec);
+    if (!rom_id || (rec.rom_id == rom_id && rec.note_id == note_id)) return;
+    if (rec.rom_id != rom_id) {   /* its files there went with the old ROM */
+        rec.rev = 0;
+        for (int k = 0; k < SMZ_SYNC_FILES; k++) rec.f[k].id = 0;
+    }
+    rec.rom_id = rom_id;
+    rec.note_id = note_id;
+    smz_sync_record_save(fs, &rec);
+}
+
 void smz_sync_own(const SmzSyncFiles *fs, int kind, const uint8_t *data, size_t len)
 {
     if (kind < 0 || kind >= SMZ_SYNC_FILES) return;
@@ -221,6 +235,21 @@ int smz_sync_note_info(const char *content, char *name, size_t name_cap, char *r
     return 0;
 }
 
+void smz_sync_delete(SmzRomm *r, const SmzSyncRecord *rec)
+{
+    if (!rec->rom_id || !rec->note_id) return;
+    Note n = {0};
+    SmzRommNote rn;
+    if (smz_romm_note_by_id(r, rec->rom_id, rec->note_id, &rn) == 0) { note_read(rn.content, &n); smz_romm_note_free(&rn); }
+    for (int k = 0; k < SMZ_SYNC_FILES; k++) {
+        int kind = k == SMZ_SYNC_SRM ? 's' : 't';
+        if (n.f[k].id) smz_romm_file_delete(r, kind, n.f[k].id);
+        if (rec->f[k].id && rec->f[k].id != n.f[k].id) smz_romm_file_delete(r, kind, rec->f[k].id);
+    }
+    smz_romm_note_delete(r, rec->rom_id, rec->note_id);
+    note_free(&n);
+}
+
 static int fail(SmzSyncResult *res, SmzRomm *r)
 {
     res->result = r->status < 0 ? SMZ_SYNC_OFFLINE : SMZ_SYNC_FAILED;
@@ -251,6 +280,7 @@ static int fetch_note(SmzSync *s, const SmzSyncRun *run, SmzSyncRecord *rec, Not
     int g = smz_romm_note_get(s->romm, rec->rom_id, run->run_id, &rn);
     memset(n, 0, sizeof *n);
     *found = 0;
+    if (g < 0 && s->romm->status == 404) { rec->rom_id = rec->note_id = 0; return 0; }   /* the ROM left RomM */
     if (g < 0) return fail(res, s->romm), -1;
     if (g == 1) return 0;
     rec->note_id = rn.note_id;
@@ -288,19 +318,23 @@ int smz_sync_pull(SmzSync *s, const SmzSyncRun *run, const SmzSyncFiles *fs, int
     SmzSyncRecord rec;
     smz_sync_record_load(fs, &rec);
     if (!rec.rom_id) rec.rom_id = run->rom_id;
-    if (!rec.rom_id) {
-        size_t len;
-        uint8_t *rom = fs->read(fs->ctx, SMZ_SYNC_ROM, &len);
-        char md5[33];
-        hash_of(rom, len, md5);
-        free(rom);
-        int f = md5[0] ? smz_romm_rom_find(s->romm, md5, &rec.rom_id) : 1;
-        if (f < 0) return fail(res, s->romm);
-        if (f) return SMZ_SYNC_OK;   /* RomM has never seen this run */
-    }
     Note n;
     int found;
-    if (fetch_note(s, run, &rec, &n, &found, res)) return res->result;
+    for (int tries = 0;; tries++) {
+        if (!rec.rom_id) {
+            size_t len;
+            uint8_t *rom = fs->read(fs->ctx, SMZ_SYNC_ROM, &len);
+            char md5[33];
+            hash_of(rom, len, md5);
+            free(rom);
+            int f = md5[0] ? smz_romm_rom_find(s->romm, md5, &rec.rom_id) : 1;
+            if (f < 0) return fail(res, s->romm);
+            if (f) return SMZ_SYNC_OK;   /* RomM has never seen this run */
+        }
+        if (fetch_note(s, run, &rec, &n, &found, res)) return res->result;
+        if (rec.rom_id || tries) break;   /* a ROM gone from RomM: once more by its hash */
+    }
+    if (!rec.rom_id) return SMZ_SYNC_OK;
     if (!found || (n.rev == rec.rev && !force)) { note_free(&n); return SMZ_SYNC_OK; }
     if (!force && changed_here(fs, &rec)) { conflict(&n, res); note_free(&n); return res->result; }
     size_t len;
@@ -355,6 +389,10 @@ int smz_sync_push(SmzSync *s, const SmzSyncRun *run, const SmzSyncFiles *fs, int
     Note n;
     int found;
     if (fetch_note(s, run, &rec, &n, &found, res)) return res->result;
+    if (!rec.rom_id) {   /* its ROM left RomM, and the files with it: everything goes up again */
+        for (int k = 0; k < SMZ_SYNC_FILES; k++) rec.f[k].id = 0;
+        if (ensure_rom(s, run, fs, &rec, res) || fetch_note(s, run, &rec, &n, &found, res)) return res->result;
+    }
     if (found && n.rev != rec.rev && !force) {
         if (changed_here(fs, &rec)) { conflict(&n, res); note_free(&n); return res->result; }
         note_free(&n);
