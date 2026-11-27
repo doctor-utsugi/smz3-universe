@@ -2023,6 +2023,7 @@ static void menu_button(UiButton b);
 static void toggle_fullscreen(void);
 static int g_menu_quit;   /* Quit picked in the options */
 static int g_quit_ask;    /* Quit picked in the menu, waiting for A (quit) or B (stay) */
+static char g_err_box[200];   /* a run that could not be made: shown until A or B */
 
 static void play(int slot, int game_save_only)
 {
@@ -3156,6 +3157,10 @@ static SmzUi ui_before;
 static void menu_button(UiButton b)
 {
     if (fx_busy()) return;
+    if (g_err_box[0]) {
+        if (b == BTN_A || b == BTN_B) { g_err_box[0] = 0; menu_cue(UI_CUE_BACK); }
+        return;
+    }
     if (g_quit_ask) {
         if (b == BTN_A) { g_quit_ask = 0; quit_menu(); }
         else if (b == BTN_B) { g_quit_ask = 0; menu_cue(UI_CUE_BACK); }
@@ -3490,8 +3495,9 @@ static void window_main(int start_slot)
                     j.seed_if_random = (int32_t)(SDL_GetTicks() * 2654435761u >> 1) % 2147483646 + 1;
                     generate(&j);
                     ui_idle(&ui);
-                    if (j.rc) note(j.err);
+                    if (j.rc) snprintf(g_err_box, sizeof g_err_box, "%s", j.err);
                     else {
+                        if (smz_sm_maprando_note()[0]) note(smz_sm_maprando_note());
                         int on = ui_online_now(&ui), kind = ui_run_weekly(&ui) ? 3 : ui_run_monthly(&ui) ? 2 : 1;
                         rom_file(&j.run, j.run.rom_path, sizeof j.run.rom_path);
                         j.run.created = j.run.last_played = (int64_t)time(NULL) * 1000;
@@ -3547,6 +3553,33 @@ static void window_main(int start_slot)
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
             gfx_text(ww / 2.0f, wh / 2.0f - 14 * k, 12 * k, C(0xE8, 0xEC, 0xF2), 1, "Quit SMZ3?");
             help_prompt(ww / 2.0f, wh / 2.0f + 6 * k, 14 * k, Q, 2);
+        }
+        if (g_err_box[0]) {   /* the message in lines that fit the box */
+            static const HelpItem OK[] = {{"A", "Enter", "OK"}};
+            float bw = fminf(ww - 16.0f, 280 * k), px = 11 * k, bx = (ww - bw) / 2, lh = 15 * k;
+            char lines[6][100];
+            int nl = 0;
+            const char *p = g_err_box;
+            while (*p && nl < 6) {
+                int len = 0, cut = 0;
+                char buf[100];
+                while (p[len] && len < 99) {
+                    snprintf(buf, sizeof buf, "%.*s", len + 1, p);
+                    if (gfx_text_width(px, buf) > bw - 20 * k) break;
+                    if (p[len] == ' ') cut = len;
+                    len++;
+                }
+                if (p[len] && cut) len = cut;
+                snprintf(lines[nl++], sizeof lines[0], "%.*s", len, p);
+                p += len;
+                while (*p == ' ') p++;
+            }
+            float bh = 40 * k + nl * lh, by = (wh - bh) / 2;
+            gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
+            gfx_rect(bx, by, bw, bh, (SDL_Color){0x10, 0x16, 0x1F, 245});
+            gfx_rect(bx, by, bw, 2 * k, (SDL_Color){0xE0, 0x5A, 0x4A, 255});
+            for (int i = 0; i < nl; i++) gfx_text(ww / 2.0f, by + 8 * k + i * lh, px, C(0xE8, 0xEC, 0xF2), 1, lines[i]);
+            help_prompt(ww / 2.0f, by + bh - 20 * k, 14 * k, OK, 1);
         }
         {
             static int last_screen = -1, last_flags;

@@ -263,7 +263,7 @@ static int mr_generate(char *json, size_t json_cap, const uint8_t *sm, uint8_t *
         uint64_t got;
         if (mr_from_pool(settings, strtoull(seed, NULL, 10), sm, rom_out, cap, info, sizeof info, &got)) return SMZ_SM_ERR_MAPRANDO;
         set_seed(json, json_cap, got);   /* offline, or the server failed: one of the seeds the game comes with */
-        snprintf(g_mr_note, sizeof g_mr_note, "Offline: a Map Rando seed from the set the game comes with");
+        snprintf(g_mr_note, sizeof g_mr_note, "Offline: a seed that comes with the game");
     }
     json_field(info, "hash", words, wcap);
     return 0;

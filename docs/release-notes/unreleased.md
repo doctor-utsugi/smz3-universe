@@ -60,10 +60,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   makes it, not a count of seconds and tries. Offline, it asks to connect to the internet.
 - PC and 3DS: the game comes with 32 Map Rando seeds, 8 for each preset. When a seed can be neither built nor
   downloaded (offline, or the server fails), a run with a preset and no skill change plays one of them, and the Map
-  Rando row says so. Races and online runs never use them, so everyone plays the same map.
+  Rando row says so. Races, the weekly and the monthly never use them, so everyone there plays the same map.
 - 3DS: while the server makes a Map Rando seed the screen says "Downloading the Map Rando seed", not a count of seconds.
 - Linux handhelds: the Ports launcher unpacks the app on the card instead of /tmp, which is RAM there, and clears a copy
   left by a run the system closed.
+- PC: a run that cannot be made shows why in a box you close with A, instead of a line that the screen cut short.
 - PC: one Config for one and two screens. The tracker's CONFIG tab (two screens, by touch) and the Settings screen (one
   screen, by pad or keyboard) now show the same list: save slot, fast-forward speed, screen and daily challenge settings,
   each where it means something (the window size only in one window, the shortcut rows only on the touch screen).

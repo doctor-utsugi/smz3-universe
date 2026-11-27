@@ -32,7 +32,7 @@ int smz_sm_maprando_state(void);
  * smz_sm_maprando_pool says whether it is there; smz_sm_maprando_note, after a generate, when one was used ("" otherwise). */
 void smz_sm_set_maprando_pool(const char *dir);
 int smz_sm_maprando_pool(void);
-/* Off for a race or an online run: the others play the asked seed, never one of the set. */
+/* Off for a race and the weekly and monthly: everyone there plays the asked seed, never one of the set. */
 void smz_sm_maprando_pool_allow(int ok);
 const char *smz_sm_maprando_note(void);
 /* Whether a run's settings JSON is a Map Rando seed ("sm":{"generator":"maprando",...}). */
