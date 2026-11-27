@@ -3,7 +3,9 @@
  * seed with Race set, and one goal: defeat a boss, get an item or reach an area. The route is the fewest items that open
  * the goal; the estimate, the hints and the output follow smz3daily.c, so daily.js and the apps read both alike.
  *   smz3daily --sm <window-id>           the challenge of that window (ids sm-YYYY-MM-DD-n)
- *   smz3daily --sm-stats <prefix> <n>    one line per window, for tuning */
+ *   smz3daily --sm-stats <prefix> <n>    one line per window, for tuning
+ *   smz3daily --sm-draft <id>            a Draft race from the ship: a goal of 5 to 15 minutes, printed like smz3daily.c's
+ *   smz3daily --sm-draft-stats <prefix> <n> */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +20,7 @@
 #define MAX_TRIES 400
 #define CHECK_MIN 1.6         /* a Super Metroid check, as smz3daily.c counts them */
 
-enum { G_ITEM, G_BOSS, G_REACH };
+enum { G_ITEM, G_BOSS, G_REACH, G_KILLS };
 
 typedef struct { int kind, target, count; char text[160]; } Goal;   /* target: an SM_LOCS index (item, boss proxy) or a region */
 typedef struct { double at; char text[200]; } Hint;
@@ -31,6 +33,7 @@ typedef struct {
     double est_search, est_route;
     Hint hints[64];
     int n_hints;
+    int draft;
 } SmChallenge;
 
 static uint64_t rng_state;
@@ -123,6 +126,7 @@ static void estimate(SmChallenge *c)
 {
     uint8_t needed[SM_LOC_COUNT] = {0}, checked[SM_LOC_COUNT] = {0};
     for (int i = 0; i < c->n_steps; i++) needed[c->steps[i]] = 1;
+    if (c->draft && c->goal.kind == G_ITEM) needed[c->goal.target] = 1;   /* a Draft's goal item is searched for like the rest */
     SmProg p;
     memset(&p, 0, sizeof p);
     double search = 0, routem = 0;
@@ -228,6 +232,7 @@ static void goal_check(const SmChallenge *c, char *out, size_t cap)
     const Goal *g = &c->goal;
     if (g->kind == G_BOSS) { snprintf(out, cap, "smboss:%d", g->count); return; }
     if (g->kind == G_REACH) { snprintf(out, cap, "smarea:%d", REACH[g->count].area); return; }
+    if (g->kind == G_KILLS) { snprintf(out, cap, "kills:%d", g->count); return; }
     int id = SM_LOCS[g->target].id, idx = -1;
     for (unsigned j = 0; j < smz3_location_count && idx < 0; j++) {
         const smz3_location *l = &smz3_locations[j];
@@ -254,7 +259,7 @@ static void settings_json(const SmChallenge *c, char *out, size_t cap)
 
 static void print_challenge(const SmChallenge *c, int attempt)
 {
-    static const char *const KIND[] = {"item", "boss", "reach"};
+    static const char *const KIND[] = {"item", "boss", "reach", "kills"};
     char js[512], check[32];
     settings_json(c, js, sizeof js);
     goal_check(c, check, sizeof check);
@@ -310,6 +315,79 @@ int sm_daily_main(int argc, char **argv)
         if (stats) printf("%s tries=%d ok=%d kind=%d steps=%d search=%.0f route=%.0f hints=%d last=%.0f goal=\"%s\"\n", c.window, a, ok == 0, c.goal.kind,
                           c.n_steps, c.est_search, c.est_route, c.n_hints, c.n_hints ? c.hints[c.n_hints - 1].at : 0, c.goal.text);
         else print_challenge(&c, a - 1);
+        fflush(stdout);
+    }
+    return 0;
+}
+
+/* ---------- Draft races ---------- */
+
+#define DRAFT_MIN 5.0
+#define DRAFT_MAX 15.0
+
+/* kind: 0 kills, 1 an item, 2 a boss, 3 an area. */
+static int pick_draft_goal(SmChallenge *c, int kind)
+{
+    Goal *g = &c->goal;
+    if (kind == 0) {
+        g->kind = G_KILLS; g->count = 15 + rnd_n(5) * 5; g->target = 0;
+        snprintf(g->text, sizeof g->text, "Defeat %d enemies", g->count);
+        return 0;
+    }
+    int want = kind == 1 ? G_ITEM : kind == 2 ? G_BOSS : G_REACH;
+    for (;;) { int r = pick_goal(c); if (r || g->kind == want) return r; }   /* the daily's goals, until one of that kind */
+}
+
+/* 0 when the candidate is accepted; kind as pick_draft_goal. */
+static int try_draft(SmChallenge *c, int attempt, int kind)
+{
+    char key[96];
+    snprintf(key, sizeof key, "smdraft:%s#%d", c->window, attempt);
+    rng_state = hash_str(key);
+    sm_settings_defaults(&c->s);
+    c->s.logic = SM_LOGIC_Tournament; c->s.placement = SM_PLACEMENT_Split; c->s.race = true;
+    c->s.seed = (int32_t)(rnd() & 0x7FFFFFFF);
+    c->draft = 1;
+    c->n_steps = c->n_hints = 0;
+    if (sm_fill(&c->seed, &c->s) || !sm_playthrough_ok(&c->seed)) return -1;
+    if (pick_draft_goal(c, kind)) return -1;
+    if (c->goal.kind == G_KILLS) { c->est_search = c->est_route = 0.4 * c->goal.count + 1.0; return 0; }
+    if (route(c) || c->n_steps > 3) return 1;
+    estimate(c);
+    return c->est_search >= DRAFT_MIN && c->est_search <= DRAFT_MAX ? 0 : 1;
+}
+
+static void print_draft(const SmChallenge *c, int attempt)
+{
+    char js[512], check[32];
+    settings_json(c, js, sizeof js);
+    goal_check(c, check, sizeof check);
+    printf("{\"draft\":");
+    json_str(c->window);
+    printf(",\"game\":\"sm\",\"attempt\":%d,\"seed\":%d,\"settings\":", attempt, (int)c->s.seed);
+    json_str(js);
+    printf(",\"spot\":\"the Landing Site\",\"start\":[],\"goal\":{\"check\":\"%s\",\"text\":", check);
+    json_str(c->goal.text);
+    printf("},\"estimateMin\":%.0f}\n", c->est_search);
+}
+
+/* A Draft, or n of them for tuning. The kind of goal comes from the id; when no seed fits it, the Draft counts enemies. */
+int sm_draft_main(int argc, char **argv)
+{
+    static SmChallenge c;
+    int stats = !strcmp(argv[1], "--sm-draft-stats"), n = stats && argc >= 4 ? atoi(argv[3]) : 1;
+    if (argc < 3) return 1;
+    for (int w = 0; w < n; w++) {
+        if (stats) snprintf(c.window, sizeof c.window, "%s-%d", argv[2], w);
+        else snprintf(c.window, sizeof c.window, "%s", argv[2]);
+        char kk[96];
+        snprintf(kk, sizeof kk, "smdraft:%s#kind", c.window);
+        int roll = (int)((hash_str(kk) >> 20) % 100), kind = roll < 35 ? 0 : roll < 70 ? 1 : roll < 85 ? 2 : 3;
+        int a, ok = -1;
+        for (a = 0; a < MAX_TRIES && ok != 0; a++) ok = try_draft(&c, a, kind);
+        if (ok != 0) { a = 0; try_draft(&c, a++, 0); }
+        if (stats) printf("%s tries=%d steps=%d est=%.0f goal=\"%s\"\n", c.window, a, c.n_steps, c.est_search, c.goal.text);
+        else print_draft(&c, a - 1);
         fflush(stdout);
     }
     return 0;

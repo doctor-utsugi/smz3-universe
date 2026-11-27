@@ -11,14 +11,28 @@ published as an artifact, and no interface gets built until they are approved.
 
 A room carries its game: `POST /api/race/create` and `/join` take `game` (none means SMZ3), a player from another game
 gets `409 other game`, and `GET /api/race/open?game=` lists only that game's rooms. Super Metroid has Championship Full
-only (Tournament, Split, Race, to Mother Brain); its ladder is `sm-full`. Records carry `game` for Super Metroid only.
-The hosts send the game of the carousel, so each game's lobby shows its own rooms; Draft and the formats screen are
-SMZ3's for now.
+only (Tournament, Split, Race, to Mother Brain) and Draft; its ladder is `sm-full`. Records carry `game` for Super
+Metroid only. The hosts send the game of the carousel, so each game's lobby shows its own rooms.
 
 ## ALttP rooms (built, deployed)
 
 `game: "z3"` as above. Championship Full is Original to Ganon, Sprint and Half are Fast Ganon with 2 and 4 crystals;
-all are tournament ROMs. Ladders are `z3-full`, `z3-sprint`, `z3-half`. Draft stays SMZ3's.
+all are tournament ROMs. Ladders are `z3-full`, `z3-sprint`, `z3-half`.
+
+## Draft in ALttP and Super Metroid
+
+The single games have no start-spot patch, so their Drafts start where a new game does (Link's house, the Landing Site)
+with no starting items. `smz3daily --z3-draft <id>` and `--sm-draft <id>` (in `smz3daily_z3.c` and `smz3daily_sm.c`)
+pick the kind of goal from the id, then try seeds until the goal's route takes at most 3 items and the estimate, with the
+daily's search model plus the search for the goal item itself, falls between 5 and 15 minutes:
+
+- ALttP: defeat 15 to 35 enemies, collect 50 to 130 rupees, get a major item, defeat the Armos Knights, the Lanmolas or
+  Moldorm, get a crystal, or reach the Desert Palace, the Tower of Hera, the Palace of Darkness or the Swamp Palace.
+- Super Metroid: defeat 15 to 35 enemies (0.4 minutes each), get a major item, defeat a boss, or reach the Wrecked Ship,
+  Maridia or Norfair.
+
+When no seed fits the kind, the Draft counts enemies. `race.js` keeps a pool of six per game and runs the matching flag of
+`smz3draft`.
 
 ## Decisions
 

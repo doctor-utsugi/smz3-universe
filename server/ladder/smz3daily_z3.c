@@ -1,5 +1,7 @@
 /* The A Link to the Past daily planner (smz3daily --z3 <z3-YYYY-MM-DD-n>, --z3-stats <prefix> <n>): an Original tournament
- * seed and one goal (item, boss, crystals, dungeon, Agahnim), with smz3daily.c's estimate, hints and output format. */
+ * seed and one goal (item, boss, crystals, dungeon, Agahnim), with smz3daily.c's estimate, hints and output format.
+ * smz3daily --z3-draft <id> (--z3-draft-stats <prefix> <n>) makes a Draft race the same way: the usual start, no starting
+ * items and a goal of 5 to 15 minutes, printed like smz3daily.c's Drafts. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +16,7 @@
 #define FIRST_HINT 10.0
 #define MAX_TRIES 400
 
-enum { G_ITEM, G_BOSS, G_CRYSTALS, G_REACH, G_AGA };
+enum { G_ITEM, G_BOSS, G_CRYSTALS, G_REACH, G_AGA, G_KILLS, G_RUPEES };
 
 typedef struct { int kind, target, count; char text[160]; } Goal;   /* target: a Z3_LOCS index (item, boss) or a region */
 typedef struct { double at; char text[200]; } Hint;
@@ -27,6 +29,7 @@ typedef struct {
     double est_search, est_route;
     Hint hints[64];
     int n_hints;
+    int draft;
 } Z3Challenge;
 
 static Z3Seed g_seed;   /* the candidate's world; static, as smz_z3_rebuild's callers keep it */
@@ -172,6 +175,7 @@ static void estimate(Z3Challenge *c)
 {
     uint8_t needed[Z3_LOC_COUNT] = {0}, checked[Z3_LOC_COUNT] = {0}, got[Z3_LOC_COUNT] = {0};
     for (int i = 0; i < c->n_steps; i++) needed[c->steps[i]] = 1;
+    if (c->draft && c->goal.kind == G_ITEM) needed[c->goal.target] = 1;   /* a Draft's goal item is searched for like the rest */
     Z3Items it = W->pre;
     double search = 0, routem = 0;
     for (int s = 0; s < 80; s++) {
@@ -279,6 +283,8 @@ static void goal_check(const Z3Challenge *c, char *out, size_t cap)
     case G_CRYSTALS: snprintf(out, cap, "crystals:%d", g->count); return;
     case G_REACH: snprintf(out, cap, "zdungeon:%x", REACH[g->count].id); return;
     case G_AGA: snprintf(out, cap, "aga"); return;
+    case G_KILLS: snprintf(out, cap, "kills:%d", g->count); return;
+    case G_RUPEES: snprintf(out, cap, "rupees:%d", g->count); return;
     default: snprintf(out, cap, "loc:%d", smz_z3_tracker_index(g->target)); return;
     }
 }
@@ -301,7 +307,7 @@ static void settings_json(const Z3Challenge *c, char *out, size_t cap)
 
 static void print_challenge(const Z3Challenge *c, int attempt)
 {
-    static const char *const KIND[] = {"item", "boss", "crystals", "reach", "aga"};
+    static const char *const KIND[] = {"item", "boss", "crystals", "reach", "aga", "kills", "rupees"};
     char js[512], check[32];
     settings_json(c, js, sizeof js);
     goal_check(c, check, sizeof check);
@@ -358,6 +364,115 @@ int z3_daily_main(int argc, char **argv)
         if (stats) printf("%s tries=%d ok=%d kind=%d steps=%d search=%.0f route=%.0f hints=%d last=%.0f goal=\"%s\"\n", c.window, a, ok == 0, c.goal.kind,
                           c.n_steps, c.est_search, c.est_route, c.n_hints, c.n_hints ? c.hints[c.n_hints - 1].at : 0, c.goal.text);
         else print_challenge(&c, a - 1);
+        fflush(stdout);
+    }
+    return 0;
+}
+
+/* ---------- Draft races ---------- */
+
+#define DRAFT_MIN 5.0
+#define DRAFT_MAX 15.0
+
+/* Dungeons a Draft can send Link to: the light world ones a few items away, besides the daily's. */
+static const struct { int region, id; const char *name; } DRAFT_REACH[] = {
+    {Z3_REG_Desert_Palace, 0x06, "the Desert Palace"}, {Z3_REG_Tower_of_Hera, 0x14, "the Tower of Hera"},
+    {Z3_REG_Palace_of_Darkness, 0x0C, "the Palace of Darkness"}, {Z3_REG_Swamp_Palace, 0x0A, "the Swamp Palace"}};
+#define N_DRAFT_REACH (int)(sizeof DRAFT_REACH / sizeof DRAFT_REACH[0])
+
+/* kind: 0 kills, 1 rupees, 2 an item, 3 a boss of the first three dungeons, 4 a crystal, 5 a dungeon. */
+static int pick_draft_goal(Z3Challenge *c, int kind)
+{
+    Goal *g = &c->goal;
+    g->count = 0; g->target = 0;
+    switch (kind) {
+    case 0: g->kind = G_KILLS; g->count = 15 + rnd_n(5) * 5; snprintf(g->text, sizeof g->text, "Defeat %d enemies", g->count); return 0;
+    case 1: g->kind = G_RUPEES; g->count = 50 + rnd_n(9) * 10; snprintf(g->text, sizeof g->text, "Collect %d rupees", g->count); return 0;
+    case 3: {
+        int b = rnd_n(3);
+        g->kind = G_BOSS; g->count = b; g->target = z3_loc_named(W, BOSS[b].loc);
+        snprintf(g->text, sizeof g->text, "Defeat %s", BOSS[b].name);
+        break;
+    }
+    case 4: g->kind = G_CRYSTALS; g->count = 1; snprintf(g->text, sizeof g->text, "Get a crystal"); break;
+    case 5: {
+        int a = rnd_n(N_DRAFT_REACH);
+        g->kind = G_REACH; g->target = DRAFT_REACH[a].region; g->count = 100 + a;
+        snprintf(g->text, sizeof g->text, "Reach %s", DRAFT_REACH[a].name);
+        break;
+    }
+    default: {
+        int m = rnd_n((int)(sizeof MAJOR / sizeof MAJOR[0]));
+        g->kind = G_ITEM; g->target = -1;
+        for (int l = 0; l < Z3_LOC_COUNT && g->target < 0; l++) if (is_check(l) && W->item_at[l] == MAJOR[m].item) g->target = l;
+        snprintf(g->text, sizeof g->text, "Get the %s", MAJOR[m].name);
+    }
+    }
+    return g->target < 0 ? -1 : 0;
+}
+
+/* 0 when the candidate is accepted; kind as pick_draft_goal. */
+static int try_draft(Z3Challenge *c, int attempt, int kind)
+{
+    char key[96];
+    snprintf(key, sizeof key, "z3draft:%s#%d", c->window, attempt);
+    rng_state = hash_str(key);
+    z3_settings_default(&c->s);
+    c->s.tournament = true;
+    c->draft = 1;
+    c->n_steps = c->n_hints = 0;
+    c->seed = 1 + rnd() % 999999999u;
+    if (smz_z3_rebuild(&c->s, c->seed, &g_seed)) return -1;
+    g_seed.w.col = NULL;
+    if (pick_draft_goal(c, kind)) return -1;
+    if (c->goal.kind == G_KILLS || c->goal.kind == G_RUPEES) {   /* as smz3daily.c's Drafts */
+        c->est_search = c->est_route = (c->goal.kind == G_KILLS ? 0.3 * c->goal.count : c->goal.count / 12.0) + 1.0;
+        return 0;
+    }
+    if (route(c) || c->n_steps > 3) return 1;
+    estimate(c);
+    return c->est_search >= DRAFT_MIN && c->est_search <= DRAFT_MAX ? 0 : 1;
+}
+
+static void draft_check(const Z3Challenge *c, char *out, size_t cap)
+{
+    if (c->goal.kind == G_REACH) snprintf(out, cap, "zdungeon:%x", DRAFT_REACH[c->goal.count - 100].id);
+    else goal_check(c, out, cap);
+}
+
+static void print_draft(const Z3Challenge *c, int attempt)
+{
+    char check[32], js[512];
+    draft_check(c, check, sizeof check);
+    snprintf(js, sizeof js, "{\"game\":\"z3\",\"seed\":\"%u\",\"z3\":{\"tournament\":\"true\"},"
+             "\"saveStates\":false,\"defaultRules\":false,\"challenge\":true,\"goal\":\"%s\"}", (unsigned)c->seed, check);
+    printf("{\"draft\":");
+    json_str(c->window);
+    printf(",\"game\":\"z3\",\"attempt\":%d,\"seed\":%u,\"settings\":", attempt, (unsigned)c->seed);
+    json_str(js);
+    printf(",\"spot\":\"Link's house\",\"start\":[],\"goal\":{\"check\":\"%s\",\"text\":", check);
+    json_str(c->goal.text);
+    printf("},\"estimateMin\":%.0f}\n", c->est_search);
+}
+
+/* A Draft, or n of them for tuning. The kind of goal comes from the id, so the slow kinds come up as often; when no seed
+ * fits it, the Draft counts enemies instead. */
+int z3_draft_main(int argc, char **argv)
+{
+    static Z3Challenge c;
+    int stats = !strcmp(argv[1], "--z3-draft-stats"), n = stats && argc >= 4 ? atoi(argv[3]) : 1;
+    if (argc < 3) return 1;
+    for (int w = 0; w < n; w++) {
+        if (stats) snprintf(c.window, sizeof c.window, "%s-%d", argv[2], w);
+        else snprintf(c.window, sizeof c.window, "%s", argv[2]);
+        char kk[96];
+        snprintf(kk, sizeof kk, "z3draft:%s#kind", c.window);
+        int roll = (int)((hash_str(kk) >> 20) % 100), kind = roll < 25 ? 0 : roll < 40 ? 1 : roll < 60 ? 2 : roll < 75 ? 3 : roll < 85 ? 4 : 5;
+        int a, ok = -1;
+        for (a = 0; a < MAX_TRIES && ok != 0; a++) ok = try_draft(&c, a, kind);
+        if (ok != 0) { a = 0; try_draft(&c, a++, 0); }
+        if (stats) printf("%s tries=%d steps=%d est=%.0f goal=\"%s\"\n", c.window, a, c.n_steps, c.est_search, c.goal.text);
+        else print_draft(&c, a - 1);
         fflush(stdout);
     }
     return 0;

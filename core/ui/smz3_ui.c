@@ -292,16 +292,10 @@ static void games_input(SmzUi *u, UiButton b)
     }
 }
 
-/* Online draft is SMZ3's: ALttP and Super Metroid leave its row out. */
-static int home_row_shown(const SmzUi *u, int r) { return r != 1 || !single_game(u); }
-
 static void home_input(SmzUi *u, UiButton b)
 {
     if (b == BTN_B) { u->screen = UI_GAMES; u->notice[0] = 0; return; }
-    if (b == BTN_UP || b == BTN_DOWN) {
-        do u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
-        while (!home_row_shown(u, u->home_cursor));
-    }
+    if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
     else if (b != BTN_A) return;
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
@@ -2563,9 +2557,8 @@ void ui_draw(SmzUi *u)
     case UI_HOME:
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
         text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
-        for (int r = 0, shown = 0; r < HOME_ROWS; r++) {
-            if (!home_row_shown(u, r)) continue;
-            int y = 70 + shown++ * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
+        for (int r = 0; r < HOME_ROWS; r++) {
+            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
             rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
             rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
             hit(u, H_HOME, r, 24, y, UI_W - 48, 28);

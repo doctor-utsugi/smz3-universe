@@ -4,8 +4,9 @@
 //   POST /api/race/join   {install, player, country, version, code, game?}                   -> {token, id, code}
 //   GET  /api/race/open?game=                                   -> {rooms: [{code, format, size, players, creator}]}
 // A room carries its game (no game: smz3): the lobby lists only the game's rooms and a join from another game is refused.
-// Super Metroid races are Championship Full only (its base patch has one goal, so no Partial, and Draft is SMZ3's). A Link to
-// the Past has Full (Original rules) and Partial: Sprint and Half are Fast Ganon with 2 and 4 crystals.
+// Super Metroid has Championship Full only (its base patch has one goal, so no Partial). A Link to the Past has Full
+// (Original rules) and Partial: Sprint and Half are Fast Ganon with 2 and 4 crystals. Every game has Draft: SMZ3's from a
+// start spot, the single games' from their usual start (smz3daily --sm-draft, --z3-draft).
 //   POST /api/race/close  {token}                 creator: 2 or more players go on to skins and the ready room
 //   POST /api/race/kick   {token, pid}            creator: removes a player before the start
 //   POST /api/race/pick   {token, link, samus}    the two skins
@@ -28,8 +29,9 @@ const FORMATS = {   // the Championship lengths: the run's rules, and the countd
   draft: { rules: {}, countdownMin: 5 },
 };
 const LADDERS = ['full', 'sprint', 'half'];
-const GAMES = { smz3: { formats: ['full', 'sprint', 'half', 'draft'], ladders: LADDERS }, sm: { formats: ['full'], ladders: ['full'] },
-  z3: { formats: ['full', 'sprint', 'half'], ladders: LADDERS } };
+const GAMES = { smz3: { formats: ['full', 'sprint', 'half', 'draft'], ladders: LADDERS }, sm: { formats: ['full', 'draft'], ladders: ['full'] },
+  z3: { formats: ['full', 'sprint', 'half', 'draft'], ladders: LADDERS } };
+const DRAFT_ARG = { smz3: '--draft', sm: '--sm-draft', z3: '--z3-draft' };
 const gameOf = v => v === undefined || v === null || v === '' ? 'smz3' : GAMES[v] ? v : null;
 const ladderKey = (game, format) => game === 'smz3' ? format : game + '-' + format;   // db.ladder's table of a game and format
 // Super Metroid's Original rules, as server.js's SM_RULES: every online SM run sets Race.
@@ -65,27 +67,26 @@ module.exports = function race(ctx) {
   const VERSION = process.env.SMZ3_APP_VERSION || '';   // when set, rooms only take this app version
   const DRAFT_BIN = process.env.SMZ3DRAFT || path.join(__dirname, 'smz3draft');   // smz3daily built with the app version that plays the Drafts
 
-  // The Draft reserve: each one new (a random id), never handed out twice.
-  const drafts = [];
-  let making = false;
-  function makeDraft(done) {
-    execFile(DRAFT_BIN, ['--draft', crypto.randomBytes(6).toString('hex')], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
+  // The Draft reserve of each game: each one new (a random id), never handed out twice.
+  const drafts = { smz3: [], sm: [], z3: [] }, making = {};
+  function makeDraft(game, done) {
+    execFile(DRAFT_BIN, [DRAFT_ARG[game], crypto.randomBytes(6).toString('hex')], { timeout: 60000, maxBuffer: 1 << 20 }, (err, out) => {
       let d = null;
       try { if (!err) d = JSON.parse(out); } catch (e) {}
       done(d && d.settings && d.goal ? d : null);
     });
   }
-  function fillDrafts() {
-    if (making || drafts.length >= DRAFT_POOL) return;
-    making = true;
-    makeDraft(d => { making = false; if (d) { drafts.push(d); fillDrafts(); } });
+  function fillDrafts(game) {
+    if (making[game] || drafts[game].length >= DRAFT_POOL) return;
+    making[game] = true;
+    makeDraft(game, d => { making[game] = false; if (d) { drafts[game].push(d); fillDrafts(game); } });
   }
-  fillDrafts();
-  const takeDraft = () => new Promise(done => {
-    const d = drafts.shift();
-    fillDrafts();
+  Object.keys(drafts).forEach(fillDrafts);
+  const takeDraft = game => new Promise(done => {
+    const d = drafts[game].shift();
+    fillDrafts(game);
     if (d) return done(d);
-    makeDraft(done);
+    makeDraft(game, done);
   });
 
   // results: finished races; ladder[format]: one best time per install
@@ -375,7 +376,7 @@ module.exports = function race(ctx) {
           if (!creator || room.state !== 'open') return fail(res, 409, 'not now');
           if (room.players.length < 2) return fail(res, 409, 'needs 2 players');
           if (room.format === 'draft') {
-            const d = await takeDraft();
+            const d = await takeDraft(room.game || 'smz3');
             if (!d) return fail(res, 503, 'no Draft ready, try again');
             room.seed = String(d.seed);
             room.settings = d.settings;
