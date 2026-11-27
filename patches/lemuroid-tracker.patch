@@ -9490,10 +9490,10 @@ index 0000000..5aecb8e
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Rewind.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Rewind.kt
 new file mode 100644
-index 0000000..a20e3d8
+index 0000000..de9dcfa
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Rewind.kt
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,140 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -9538,7 +9538,8 @@ index 0000000..a20e3d8
 +    fun attach(context: Context, retroView: GLRetroView) {
 +        view = retroView
 +        isOpen = false
-+        if (Smz3RaceState.on && !Smz3RaceState.started) retroView.setHeld(true)   // a race's game waits on its first frame for the countdown
++        // a race's game waits on its first frame for the countdown; the daily, which also sets on (for its chat), has none
++        if (Smz3RaceState.on && !Smz3RaceState.daily && !Smz3RaceState.started) retroView.setHeld(true)
 +        retroView.rewindEnabled = allowed(context)
 +    }
 +

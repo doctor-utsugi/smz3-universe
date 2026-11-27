@@ -4,6 +4,7 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 
 - v0.15.0's APK went out without the snes9x core, so no game could start ("the libretro core was not loaded"). The
   build puts it back and now stops if an APK comes out without it.
+- Android: the daily challenge's game froze on a black screen from its first frame (v0.15.0 too); it plays again.
 - Android's app settings show the SMZ3 version (0.15.0 and on) instead of 1.17.0, the version of Lemuroid it is built on.
 
 ### Menus
