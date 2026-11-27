@@ -15,6 +15,8 @@ jobs:
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}   # the AppImage runs on distributions at least as new as this one
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a manual build takes its version from the last one instead of "dev"
       - name: Fetch assets
         shell: bash
         run: |
@@ -39,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a manual build takes its version from the last one instead of "dev"
       - name: Fetch assets
         shell: bash
         run: |
@@ -70,6 +74,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a manual build takes its version from the last one instead of "dev"
       - name: Fetch assets
         shell: bash
         run: |
@@ -124,6 +130,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a manual build takes its version from the last one instead of "dev"
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
       - name: Fetch sources and assets
@@ -168,6 +176,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a manual build takes its version from the last one instead of "dev"
       - name: Fetch sources and assets
         shell: bash
         run: |
@@ -197,6 +207,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a manual build takes its version from the last one instead of "dev"
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - name: Pack the handheld Ports zip
