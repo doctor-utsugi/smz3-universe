@@ -51,6 +51,9 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
 - PC and Linux handhelds: the start menu has Quit under Options, so the app closes without going into Options. Quit
   asks "Quit SMZ3?" first.
+- Android: a phone with less than 2 GB of RAM, or 1.1 GB free, downloads its Map Rando seed from the server instead of
+  building it, which closed the app. The screen says "Downloading the Map Rando seed", or "Loading" while the phone builds
+  one, instead of a count of seconds and tries.
 - PC: a Map Rando seed is built on the device only when it has 2 GB of RAM and 1.1 GB free (building one peaks near
   780 MB); otherwise (a 1 GB handheld like the RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
 - PC: while a Map Rando seed is made the screen says "Loading", or "Downloading the Map Rando seed" when the server

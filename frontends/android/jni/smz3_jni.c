@@ -385,6 +385,7 @@ JNIEXPORT jstring JNICALL NATIVE(lastError)(JNIEnv *env, jclass cls)
 
 /* Super Metroid alone: the run's settings JSON with the seed hash added (smz_sm_generate), read back by smLastSettings. */
 static char g_sm_json[4096];
+static JNIEnv *g_gen_env;   /* the thread building a seed, for Map Rando's download through Smz3Native */
 
 JNIEXPORT jbyteArray JNICALL NATIVE(generateSm)(JNIEnv *env, jclass cls, jbyteArray sm, jstring settings, jbyteArray samusRdc)
 {
@@ -396,8 +397,10 @@ JNIEXPORT jbyteArray JNICALL NATIVE(generateSm)(JNIEnv *env, jclass cls, jbyteAr
     jbyte *smb = (*env)->GetByteArrayElements(env, sm, NULL);
     jbyte *sam = samusRdc ? (*env)->GetByteArrayElements(env, samusRdc, NULL) : NULL;
     uint8_t *rom = malloc(SMZ_SM_ROM_SIZE);
+    g_gen_env = env;
     int rc = rom ? smz_sm_generate(g_sm_json, sizeof g_sm_json, (const uint8_t *)smb, (const uint8_t *)sam,
                                    sam ? (size_t)(*env)->GetArrayLength(env, samusRdc) : 0, rom, SMZ_SM_ROM_SIZE) : -1;
+    g_gen_env = NULL;
     jbyteArray result = NULL;
     if (rc && smz_sm_error(rc)) snprintf(g_error, sizeof g_error, "%s", smz_sm_error(rc));
     else if (rc) snprintf(g_error, sizeof g_error, "generation failed (%d)", rc);
@@ -416,14 +419,68 @@ JNIEXPORT jstring JNICALL NATIVE(smLastSettings)(JNIEnv *env, jclass cls) { retu
 /* Map Rando (core/maprando, built with cargo-ndk): its packed data, extracted from the APK's assets by MapRando.kt. */
 #ifdef SMZ_MAPRANDO
 #include "smz3_maprando.h"
+#include "smz3_bps.h"
 
 static char g_mr_dir[512];
-static volatile int g_mr_phase;   /* 0 idle, 1 loading the data, 2 building the seed */
+static volatile int g_mr_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it */
+
+/* Building a seed peaks near 780 MB (measured): a phone with less RAM than this in all, or free, downloads it instead. */
+#define MR_TOTAL_MB 2048
+#define MR_FREE_MB 1100
+
+static long meminfo_mb(const char *key)
+{
+    FILE *f = fopen("/proc/meminfo", "r");
+    if (!f) return -1;
+    char line[128], fmt[40];
+    long kb = -1;
+    snprintf(fmt, sizeof fmt, "%s: %%ld kB", key);
+    while (fgets(line, sizeof line, f)) if (sscanf(line, fmt, &kb) == 1) break;
+    fclose(f);
+    return kb < 0 ? -1 : kb / 1024;
+}
+
+/* The server's patch for these settings (MapRando.download in Kotlin), applied to the player's ROM. */
+static int mr_download(const char *settings, uint64_t seed, const uint8_t *sm, size_t sm_len, uint8_t *out, size_t cap,
+                       char *info, size_t info_cap)
+{
+    JNIEnv *env = g_gen_env;
+    snprintf(info, info_cap, "{\"error\":\"This phone has too little memory to build Map Rando seeds\"}");
+    if (!env) return -1;
+    jclass c = (*env)->FindClass(env, "com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native");
+    jmethodID dl = c ? (*env)->GetStaticMethodID(env, c, "mapRandoDownload", "(Ljava/lang/String;Ljava/lang/String;)[B") : NULL;
+    jmethodID inf = c ? (*env)->GetStaticMethodID(env, c, "mapRandoInfo", "()Ljava/lang/String;") : NULL;
+    if (!dl || !inf) { (*env)->ExceptionClear(env); return -1; }
+    char sd[24];
+    snprintf(sd, sizeof sd, "%llu", (unsigned long long)seed);
+    jstring js = (*env)->NewStringUTF(env, settings), jseed = (*env)->NewStringUTF(env, sd);
+    g_mr_phase = 3;
+    jbyteArray patch = (jbyteArray)(*env)->CallStaticObjectMethod(env, c, dl, js, jseed);
+    g_mr_phase = 0;
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); patch = NULL; }
+    jstring ji = (jstring)(*env)->CallStaticObjectMethod(env, c, inf);
+    if (ji) {
+        const char *t = (*env)->GetStringUTFChars(env, ji, NULL);
+        snprintf(info, info_cap, "%s", t);
+        (*env)->ReleaseStringUTFChars(env, ji, t);
+    }
+    if (!patch) return -1;
+    jsize n = (*env)->GetArrayLength(env, patch);
+    jbyte *b = (*env)->GetByteArrayElements(env, patch, NULL);
+    if (sm_len % 0x8000 == 0x200) { sm += 0x200; sm_len -= 0x200; }   /* a copier header: the patch is made from the bare ROM */
+    int r = !b ? -1 : smz_bps_target_size((const uint8_t *)b, (size_t)n) > cap ? -1 : smz_bps_apply((const uint8_t *)b, (size_t)n, sm, sm_len, out, cap);
+    if (b) (*env)->ReleaseByteArrayElements(env, patch, b, JNI_ABORT);
+    if (r) snprintf(info, info_cap, "{\"error\":\"%s\"}", r == -2 ? "The patch does not fit this Super Metroid ROM" : "The seed came damaged, try again");
+    return r ? -1 : 0;
+}
 
 static int mr_generate(const char *settings, uint64_t seed, const uint8_t *sm, size_t sm_len, uint8_t *out, size_t cap,
                        char *info, size_t info_cap)
 {
     char err[300];
+    long total_mb = meminfo_mb("MemTotal"), free_mb = meminfo_mb("MemAvailable");
+    if ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))
+        return mr_download(settings, seed, sm, sm_len, out, cap, info, info_cap);
     g_mr_phase = 1;
     if (smz_mr_init(g_mr_dir, err, sizeof err)) {
         for (char *c = err; *c; c++) if (*c == '"' || *c == '\\' || *c < ' ') *c = '\'';
@@ -433,7 +490,7 @@ static int mr_generate(const char *settings, uint64_t seed, const uint8_t *sm, s
     }
     g_mr_phase = 2;
     int rc = smz_mr_generate(settings, seed, 0, sm, sm_len, out, cap, info, info_cap);
-    smz_mr_free();   /* about 600 MB the game does not need */
+    smz_mr_free();   /* about 780 MB the game does not need */
     g_mr_phase = 0;
     return rc;
 }
@@ -456,7 +513,7 @@ JNIEXPORT jboolean JNICALL NATIVE(mapRandoSetup)(JNIEnv *env, jclass cls, jstrin
 JNIEXPORT jint JNICALL NATIVE(mapRandoProgress)(JNIEnv *env, jclass cls)
 {
 #ifdef SMZ_MAPRANDO
-    return g_mr_phase == 1 ? 0 : g_mr_phase == 2 ? 1 + (jint)smz_mr_attempts() : -1;
+    return g_mr_phase == 3 ? -2 : g_mr_phase == 1 ? 0 : g_mr_phase == 2 ? 1 + (jint)smz_mr_attempts() : -1;
 #else
     return -1;
 #endif

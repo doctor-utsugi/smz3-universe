@@ -7711,10 +7711,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..cb64aa3
+index 0000000..186901c
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,291 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7768,8 +7768,13 @@ index 0000000..cb64aa3
 +    @JvmStatic external fun generateSm(sm: ByteArray, settingsJson: String, samusRdc: ByteArray?): ByteArray?
 +    /** Offers Map Rando with its unpacked data folder; false when this build has no Map Rando. */
 +    @JvmStatic external fun mapRandoSetup(dataDir: String): Boolean
-+    /** -1 idle, 0 loading Map Rando's data, else 1 + the attempts of the seed being built. */
++    /** -2 downloading the seed, -1 idle, 0 loading Map Rando's data, else 1 + the attempts of the seed being built. */
 +    @JvmStatic external fun mapRandoProgress(): Int
++    /** Called by the native Map Rando on a phone short of memory: the server's patch, or null with the reason in [mapRandoInfo]. */
++    @JvmStatic fun mapRandoDownload(settings: String, seed: String): ByteArray? =
++        com.swordfish.lemuroid.app.mobile.feature.runs.MapRando.download(settings, seed)
++    /** The seed's info JSON after [mapRandoDownload], or {"error": ...}. */
++    @JvmStatic fun mapRandoInfo(): String = com.swordfish.lemuroid.app.mobile.feature.runs.MapRando.downloadInfo
 +
 +    /** The settings given to the last [generateSm], with the seed hash it added. */
 +    @JvmStatic external fun smLastSettings(): String
@@ -14479,15 +14484,20 @@ index 09b87ea..4091294 100644
              LemuroidSettingsMenuLink(
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
 new file mode 100644
-index 0000000..776e016
+index 0000000..e4f2a10
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,76 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
 +import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
 +import java.io.File
++import java.io.IOException
++import java.net.HttpURLConnection
++import java.net.URL
++import java.net.URLEncoder
++import org.json.JSONObject
 +import java.util.zip.ZipInputStream
 +
 +/** Map Rando (core/maprando): its packed data ships as assets/maprando/data.zip and is unpacked once into the app's storage. */
@@ -14527,12 +14537,30 @@ index 0000000..776e016
 +    }
 +
 +    /** The busy line while a seed is built, from the native progress and the seconds since [since]. */
-+    fun progressText(since: Long): String {
-+        val s = (System.currentTimeMillis() - since) / 1000
-+        return when (val p = Smz3Native.mapRandoProgress()) {
-+            -1 -> "Unpacking Map Rando ... ${s}s"
-+            0 -> "Loading Map Rando ... ${s}s"
-+            else -> "Map Rando seed, try ${p - 1} ... ${s}s"
++    @Suppress("UNUSED_PARAMETER")
++    fun progressText(since: Long): String =
++        if (Smz3Native.mapRandoProgress() == -2) "Downloading the Map Rando seed" else "Loading"
++
++    @Volatile var downloadInfo = ""
++
++    /** The server's BPS patch for these settings and seed (GET /api/maprando/seed), its info in [downloadInfo]; on a failure
++     * null, with {"error": why} there. Blocking: the native generator calls it from its own thread. */
++    fun download(settings: String, seed: String): ByteArray? {
++        fun fail(why: String): ByteArray? { downloadInfo = JSONObject().put("error", why).toString(); return null }
++        return try {
++            val q = URLEncoder.encode(settings, "UTF-8")
++            val c = URL("${OnlineLadder.server()}/api/maprando/seed?settings=$q&seed=$seed").openConnection() as HttpURLConnection
++            c.connectTimeout = 15000
++            c.readTimeout = 300000
++            when (c.responseCode) {
++                200 -> { downloadInfo = c.getHeaderField("X-Seed-Info") ?: "{}"; c.inputStream.use { it.readBytes() } }
++                503 -> fail("The server is busy, try again in a minute")
++                429 -> fail("Too many seeds this hour, try later")
++                422 -> fail("The server found no seed for this")
++                else -> fail("The server could not make the seed")
++            }
++        } catch (e: IOException) {
++            fail("Connect to the internet: this phone downloads Map Rando seeds")
 +        }
 +    }
 +}
