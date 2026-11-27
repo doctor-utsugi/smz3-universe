@@ -89,7 +89,7 @@ typedef struct {
     int keep_custom;             /* saving failed (list full): Custom opens with the options as they were */
     char name[64];               /* what the keyboard is typing: a saved custom's or player's name, a code, an address */
     int name_len, key_cursor;
-    int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes, 4 link code, 5 RomM address */
+    int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes, 4 link code, 5 RomM address, 6 player name before a race */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
     char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
     int picked, last_slot[3];   /* the game entered last and each game's slot opened last (ui_memory_text) */

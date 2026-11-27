@@ -1442,10 +1442,10 @@ index 0000000..5004db1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..1bb9c98
+index 0000000..92857a7
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1199 @@
+@@ -0,0 +1,1211 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1542,6 +1542,8 @@ index 0000000..1bb9c98
 +
 +private const val UI_LOGO = 16           // UiScreen in core/ui/smz3_ui.h
 +private const val UI_GAMES = 27          // the game carousel: Back there leaves the app
++private const val UI_RACE_SIZE = 19
++private const val UI_RACE_READY = 26
 +private const val UI_OPT_BUTTONS = 1
 +private const val UI_OPT_SOUND = 4
 +private const val UI_OPT_QUIT = 8
@@ -1631,6 +1633,7 @@ index 0000000..1bb9c98
 +    val lastScreen0Reset = remember { booleanArrayOf(false) }   // back from a game: the list shows without a wipe
 +    // Starting a game: the last frame stays, fades to black, and black stays until the game is up, two seconds after the press
 +    var launching by remember { androidx.compose.runtime.mutableStateOf(false) }
++    val raceStartLater = remember { java.util.concurrent.atomic.AtomicBoolean(false) }   // the start came while the app was away: Android opens no game then
 +    val closing = remember { Animatable(0f) }
 +    val lastCommands = remember { arrayOf<Array<String>>(emptyArray()) }
 +    val frozen = remember { arrayOf<Array<String>?>(null) }
@@ -1662,6 +1665,13 @@ index 0000000..1bb9c98
 +        }
 +    }
 +    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
++    val startRace = {   // the game's process takes the room over; a race is played once
++        RunStore.load(context, RaceClient.SLOT)?.let {
++            RaceClient.handOver()
++            play(it, false)
++            Smz3Native.uiRaceEnd()
++        }
++    }
 +    DisposableEffect(lifecycle) {
 +        val back = androidx.lifecycle.LifecycleEventObserver { _, e ->
 +            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME && launching) {
@@ -1670,6 +1680,7 @@ index 0000000..1bb9c98
 +                played[0] = null
 +            }
 +            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) Smz3MenuMusic.play(context)
++            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME && raceStartLater.getAndSet(false)) startRace()
 +            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) Smz3MenuMusic.pause()
 +        }
 +        lifecycle.addObserver(back)
@@ -1816,6 +1827,11 @@ index 0000000..1bb9c98
 +            val mode = arrayOf("smz3", "z3", "sm").getOrElse(Smz3Native.uiGameMode()) { "smz3" }
 +            if (mode != RunStore.mode) { RunStore.mode = mode; refreshSlots(); dailyAgain.set(true); Smz3MenuSelection.onChange?.invoke() }   // a game entered from the carousel: its own runs and challenge
 +            if (logo || spin) version++
++            val keepOn = launching || raceStartLater.get() || Smz3Native.uiScreen() in UI_RACE_SIZE..UI_RACE_READY   // a race room must not sleep before the start
++            (context as? android.app.Activity)?.window?.let { w ->
++                val on = w.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
++                if (keepOn != on) { if (keepOn) w.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
++            }
 +        }
 +    }
 +    LaunchedEffect(Unit) { checkSmRom() }
@@ -2314,11 +2330,7 @@ index 0000000..1bb9c98
 +            Act.RACE_LEAVE -> RaceClient.send("leave", null, true)
 +            Act.RACE_READY -> buildRace()
 +            Act.UPDATE -> update()
-+            Act.RACE_START -> RunStore.load(context, RaceClient.SLOT)?.let {   // the game's process takes the room over; a race is played once
-+                RaceClient.handOver()
-+                play(it, false)
-+                Smz3Native.uiRaceEnd()
-+            }
++            Act.RACE_START -> if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) startRace() else raceStartLater.set(true)
 +            Act.RACE_RESUME -> {   // the paused race: its game loads the state kept and tells the server
 +                val p = RaceClient.paused(context)
 +                val run = RunStore.load(context, RaceClient.SLOT)

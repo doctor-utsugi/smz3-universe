@@ -352,6 +352,7 @@ static void home_input(SmzUi *u, UiButton b)
     else if (u->race.on) {   /* one kind of race, up to 8: the first screen is there only to pick a paused race back up */
         u->race.format = u->home_cursor == 1 ? RACE_DRAFT : 0; u->race.size = 8; u->race.cursor = 0;
         u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY;
+        if (!u->player[0]) { u->name_for = 6; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; }   /* the others see this name */
     }
     else snprintf(u->notice, sizeof u->notice, "Online races need a connection");
 }
@@ -1463,7 +1464,7 @@ static int name_cap(const SmzUi *u) { return u->name_for == 5 ? (int)sizeof u->n
 static void name_input(SmzUi *u, UiButton b)
 {
     int c = u->key_cursor;
-    UiScreen back = u->name_for >= 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
+    UiScreen back = u->name_for == 6 ? UI_HOME : u->name_for >= 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
     if (b == BTN_B) { u->screen = back; return; }
     if (b == BTN_START) { u->key_cursor = KEY_COUNT + 2; return; }   /* to Save */
     if (b == BTN_L) { if (u->name_len) u->name[--u->name_len] = 0; return; }
@@ -1529,6 +1530,7 @@ static void name_input(SmzUi *u, UiButton b)
                 u->player_dirty = 1;
                 if (u->name_for == 3) u->online_mode = 1;   /* the online Yes counts once there is a name */
                 u->screen = back;
+                if (u->name_for == 6) { u->screen = paused_row(u) ? UI_RACE_SIZE : UI_RACE_WAY; break; }
                 if (u->player_opts) { country_open(u); break; }   /* from Options the country follows the name */
                 if (u->online_gen && !u->country[0]) { u->country_cursor = u->country_scroll = 0; u->screen = UI_COUNTRY; }
                 else if (u->online_gen && u->name_for == 3) { u->action = ACT_GENERATE; u->action_slot = u->active_slot; }   /* Yes on Start: it starts */

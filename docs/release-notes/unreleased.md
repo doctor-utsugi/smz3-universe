@@ -26,6 +26,13 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Android: the app no longer asks for the notifications permission on its first start; the system's dialog sent it to the
   background, and games run without it.
 - The STAGING badge of a test server sits at the top middle, clear of the Ladder button and the rupee counter.
+- Races: a player who stops answering is out after 2 minutes (it was 5), and the last one still playing wins. While
+  only one is left, the room says so every 30 seconds with the time to the win.
+- Races on Android: the screen stays on in a race room, and a start that came with the app in the background opens the
+  game once the app is back, instead of leaving it on the run list.
+- Race server: a restart of the server no longer counts players who were already away as back.
+- Championship and Online draft ask for a player name first when none is set, instead of showing others a made-up
+  "Player-xxxx".
 
 - A ROMs screen comes first on Android and the 3DS while the Super Metroid or ALttP ROM is missing (the PC already had
   its welcome screen). Two cards show which ROM is found and which exact dump is needed. Add ROMs opens the file picker

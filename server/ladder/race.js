@@ -47,7 +47,8 @@ const IDLE_LIST_MS = 60 * 1000;     // an open room whose creator stopped asking
 const IDLE_ROOM_MS = 3 * 60 * 1000; // ... and once nobody in a room that has not started has asked for this long, it is gone
 const LIVE_S = 6 * 3600;            // a running race's key, renewed on every change and poll
 const DONE_S = 3600;                // a finished race stays readable for its results
-const RETURN_MS = 5 * 60 * 1000;    // a dropped player can come back for this long
+const RETURN_MS = 2 * 60 * 1000;    // a dropped player can come back for this long; then out, and the last one left wins
+const AWAY_MS = 15 * 1000;          // no poll for this long: shown as away
 const OUTAGE_MS = 5 * 60 * 1000;    // a server back after longer cancels the races it was running
 const PAUSE_KEEP_MS = 7 * 24 * 3600 * 1000;   // a paused race is cancelled this long after its first pause
 const BACK_WAIT_MS = 10 * 60 * 1000;          // from the resume time, the players back wait this long for the rest
@@ -159,6 +160,14 @@ module.exports = function race(ctx) {
     if (room.vote && now - (room.vote.at || now) > VOTE_MS) { room.vote = null; note(room, 'system', null, 'Nobody answered: the race goes on'); changed = true; }
     for (const p of left) if (p.timeMs == null && now - p.lastSeen > RETURN_MS) { p.left = true; note(room, 'system', p.pid, p.name + ' left the race'); changed = true; }
     const still = inRace(room).filter(p => p.timeMs == null);
+    // the one still playing hears it: the win comes once the others' time to come back is over
+    const here = still.filter(p => now - p.lastSeen <= AWAY_MS), solo = !done.length && here.length === 1 && still.length > 1;
+    // every 30 s, as the hosts show a line for a few seconds only
+    if (solo && (!room.soloAt || now - room.soloAt >= 30000)) {
+      const ms = Math.max(0, ...still.filter(p => !here.includes(p)).map(p => p.lastSeen + RETURN_MS - now)), s = Math.ceil(ms / 1000);
+      room.soloAt = now; note(room, 'system', null, `Nobody else is playing: you win in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} unless someone is back`); changed = true;
+    }
+    else if (!solo && room.soloAt) { room.soloAt = null; if (here.length > 1) { note(room, 'system', null, 'Someone is back: the race goes on'); changed = true; } }
     const end = (why) => { room.state = 'finished'; room.endedAt = now; room.endWhy = why; record(room); return true; };
     if (room.format === 'draft' && now >= room.startAt + DRAFT_MS) {
       // time is up: the finishers keep their places; with none, a multi race goes to the highest %, and 1 vs 1 is a draw
@@ -221,7 +230,7 @@ module.exports = function race(ctx) {
       const i = fin.indexOf(p);
       return { pid: p.pid, name: p.name, country: p.country, link: p.link, samus: p.samus, ready: p.ready, left: !!p.left,
         progress: p.progress, timeMs: p.timeMs, place: i >= 0 ? i + 1 : p.forfeitWin || p.topPlace ? 1 : 0, held: !!p.held,
-        away: room.state === 'running' && !p.left && p.timeMs == null && clock() - p.lastSeen > 15000, back: !!p.back };
+        away: room.state === 'running' && !p.left && p.timeMs == null && clock() - p.lastSeen > AWAY_MS, back: !!p.back };
     });
   }
 
@@ -270,7 +279,7 @@ module.exports = function race(ctx) {
     }).catch(e => { console.error('race', e.message); fail(res, 503, 'race server unavailable'); });
   }
 
-  // A server that was down: back soon, every player's clock to return starts again; back late, its running races end.
+  // A server that was down: back soon, the time down is added to every player's clock to return; back late, its running races end.
   (async () => {
     try {
       const beat = Number(await r.cmd('GET', K('beat')) || 0), gap = clock() - beat;
@@ -280,7 +289,7 @@ module.exports = function race(ctx) {
         if (!room) return r.cmd('SREM', K('active'), id);
         if (room.state === 'running' && beat && gap > OUTAGE_MS) { room.state = 'cancelled'; room.endedAt = clock(); room.endWhy = 'server down'; record(room); }
         else {
-          for (const p of room.players) p.lastSeen = clock();
+          for (const p of room.players) p.lastSeen = beat ? Math.min(clock(), p.lastSeen + gap) : clock();   // the time down is not theirs; one already away stays away
           if (beat && (room.state === 'running' || room.state === 'paused')) room.outages = (room.outages || []).concat([[beat, clock()]]);   // a finish queued in there keeps its own time
         }
         await store(room);
