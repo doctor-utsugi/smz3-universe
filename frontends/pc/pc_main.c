@@ -129,7 +129,7 @@ static void ui_present(void);
 
 static void *generate_done(void *arg) { GenJob *j = arg; generate_thread(j); j->done = 1; return NULL; }
 
-/* A Map Rando seed takes seconds: the window keeps drawing its progress meanwhile. */
+/* A Map Rando seed takes seconds: the window shows that it is loading meanwhile. */
 static void generate(GenJob *j)
 {
     pthread_attr_t at;
@@ -138,10 +138,12 @@ static void generate(GenJob *j)
     pthread_attr_init(&at);
     pthread_attr_setstacksize(&at, 64u << 20);
     if (pthread_create(&t, &at, generate_done, j)) { j->rc = -1; snprintf(j->err, sizeof j->err, "cannot start the generator"); return; }
-    for (Uint32 since = SDL_GetTicks(); ren && !j->done; SDL_Delay(50)) {
+    while (ren && !j->done) {
+        SDL_Delay(50);
         char line[64];
         if (!maprando_progress(line, sizeof line)) continue;
-        snprintf(line + strlen(line), sizeof line - strlen(line), "  %us", (unsigned)((SDL_GetTicks() - since) / 1000));
+        static const char *const DOTS[] = {"Loading", "Loading.", "Loading..", "Loading..."};
+        snprintf(line, sizeof line, "%s", DOTS[SDL_GetTicks() / 400 % 4]);
         SDL_PumpEvents();
         ui_busy(&ui, line);
         ui_present();

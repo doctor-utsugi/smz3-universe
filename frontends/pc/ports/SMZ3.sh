@@ -7,6 +7,11 @@ cd "$DIR" || exit 1
 chmod +x "$APP"
 
 export APPIMAGE_EXTRACT_AND_RUN=1   # these systems have no FUSE
+# unpacked on the card, not in /tmp: /tmp is RAM there, and a 1 GB handheld needs it for Map Rando. A copy left by a run the
+# system killed goes first.
+export TMPDIR="$DIR/.unpacked"
+rm -rf "$TMPDIR" /tmp/appimage_extracted_*
+mkdir -p "$TMPDIR"
 # the SDL inside the AppImage crashes on ROCKNIX; the system's one also knows the handheld's pad
 for lib in /usr/lib/libSDL2-2.0.so.0 /usr/lib64/libSDL2-2.0.so.0; do
     [ -e "$lib" ] && { export LD_PRELOAD="$lib"; break; }

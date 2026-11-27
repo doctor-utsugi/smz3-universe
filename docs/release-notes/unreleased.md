@@ -50,6 +50,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   as on an Xbox pad) and shows the letters printed on the console.
 - PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
 - PC and Linux handhelds: the start menu has Quit under Options, so the app closes without going into Options.
+- PC: a Map Rando seed is built on the device only when it has about 600 MB free; with less (a 1 GB handheld like the
+  RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
+- PC: while a Map Rando seed is made the screen says "Loading", not a count of seconds and tries.
+- Linux handhelds: the Ports launcher unpacks the app on the card instead of /tmp, which is RAM there, and clears a copy
+  left by a run the system closed.
 - PC: the button that opens the tracker shows for 5 seconds at the start, then fades out.
 - PC: Options > Video > Corner info picks what the game's corner shows when the side panels don't fit: the % and the
   time, the % only, or nothing.
