@@ -13510,7 +13510,7 @@ index 0000000..387684b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..73d3709
+index 0000000..55fbcb6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 @@ -0,0 +1,618 @@
@@ -13677,10 +13677,10 @@ index 0000000..73d3709
 +    private var noSent = 0L                     // the vote this player took back or changed to no
 +    private var waitShown = ""                  // what the wait box shows, so it is made again when that changes
 +    private val tick = object : Runnable {
-+        override fun run() {   // the start's own moment, not the next 200 ms step: everyone lets go together
++        override fun run() {   // each count and the start on their own moment, not the next 200 ms step: every system shows them together
 +            update()
 +            val goIn = if (state == "running" && goAt > 0) goAt - serverNow() else 0L
-+            main.postDelayed(this, if (goIn in 1..200) goIn else 200)
++            main.postDelayed(this, if (goIn > 0) minOf(200L, (goIn - 1) % 1000 + 1) else 200L)
 +        }
 +    }
 +
