@@ -133,48 +133,15 @@ int pad_virtual_handheld(void)
 /* A pad built into a Linux handheld (bus 0x19) has Nintendo's letters, and the mappings in gamecontrollerdb mix letters and
  * positions from one device to the next. The kernel's button order is reliable (south, east, north, west), so that is used. */
 #ifdef __linux__
-/* The SDL button of each evdev key code of the input device with this name: SDL numbers the joystick range first. */
-static int sdl_button_of(const char *name, int code)
-{
-    for (int i = 0; i < 64; i++) {
-        char path[96], line[512] = "";
-        snprintf(path, sizeof path, "/sys/class/input/event%d/device/name", i);
-        FILE *f = fopen(path, "r");
-        if (!f) continue;
-        int got = fgets(line, sizeof line, f) != NULL;
-        fclose(f);
-        line[strcspn(line, "\n")] = 0;
-        if (!got || strcmp(line, name)) continue;
-        snprintf(path, sizeof path, "/sys/class/input/event%d/device/capabilities/key", i);
-        if (!(f = fopen(path, "r"))) return -1;
-        got = fgets(line, sizeof line, f) != NULL;
-        fclose(f);
-        if (!got) return -1;
-        unsigned long long w[16];
-        int n = 0;
-        for (char *t = strtok(line, " \n"); t && n < 16; t = strtok(NULL, " \n")) w[n++] = strtoull(t, NULL, 16);
-        if (!n) return -1;
-        int idx = 0;   /* the words come most significant first */
-        for (int pass = 0; pass < 2; pass++)
-            for (int k = pass ? 0 : 0x120; k < (pass ? 0x120 : n * 64); k++) {
-                int wi = n - 1 - k / 64;
-                if (wi < 0 || !((w[wi] >> (k % 64)) & 1)) continue;
-                if (k == code) return idx;
-                idx++;
-            }
-        return -1;
-    }
-    return -1;
-}
-
-/* Batocera and Knulli ship each handheld's pad in es_input.cfg with the evdev code of every button, A B X Y as the printed
- * letters; their drivers do not all follow the kernel's south, east, north, west, and L2 / R2 may be plain buttons. Writes
- * the SDL fields it knows ("a:b0,b:b1,lefttrigger:b10,...") and returns how many, 0 when the device is not listed. */
+/* Batocera and Knulli ship each handheld's pad in es_input.cfg: every button with its SDL index (id), from the same libSDL2
+ * the Ports script loads. Its a b x y name places, as on an Xbox pad (a is the bottom one), so they become the printed
+ * Nintendo letters: a is B, b is A, x is Y, y is X. L2 / R2 may be plain buttons there. Writes the SDL fields
+ * ("a:b4,b:b3,lefttrigger:b13,...") and returns how many, 0 when the device is not listed. */
 static int es_buttons(const char *name, char *out, size_t cap)
 {
     static const char *const FILES[] = {"/userdata/system/configs/emulationstation/es_input.cfg", "/usr/share/emulationstation/es_input.cfg"};
     static const char *const ES[] = {"a", "b", "x", "y", "pageup", "pagedown", "select", "start", "hotkey", "l3", "r3", "l2", "r2"};
-    static const char *const SDLN[] = {"a", "b", "x", "y", "leftshoulder", "rightshoulder", "back", "start", "guide", "leftstick", "rightstick", "lefttrigger", "righttrigger"};
+    static const char *const SDLN[] = {"b", "a", "y", "x", "leftshoulder", "rightshoulder", "back", "start", "guide", "leftstick", "rightstick", "lefttrigger", "righttrigger"};
     char want[160];
     snprintf(want, sizeof want, "deviceName=\"%s\"", name);
     out[0] = 0;
@@ -186,15 +153,14 @@ static int es_buttons(const char *name, char *out, size_t cap)
         while (fgets(line, sizeof line, fp)) {
             if (!in) { in = strstr(line, want) != NULL; continue; }
             if (strstr(line, "</inputConfig>")) break;
-            char *c = strstr(line, "code=\"");
-            if (!c || !strstr(line, "type=\"button\"")) continue;
+            char *id = strstr(line, " id=\"");
+            if (!id || !strstr(line, "type=\"button\"")) continue;
             for (int k = 0; k < 13; k++) {
                 char key[24];
                 snprintf(key, sizeof key, "name=\"%s\"", ES[k]);
-                int b;
-                if (!strstr(line, key) || (b = sdl_button_of(name, atoi(c + 6))) < 0) continue;
+                if (!strstr(line, key)) continue;
                 size_t l = strlen(out);
-                snprintf(out + l, cap - l, "%s:b%d,", SDLN[k], b);
+                snprintf(out + l, cap - l, "%s:b%d,", SDLN[k], atoi(id + 5));
                 n++;
             }
         }
