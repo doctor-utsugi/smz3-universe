@@ -2579,7 +2579,11 @@ static void play(int slot, int game_save_only)
             smz_counters_text(&g_goalc, run.goals, sizeof run.goals);
             store_run_save(slot + 1, &run);
             if (SDL_GetTicks() >= next_goals) { next_goals = SDL_GetTicks() + 300000; goals_report(slot + 1, &run); }
-            if (SDL_GetTicks() >= next_ping) { next_ping = SDL_GetTicks() + 240000; detach(playing_thread, (void *)(intptr_t)(slot + 1)); }
+            if (SDL_GetTicks() >= next_ping) {   /* no token yet: asked again soon, not in 4 minutes */
+                int ready = online_playing_ready(slot + 1);
+                next_ping = SDL_GetTicks() + (ready ? 240000 : 15000);
+                if (ready) detach(playing_thread, (void *)(intptr_t)(slot + 1));
+            }
             if (proof_dirty) { save_proof(slot + 1, &proof); proof_dirty = 0; }
             if (disc.dirty) {
                 char text[8192];
@@ -3158,6 +3162,8 @@ static void window_main(int start_slot)
         size_t n;
         char *saved = (char *)store_read(store_path("saved.txt"), &n);
         if (saved) { saved[n] = 0; ui_saved_load(&ui, saved); free(saved); }
+        char *memo = (char *)store_read(store_path("menu.txt"), &n);   /* the game and slots picked last */
+        if (memo) { memo[n] = 0; ui_memory_load(&ui, memo); free(memo); }
     }
     int running = 1, pending_play = start_slot, pending_state_only = 0, instant = start_slot >= 0;   /* a run named on the command line starts at once */
     if (pending_play >= 0 && sync_open(&ui, pending_play, ui_present)) pending_play = -1, instant = 0;
@@ -3286,9 +3292,17 @@ static void window_main(int start_slot)
         {
             static Uint32 next_world;   /* the World tab refreshes once a minute while it is shown */
             if (ui_world_showing(&ui) && !g_goals_state && (SDL_GetTicks() >= next_world || !ui.world.loaded)) { next_world = SDL_GetTicks() + 60000; g_goals_state = 1; detach(goals_thread, NULL); }   /* at once for a game just entered */
+            static Uint32 next_counts = 60000;   /* the monthly and weekly "Playing" counts, fresh each minute */
+            if (SDL_GetTicks() >= next_counts) { next_counts = SDL_GetTicks() + 60000; detach(monthly_thread, NULL); }
         }
         if (g_week_ready) { g_week_ready = 0; ui_set_weekly_game(&ui, g_week_mode, g_week, g_week_seed, online_weekly_days_left()); ui_set_playing(&ui, g_week_mode, 1, g_week_playing); }
         online_save_profile(&ui);
+        {
+            static char memo_was[32];
+            char memo[32];
+            ui_memory_text(&ui, memo, sizeof memo);
+            if (strcmp(memo, memo_was) && store_write(store_path("menu.txt"), memo, strlen(memo)) == 0) snprintf(memo_was, sizeof memo_was, "%s", memo);
+        }
         if (ui_saved_dirty(&ui)) {
             char text[8192];
             if (ui_saved_text(&ui, text, sizeof text) > 0) store_write(store_path("saved.txt"), text, strlen(text));

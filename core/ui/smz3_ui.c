@@ -164,6 +164,8 @@ static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /*
 /* The Credits screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices).
    Lines starting with '#' are headings; keep each line within 40 characters for the 320-pixel screens. */
 static const char *const CREDITS_LINES[] = {
+    "#SMZ3 Universe made by Doctor Utsugi",
+    "",
     "#Randomizers",
     "SMZ3 and Super Metroid randomizers:",
     "  Thomas Backmark (tewtal) - MIT",
@@ -208,7 +210,7 @@ static const char *const CREDITS_LINES[] = {
     "libctru, citro3d: devkitPro - zlib",
     "libpng, zlib",
     "#Music",
-    "Menu music: Doctor Utsugi, made with Suno",
+    "Menu music: Doctor Utsugi",
     "#The games",
     "Super Metroid and The Legend of Zelda:",
     "  A Link to the Past (c) Nintendo.",
@@ -279,9 +281,12 @@ static const char *const GAME_SHORT[SMZ_MODE_COUNT] = {"SMZ3", "ALttP", "Super M
 
 /* Entering another game: its own monthly and weekly seeds, and none of the last game's daily, tables or world goals (the
  * host asks the server for this game's: ui_set_monthly_game, ui_daily_set, ui_ladder_load_json, ui_world_load_json). */
+static void slot_view(SmzUi *u);
+
 static void game_switch(SmzUi *u, int mode)
 {
     u->game_mode = mode;
+    u->slot_cursor = u->last_slot[mode]; u->daily_sel = 0; slot_view(u);   /* the slot opened last in this game */
     const UiGamePeriods *g = &u->periods[mode];
     snprintf(u->monthly_label, sizeof u->monthly_label, "%s", g->monthly_label);
     u->monthly_seed = g->monthly_seed; u->monthly_days = g->monthly_days;
@@ -298,8 +303,23 @@ static void game_switch(SmzUi *u, int mode)
 void ui_game_enter(SmzUi *u, int mode)
 {
     if (mode < 0 || mode >= SMZ_MODE_COUNT) return;
-    u->game_cursor = mode;
+    u->game_cursor = u->picked = mode;
     if (u->game_mode != mode) game_switch(u, mode);
+}
+
+void ui_memory_load(SmzUi *u, const char *text)
+{
+    int g = 0, s[3] = {0, 0, 0};
+    if (!text || sscanf(text, "%d %d %d %d", &g, &s[0], &s[1], &s[2]) < 1 || g < 0 || g >= SMZ_MODE_COUNT) return;
+    u->picked = u->game_cursor = g;
+    u->game_spin = u->game_from = g * 1000; u->game_delta = 0; u->game_ms = 1000;   /* already facing it, no turn */
+    for (int i = 0; i < 3; i++) u->last_slot[i] = s[i] >= 0 && s[i] < UI_SLOTS ? s[i] : 0;
+    if (u->game_mode == SMZ_MODE_SMZ3) { u->slot_cursor = u->last_slot[0]; slot_view(u); }
+}
+
+int ui_memory_text(const SmzUi *u, char *out, size_t cap)
+{
+    return snprintf(out, cap, "%d %d %d %d", u->picked, u->last_slot[0], u->last_slot[1], u->last_slot[2]);
 }
 
 static void games_input(SmzUi *u, UiButton b)
@@ -311,6 +331,7 @@ static void games_input(SmzUi *u, UiButton b)
     else if (u->game_state[u->game_cursor] == UI_GAME_NO_ROM) snprintf(u->notice, sizeof u->notice, "Add the %s ROM first", u->game_cursor == SMZ_MODE_SM ? "Super Metroid" : "Zelda");
     else {
         if (u->game_mode != u->game_cursor) game_switch(u, u->game_cursor);
+        u->picked = u->game_cursor;
         u->notice[0] = 0; u->screen = UI_HOME; u->home_cursor = 0;
         if (!online_game(u)) u->daily_sel = 0;
     }
@@ -1654,7 +1675,7 @@ void ui_input(SmzUi *u, UiButton b)
         else if (b == BTN_SELECT && LADDER_ON(u)) ladder_open(u);
         else if (b == BTN_B && u->home_on) u->screen = UI_HOME;
         else if (b == BTN_A) {
-            u->active_slot = u->slot_cursor;
+            u->active_slot = u->last_slot[u->game_mode] = u->slot_cursor;
             if (u->slots[u->slot_cursor].used) { u->screen = UI_SLOT_MENU; u->menu_cursor = 0; }
             else { u->screen = UI_MODE; u->mode_cursor = 0; u->mode_list = 0; }
         }

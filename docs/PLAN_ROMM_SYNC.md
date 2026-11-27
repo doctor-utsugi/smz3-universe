@@ -1,6 +1,6 @@
 # Plan: one account, the same runs, saves and states on every device (RomM)
 
-Goal (the owner, 2026-11-26): open SMZ3 on the Thor, then on the PC, the RGDS or the 3DS, and find the same account,
+Goal (2026-11-26): open SMZ3 on the Thor, then on the PC, the RGDS or the 3DS, and find the same account,
 the same runs, the same saves and the same save states, with nothing that only works on some devices. RomM is the
 store. Anything worth redesigning for that is redesigned now.
 
@@ -125,8 +125,8 @@ A ROM in RomM can be played in any emulator, so nothing that arrives from RomM i
 
 ### 7. Server
 
-RomM moves to the home server, with its own subdomain and HTTPS, so every device reaches it outside home too. The test
-install on a test machine (port 8095) goes away.
+RomM moves to a home server, with its own subdomain and HTTPS, so every device reaches it outside home too. The
+local test install goes away.
 
 ## Order of work
 
@@ -147,7 +147,7 @@ the 3DS does too.
 ## Status (2026-11-26)
 
 Steps 1 to 7 are in. The client lives in `core/ui/smz3_romm.c` and `core/ui/smz3_sync.c` (step 3 named `core/romm/`).
-Checked against romm.example.com: PC to PC, PC to Thor and Thor to PC (run list, Continue pulls the save and the state,
+Checked against the RomM server: PC to PC, PC to Thor and Thor to PC (run list, Continue pulls the save and the state,
 leaving pushes them back). The converter's 1.43 round trip of a real PC state loads on the PC at the same scene.
 
 On Azahar the 3DS lists the account's runs, pulls the ROM, save and state, plays, and pushes on leaving. A PC state

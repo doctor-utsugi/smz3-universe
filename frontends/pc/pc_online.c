@@ -352,6 +352,12 @@ int online_goals_report(int slot, int64_t created, int online, const char *count
     return http("POST", "/api/goals/report", body, reply, sizeof reply) == 200;
 }
 
+int online_playing_ready(int slot)
+{
+    int kind = online_slot_kind(slot);
+    return (kind == 2 || kind == 3) && access(store_path("runs/slot%d.token", slot), F_OK) == 0;
+}
+
 int online_playing_ping(int slot)
 {
     int kind = online_slot_kind(slot);

@@ -38,6 +38,8 @@ int online_goals_json(char *out, size_t cap);
 int online_goals_report(int slot, int64_t created, int online, const char *counters);
 /* Tells the server a ranked monthly or weekly run is being played now (its "Playing" count); nothing for other runs. */
 int online_playing_ping(int slot);
+/* A ranked monthly or weekly run with its token: online_playing_ping has something to send. */
+int online_playing_ready(int slot);
 int online_weekly_days_left(void);
 /* Asks for the token of an online run once; 1 when the slot has one (or is not online). Blocks. */
 int online_ensure_token(int slot);

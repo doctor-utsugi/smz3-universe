@@ -30,6 +30,8 @@ const PORT = Number(process.env.PORT || 3360);
 const HOST = process.env.HOST || '127.0.0.1';   // production sits behind its proxy; the staging copy listens on its own
 // Staging only: the address prefixes it answers (the home network, the VPN); anything else is hung up on. Unset in production.
 const ALLOW = (process.env.SMZ3_ALLOW || '').split(',').map(s => s.trim()).filter(Boolean);
+// Staging only: the release tag /api/version names, to see the apps offer an update that does not exist.
+const FAKE_TAG = process.env.SMZ3_FAKE_TAG || '';
 const DIR = process.env.LADDER_DIR || path.join(__dirname, 'data');
 const DATA = path.join(DIR, 'ladder.json');
 const SECRET_FILE = path.join(DIR, 'secret');
@@ -273,6 +275,7 @@ http.createServer((req, res) => {
     return res.end();
   }
   if (req.method === 'GET' && url.pathname === '/api/version') {
+    if (FAKE_TAG) return send(res, 200, { tag: FAKE_TAG, base: '' });   // nothing to download: the offer only
     refreshRelease();
     return send(res, 200, { tag: release.tag, base: release.tag ? `https://github.com/${RELEASES}/releases/download/${release.tag}/` : '' });
   }

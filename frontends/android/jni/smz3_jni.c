@@ -771,6 +771,20 @@ JNIEXPORT void JNICALL NATIVE(uiSetWeekly)(JNIEnv *env, jclass cls, jint mode, j
     (*env)->ReleaseStringUTFChars(env, label, l);
 }
 
+JNIEXPORT void JNICALL NATIVE(uiMemoryLoad)(JNIEnv *env, jclass cls, jstring text)
+{
+    const char *t = (*env)->GetStringUTFChars(env, text, NULL);
+    ui_memory_load(&g_ui, t);
+    (*env)->ReleaseStringUTFChars(env, text, t);
+}
+
+JNIEXPORT jstring JNICALL NATIVE(uiMemoryText)(JNIEnv *env, jclass cls)
+{
+    char t[32];
+    ui_memory_text(&g_ui, t, sizeof t);
+    return (*env)->NewStringUTF(env, t);
+}
+
 JNIEXPORT void JNICALL NATIVE(uiSetStaging)(JNIEnv *env, jclass cls, jboolean on) { g_ui.staging = on; }
 
 JNIEXPORT void JNICALL NATIVE(uiSetPlaying)(JNIEnv *env, jclass cls, jint mode, jint weekly, jint n) { ui_set_playing(&g_ui, mode, weekly, n); }

@@ -1177,10 +1177,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..1e8952c
+index 0000000..12ee900
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1471 @@
+@@ -0,0 +1,1484 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1963,10 +1963,23 @@ index 0000000..1e8952c
 +    httpRequest("POST", "/api/playing", body, reply, sizeof reply);
 +}
 +
-+void smzOnlinePlaying(int slot)
++bool smzOnlinePlaying(int slot)
 +{
++    int kind = smzOnlineSlotKind(slot);
++    if ((kind != 2 && kind != 3) || !exists(pathOf(ONLINE_DIR "/slot%d.token", slot))) return false;
 +    netUp();
 +    if (gHttpReady) spawn(playingThread, (void *)(intptr_t)slot);
++    return true;
++}
++
++void smzOnlineSeedsAgain(void)
++{
++    lockInit();
++    netUp();
++    int m = modeNow();
++    if (!gHttpReady || m < 0 || m >= SMZ_MODE_COUNT || gSeedsAsked[m] == 1) return;
++    gSeedsAsked[m] = 1;
++    if (!spawn(seedsThread, NULL)) gSeedsAsked[m] = 0;
 +}
 +
 +void smzOnlineEnsureToken(int slot)
@@ -2654,10 +2667,10 @@ index 0000000..1e8952c
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..1a2e263
+index 0000000..e6432a9
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,142 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2712,8 +2725,11 @@ index 0000000..1a2e263
 +bool smzUpdateRelaunch(void);
 +// Sends a run's goal counters (smz_counters_text) on a thread under runId, or "s<slot>-<created>" for a run older than the sync.
 +void smzOnlineGoalsReport(int slot, int64_t created, const char *runId, bool online, const char *counters);
-+// A ranked monthly or weekly run in this slot is being played now (the seed's "Playing" count); nothing for other runs.
-+void smzOnlinePlaying(int slot);
++// A ranked monthly or weekly run in this slot is being played now (the seed's "Playing" count); false when there is
++// nothing to send yet (no token) or the run is of another kind.
++bool smzOnlinePlaying(int slot);
++// Asks the entered game's monthly and weekly seeds again, for fresh "Playing" counts.
++void smzOnlineSeedsAgain(void);
 +// This install's id, made on first use.
 +void smzOnlineInstallId(char out[40]);
 +// The player's profile file text ("name\tCC\tmode"), and saving it back.
@@ -2799,10 +2815,10 @@ index 0000000..1a2e263
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..f789871
+index 0000000..83bc88c
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6287 @@
+@@ -0,0 +1,6308 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3872,6 +3888,23 @@ index 0000000..f789871
 +    free(data);
 +}
 +
++// the game and each game's slot picked last (ui_memory_text), kept for the next menu and the next start
++static void storeMenuMemory(SmzUi *u)
++{
++    static char was[32];
++    char t[32];
++    ui_memory_text(u, t, sizeof t);
++    if (!strcmp(t, was)) return;
++    snprintf(was, sizeof was, "%s", t);
++    if (FILE *f = fopen(SMZ_DIR "/menu.txt", "wb")) { fwrite(t, 1, strlen(t), f); fclose(f); }
++}
++
++static void loadMenuMemory(SmzUi *u)
++{
++    char t[32] = "";
++    if (FILE *f = fopen(SMZ_DIR "/menu.txt", "rb")) { size_t n = fread(t, 1, sizeof t - 1, f); t[n] = 0; fclose(f); ui_memory_load(u, t); }
++}
++
 +static void storeSavedCustoms(SmzUi *u)
 +{
 +    static char buf[UI_MAX_SAVED * (UI_SPEC_LEN + 40)];
@@ -4039,6 +4072,7 @@ index 0000000..f789871
 +    gRunStates = false;
 +    ui_init(&ui);
 +    ui.staging = smzOnlineStaging();
++    loadMenuMemory(&ui);
 +    if (gFifthKept) {
 +        snprintf(ui.notice, sizeof ui.notice, "%d old 5th state%s kept: free a slot 1-4", gFifthKept, gFifthKept > 1 ? "s" : "");
 +        gFifthKept = 0;
@@ -4161,7 +4195,10 @@ index 0000000..f789871
 +            uiCueSound(ui_cue(&before, &ui, -1));
 +        }
 +        storeSavedCustoms(&ui);
++        storeMenuMemory(&ui);
 +        {
++            static u64 nextCounts;   // the monthly and weekly "Playing" counts, fresh each minute
++            if (osGetTime() >= nextCounts) { if (nextCounts) smzOnlineSeedsAgain(); nextCounts = osGetTime() + 60000; }
 +            char label[16];
 +            int seed, days, mode, playing;
 +            if (smzOnlineTakeMonthly(label, &seed, &days, &mode, &playing) && mode >= 0 && mode < SMZ_MODE_COUNT) {
@@ -8248,7 +8285,7 @@ index 0000000..f789871
 +        bool have = runLoad(rp, &r1) == 0 && trk.started;
 +        if (have) smz_counters_text(&goalc, r1.goals, sizeof r1.goals);
 +        if (have && nowMs >= nextGoals) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, r1.id, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
-+        if (have && nowMs >= nextPlaying) { nextPlaying = nowMs + 240000; smzOnlinePlaying(curSlot); }
++        if (have && nowMs >= nextPlaying) nextPlaying = nowMs + (smzOnlinePlaying(curSlot) ? 240000 : 15000);   // no token yet: soon again
 +        if (have && finishedBefore) {   // it keeps its result; its rewards only add up
 +            r1.boss_mask |= trk.boss_mask; r1.crystal_mask |= trk.crystal_mask;
 +            r1.last_played = (int64_t)time(NULL) * 1000;

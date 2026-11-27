@@ -92,6 +92,7 @@ typedef struct {
     int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
     char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
+    int picked, last_slot[3];   /* the game entered last and each game's slot opened last (ui_memory_text) */
     int staging;        /* set by the host: the online calls go to a test server (server.txt), shown in the top corner */
     char update[16];    /* a newer release ("v0.9.0") than this build, "" none; update_install: the host can install it */
     int update_install;
@@ -245,6 +246,11 @@ void ui_set_monthly(SmzUi *u, const char *label, int seed, int days_left);
 void ui_set_monthly_game(SmzUi *u, int mode, const char *label, int seed, int days_left);
 /* Enters a game (SMZ_MODE_*) without the carousel, as picking it there does (a host back from a run of that game). */
 void ui_game_enter(SmzUi *u, int mode);
+/* What the menu keeps between sessions, as "game slot slot slot": the game entered last (the carousel faces it at start)
+ * and each game's slot opened last (the run list's cursor). The host stores the text when it changes and loads it after
+ * ui_init. */
+void ui_memory_load(SmzUi *u, const char *text);
+int ui_memory_text(const SmzUi *u, char *out, size_t cap);
 /* Asks which to load for a slot whose save state is ahead of its game save (times in play-time ms, counts of checks done);
  * the answer comes back as ACT_LOAD_SAVE or ACT_LOAD_STATE with the slot in action_slot. */
 void ui_load_choice(SmzUi *u, int slot, int64_t save_ms, int save_z, int save_m, int64_t state_ms, int state_z, int state_m, int zelda_total, int metroid_total);

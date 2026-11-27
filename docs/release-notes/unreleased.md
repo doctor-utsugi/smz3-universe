@@ -11,12 +11,17 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Continue fades to black from the run's menu; the run list no longer flashes before the game.
 - One button legend style on every screen, the game picker's included.
 
+- The game carousel starts on the game entered last, and each game's run list on the slot opened last, also after
+  closing the app.
+- Credits open with "SMZ3 Universe made by Doctor Utsugi"; the menu music is credited to Doctor Utsugi.
+
 ### In game
 
 - The CONFIG tab ends with Back to main menu, which asks first and saves the run as leaving does. On the PC it is also
   the last row of the in-game settings (in place of Quit), and on the 3DS the last row of the pause menu.
 - Single screen on Android: the d-pad moves through the open tracker's page (up and down by rows, left and right one
-  button at a time) and A presses what is outlined; a page with no buttons scrolls. Pads whose d-pad is a hat axis work
+  button at a time) and A presses what is outlined; a page with no buttons scrolls, and down past its end reaches
+  Close. Pads whose d-pad is a hat axis work
   too.
 - Single screen with a controller: a quiet "R3 Tracker" in the bottom left corner says which button opens the tracker.
   The PC's hint moved to the bottom left as well.
@@ -28,7 +33,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Online draft in A Link to the Past and Super Metroid, from the usual start with a 5 to 15 minute goal.
 - Monthly and weekly runs show how many players are on the seed right now: "Playing: N" on the New run row, and a
   green tag on a saved run of that kind (plus a line in its menu). Only runs sent to the online ladder count, and
-  nothing shows while nobody plays. The server needs the new /api/playing (not deployed yet).
+  nothing shows while nobody plays. A run counts from its first minute (once it has its token) and the menu asks
+  again every minute. The server needs the new /api/playing (not deployed yet).
 
 ### Tests
 
