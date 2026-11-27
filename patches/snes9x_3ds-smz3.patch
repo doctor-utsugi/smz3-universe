@@ -1186,10 +1186,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..84e535b
+index 0000000..7c9c2e5
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1486 @@
+@@ -0,0 +1,1484 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -2562,7 +2562,6 @@ index 0000000..84e535b
 +struct MrSink { u8 *buf; size_t n, cap; char info[512]; };
 +static volatile s64 gMrGot, gMrTotal;
 +static volatile int gMrPhase;   // 0 idle, 1 waiting while the server builds the seed, 2 downloading
-+static u64 gMrSince;
 +
 +static size_t mrWrite(char *data, size_t size, size_t count, void *arg)
 +{
@@ -2627,7 +2626,6 @@ index 0000000..84e535b
 +    long status = 0;
 +    CURLcode rc = CURLE_FAILED_INIT;
 +    gMrGot = gMrTotal = 0;
-+    gMrSince = osGetTime();
 +    gMrPhase = 1;
 +    if (c) {
 +        char *q = curl_easy_escape(c, settings, 0), url[640];
@@ -2671,9 +2669,9 @@ index 0000000..84e535b
 +{
 +    int phase = gMrPhase;
 +    s64 got = gMrGot, total = gMrTotal;
-+    if (phase == 1) snprintf(out, cap, "Map Rando: the server builds it ... %llus", (unsigned long long)((osGetTime() - gMrSince) / 1000));
-+    else if (phase == 2 && total > 0) snprintf(out, cap, "Map Rando: downloading %d%%", (int)(got * 100 / total));
-+    else if (phase == 2) snprintf(out, cap, "Map Rando: downloading %lld KB", (long long)(got / 1024));
++    if (phase == 1) snprintf(out, cap, "Downloading the Map Rando seed");
++    else if (phase == 2 && total > 0) snprintf(out, cap, "Downloading the Map Rando seed %d%%", (int)(got * 100 / total));
++    else if (phase == 2) snprintf(out, cap, "Downloading the Map Rando seed %lld KB", (long long)(got / 1024));
 +    return phase;
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
@@ -2826,10 +2824,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..28e2f8f
+index 0000000..21ee854
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6390 @@
+@@ -0,0 +1,6391 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -4169,6 +4167,7 @@ index 0000000..28e2f8f
 +    lookForRoms(&ui);
 +    // Map Rando comes from the server: offered while the console has a network, checked again with the retries below
 +    smz_sm_set_maprando(smzMapRandoFetch, smzMapRandoOnline() ? SMZ_MR_READY : SMZ_MR_OFFLINE);
++    smz_sm_set_maprando_pool("romfs:/smz3/maprando");   // and the seeds the game comes with, for when it is offline
 +    refreshSlots(&ui);
 +    if (left == SMZ_DAILY_SLOT && ui.daily_on) ui.daily_sel = 1;
 +    else if (left >= 0 && left < ui.slot_count) {   // one step down onto it, so the list scrolls the way the pad does

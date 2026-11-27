@@ -23,6 +23,8 @@ cp "$ROOT"/core/common/smz3_bps.[ch] source/
 # the MP3 decoder and the menu music (smz3music.cpp)
 cp "$ROOT"/core/common/dr_mp3.h source/
 cp "$ROOT"/assets/music/smz3_intro.mp3 romfs/smz3/
+# the Map Rando seeds the game comes with (tools/maprando/make_pool.py), for when the console is offline
+rm -rf romfs/smz3/maprando && cp -r "$ROOT"/assets/maprando romfs/smz3/maprando
 sed -i 's#"../gen/smz3_rng.h"#"smz3_rng.h"#' source/sm_fill.h
 python3 "$ROOT"/tools/gen_sm_ips_c.py "$ROOT"/patches/sm_randomizer.ips source/sm_ips_data.c
 # and the A Link to the Past one (core/z3gen), its includes already plain

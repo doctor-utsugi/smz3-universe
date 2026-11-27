@@ -54,6 +54,10 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
 - PC: while a Map Rando seed is made the screen says "Loading", or "Downloading the Map Rando seed" when the server
   makes it, not a count of seconds and tries. Offline, it asks to connect to the internet.
+- PC and 3DS: the game comes with 32 Map Rando seeds, 8 for each preset. When a seed can be neither built nor
+  downloaded (offline, or the server fails), a run with a preset and no skill change plays one of them, and the Map
+  Rando row says so. Races and online runs never use them, so everyone plays the same map.
+- 3DS: while the server makes a Map Rando seed the screen says "Downloading the Map Rando seed", not a count of seconds.
 - Linux handhelds: the Ports launcher unpacks the app on the card instead of /tmp, which is RAM there, and clears a copy
   left by a run the system closed.
 - PC: the button that opens the tracker shows for 5 seconds at the start, then fades out.

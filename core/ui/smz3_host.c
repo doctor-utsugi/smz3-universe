@@ -33,8 +33,11 @@ int smz_host_generate(const SmzUi *u, int32_t seed_if_random, const uint8_t *sm,
         for (int tries = 0; rc == -3 && tries < (u->value[0] ? 1 : 32); tries++, seed_if_random++) {
             if (tries && ui_settings_json(u, seed_if_random, settings_json, json_cap) < 0) return -8;
             snprintf(seed_text, seed_cap, "%d", u->value[0] ? u->value[0] : (int)seed_if_random);
+            smz_sm_maprando_pool_allow(!u->race.on && u->run_mode < 4 && !ui_online_now(u));
             rc = smz_sm_generate(settings_json, json_cap, sm, samus_rdc, samus_len, rom_out, SMZ_HOST_ROM_SIZE);
         }
+        const char *p = strstr(settings_json, "\"seed\":\"");
+        if (!rc && smz_sm_maprando_note()[0] && p) snprintf(seed_text, seed_cap, "%.*s", (int)strcspn(p + 8, "\""), p + 8);   /* a seed of the set */
         return rc;
     }
     if (u->game_mode == SMZ_MODE_Z3) {   /* A Link to the Past alone: its own generator, only the JP ROM, a 2 MB ROM */

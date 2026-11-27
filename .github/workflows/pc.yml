@@ -60,7 +60,7 @@ jobs:
           tools/maprando/fetch.sh
           cd core/maprando && rustup target add x86_64-pc-windows-gnu
       - run: ./build-pc.sh windows
-      - run: cp -r assets/sprites build/win/sprites && cp -r build/maprando-data build/win/maprando-data && cd build/win && zip -9 -r ../../SMZ3-windows-x64.zip smz3.exe sprites maprando-data
+      - run: cp -r assets/sprites build/win/sprites && cp -r build/maprando-data build/win/maprando-data && cp -r assets/maprando build/win/maprando-pool && cd build/win && zip -9 -r ../../SMZ3-windows-x64.zip smz3.exe sprites maprando-data maprando-pool
       - uses: actions/upload-artifact@v4
         with:
           name: smz3-windows
@@ -124,7 +124,7 @@ jobs:
           rc=$?
           echo "window run exit code $rc (142 = still running when the alarm fired)"
           [ $rc -eq 142 ] || exit 1
-      - run: cp -r assets/sprites build/pc/sprites && cp -r build/maprando-data build/pc/maprando-data && tar czf SMZ3-macos-intel.tar.gz -C build/pc smz3 sprites maprando-data
+      - run: cp -r assets/sprites build/pc/sprites && cp -r build/maprando-data build/pc/maprando-data && cp -r assets/maprando build/pc/maprando-pool && tar czf SMZ3-macos-intel.tar.gz -C build/pc smz3 sprites maprando-data maprando-pool
       - uses: actions/upload-artifact@v4
         with:
           name: smz3-macos

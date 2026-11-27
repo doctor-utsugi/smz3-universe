@@ -28,6 +28,13 @@ enum { SMZ_MR_NONE, SMZ_MR_READY, SMZ_MR_OFFLINE };   /* not on this host; ready
 #define SMZ_SM_ERR_MAPRANDO -10                         /* smz_sm_generate: Map Rando failed, smz_sm_error says why */
 void smz_sm_set_maprando(SmzMapRandoFn fn, int state);
 int smz_sm_maprando_state(void);
+/* The folder of the seeds the game comes with (assets/maprando), used when Map Rando cannot be built or downloaded now.
+ * smz_sm_maprando_pool says whether it is there; smz_sm_maprando_note, after a generate, when one was used ("" otherwise). */
+void smz_sm_set_maprando_pool(const char *dir);
+int smz_sm_maprando_pool(void);
+/* Off for a race or an online run: the others play the asked seed, never one of the set. */
+void smz_sm_maprando_pool_allow(int ok);
+const char *smz_sm_maprando_note(void);
 /* Whether a run's settings JSON is a Map Rando seed ("sm":{"generator":"maprando",...}). */
 int smz_sm_is_maprando(const char *json);
 /* What a smz_sm_generate error means for the player, NULL for the codes they cannot act on. */

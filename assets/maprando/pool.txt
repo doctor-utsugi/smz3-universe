@@ -1,0 +1,32 @@
+Default	925364733634	{"attempts":280,"displaySeed":581809289,"hash":"OWTCH COVERN VIOLA ATOMIC","seedName":"smzd7740946c2"}
+Default	169083157417	{"attempts":369,"displaySeed":2947843948,"hash":"HOLTZ ALCOON COVERN RINKA","seedName":"smz275e243ba9"}
+Default	510584146267	{"attempts":103,"displaySeed":1407862865,"hash":"CHOOT BEETOM ZEBBO SKREE","seedName":"smz76e12fc95b"}
+Default	505622310625	{"attempts":90,"displaySeed":1138398540,"hash":"HOLTZ EVIR ZOA POWAMP","seedName":"smz75b9702ee1"}
+Default	744678196376	{"attempts":174,"displaySeed":3893734120,"hash":"BEETOM ZEBBO EVIR BEETOM","seedName":"smzad62478498"}
+Default	356639240626	{"attempts":61,"displaySeed":2373772839,"hash":"ALCOON PUROMI GAMET VIOLA","seedName":"smz53095af1b2"}
+Default	464324478197	{"attempts":28,"displaySeed":3550599578,"hash":"ZOA YARD RIPPER SKREE","seedName":"smz6c1be544f5"}
+Default	334567706668	{"attempts":67,"displaySeed":2651494359,"hash":"OUM OUM ZEBBO SOVA","seedName":"smz4de5ca102c"}
+Community Race Season 5	646354747001	{"attempts":58,"displaySeed":2681549041,"hash":"CHOOT BOYON EVIR BULL","seedName":"smz967dbebe79"}
+Community Race Season 5	598540150989	{"attempts":18,"displaySeed":3613656102,"hash":"PUROMI SCISER SCISER OUM","seedName":"smz8b5bc5e8cd"}
+Community Race Season 5	844005629420	{"attempts":16,"displaySeed":3833364333,"hash":"VIOLA BULL GAMET SCISER","seedName":"smzc482a7ddec"}
+Community Race Season 5	530241594533	{"attempts":34,"displaySeed":3629517222,"hash":"PUROMI OWTCH TATORI PUYO","seedName":"smz7b74dca4a5"}
+Community Race Season 5	801396232990	{"attempts":32,"displaySeed":2209149650,"hash":"KAGO KAGO HOLTZ POWAMP","seedName":"smzba96f0131e"}
+Community Race Season 5	755978170482	{"attempts":40,"displaySeed":553149882,"hash":"ZOA NAMIHE PUYO GEEMER","seedName":"smzb003cf7072"}
+Community Race Season 5	182190692133	{"attempts":13,"displaySeed":3921472354,"hash":"ATOMIC ZEELA GAMET OWTCH","seedName":"smz2a6b695725"}
+Community Race Season 5	438680300525	{"attempts":10,"displaySeed":103781222,"hash":"PUROMI SKREE RINKA PUROMI","seedName":"smz6623622bed"}
+Mentor Tournament	684984814693	{"attempts":45,"displaySeed":1515572183,"hash":"OUM ZEELA EVIR ZOA","seedName":"smz9f7c46cc65"}
+Mentor Tournament	32305673652	{"attempts":50,"displaySeed":594853786,"hash":"ZOA BULL COVERN POWAMP","seedName":"smz7859175b4"}
+Mentor Tournament	984675934394	{"attempts":87,"displaySeed":1487171462,"hash":"PUROMI RINKA SCISER PUYO","seedName":"smze5434260ba"}
+Mentor Tournament	288057785903	{"attempts":72,"displaySeed":3091484952,"hash":"PUYO CHOOT SCISER PUYO","seedName":"smz431194fe2f"}
+Mentor Tournament	894699498627	{"attempts":42,"displaySeed":1856508226,"hash":"ATOMIC CHOOT BEETOM WAVER","seedName":"smzd0503eec83"}
+Mentor Tournament	566837809638	{"attempts":102,"displaySeed":1058472103,"hash":"ALCOON GEEMER OUM BULL","seedName":"smz83fa2a91e6"}
+Mentor Tournament	464230516011	{"attempts":45,"displaySeed":2221792248,"hash":"PUYO FUNE VIOLA SCISER","seedName":"smz6c164b852b"}
+Mentor Tournament	986184288415	{"attempts":33,"displaySeed":1747323394,"hash":"ATOMIC ZEBBO PUROMI BEETOM","seedName":"smze59d2a089f"}
+Summer Series Expert Challenge	287776211859	{"attempts":18,"displaySeed":113879392,"hash":"GEEMER OWTCH OWTCH PUROMI","seedName":"smz4300cc8393"}
+Summer Series Expert Challenge	366255049863	{"attempts":13,"displaySeed":388228670,"hash":"SOVA PUROMI POWAMP OUM","seedName":"smz5546808c87"}
+Summer Series Expert Challenge	231201375142	{"attempts":18,"displaySeed":3603368292,"hash":"SCISER OWTCH ALCOON TATORI","seedName":"smz35d4ad03a6"}
+Summer Series Expert Challenge	744004613630	{"attempts":13,"displaySeed":1502244928,"hash":"GEEMER BOYON ZEBBO YARD","seedName":"smzad3a2175fe"}
+Summer Series Expert Challenge	575669847183	{"attempts":33,"displaySeed":307396396,"hash":"HOLTZ BULL KAGO KAGO","seedName":"smz860898c48f"}
+Summer Series Expert Challenge	764074725097	{"attempts":4,"displaySeed":1628306526,"hash":"SOVA GAMET VIOLA RIPPER","seedName":"smzb1e6670ee9"}
+Summer Series Expert Challenge	25021540538	{"attempts":6,"displaySeed":1371882259,"hash":"SKREE POWAMP NAMIHE CHOOT","seedName":"smz5d36668ba"}
+Summer Series Expert Challenge	443995612535	{"attempts":4,"displaySeed":3587944988,"hash":"GAMET KAGO FUNE EVIR","seedName":"smz6760336577"}

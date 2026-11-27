@@ -19,6 +19,9 @@ cp -r "$ROOT/assets/sprites" "$W/AppDir/usr/share/smz3/sprites"
 # Map Rando's data (tools/maprando/fetch.sh), found by the app at usr/share/smz3/maprando-data
 rm -rf "$W/AppDir/usr/share/smz3/maprando-data"
 [ ! -d "$ROOT/build/maprando-data" ] || cp -r "$ROOT/build/maprando-data" "$W/AppDir/usr/share/smz3/maprando-data"
+# and the Map Rando seeds the game comes with, for a device that can neither build nor download one
+rm -rf "$W/AppDir/usr/share/smz3/maprando-pool"
+cp -r "$ROOT/assets/maprando" "$W/AppDir/usr/share/smz3/maprando-pool"
 python3 - "$ROOT" "$W/AppDir/usr/share/icons/hicolor/256x256/apps/smz3.png" <<'PY'
 import sys
 from PIL import Image

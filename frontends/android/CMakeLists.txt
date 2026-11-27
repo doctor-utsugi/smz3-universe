@@ -39,6 +39,7 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_json.c ../../core/ui/smz3_romm.c ../../core/ui/smz3_sync.c
     ../../core/ui/smz3_rewind.c
     ../../core/ui/smz3_sm.c
+    ../../core/common/smz3_bps.c
     ../../core/smgen/sm_generate.c
     ../../core/smgen/sm_fill.c
     ../../core/smgen/sm_world.c
@@ -49,7 +50,7 @@ add_library(smz3core SHARED
     ../../core/ui/smz3_z3.c
     ${Z3GEN_SRC}
     ${CMAKE_CURRENT_BINARY_DIR}/z3_ips_data.c)
-target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/smgen ../../core/z3gen ../../core/ui)
+target_include_directories(smz3core PRIVATE ../../core ../../core/gen ../../core/smgen ../../core/z3gen ../../core/ui ../../core/common)
 # the Super Metroid base patch as a C array, made at build time like the PC build does
 find_program(PYTHON3 python3 REQUIRED)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sm_ips_data.c

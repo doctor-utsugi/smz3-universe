@@ -1686,7 +1686,7 @@ static void mode_input(SmzUi *u, UiButton b)
         for (int i = 0; i < UI_OPT_COUNT; i++) if (!strcmp(UI_OPTS[i].key, "Seed")) u->value[i] = u->weekly_seed;
         break;
     case 6:
-        if (smz_sm_maprando_state() == SMZ_MR_OFFLINE) snprintf(u->notice, sizeof u->notice, "Map Rando needs an internet connection");
+        if (smz_sm_maprando_state() == SMZ_MR_OFFLINE && !smz_sm_maprando_pool()) snprintf(u->notice, sizeof u->notice, "Map Rando needs an internet connection");
         else if (!u->mode_list) { u->mode_list = 1; u->mode_cursor = 0; }
         else begin_run(u, 2, "Map Rando", "SmGenerator=1");
         break;
@@ -2824,7 +2824,7 @@ void ui_draw(SmzUi *u)
             else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
             else if (k == 2) snprintf(desc, sizeof desc, "Pick every option yourself");
             else if (k == 3) snprintf(desc, sizeof desc, "%d saved", u->saved_count);
-            else if (k == 6) snprintf(desc, sizeof desc, "%s", smz_sm_maprando_state() == SMZ_MR_OFFLINE ? "Needs an internet connection" : "A rebuilt map, as SM races play it");
+            else if (k == 6) snprintf(desc, sizeof desc, "%s", smz_sm_maprando_state() != SMZ_MR_OFFLINE ? "A rebuilt map, as SM races play it" : smz_sm_maprando_pool() ? "Offline: one of the seeds the game comes with" : "Needs an internet connection");
             else if (k == 5 && u->weekly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today, %s", u->weekly_label, wgoal);
             else if (k == 5) snprintf(desc, sizeof desc, "%s: %dd left, %s", u->weekly_label, u->weekly_days, wgoal);
             else if (u->monthly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today", u->monthly_label);

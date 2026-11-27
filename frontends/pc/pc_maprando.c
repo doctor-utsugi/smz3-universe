@@ -13,6 +13,18 @@
 #include "smz3_bps.h"
 #include "smz3_sm.h"
 
+/* The seeds the game comes with (assets/maprando): the AppImage's share folder, beside the program, or the repo's from build/pc */
+static void pool_setup(void)
+{
+    static const char *const ROOTS[] = {"%s/../share/smz3/maprando-pool", "%s/maprando-pool", "%s/../../assets/maprando"};
+    for (unsigned r = 0; r < sizeof ROOTS / sizeof ROOTS[0]; r++) {
+        char dir[1100], probe[1200];
+        snprintf(dir, sizeof dir, ROOTS[r], store_exe_dir());
+        snprintf(probe, sizeof probe, "%s/pool.txt", dir);
+        if (access(probe, F_OK) == 0) { smz_sm_set_maprando_pool(dir); return; }
+    }
+}
+
 #ifdef SMZ_MAPRANDO
 #include "smz3_maprando.h"
 
@@ -134,6 +146,7 @@ static int generate(const char *settings, uint64_t seed, const uint8_t *sm, size
 void maprando_setup(void)
 {
     /* the AppImage's share folder, a zip or tarball beside the program, then build/maprando-data from build/pc */
+    pool_setup();
     static const char *const ROOTS[] = {"%s/../share/smz3/maprando-data", "%s/maprando-data", "%s/../maprando-data"};
     for (unsigned r = 0; r < sizeof ROOTS / sizeof ROOTS[0]; r++) {
         char probe[1200];
@@ -150,6 +163,6 @@ int maprando_progress(char *out, size_t cap)
     return g_phase;
 }
 #else
-void maprando_setup(void) {}
+void maprando_setup(void) { pool_setup(); }
 int maprando_progress(char *out, size_t cap) { (void)out; (void)cap; return 0; }
 #endif

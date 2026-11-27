@@ -5,6 +5,8 @@
 #include "smz3_run.h"
 #include "sm_generate.h"
 #include "smz3_state.h"
+#include "smz3_bps.h"
+#include "smz3_romsetup.h"
 
 size_t smz_mode_rom_size(int mode) { return mode == SMZ_MODE_SM ? SMZ_SM_ROM_SIZE : mode == SMZ_MODE_Z3 ? 0x200000 : 0x600000; }
 
@@ -129,6 +131,92 @@ static int g_mr_state;
 static char g_mr_error[120];
 
 void smz_sm_set_maprando(SmzMapRandoFn fn, int state) { g_mr_fn = fn; g_mr_state = fn ? state : SMZ_MR_NONE; }
+
+static char g_pool[512];   /* the folder of the game's own seeds (tools/maprando/make_pool.py): pool.txt and <line>.zip */
+static char g_mr_note[96];
+static int g_pool_ok = 1;
+void smz_sm_maprando_pool_allow(int ok) { g_pool_ok = ok; }
+static int g_pool_have = -1;   /* pool.txt is there, looked at once */
+void smz_sm_set_maprando_pool(const char *dir) { snprintf(g_pool, sizeof g_pool, "%s", dir ? dir : ""); g_pool_have = -1; }
+const char *smz_sm_maprando_note(void) { return g_mr_note; }
+
+static uint8_t *pool_file(const char *name, size_t *n)
+{
+    char path[600];
+    snprintf(path, sizeof path, "%s/%s", g_pool, name);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    uint8_t *b = NULL;
+    long len = fseek(f, 0, SEEK_END) ? -1 : ftell(f);
+    if (len > 0 && !fseek(f, 0, SEEK_SET) && (b = malloc((size_t)len + 1)) && fread(b, 1, (size_t)len, f) != (size_t)len) { free(b); b = NULL; }
+    fclose(f);
+    if (b) { b[len] = 0; *n = (size_t)len; }
+    return b;
+}
+
+int smz_sm_maprando_pool(void)
+{
+    if (g_pool_have < 0) {
+        size_t n;
+        uint8_t *t = g_pool[0] ? pool_file("pool.txt", &n) : NULL;
+        g_pool_have = t != NULL;
+        free(t);
+    }
+    return g_pool_have;
+}
+
+/* A seed of the game's own set for a preset alone ({"preset":"..."}): the one the asked seed falls on among that preset's.
+ * Its seed goes to seed_out, so the run is that seed. 0, or -1 when the set has none for these settings. */
+static int mr_from_pool(const char *settings, uint64_t want, const uint8_t *sm, uint8_t *out, size_t cap, char *info, size_t icap, uint64_t *seed_out)
+{
+    char preset[64];
+    size_t tn = 0;
+    if (!g_pool[0] || !g_pool_ok || sscanf(settings, "{\"preset\":\"%63[^\"]\"}", preset) != 1) return -1;
+    char want_set[96];
+    snprintf(want_set, sizeof want_set, "{\"preset\":\"%s\"}", preset);
+    if (strcmp(settings, want_set)) return -1;   /* a skill or other choice the set was not made with */
+    char *txt = (char *)pool_file("pool.txt", &tn);
+    if (!txt) return -1;
+    int count = 0, rc = -1;
+    size_t plen = strlen(preset);
+    for (char *l = txt; l && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL) if (!strncmp(l, preset, plen) && l[plen] == '\t') count++;
+    if (count) {
+        int pick = (int)(want % (uint64_t)count), line = 0;
+        for (char *l = txt; l && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL, line++) {
+            if (strncmp(l, preset, plen) || l[plen] != '\t' || pick--) continue;
+            char *seed = l + plen + 1, *js = strchr(seed, '\t');
+            if (!js) break;
+            size_t zn = 0, pn = 0, jl = strcspn(js + 1, "\n");
+            char name[24];
+            snprintf(name, sizeof name, "%d.zip", line);
+            uint8_t *zip = pool_file(name, &zn), *patch = zip ? smz_zip_entry(zip, zn, 0, &pn) : NULL;
+            free(zip);
+            if (patch && smz_bps_target_size(patch, pn) <= cap && !smz_bps_apply(patch, pn, sm, SMZ_SM_BASE_SIZE, out, cap)) {
+                *seed_out = strtoull(seed, NULL, 10);
+                snprintf(info, icap, "%.*s", (int)jl, js + 1);
+                rc = 0;
+            }
+            free(patch);
+            break;
+        }
+    }
+    free(txt);
+    return rc;
+}
+
+/* The run's "seed" string becomes this one. */
+static void set_seed(char *json, size_t cap, uint64_t seed)
+{
+    char *p = strstr(json, "\"seed\":\"");
+    if (!p) return;
+    p += 8;
+    size_t old = strcspn(p, "\""), n = strlen(json);
+    char d[24];
+    int k = snprintf(d, sizeof d, "%llu", (unsigned long long)seed);
+    if (n - old + (size_t)k + 1 > cap) return;
+    memmove(p + k, p + old, strlen(p + old) + 1);
+    memcpy(p, d, (size_t)k);
+}
 int smz_sm_maprando_state(void) { return g_mr_state; }
 int smz_sm_is_maprando(const char *json) { return json && strstr(json, "\"generator\":\"maprando\"") != NULL; }
 const char *smz_sm_error(int rc) { return rc == SMZ_SM_ERR_MAPRANDO ? g_mr_error : rc == -6 ? "The Samus sprite is not valid" : NULL; }
@@ -160,17 +248,22 @@ static int mr_settings(const char *json, char *out, size_t cap)
     return 0;
 }
 
-static int mr_generate(const char *json, const uint8_t *sm, uint8_t *rom_out, size_t cap, char *words, size_t wcap)
+static int mr_generate(char *json, size_t json_cap, const uint8_t *sm, uint8_t *rom_out, size_t cap, char *words, size_t wcap)
 {
     char settings[256], info[512], seed[24];
-    if (!g_mr_fn || g_mr_state != SMZ_MR_READY) { snprintf(g_mr_error, sizeof g_mr_error, "Map Rando is not available here"); return SMZ_SM_ERR_MAPRANDO; }
+    g_mr_note[0] = 0;
     if (mr_settings(json, settings, sizeof settings)) return -5;
     json_field(json, "seed", seed, sizeof seed);
     info[0] = 0;
-    if (g_mr_fn(settings, strtoull(seed, NULL, 10), sm, SMZ_SM_BASE_SIZE, rom_out, cap, info, sizeof info)) {
-        json_field(info, "error", g_mr_error, sizeof g_mr_error);
-        if (!g_mr_error[0]) snprintf(g_mr_error, sizeof g_mr_error, "Map Rando failed");
-        return SMZ_SM_ERR_MAPRANDO;
+    int built = g_mr_fn && g_mr_state == SMZ_MR_READY && !g_mr_fn(settings, strtoull(seed, NULL, 10), sm, SMZ_SM_BASE_SIZE, rom_out, cap, info, sizeof info);
+    if (!built) {
+        if (!g_mr_fn || g_mr_state == SMZ_MR_NONE) snprintf(g_mr_error, sizeof g_mr_error, "Map Rando is not available here");
+        else if (g_mr_state == SMZ_MR_OFFLINE) snprintf(g_mr_error, sizeof g_mr_error, "Connect to the internet: this device downloads Map Rando seeds");
+        else { json_field(info, "error", g_mr_error, sizeof g_mr_error); if (!g_mr_error[0]) snprintf(g_mr_error, sizeof g_mr_error, "Map Rando failed"); }
+        uint64_t got;
+        if (mr_from_pool(settings, strtoull(seed, NULL, 10), sm, rom_out, cap, info, sizeof info, &got)) return SMZ_SM_ERR_MAPRANDO;
+        set_seed(json, json_cap, got);   /* offline, or the server failed: one of the seeds the game comes with */
+        snprintf(g_mr_note, sizeof g_mr_note, "Offline: a Map Rando seed from the set the game comes with");
     }
     json_field(info, "hash", words, wcap);
     return 0;
@@ -184,7 +277,7 @@ int smz_sm_generate(char *json, size_t json_cap, const uint8_t *sm, const uint8_
     char words[64], add[96];
     if (smz_settings_mode(json) != SMZ_MODE_SM) return -5;
     if (smz_sm_is_maprando(json)) {
-        int rc = mr_generate(json, sm, rom_out, cap, words, sizeof words);
+        int rc = mr_generate(json, json_cap, sm, rom_out, cap, words, sizeof words);
         if (rc) return rc;
     } else {
         if (sm_settings(json, &s)) return -5;
