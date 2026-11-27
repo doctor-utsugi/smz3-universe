@@ -1177,10 +1177,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..fa27141
+index 0000000..1e8952c
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1444 @@
+@@ -0,0 +1,1471 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1273,7 +1273,7 @@ index 0000000..fa27141
 +
 +// ---- one blocking request; returns the HTTP status or -1. The body is left in out (NUL terminated).
 +
-+// debug aid: SMZ_DIR/server.txt names another server (a local one, for tests)
++// SMZ_DIR/server.txt names another server: a staging copy for tests, read once
 +static const char *baseUrl()
 +{
 +    static char base[96];
@@ -1294,6 +1294,9 @@ index 0000000..fa27141
 +    }
 +    return base;
 +}
++
++const char *smzOnlineServer(void) { return baseUrl(); }
++bool smzOnlineStaging(void) { return strcmp(baseUrl(), BASE_URL) != 0; }
 +
 +// Whether the console has joined a network; off one, httpcBeginRequest waits with no timeout and the menu stays on "Connecting..."
 +static bool onNetwork()
@@ -1454,7 +1457,7 @@ index 0000000..fa27141
 +
 +static LightLock gLock;
 +static bool gLockReady;
-+static struct { bool ready; char label[16]; int seed, days, mode; } gMonthly, gWeekly;
++static struct { bool ready; char label[16]; int seed, days, mode, playing; } gMonthly, gWeekly;
 +static volatile int gStarted;   // 0 not yet or the seeds failed (asked again), 1 asking, 2 both seeds came (SMZ3's)
 +static volatile int gSeedsAsked[SMZ_MODE_COUNT];   // the other games' seeds: 0 not yet or failed, 1 asking, 2 came
 +
@@ -1485,6 +1488,8 @@ index 0000000..fa27141
 +        snprintf(gMonthly.label, sizeof gMonthly.label, "%s", label);
 +        gMonthly.seed = atoi(seedText);
 +        gMonthly.days = daysUntil(end);
++        long long n = 0;
++        gMonthly.playing = jsonNum(reply, "playing", &n) ? (int)n : 0;
 +        gMonthly.mode = modeNow();
 +        gMonthly.ready = true;
 +        LightLock_Unlock(&gLock);
@@ -1496,6 +1501,8 @@ index 0000000..fa27141
 +        snprintf(gWeekly.label, sizeof gWeekly.label, "%s", label);
 +        gWeekly.seed = atoi(seedText);
 +        gWeekly.days = daysUntil(ends);
++        long long n = 0;
++        gWeekly.playing = jsonNum(reply, "playing", &n) ? (int)n : 0;
 +        gWeekly.mode = modeNow();
 +        gWeekly.ready = true;
 +        LightLock_Unlock(&gLock);
@@ -1503,22 +1510,22 @@ index 0000000..fa27141
 +    return got;
 +}
 +
-+bool smzOnlineTakeMonthly(char label[16], int *seed, int *days, int *mode)
++bool smzOnlineTakeMonthly(char label[16], int *seed, int *days, int *mode, int *playing)
 +{
 +    lockInit();
 +    LightLock_Lock(&gLock);
 +    bool r = gMonthly.ready;
-+    if (r) { gMonthly.ready = false; snprintf(label, 16, "%s", gMonthly.label); *seed = gMonthly.seed; *days = gMonthly.days; *mode = gMonthly.mode; }
++    if (r) { gMonthly.ready = false; snprintf(label, 16, "%s", gMonthly.label); *seed = gMonthly.seed; *days = gMonthly.days; *mode = gMonthly.mode; *playing = gMonthly.playing; }
 +    LightLock_Unlock(&gLock);
 +    return r;
 +}
 +
-+bool smzOnlineTakeWeekly(char label[16], int *seed, int *days, int *mode)
++bool smzOnlineTakeWeekly(char label[16], int *seed, int *days, int *mode, int *playing)
 +{
 +    lockInit();
 +    LightLock_Lock(&gLock);
 +    bool r = gWeekly.ready;
-+    if (r) { gWeekly.ready = false; snprintf(label, 16, "%s", gWeekly.label); *seed = gWeekly.seed; *days = gWeekly.days; *mode = gWeekly.mode; }
++    if (r) { gWeekly.ready = false; snprintf(label, 16, "%s", gWeekly.label); *seed = gWeekly.seed; *days = gWeekly.days; *mode = gWeekly.mode; *playing = gWeekly.playing; }
 +    LightLock_Unlock(&gLock);
 +    return r;
 +}
@@ -1940,6 +1947,26 @@ index 0000000..fa27141
 +    snprintf(g->run, sizeof g->run, "%s", runId ? runId : "");
 +    snprintf(g->text, sizeof g->text, "%s", counters);
 +    spawn(goalsReportThread, g);
++}
++
++static void playingThread(void *arg)
++{
++    int slot = (int)(intptr_t)arg, kind = smzOnlineSlotKind(slot);
++    if (kind != 2 && kind != 3) return;   // only ranked monthly and weekly runs are counted
++    size_t n;
++    char *tk = readText(pathOf(ONLINE_DIR "/slot%d.token", slot), &n);
++    if (!tk) return;
++    tk[strcspn(tk, "\r\n \"\\")] = 0;
++    char body[480], reply[128];
++    snprintf(body, sizeof body, "{\"token\":\"%.440s\"}", tk);
++    free(tk);
++    httpRequest("POST", "/api/playing", body, reply, sizeof reply);
++}
++
++void smzOnlinePlaying(int slot)
++{
++    netUp();
++    if (gHttpReady) spawn(playingThread, (void *)(intptr_t)slot);
 +}
 +
 +void smzOnlineEnsureToken(int slot)
@@ -2627,10 +2654,10 @@ index 0000000..fa27141
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..be959cd
+index 0000000..1a2e263
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,139 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -2658,8 +2685,12 @@ index 0000000..be959cd
 +// The monthly and weekly seeds of another game (SMZ_MODE_*), the one entered: asked once, again after a failure.
 +void smzOnlineSeedsFor(int mode);
 +// Takes a fetched seed once: returns true and fills the label, seed, days left and the game it belongs to.
-+bool smzOnlineTakeMonthly(char label[16], int *seed, int *days, int *mode);
-+bool smzOnlineTakeWeekly(char label[16], int *seed, int *days, int *mode);
++// playing: the ranked players on that seed now, as the server counted them when asked
++// The server the online calls go to (server.txt names a staging copy, else the real one); staging: not the real one.
++const char *smzOnlineServer(void);
++bool smzOnlineStaging(void);
++bool smzOnlineTakeMonthly(char label[16], int *seed, int *days, int *mode, int *playing);
++bool smzOnlineTakeWeekly(char label[16], int *seed, int *days, int *mode, int *playing);
 +// The online tables (0 original, 1 monthly, 2 weekly): Request starts the fetch, Take returns each answer once it is there (state 1 ready,
 +// 2 failed; the JSON is the server's /api/ladder answer). Tab 0 is preset's table (ui_ladder_preset_key), Original for "".
 +void smzOnlineRequestLadders(const char *preset);
@@ -2681,6 +2712,8 @@ index 0000000..be959cd
 +bool smzUpdateRelaunch(void);
 +// Sends a run's goal counters (smz_counters_text) on a thread under runId, or "s<slot>-<created>" for a run older than the sync.
 +void smzOnlineGoalsReport(int slot, int64_t created, const char *runId, bool online, const char *counters);
++// A ranked monthly or weekly run in this slot is being played now (the seed's "Playing" count); nothing for other runs.
++void smzOnlinePlaying(int slot);
 +// This install's id, made on first use.
 +void smzOnlineInstallId(char out[40]);
 +// The player's profile file text ("name\tCC\tmode"), and saving it back.
@@ -2766,10 +2799,10 @@ index 0000000..be959cd
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..495a4aa
+index 0000000..f789871
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6282 @@
+@@ -0,0 +1,6287 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -4005,6 +4038,7 @@ index 0000000..495a4aa
 +    gRewindRun = false;
 +    gRunStates = false;
 +    ui_init(&ui);
++    ui.staging = smzOnlineStaging();
 +    if (gFifthKept) {
 +        snprintf(ui.notice, sizeof ui.notice, "%d old 5th state%s kept: free a slot 1-4", gFifthKept, gFifthKept > 1 ? "s" : "");
 +        gFifthKept = 0;
@@ -4031,10 +4065,10 @@ index 0000000..495a4aa
 +        if (smzOnlineProfileLoad(profile, sizeof profile)) ui_player_load(&ui, profile);
 +    }
 +    // the seeds arrive once per session and game: a menu opened again (after a run) gets them back from here, ui_init cleared them
-+    static struct { bool have; char label[16]; int seed, days; } monthly[SMZ_MODE_COUNT], weekly[SMZ_MODE_COUNT];
++    static struct { bool have; char label[16]; int seed, days, playing; } monthly[SMZ_MODE_COUNT], weekly[SMZ_MODE_COUNT];
 +    for (int m = 0; m < SMZ_MODE_COUNT; m++) {
-+        if (monthly[m].have) ui_set_monthly_game(&ui, m, monthly[m].label, monthly[m].seed, monthly[m].days);
-+        if (weekly[m].have) ui_set_weekly_game(&ui, m, weekly[m].label, weekly[m].seed, weekly[m].days);
++        if (monthly[m].have) { ui_set_monthly_game(&ui, m, monthly[m].label, monthly[m].seed, monthly[m].days); ui_set_playing(&ui, m, 0, monthly[m].playing); }
++        if (weekly[m].have) { ui_set_weekly_game(&ui, m, weekly[m].label, weekly[m].seed, weekly[m].days); ui_set_playing(&ui, m, 1, weekly[m].playing); }
 +    }
 +    if (smzRunMode != SMZ_MODE_SMZ3) ui_game_enter(&ui, smzRunMode);   // a run of another game left: back to that game's list
 +    smzOnlineStartup();
@@ -4129,14 +4163,16 @@ index 0000000..495a4aa
 +        storeSavedCustoms(&ui);
 +        {
 +            char label[16];
-+            int seed, days, mode;
-+            if (smzOnlineTakeMonthly(label, &seed, &days, &mode) && mode >= 0 && mode < SMZ_MODE_COUNT) {
++            int seed, days, mode, playing;
++            if (smzOnlineTakeMonthly(label, &seed, &days, &mode, &playing) && mode >= 0 && mode < SMZ_MODE_COUNT) {
 +                ui_set_monthly_game(&ui, mode, label, seed, days);
-+                monthly[mode] = {true, "", seed, days}; snprintf(monthly[mode].label, sizeof monthly[mode].label, "%s", label);
++                ui_set_playing(&ui, mode, 0, playing);
++                monthly[mode] = {true, "", seed, days, playing}; snprintf(monthly[mode].label, sizeof monthly[mode].label, "%s", label);
 +            }
-+            if (smzOnlineTakeWeekly(label, &seed, &days, &mode) && mode >= 0 && mode < SMZ_MODE_COUNT) {
++            if (smzOnlineTakeWeekly(label, &seed, &days, &mode, &playing) && mode >= 0 && mode < SMZ_MODE_COUNT) {
 +                ui_set_weekly_game(&ui, mode, label, seed, days);
-+                weekly[mode] = {true, "", seed, days}; snprintf(weekly[mode].label, sizeof weekly[mode].label, "%s", label);
++                ui_set_playing(&ui, mode, 1, playing);
++                weekly[mode] = {true, "", seed, days, playing}; snprintf(weekly[mode].label, sizeof weekly[mode].label, "%s", label);
 +            }
 +            static char ladderJson[16384];
 +            for (int t = 0; t < 3; t++) {
@@ -8096,7 +8132,7 @@ index 0000000..495a4aa
 +    static u64 lastMs = 0, nextToken = 0;
 +    static int deadBosses = 0;
 +    static int64_t nextHintAsk = 0, nextBeat = 0, nextPlayersNote = 0, nextChatPoll = 0;
-+    static u64 nextGoals = 0;
++    static u64 nextGoals = 0, nextPlaying = 0;
 +    char discPath[96];
 +    snprintf(discPath, sizeof discPath, "%s/slot%d.discovery", runDir(), curSlot);
 +    if (gPlaySlot != curSlot) {
@@ -8154,6 +8190,7 @@ index 0000000..495a4aa
 +        dailyDoneMs = r0.game == 3 ? 1 : 0;   // finished before: its time was sent then
 +        smz_counters_load(&goalc, r0.goals);
 +        nextGoals = osGetTime() + 300000;
++        nextPlaying = osGetTime() + 15000;   // a ranked monthly or weekly run counts as played: soon, then every 4 minutes
 +        nextHintAsk = newHintUntil = playersNoteUntil = nextBeat = nextPlayersNote = nextChatPoll = 0;
 +        memset(&dchat, 0, sizeof dchat);
 +        dchatShown = -1;
@@ -8211,6 +8248,7 @@ index 0000000..495a4aa
 +        bool have = runLoad(rp, &r1) == 0 && trk.started;
 +        if (have) smz_counters_text(&goalc, r1.goals, sizeof r1.goals);
 +        if (have && nowMs >= nextGoals) { nextGoals = nowMs + 300000; smzOnlineGoalsReport(curSlot + 1, r1.created, r1.id, smzOnlineSlotKind(curSlot) > 0, r1.goals); }
++        if (have && nowMs >= nextPlaying) { nextPlaying = nowMs + 240000; smzOnlinePlaying(curSlot); }
 +        if (have && finishedBefore) {   // it keeps its result; its rewards only add up
 +            r1.boss_mask |= trk.boss_mask; r1.crystal_mask |= trk.crystal_mask;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
@@ -8680,7 +8718,6 @@ index 0000000..495a4aa
 +    rows[n++] = {PM_RESUME, 0};
 +    if (!smz3NoStates()) { rows[n++] = {PM_SAVE, 0}; rows[n++] = {PM_LOAD, 0}; }
 +    if (raceCanPause()) rows[n++] = {PM_PAUSE, 0};
-+    rows[n++] = {PM_RUNS, 0};
 +    rows[n++] = {PM_RESTART, 0};
 +    rows[n++] = {PM_MUTE, 0};
 +    rows[n++] = {PM_SCREEN, 0};
@@ -8690,6 +8727,7 @@ index 0000000..495a4aa
 +    rows[n++] = {PM_BAR, 0};
 +    rows[n++] = {PM_CONFIRM, 0};
 +    if (settings3DS.isNew3DS) rows[n++] = {PM_BUTTONS, 0};   // ZL, ZR and the C-stick: an Old 3DS has none of them
++    rows[n++] = {PM_RUNS, 0};   // last, as on the other systems' CONFIG tab
 +    return n;
 +}
 +
@@ -8706,7 +8744,7 @@ index 0000000..495a4aa
 +        *dim = !impl3dsSlotHasState(slot);
 +        break;
 +    case PM_PAUSE: snprintf(label, cap, "Ask to pause"); break;
-+    case PM_RUNS: snprintf(label, cap, "%s", raceRunning() ? "Leave the race" : "Back to the runs"); break;
++    case PM_RUNS: snprintf(label, cap, "%s", raceRunning() ? "Leave the race" : "Back to main menu"); break;
 +    case PM_RESTART: snprintf(label, cap, "Restart"); break;
 +    case PM_MUTE: snprintf(label, cap, "Mute audio"); snprintf(value, cap, "%s", snd3dsMuted ? "On" : "Off"); break;
 +    case PM_SCREEN: snprintf(label, cap, "Screen"); snprintf(value, cap, "%s", SCREEN_NAMES[settings3DS.SmzScreen % 5]); break;
@@ -9017,7 +9055,7 @@ index 0000000..495a4aa
 +                break;
 +            case PM_RUNS:
 +                if (act == 1 && (raceRunning() ? pauseDialog(rows, n, cursor, scroll, slot, "Leave the race", "Your rivals see you leave, and the race can't be joined again. Leave it?", true)
-+                                               : pauseDialog(rows, n, cursor, scroll, slot, "Back to the runs", "The run keeps its time and progress. Go back to the runs?", true))) {
++                                               : pauseDialog(rows, n, cursor, scroll, slot, "Back to main menu", "The run keeps its time and progress. Go back to the main menu?", true))) {
 +                    uiCueSound(UI_CUE_CONFIRM);
 +                    result = SMZ3_PAUSE_RUNS;
 +                    goto done;
@@ -9130,10 +9168,10 @@ index 0000000..6510aa4
 +#endif
 diff --git a/source/smz3sync.cpp b/source/smz3sync.cpp
 new file mode 100644
-index 0000000..e3d7839
+index 0000000..aa6522b
 --- /dev/null
 +++ b/source/smz3sync.cpp
-@@ -0,0 +1,805 @@
+@@ -0,0 +1,808 @@
 +// Cloud sync on the 3DS: frontends/pc/pc_sync.c over libcurl, with this emulator's paths and states.
 +#include "smz3sync.h"
 +#include "smz3online.h"
@@ -9301,11 +9339,14 @@ index 0000000..e3d7839
 +
 +// ---- sign-in, kept in sync.txt
 +
++// the staging copy when server.txt names one, so its runs sync there too and nothing of it is kept in sync.txt
++static const char *defaultServer() { return smzOnlineStaging() ? smzOnlineServer() : DEFAULT_SERVER; }
++
 +static void configSave()
 +{
 +    char t[1500];
 +    int n = snprintf(t, sizeof t, "romm=%s\ntoken=%s\ndevice=%s\nuser=%s\n", gRomm.base, gRomm.token, gRomm.device, gUser);
-+    if (strcmp(gServer, DEFAULT_SERVER)) n += snprintf(t + n, sizeof t - (size_t)n, "server=%s\n", gServer);
++    if (strcmp(gServer, defaultServer())) n += snprintf(t + n, sizeof t - (size_t)n, "server=%s\n", gServer);
 +    writeFile(SYNC_TXT, t, (size_t)n);
 +}
 +
@@ -9314,7 +9355,7 @@ index 0000000..e3d7839
 +    memset(&gRomm, 0, sizeof gRomm);
 +    gRomm.http = http;
 +    snprintf(gRomm.base, sizeof gRomm.base, DEFAULT_ROMM);
-+    snprintf(gServer, sizeof gServer, DEFAULT_SERVER);
++    snprintf(gServer, sizeof gServer, "%s", defaultServer());
 +    size_t n;
 +    char *t = (char *)readFile(SYNC_TXT, &n);
 +    if (!t) return;

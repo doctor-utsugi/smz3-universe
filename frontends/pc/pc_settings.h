@@ -14,6 +14,8 @@ typedef struct {
     int (*is_fullscreen)(void);
     void (*window_size)(int w, int h);        /* w = h = 0: the whole usable desktop */
 } SettingsHooks;
+/* The last row of the main settings: "Quit" on the menu, "Back to main menu" in a run (both go through hooks.quit). */
+void settings_quit_label(const char *label);
 
 void settings_init(const SettingsHooks *hooks);
 int settings_active(void);

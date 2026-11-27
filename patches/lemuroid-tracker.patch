@@ -315,10 +315,10 @@ index 0000000..147df74
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..35969c0
+index 0000000..be49a38
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
-@@ -0,0 +1,481 @@
+@@ -0,0 +1,491 @@
 +package com.swordfish.lemuroid.app.mobile.feature.game
 +
 +import android.content.Context
@@ -453,6 +453,12 @@ index 0000000..35969c0
 +        }
 +    }
 +    LaunchedEffect(isLandscape) { Smz3ScreenMode.landscape = isLandscape }
++    // the tracker's pages are built once, soon after the game starts, and kept: building them on each open made it lag
++    val panel = remember { arrayOfNulls<Smz3TrackerPanel>(1) }
++    LaunchedEffect(Unit) {
++        kotlinx.coroutines.delay(1500)
++        if (panel[0] == null) panel[0] = newPanel(context)
++    }
 +    LaunchedEffect(trackerOpen, isLandscape) { Smz3ScreenMode.landscape = isLandscape; Smz3ScreenMode.syncHold() }
 +
 +    val defaultScale = touchSettings?.scale ?: TouchControllerSettingsManager.DEFAULT_SCALE
@@ -495,19 +501,21 @@ index 0000000..35969c0
 +                        .border(1.dp, TAB, RoundedCornerShape(8.dp)),
 +                ) {
 +                    Column(Modifier.fillMaxSize()) {
-+                        EmbeddedTracker(Modifier.fillMaxWidth().weight(1f))
++                        EmbeddedTracker(Modifier.fillMaxWidth().weight(1f), panel)
 +                        Row(
 +                            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
 +                            horizontalArrangement = Arrangement.SpaceBetween,
 +                            verticalAlignment = Alignment.CenterVertically,
 +                        ) {
-+                            Text("L1 R1 change tab · R3 or B close", color = DIM, fontSize = 12.sp)
++                            Text("L1 R1 change tab · D-pad move · A press · R3 or B close", color = DIM, fontSize = 12.sp)
 +                            SmallButton("Close", Modifier) { Smz3ScreenMode.trackerOpen.value = false }
 +                        }
 +                    }
 +                }
 +            } else if (touchVisible) {
 +                Box(Modifier.fillMaxSize()) { pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd)) }
++            } else {   // a controller and no touch pad: which button opens the panel, quietly in the corner
++                Text("R3  Tracker", color = DIM.copy(alpha = 0.55f), fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
 +            }
 +        } else {
 +            Column(Modifier.fillMaxSize()) {
@@ -520,7 +528,7 @@ index 0000000..35969c0
 +                StatusLine(snapshot, toggle = if (!touchVisible) null else if (trackerOpen) "Pad" else "Tracker")
 +                Box(Modifier.fillMaxWidth().weight(1f)) {
 +                    if (!touchVisible || trackerOpen) {
-+                        EmbeddedTracker(Modifier.fillMaxSize())
++                        EmbeddedTracker(Modifier.fillMaxSize(), panel)
 +                    } else {
 +                        pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd))
 +                    }
@@ -552,19 +560,21 @@ index 0000000..35969c0
 +
 +/** The tracker's tabs inside the game screen; the tracker thread feeds it while it is attached. */
 +@Composable
-+private fun EmbeddedTracker(modifier: Modifier) {
++private fun EmbeddedTracker(modifier: Modifier, kept: Array<Smz3TrackerPanel?>) {
 +    AndroidView(
 +        modifier = modifier,
 +        factory = { ctx ->
-+            Smz3TrackerPanel(ctx).also { panel ->
-+                panel.build(intro = false)
-+                Smz3Tracker.latest.value?.let { panel.render(it) }
-+                Smz3Tracker.embedded = panel
-+            }
++            val panel = kept[0] ?: newPanel(ctx).also { kept[0] = it }
++            (panel.parent as? android.view.ViewGroup)?.removeView(panel)
++            Smz3Tracker.latest.value?.let { panel.render(it) }
++            Smz3Tracker.embedded = panel
++            panel
 +        },
 +        onRelease = { if (Smz3Tracker.embedded === it) Smz3Tracker.embedded = null },
 +    )
 +}
++
++private fun newPanel(context: Context) = Smz3TrackerPanel(context).apply { build(intro = false) }
 +
 +@Composable
 +private fun SmallButton(label: String, modifier: Modifier, onClick: () -> Unit) {
@@ -1126,10 +1136,10 @@ index b4a1df8..3811237 100644
      SYSTEMS(MainRoute.SYSTEMS, R.string.title_systems, Icons.Filled.VideogameAsset, Icons.Outlined.VideogameAsset),
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
 new file mode 100644
-index 0000000..89f12d9
+index 0000000..04ae4c3
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,206 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -1164,7 +1174,6 @@ index 0000000..89f12d9
 + */
 +object DailyChallenge {
 +    const val SLOT = RunStore.SLOTS
-+    private const val BASE = "https://smz3-universe.duckdns.org"
 +
 +    private fun dir(context: Context, game: String = RunStore.mode) = RunStore.runsDir(context, game)
 +    private fun attemptFile(context: Context, game: String = RunStore.mode) = File(dir(context, game), "daily.json")
@@ -1172,8 +1181,7 @@ index 0000000..89f12d9
 +    private fun resultFile(context: Context) = File(dir(context), "daily.result")
 +    fun proofFile(context: Context, game: String = RunStore.mode) = File(dir(context, game), "slot$SLOT.proof")
 +
-+    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one). */
-+    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++    private fun base(): String = OnlineLadder.server()
 +
 +    private fun installId(context: Context): String = OnlineLadder.installIdFor(context)
 +
@@ -1395,10 +1403,10 @@ index 0000000..5004db1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..7b9e922
+index 0000000..9f55e23
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1171 @@
+@@ -0,0 +1,1179 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1657,6 +1665,15 @@ index 0000000..7b9e922
 +        Smz3MenuSelection.select(context, if (slot >= 0) slot else null)
 +    }
 +
++    /** The world goal icons and the Original sprites (the carousel's Link and Samus) cut from the base ROMs once both are
++     *  there, at start and after ROMs are added. The pictures asked for before, missing then, are dropped so they load again. */
++    suspend fun cutRomArt() {
++        if (runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { RunGenerator.goalIconsAtStart(context, retrogradeDb.gameDao().selectListBySystem("snes")) } }.getOrDefault(false)) {
++            previewCache.keys.removeAll { it.startsWith("goal/") || it.endsWith("/Original") }
++            version++
++        }
++    }
++
 +    /** The single-game cards in the carousel: each ready once its own ROM is found (it needs no other). */
 +    fun checkSmRom() {
 +        scope.launch {
@@ -1710,6 +1727,7 @@ index 0000000..7b9e922
 +
 +    DisposableEffect(Unit) {
 +        Smz3Native.uiInit()
++        Smz3Native.uiSetStaging(OnlineLadder.staging())
 +        MapRando.setup(context)
 +        Smz3Native.uiGameState(SMZ_MODE_SM, UI_GAME_NO_ROM)   // until their ROMs are found (checkSmRom)
 +        Smz3Native.uiGameState(SMZ_MODE_Z3, UI_GAME_NO_ROM)
@@ -1758,12 +1776,7 @@ index 0000000..7b9e922
 +        }
 +    }
 +    LaunchedEffect(Unit) { checkSmRom() }
-+    LaunchedEffect(Unit) {   // world goal icons and the Original sprites cut from the base ROMs the first time; the ones asked for before are dropped
-+        if (runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { RunGenerator.goalIconsAtStart(context, retrogradeDb.gameDao().selectListBySystem("snes")) } }.getOrDefault(false)) {
-+            previewCache.keys.removeAll { it.startsWith("goal/") || it.endsWith("/Original") }
-+            version++
-+        }
-+    }
++    LaunchedEffect(Unit) { cutRomArt() }
 +    // the daily challenge: asked for every minute (and on coming back from a run), shown when the answer is there
 +    LaunchedEffect(Unit) {
 +        var next = 0L
@@ -1840,6 +1853,7 @@ index 0000000..7b9e922
 +            version++
 +            val message = RunGenerator.importRoms(context, uris)
 +            checkSmRom()
++            cutRomArt()
 +            if (message.startsWith("Both")) { retry(); return@askRoms }
 +            Smz3Native.uiBusy(message.take(43))
 +            version++
@@ -2181,8 +2195,9 @@ index 0000000..7b9e922
 +
 +    fun pollActions() {
 +        for (m in pendingWeekly.indices) {
-+            pendingWeekly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetWeekly(m, label, seed, daysLeftInWeek()); version++ }
-+            pendingMonthly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetMonthly(m, label, seed, daysLeftInMonth()); version++ }
++            val game = when (m) { SMZ_MODE_SM -> "sm"; SMZ_MODE_Z3 -> "z3"; else -> "smz3" }
++            pendingWeekly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetWeekly(m, label, seed, daysLeftInWeek()); Smz3Native.uiSetPlaying(m, 1, OnlineLadder.playing(game, true)); version++ }
++            pendingMonthly[m].getAndSet(null)?.let { (label, seed) -> Smz3Native.uiSetMonthly(m, label, seed, daysLeftInMonth()); Smz3Native.uiSetPlaying(m, 0, OnlineLadder.playing(game, false)); version++ }
 +        }
 +        Smz3Native.uiSavedChanged()?.let { runCatching { savedCustoms.writeText(it) } }
 +        Smz3Native.uiPlayerChanged()?.let { OnlineLadder.saveProfile(context, it) }
@@ -2203,6 +2218,7 @@ index 0000000..7b9e922
 +                if (uris.isEmpty()) return@askRoms
 +                val message = RunGenerator.importRoms(context, uris)
 +                checkSmRom()
++                cutRomArt()
 +                Smz3Native.uiRomsNote(
 +                    when {
 +                        message.startsWith("Both") || message.startsWith("Only") -> ""
@@ -2572,10 +2588,10 @@ index 0000000..7b9e922
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..d4cb22e
+index 0000000..03e6e09
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,292 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2586,12 +2602,18 @@ index 0000000..d4cb22e
 +import java.util.UUID
 +
 +/**
-+ * The shared ladder at [BASE]. The server signs a token when a run starts and only accepts a time for a token it issued,
++ * The shared ladder at [server]. The server signs a token when a run starts and only accepts a time for a token it issued,
 + * so a finished run is sent as just that token, the time and the player name. Original-rules runs only. Each of the three
 + * games has its own tables: requests for a game other than SMZ3 carry its id.
 + */
 +object OnlineLadder {
 +    const val BASE = "https://smz3-universe.duckdns.org"
++
++    /** The server every online call goes to: /sdcard/SMZ3/server.txt names a staging copy for tests, else the real one.
++     * Read on each call, so the file takes effect without a restart. */
++    fun server(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++
++    fun staging(): Boolean = server() != BASE
 +
 +    private fun dir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
 +    private fun tokenFile(context: Context, slot: Int, game: String = RunStore.mode) = File(RunStore.runsDir(context, game), "slot$slot.token")
@@ -2685,14 +2707,16 @@ index 0000000..d4cb22e
 +    /** This month's label and fixed seed for [game]: fetched when possible, else the copy saved for the same month. Call off the main thread. */
 +    fun monthly(context: Context, game: String = RunStore.mode): Pair<String, Int>? {
 +        val f = gameFile(context, "monthly.json", game)
++        playingNow["$game:monthly"] = 0
 +        runCatching {
-+            val c = URL("$BASE/api/monthly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
++            val c = URL("${server()}/api/monthly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
 +            c.connectTimeout = 8000
 +            c.readTimeout = 8000
 +            val text = c.inputStream.bufferedReader().use { it.readText() }
 +            c.disconnect()
 +            JSONObject(text).getString("seed").toInt()
 +            f.writeText(text)
++            playingNow["$game:monthly"] = JSONObject(text).optInt("playing")
 +        }
 +        return runCatching {
 +            val j = JSONObject(f.readText())
@@ -2705,14 +2729,16 @@ index 0000000..d4cb22e
 +    /** This week's label (e.g. 2026-W44) and fixed seed for [game]: fetched when possible, else the copy saved for the same week. Call off the main thread. */
 +    fun weekly(context: Context, game: String = RunStore.mode): Pair<String, Int>? {
 +        val f = gameFile(context, "weekly.json", game)
++        playingNow["$game:weekly"] = 0
 +        runCatching {
-+            val c = URL("$BASE/api/weekly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
++            val c = URL("${server()}/api/weekly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
 +            c.connectTimeout = 8000
 +            c.readTimeout = 8000
 +            val text = c.inputStream.bufferedReader().use { it.readText() }
 +            c.disconnect()
 +            JSONObject(text).getString("seed").toInt()
 +            f.writeText(text)
++            playingNow["$game:weekly"] = JSONObject(text).optInt("playing")
 +        }
 +        return runCatching {
 +            val j = JSONObject(f.readText())
@@ -2721,6 +2747,19 @@ index 0000000..d4cb22e
 +            val now = "%d-W%02d".format(today.get(java.time.temporal.IsoFields.WEEK_BASED_YEAR), today.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR))
 +            if (week == now) week to j.getString("seed").toInt() else null
 +        }.getOrNull()
++    }
++
++    /** Ranked players on [game]'s monthly or weekly seed now, from the last [monthly] or [weekly] answer (0 without one). */
++    private val playingNow = java.util.concurrent.ConcurrentHashMap<String, Int>()
++
++    fun playing(game: String, weekly: Boolean): Int = playingNow["$game:" + if (weekly) "weekly" else "monthly"] ?: 0
++
++    /** Tells the server a ranked monthly or weekly run is being played now (the seed's "Playing" count). Call off the main thread. */
++    fun ping(context: Context, slot: Int) {
++        val kind = slotKind(context, slot)
++        if (kind != 2 && kind != 3) return
++        val token = runCatching { tokenFile(context, slot).readText().trim() }.getOrNull() ?: return
++        post("/api/playing", JSONObject().put("token", token))
 +    }
 +
 +    /** Asks the server for the run's token the first time it is played; no network means no token and the run stays off the online ladder. */
@@ -2770,7 +2809,7 @@ index 0000000..d4cb22e
 +    }
 +
 +    private fun post(path: String, body: JSONObject): Pair<Int, String> = runCatching {
-+        val c = URL(BASE + path).openConnection() as HttpURLConnection
++        val c = URL(server() + path).openConnection() as HttpURLConnection
 +        c.requestMethod = "POST"
 +        c.connectTimeout = 8000
 +        c.readTimeout = 8000
@@ -2802,7 +2841,7 @@ index 0000000..d4cb22e
 +     *  cannot be reached. Call off the main thread. */
 +    fun ladderJson(tab: Int, game: String = RunStore.mode, preset: String = ""): String? = runCatching {
 +        val p = if (tab == 0 && preset.isNotEmpty()) "&preset=" + java.net.URLEncoder.encode(preset, "UTF-8") else ""
-+        val c = URL("$BASE/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game) + p).openConnection() as HttpURLConnection
++        val c = URL("${server()}/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game) + p).openConnection() as HttpURLConnection
 +        c.connectTimeout = 8000
 +        c.readTimeout = 8000
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
@@ -2810,7 +2849,7 @@ index 0000000..d4cb22e
 +
 +    /** One game's world goals of the month for this install, null when the server cannot be reached. Call off the main thread. */
 +    fun goalsJson(context: Context, game: String = RunStore.mode): String? = runCatching {
-+        val c = URL("$BASE/api/goals?install=" + installId(context) + RunStore.gameQuery(game)).openConnection() as HttpURLConnection
++        val c = URL("${server()}/api/goals?install=" + installId(context) + RunStore.gameQuery(game)).openConnection() as HttpURLConnection
 +        c.connectTimeout = 8000
 +        c.readTimeout = 8000
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
@@ -3666,7 +3705,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..bd27984 100644
+index 6d06420..823f1d1 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3708,7 +3747,7 @@ index 6d06420..bd27984 100644
  
          lifecycleScope.launch {
              baseGameScreenViewModel.loadGame(
-@@ -141,7 +152,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -141,10 +152,14 @@ abstract class BaseGameActivity : ImmersiveActivity() {
              this,
              object : OnBackPressedCallback(true) {
                  override fun handleOnBackPressed() {
@@ -3720,7 +3759,11 @@ index 6d06420..bd27984 100644
                  }
              },
          )
-@@ -152,10 +166,42 @@ abstract class BaseGameActivity : ImmersiveActivity() {
++        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Hotkeys.leave = { runOnUiThread { confirmLeave("Back to the main menu?") } }
+ 
+         initialiseFlows()
+     }
+@@ -152,10 +167,42 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      @Composable
      abstract fun GameScreen(viewModel: BaseGameScreenViewModel)
  
@@ -3728,10 +3771,10 @@ index 6d06420..bd27984 100644
 +
 +    /** Back outside a race asks first: one press too many must not end the run. A leaves (or presses the button the
 +     * d-pad moved to), B stays. */
-+    private fun confirmLeave() {
++    private fun confirmLeave(title: String = "Leave the run?") {
 +        if (isFinishing || leaveDialog?.isShowing == true) return
 +        leaveDialog = android.app.AlertDialog.Builder(this)
-+            .setTitle("Leave the run?")
++            .setTitle(title)
 +            .setPositiveButton("Leave") { _, _ -> baseGameScreenViewModel.requestFinish() }
 +            .setNegativeButton("Keep playing", null)
 +            .create().apply {
@@ -3763,7 +3806,7 @@ index 6d06420..bd27984 100644
      }
  
      private fun setUpExceptionsHandler() {
-@@ -204,19 +250,22 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -204,19 +251,22 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                      baseGameScreenViewModel.retroGameView.retroGameView?.getAvailableDisks() ?: 0,
                  )
                  this.putExtra(GameMenuContract.EXTRA_GAME, game)
@@ -3789,7 +3832,7 @@ index 6d06420..bd27984 100644
              }
          startActivityForResult(intent, DIALOG_REQUEST)
          overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-@@ -244,7 +293,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -244,7 +294,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                              it.currentTiltConfiguration,
                              it.tiltConfigurations,
                          )
@@ -3798,7 +3841,7 @@ index 6d06420..bd27984 100644
                      is GameViewModelSideEffects.UiEffect.SuccessfulFinish -> performSuccessfulActivityFinish()
                      is GameViewModelSideEffects.UiEffect.FailureFinish -> performErrorFinish(it.message)
                      is GameViewModelSideEffects.UiEffect.SaveQuickSave -> performSaveQuickSave()
-@@ -262,6 +311,75 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -262,11 +312,81 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          baseGameScreenViewModel.loadQuickSave()
      }
  
@@ -3874,7 +3917,13 @@ index 6d06420..bd27984 100644
      private fun performToggleFastForward() {
          baseGameScreenViewModel.toggleFastForward()
      }
-@@ -343,7 +461,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+ 
+     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
++        if (com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.onMotion(event)) return true
+         val handled = baseGameScreenViewModel.sendMotionEvent(event)
+         if (handled) {
+             return true
+@@ -343,7 +463,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          finishTriggered = true
      }
  
@@ -3888,10 +3937,11 @@ index 6d06420..bd27984 100644
          if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
              baseGameScreenViewModel.requestBackgroundSave()
          }
-@@ -351,6 +475,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -351,6 +477,20 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onDestroy() {
++        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Hotkeys.leave = null
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Idle.hideBlack()
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.onRunComplete = null
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.clear()
@@ -3908,7 +3958,7 @@ index 6d06420..bd27984 100644
          if (!isChangingConfigurations) {
              GameService.requestTermination()
          }
-@@ -381,7 +518,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -381,7 +521,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
              if (data?.getBooleanExtra(GameMenuContract.RESULT_QUIT, false) == true) {
@@ -3917,7 +3967,7 @@ index 6d06420..bd27984 100644
              }
              if (data?.hasExtra(GameMenuContract.RESULT_CHANGE_DISK) == true) {
                  val index = data.getIntExtra(GameMenuContract.RESULT_CHANGE_DISK, 0)
-@@ -397,16 +534,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -397,16 +537,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
              if (data?.hasExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD) == true) {
@@ -6110,10 +6160,10 @@ index 0000000..76a0cb6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
 new file mode 100644
-index 0000000..c0265ae
+index 0000000..2436758
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,197 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -6164,6 +6214,8 @@ index 0000000..c0265ae
 +    private const val DEFAULT_SPEED = 4
 +
 +    @Volatile var host: Smz3HotkeyHost? = null
++    /** Set by the game activity: asks whether to leave the run for the SMZ3 menu (the panel's "Back to main menu"). */
++    @Volatile var leave: (() -> Unit)? = null
 +    private val pressed = HashSet<Int>()
 +    private val consumed = HashSet<Int>()
 +    private var fastForwarding = false
@@ -7507,10 +7559,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..7519125
+index 0000000..39a1478
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,274 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7631,6 +7683,10 @@ index 0000000..7519125
 +    @JvmStatic external fun uiLoadChoice(slot: Int, saveMs: Long, saveZ: Int, saveM: Int, stateMs: Long, stateZ: Int, stateM: Int, zt: Int, mt: Int)
 +    @JvmStatic external fun uiRunMonthly(): Int
 +    @JvmStatic external fun uiSetWeekly(mode: Int, label: String, seed: Int, days: Int)
++    /** Ranked players on a game's monthly (weekly 0) or weekly (1) seed now; above 0 the menu shows it. */
++    @JvmStatic external fun uiSetPlaying(mode: Int, weekly: Int, n: Int)
++    /** The online calls go to a test server (/sdcard/SMZ3/server.txt): the menu says STAGING in its corner. */
++    @JvmStatic external fun uiSetStaging(on: Boolean)
 +    @JvmStatic external fun uiRunWeekly(): Int
 +    @JvmStatic external fun uiLadderEnable(on: Boolean)
 +    @JvmStatic external fun uiLadderJson(tab: Int, json: String?)
@@ -7861,10 +7917,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..998a458
+index 0000000..1caacef
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1235 @@
+@@ -0,0 +1,1294 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -8049,7 +8105,59 @@ index 0000000..998a458
 +        select(next)
 +    }
 +
++    /** The pad in single screen: what up, down, left and right last landed on in the shown page (outlined), A clicks it. */
++    private var padFocus: View? = null
++
++    private fun clickables(v: View, out: MutableList<View>) {
++        if (!v.isShown) return
++        if (v.isClickable && v.isEnabled) { out += v; return }
++        if (v is ViewGroup) for (i in 0 until v.childCount) clickables(v.getChildAt(i), out)
++    }
++
++    private fun firstScroll(v: View): ScrollView? = v as? ScrollView ?: (v as? ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { firstScroll(g.getChildAt(it)) } }
++
++    private fun setPadFocus(v: View?) {
++        padFocus?.foreground = null
++        padFocus = v
++        v?.foreground = android.graphics.drawable.GradientDrawable().apply { setStroke(dp(2), theme.accent); cornerRadius = dp(4).toFloat() }
++        v?.requestRectangleOnScreen(android.graphics.Rect(0, 0, v.width, v.height), false)   // the page's scroll follows
++    }
++
++    /** Single screen: dy goes to the nearest button on the row above or below, dx to the one before or after; past the
++     * last one (or on a page with none, like HELP) the page scrolls instead. */
++    fun move(dx: Int, dy: Int) {
++        val page = pages.getOrNull(selectedTab) ?: return
++        val all = mutableListOf<View>().also { clickables(page, it) }
++        val at = IntArray(2)
++        val pos = all.associateWith { v -> v.getLocationOnScreen(at); at[0] + v.width / 2 to at[1] + v.height / 2 }
++        val order = all.sortedWith(compareBy({ pos.getValue(it).second }, { pos.getValue(it).first }))
++        val cur = padFocus?.takeIf { it in pos }
++        val next = when {
++            order.isEmpty() -> null
++            cur == null -> if (dy < 0 || dx < 0) null else order.first()
++            dx != 0 -> order.getOrNull(order.indexOf(cur) + dx)
++            else -> {
++                val (cx, cy) = pos.getValue(cur)
++                val row = order.filter { val y = pos.getValue(it).second; if (dy > 0) y > cy + dp(4) else y < cy - dp(4) }
++                val rowY = if (dy > 0) row.minOfOrNull { pos.getValue(it).second } else row.maxOfOrNull { pos.getValue(it).second }
++                row.filter { kotlin.math.abs(pos.getValue(it).second - (rowY ?: 0)) <= dp(12) }.minByOrNull { kotlin.math.abs(pos.getValue(it).first - cx) }
++            }
++        }
++        if (next != null) { setPadFocus(next); return }
++        if (dy == 0) return
++        if (dy < 0 && cur != null && cur === order.firstOrNull()) setPadFocus(null)
++        firstScroll(page)?.let { it.smoothScrollBy(0, dy * it.height / 3) }
++    }
++
++    /** A on the pad over the open tracker: clicks what [move] outlined; false when nothing is. */
++    fun press(): Boolean {
++        val v = padFocus?.takeIf { it.isShown } ?: return false
++        v.performClick()
++        return true
++    }
++
 +    private fun select(index: Int) {
++        setPadFocus(null)
 +        selectedTab = index
 +        pages.forEachIndexed { i, p -> p.visibility = if (i == index) View.VISIBLE else View.GONE }
 +        styleTabs()
@@ -8783,6 +8891,13 @@ index 0000000..998a458
 +        daily.SHOW_TITLES.forEachIndexed { i, title ->
 +            spinRow(title, { if (daily.shown(context, i)) "Shown" else "Hidden" }) { daily.toggle(context, i) }
 +        }
++        column.addView(
++            Button(context).apply {
++                text = "Back to main menu"
++                setOnClickListener { Smz3ScreenMode.trackerOpen.value = false; Smz3Hotkeys.leave?.invoke() }   // the game saves as Back does
++            },
++            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(24) },
++        )
 +        return ScrollView(context).apply { isScrollbarFadingEnabled = false; addView(column) }
 +    }
 +
@@ -9380,10 +9495,10 @@ index 0000000..f5b88e6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
 new file mode 100644
-index 0000000..039ea09
+index 0000000..be6a9c5
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3ScreenMode.kt
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,158 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -9425,7 +9540,7 @@ index 0000000..039ea09
 +    /**
 +     * Pad keys in single-screen mode: R3 pressed and released on its own opens and closes the tracker, and goes on to
 +     * the rest so combos with it (L3 + R3 opens the menu) still work; while the tracker covers the game (landscape),
-+     * L1 and R1 change tab and B closes it. True when the key was used here.
++     * L1 and R1 change tab, the d-pad moves through the page, A presses and B closes it. True when the key was used here.
 +     */
 +    fun onKey(event: android.view.KeyEvent): Boolean {
 +        if (!singleActive) return false
@@ -9446,9 +9561,32 @@ index 0000000..039ea09
 +            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(-1) } else return false
 +            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> if (overlay) { if (down) Smz3Tracker.embedded?.step(1) } else return false
 +            android.view.KeyEvent.KEYCODE_BUTTON_B -> if (overlay) { if (down) trackerOpen.value = false } else return false
++            android.view.KeyEvent.KEYCODE_DPAD_UP -> if (overlay && event.action == android.view.KeyEvent.ACTION_DOWN) Smz3Tracker.embedded?.move(0, -1) else return false
++            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> if (overlay && event.action == android.view.KeyEvent.ACTION_DOWN) Smz3Tracker.embedded?.move(0, 1) else return false
++            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> if (overlay && event.action == android.view.KeyEvent.ACTION_DOWN) Smz3Tracker.embedded?.move(-1, 0) else return false
++            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> if (overlay && event.action == android.view.KeyEvent.ACTION_DOWN) Smz3Tracker.embedded?.move(1, 0) else return false
++            android.view.KeyEvent.KEYCODE_BUTTON_A -> if (overlay && event.action == android.view.KeyEvent.ACTION_DOWN) { if (down) Smz3Tracker.embedded?.press() } else return false   // releases reach the game
 +            else -> return overlay && swallowed(event)
 +        }
 +        return true
++    }
++
++    private var hatX = 0
++    private var hatY = 0
++
++    /** A pad whose d-pad is a hat axis: over the open tracker its presses move through the page as the d-pad keys do. */
++    fun onMotion(event: android.view.MotionEvent): Boolean {
++        val x = Math.round(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X))
++        val y = Math.round(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y))
++        val moved = x != hatX || y != hatY
++        if (moved && singleActive && trackerOpen.value && landscape) {
++            if (x != 0 && x != hatX) Smz3Tracker.embedded?.move(x, 0)
++            if (y != 0 && y != hatY) Smz3Tracker.embedded?.move(0, y)
++            hatX = x; hatY = y
++            return x != 0 || y != 0   // a hat back in the middle still reaches the game, so nothing stays held
++        }
++        hatX = x; hatY = y
++        return false
 +    }
 +
 +    /** Under the open tracker the game gets no pad presses, but releases go through (none stays held) and so do the
@@ -9736,10 +9874,10 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..6b0c054
+index 0000000..0dc0f9e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
-@@ -0,0 +1,493 @@
+@@ -0,0 +1,498 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -9927,6 +10065,7 @@ index 0000000..6b0c054
 +            var lastGame = 0
 +            var countersSlot: Int? = null
 +            var nextGoalsReport = SystemClock.elapsedRealtime() + 300_000
++            var nextPlaying = SystemClock.elapsedRealtime() + 15_000   // a ranked monthly or weekly run counts as played: soon, then every 4 minutes
 +            while (isActive) {
 +                // a full read every 500 ms; in between, while a run is being played, a light check every 100 ms so the
 +                // end of the run is taken close to the real moment (the final time is what the ladder keeps)
@@ -10194,6 +10333,10 @@ index 0000000..6b0c054
 +                            if (SystemClock.elapsedRealtime() >= nextGoalsReport || finishing) {
 +                                nextGoalsReport = SystemClock.elapsedRealtime() + 300_000
 +                                reportGoals(context, slot, run.id)
++                            }
++                            if (SystemClock.elapsedRealtime() >= nextPlaying && !finishing && run.completedAt == 0L) {
++                                nextPlaying = SystemClock.elapsedRealtime() + 240_000
++                                Thread { OnlineLadder.ping(context, slot) }.start()
 +                            }
 +                            if (run.completedAt == 0L) baseMs = totalMs
 +                            pendingPlayTime = 0
@@ -12920,10 +13063,10 @@ index c3c69c7..13cb599 100644
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
 new file mode 100644
-index 0000000..6742946
+index 0000000..387684b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,207 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -12946,7 +13089,6 @@ index 0000000..6742946
 +    const val ERROR = 2
 +    /** The race game's slot, after the daily challenge's; never listed with the runs. */
 +    const val SLOT = RunStore.SLOTS + 1
-+    private const val BASE = "https://smz3-universe.duckdns.org"
 +
 +    private class Req(val what: String, val fields: JSONObject?, val withToken: Boolean)
 +
@@ -12964,8 +13106,7 @@ index 0000000..6742946
 +    private var worker: Thread? = null
 +    @Volatile private var busy = false
 +
-+    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one), as for the daily challenge. */
-+    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++    private fun base(): String = OnlineLadder.server()
 +
 +    fun proofFile(context: Context) = File(RunStore.runsDir(context), "slot$SLOT.proof")   // where OnlineLadder.noteChecks writes it
 +
@@ -13852,10 +13993,10 @@ index ed9b150..5c228d4 100644
  </manifest>
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
 new file mode 100644
-index 0000000..1655f82
+index 0000000..fa51cc8
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,91 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -13874,11 +14015,9 @@ index 0000000..1655f82
 + * installer. Release APKs share the signing key, so it installs over this one and keeps its data.
 + */
 +object AppUpdate {
-+    private const val BASE = "https://smz3-universe.duckdns.org"
 +    private const val APK = "SMZ3-android-arm64.apk"
 +
-+    /** Test hook: /sdcard/SMZ3/server.txt names another server (a local one), as for the daily challenge. */
-+    private fun base(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++    private fun base(): String = OnlineLadder.server()
 +
 +    /** The last /api/version answer, kept for the menu's next opening. */
 +    @Volatile var latest: String? = null
@@ -14225,7 +14364,7 @@ index 0000000..e470c29
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
 new file mode 100644
-index 0000000..6ef0de0
+index 0000000..faaa42a
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
 @@ -0,0 +1,436 @@
@@ -14496,7 +14635,7 @@ index 0000000..6ef0de0
 +
 +    private fun host() = base.substringAfter("://")
 +
-+    private fun cfg(context: Context) = arrayOf(base, token, device, OnlineLadder.BASE, OnlineLadder.installIdFor(context), "Android " + android.os.Build.MODEL)
++    private fun cfg(context: Context) = arrayOf(base, token, device, OnlineLadder.server(), OnlineLadder.installIdFor(context), "Android " + android.os.Build.MODEL)
 +
 +    private fun say(m: String) { messages.add(m) }
 +

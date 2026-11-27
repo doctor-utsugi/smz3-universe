@@ -18,12 +18,17 @@ void online_init(SmzUi *u);
 void online_save_profile(SmzUi *u);
 /* 0 offline, 1 original-rules ladder, 2 monthly seed, 3 weekly run. */
 int online_slot_kind(int slot);
+/* The server asked: SMZ3_SERVER, else the first line of server.txt in the data folder (a staging copy for tests), else
+ * the real one. online_staging: 1 when it is not the real one. */
+const char *online_server(void);
+int online_staging(void);
 /* Records what the menu answered for the run just generated; preset is its race preset's key (ui_run_preset_key), "" for Original. */
 void online_mark_run(int slot, int online, int kind, const char *preset);   /* kind as online_slot_kind (1 when online is set and nothing else applies) */
-/* This month's label and seed (fetched, or the copy of the same month); 0 on none. Blocks up to a few seconds. */
-int online_monthly(char label[16], int *seed);
+/* This month's label and seed (fetched, or the copy of the same month); 0 on none. Blocks up to a few seconds. playing: the
+ * ranked players on it now, 0 when the server could not be asked. */
+int online_monthly(char label[16], int *seed, int *playing);
 int online_days_left(void);
-int online_weekly(char label[16], int *seed);
+int online_weekly(char label[16], int *seed, int *playing);
 /* The server's answer for one ladder table (tab 0 original, or the race preset's table when preset is not "", 1 monthly, 2 weekly):
  * 1 with the JSON in out, 0 when it failed. */
 int online_ladder_json(int tab, const char *preset, char *out, size_t cap);
@@ -31,6 +36,8 @@ int online_ladder_json(int tab, const char *preset, char *out, size_t cap);
 int online_goals_json(char *out, size_t cap);
 /* Sends a run's world goal counters (smz_counters_text); the run is told apart by its slot and when it was made. Blocks. */
 int online_goals_report(int slot, int64_t created, int online, const char *counters);
+/* Tells the server a ranked monthly or weekly run is being played now (its "Playing" count); nothing for other runs. */
+int online_playing_ping(int slot);
 int online_weekly_days_left(void);
 /* Asks for the token of an online run once; 1 when the slot has one (or is not online). Blocks. */
 int online_ensure_token(int slot);

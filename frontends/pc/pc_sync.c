@@ -17,7 +17,6 @@
 #include <SDL.h>
 
 #define DEFAULT_ROMM "https://romm.example.com"
-#define DEFAULT_SERVER "https://smz3-universe.duckdns.org"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;   /* one sync call at a time */
 static SmzRomm g_romm;
@@ -168,7 +167,7 @@ static void sync_ctx(SmzSync *s)
 {
     memset(s, 0, sizeof *s);
     s->romm = &g_romm;
-    snprintf(s->server, sizeof s->server, "%s", getenv("SMZ3_SERVER") ? getenv("SMZ3_SERVER") : DEFAULT_SERVER);
+    snprintf(s->server, sizeof s->server, "%s", online_server());   /* the staging copy too, when server.txt names one */
     online_install_id(s->install);
     device_name(s->device, sizeof s->device);
     s->now_ms = now_ms();

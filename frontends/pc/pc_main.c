@@ -261,10 +261,10 @@ static int cmd_new(int argc, char **argv)
 static int cmd_online(void)
 {
     char label[16];
-    int seed;
-    if (online_monthly(label, &seed)) printf("monthly seed %d (%s), %d days left\n", seed, label, online_days_left());
+    int seed, playing;
+    if (online_monthly(label, &seed, &playing)) printf("monthly seed %d (%s), %d days left, %d playing\n", seed, label, online_days_left(), playing);
     else printf("no monthly seed (no connection, or curl is missing)\n");
-    if (online_weekly(label, &seed)) printf("weekly seed %d (%s), %d days left\n", seed, label, online_weekly_days_left());
+    if (online_weekly(label, &seed, &playing)) printf("weekly seed %d (%s), %d days left, %d playing\n", seed, label, online_weekly_days_left(), playing);
     for (int i = 1; i <= UI_SLOTS; i++) if (online_slot_kind(i)) printf("slot %d is on the %s ladder\n", i, online_slot_kind(i) == 3 ? "weekly" : online_slot_kind(i) == 2 ? "monthly" : "original");
     return 0;
 }
@@ -795,9 +795,9 @@ static int g_quit;
 
 /* the monthly seed is fetched in the background; the menu takes it when it arrives (for the game it was asked for) */
 static char g_month[16];
-static int g_month_seed, g_month_ready, g_month_mode;
+static int g_month_seed, g_month_ready, g_month_mode, g_month_playing;
 static char g_week[16];
-static int g_week_seed, g_week_ready, g_week_mode;
+static int g_week_seed, g_week_ready, g_week_mode, g_week_playing;
 /* the three ladder tables are fetched in the background when the player opens them */
 static char g_ladder[3][16384];
 static int g_ladder_state[3], g_ladder_mode[3];   /* 0 idle, 1 fetching, 2 ready, 3 failed; the game they were asked for */
@@ -830,8 +830,8 @@ static void *ladder_thread(void *arg)
     return NULL;
 }
 
-static void *monthly_thread(void *arg) { (void)arg; char l[16]; int s; if (online_monthly(l, &s)) { snprintf(g_month, sizeof g_month, "%s", l); g_month_seed = s; g_month_mode = store_get_mode(); g_month_ready = 1; }
-    if (online_weekly(l, &s)) { snprintf(g_week, sizeof g_week, "%s", l); g_week_seed = s; g_week_mode = store_get_mode(); g_week_ready = 1; } return NULL; }
+static void *monthly_thread(void *arg) { (void)arg; char l[16]; int s, n; if (online_monthly(l, &s, &n)) { snprintf(g_month, sizeof g_month, "%s", l); g_month_seed = s; g_month_playing = n; g_month_mode = store_get_mode(); g_month_ready = 1; }
+    if (online_weekly(l, &s, &n)) { snprintf(g_week, sizeof g_week, "%s", l); g_week_seed = s; g_week_playing = n; g_week_mode = store_get_mode(); g_week_ready = 1; } return NULL; }
 static void save_proof(int slot, const SmzProof *p)
 {
     static char text[SMZ_PROOF_MAX * 24];
@@ -893,6 +893,8 @@ static void *goals_report_thread(void *arg)
     free(g);
     return NULL;
 }
+
+static void *playing_thread(void *arg) { online_playing_ping((int)(intptr_t)arg); return NULL; }
 
 static void goals_report(int slot, const SmzRun *run)
 {
@@ -2035,6 +2037,7 @@ static void play(int slot, int game_save_only)
     smz_tracker_reset(&trk, run.play_ms, run.save_ms, run.save_zelda, run.save_metroid);
     smz_counters_load(&g_goalc, run.goals);
     Uint32 next_goals = SDL_GetTicks() + 300000;
+    Uint32 next_ping = SDL_GetTicks() + 15000;   /* a ranked monthly or weekly run counts as played: soon, then every 4 minutes */
     smz_goal_from_settings(run.settings, &trk.goal);   /* a daily challenge or a Draft ends at its goal */
     trk.counts = &g_goalc;
     int challenge = strstr(run.settings, "\"challenge\":true") != NULL;   /* no fast forward (save states are off in its settings) */
@@ -2123,6 +2126,7 @@ static void play(int slot, int game_save_only)
     (void)last_tick_ms;
     Uint32 mouse_at = SDL_GetTicks();   /* the pointer hides while the game moves and the mouse has been still a moment */
     int pointer_off = 0;
+    settings_quit_label("Back to main menu");
     while (running) {
         {
             size_t lwl;
@@ -2575,6 +2579,7 @@ static void play(int slot, int game_save_only)
             smz_counters_text(&g_goalc, run.goals, sizeof run.goals);
             store_run_save(slot + 1, &run);
             if (SDL_GetTicks() >= next_goals) { next_goals = SDL_GetTicks() + 300000; goals_report(slot + 1, &run); }
+            if (SDL_GetTicks() >= next_ping) { next_ping = SDL_GetTicks() + 240000; detach(playing_thread, (void *)(intptr_t)(slot + 1)); }
             if (proof_dirty) { save_proof(slot + 1, &proof); proof_dirty = 0; }
             if (disc.dirty) {
                 char text[8192];
@@ -2641,10 +2646,10 @@ static void play(int slot, int game_save_only)
                 gfx_text(gx + gw / 2, wh - 44 * u - px / 2, px, msg == hint_note ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2), 1, fm);
             }
         }
-        if (!show && !ren2 && !rw_open && !rg.card) {   /* one window: the button that opens the tracker, in the free space right of the game */
+        if (!show && !ren2 && !rw_open && !rg.card) {   /* one window: the button that opens the tracker, bottom left in the free space beside the game */
             float u = wh / 720.0f, h = 22 * u, px = 17 * u, y = wh - 20 * u;
-            float need = h * 3.2f + gfx_text_width(px, "Tracker") + 20 * u, side = ww - (gx + gw);
-            float x = side >= need ? gx + gw + (side - need) / 2 + 10 * u : gx + 10 * u;
+            float need = h * 3.2f + gfx_text_width(px, "Tracker") + 20 * u, side = gx;
+            float x = side >= need ? (side - need) / 2 + 10 * u : gx + 10 * u;
             if (side < need) gfx_rect(x - 4 * u, y - h / 2 - 4 * u, need - 12 * u, h + 8 * u, (SDL_Color){0x08, 0x0B, 0x11, 150});   /* over the game: a backing */
             x += help_icon(x, y, h, pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER)) + 7 * u;
             gfx_text(x, y - px / 2, px, C(0x87, 0x93, 0xA6), 0, "Tracker");
@@ -2773,6 +2778,7 @@ static void play(int slot, int game_save_only)
     }
 
     SDL_ShowCursor(SDL_ENABLE);
+    settings_quit_label("Quit");
     if (win2) dual_close();
     if (rg.on) {   /* out before the finish: the rivals see it at once */
         const SmzRacePlayer *me = smz_race_me(&ui.race.room);
@@ -3099,6 +3105,7 @@ static void window_main(int start_slot)
     ui_init(&ui);
     sm_card();
     snprintf(ui.version, sizeof ui.version, "%s", SMZ3_VERSION);   /* one screen: the run list carries the release */
+    ui.staging = online_staging();
     pad_cfg_load();
     sc_cfg_load();
     settings_init(&(SettingsHooks){welcome_setup, note, toggle_fullscreen, quit_menu, is_fullscreen, set_window_size});
@@ -3272,7 +3279,7 @@ static void window_main(int start_slot)
                 if (!launch_at && (fire & DIR[i].bit)) menu_button(DIR[i].b);
         }
 
-        if (g_month_ready) { g_month_ready = 0; ui_set_monthly_game(&ui, g_month_mode, g_month, g_month_seed, online_days_left()); }
+        if (g_month_ready) { g_month_ready = 0; ui_set_monthly_game(&ui, g_month_mode, g_month, g_month_seed, online_days_left()); ui_set_playing(&ui, g_month_mode, 0, g_month_playing); }
         for (int t = 0; t < 3; t++)
             if (g_ladder_state[t] >= 2) { if (g_ladder_mode[t] == ui.game_mode) ui_ladder_load_json(&ui, t, g_ladder_state[t] == 2 ? g_ladder[t] : NULL); g_ladder_state[t] = 0; }
         if (g_goals_state >= 2) { if (g_goals_mode == ui.game_mode) ui_world_load_json(&ui, g_goals_state == 2 ? g_goals : NULL); g_goals_state = 0; }
@@ -3280,7 +3287,7 @@ static void window_main(int start_slot)
             static Uint32 next_world;   /* the World tab refreshes once a minute while it is shown */
             if (ui_world_showing(&ui) && !g_goals_state && (SDL_GetTicks() >= next_world || !ui.world.loaded)) { next_world = SDL_GetTicks() + 60000; g_goals_state = 1; detach(goals_thread, NULL); }   /* at once for a game just entered */
         }
-        if (g_week_ready) { g_week_ready = 0; ui_set_weekly_game(&ui, g_week_mode, g_week, g_week_seed, online_weekly_days_left()); }
+        if (g_week_ready) { g_week_ready = 0; ui_set_weekly_game(&ui, g_week_mode, g_week, g_week_seed, online_weekly_days_left()); ui_set_playing(&ui, g_week_mode, 1, g_week_playing); }
         online_save_profile(&ui);
         if (ui_saved_dirty(&ui)) {
             char text[8192];

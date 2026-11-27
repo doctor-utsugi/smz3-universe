@@ -68,7 +68,10 @@ typedef struct { int16_t x, y, w, h; uint8_t kind; int16_t idx; } UiHit;
 enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME, H_CREDITS, H_CLOUD, H_ROMS };
 
 /* One game's monthly and weekly seeds as the host gave them (ui_set_monthly_game, ui_set_weekly_game). */
-typedef struct { char monthly_label[16]; int monthly_seed, monthly_days; char weekly_label[16]; int weekly_seed, weekly_days; } UiGamePeriods;
+typedef struct {
+    char monthly_label[16]; int monthly_seed, monthly_days; char weekly_label[16]; int weekly_seed, weekly_days;
+    int monthly_playing, weekly_playing;   /* ranked players on each seed right now (ui_set_playing; 0 hides the count) */
+} UiGamePeriods;
 
 typedef struct {
     UiScreen screen, back;
@@ -89,6 +92,7 @@ typedef struct {
     int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
     char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
+    int staging;        /* set by the host: the online calls go to a test server (server.txt), shown in the top corner */
     char update[16];    /* a newer release ("v0.9.0") than this build, "" none; update_install: the host can install it */
     int update_install;
     char player[24], country[3]; /* the profile sent with finished runs; country is an ISO 3166 code or empty */
@@ -120,6 +124,7 @@ typedef struct {
     int roms_on, roms_cursor, roms_auto;   /* the host shows the ROMs screen after the logo while a base ROM is missing / its button / opened by the logo, untouched */
     char roms_hint[64];         /* how this host takes ROMs, shown on it */
     int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
+    int game_from, game_delta, game_ms;   /* the carousel turn under way: where it started, how far it goes, its time so far */
     int game_mode, game_cursor, game_spin, game_state[3];   /* the game entered (SMZ_MODE_*) / the carousel's front card / where it is turned to, in thousandths of a card / UI_GAME_* per game */
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
     int menu_music;   /* the Menu music row's value: the host plays the menu's music while it is 1 */
@@ -251,6 +256,9 @@ void ui_apply_spec(SmzUi *u, const char *spec);
 void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left);
 void ui_set_weekly_game(SmzUi *u, int mode, const char *label, int seed, int days_left);
 int ui_run_weekly(const SmzUi *u);
+/* How many ranked players are on a game's (SMZ_MODE_*) monthly (weekly 0) or weekly (1) seed now, as the server's /api/monthly
+ * and /api/weekly say in "playing"; shown on the New run row and on that kind of saved run when above 0. */
+void ui_set_playing(SmzUi *u, int mode, int weekly, int n);
 /* The option values a run of the current mode must keep to count as rules-unchanged (defaults, except what the weekly run limits). */
 void ui_expected_values(const SmzUi *u, int *want);
 /* 1 when the run being started is the monthly seed run. */

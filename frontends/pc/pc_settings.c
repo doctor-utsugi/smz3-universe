@@ -14,6 +14,9 @@
 
 enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_VIDEO, S_SC, S_SCBIND };
 #define MAIN_COUNT 4
+static const char *quit_label = "Quit";   /* "Back to main menu" while a run is played */
+
+void settings_quit_label(const char *label) { quit_label = label; }
 #ifdef __linux__
 #define VIDEO_ROWS 11
 #else
@@ -401,7 +404,7 @@ void settings_draw(float k, float ox, float oy)
     const char *hint = "A Choose  B Back";
     (void)hint;
     if (screen == S_MAIN) {
-        static const char *const L[] = {"Buttons and keys", "Video", "Item shortcuts", "Quit"};
+        const char *const L[] = {"Buttons and keys", "Video", "Item shortcuts", quit_label};
         for (int i = 0; i < MAIN_COUNT; i++) row(k, ox, oy, i, L[i], NULL, i == cursor);
         hint = "A Choose  B Back";
     } else if (screen == S_VIDEO) {

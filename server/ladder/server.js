@@ -4,8 +4,9 @@
 //   id.install.kind.period.startedAt.game.preset.sig for a race preset's table (PRESETS).
 //   POST /api/finish  {token, timeMs, player, country, proof, seed?} -> {ok, rank}   (proof: "loc ms" lines, see below)
 //   GET  /api/ladder  ?kind=original[&preset=] | ?kind=monthly&month=YYYY-MM | ?kind=weekly&week=YYYY-Www
-//   GET  /api/monthly ?game=                       -> {month, seed, months:[...]}
-//   GET  /api/weekly  ?game=                       -> {week, seed, weeks:[...], endsAt}
+//   GET  /api/monthly ?game=                       -> {month, seed, months:[...], playing}
+//   GET  /api/weekly  ?game=                       -> {week, seed, weeks:[...], endsAt, playing}
+//   POST /api/playing {token}                      -> {ok, playing?}   a ranked monthly/weekly run is being played (playing: how many now)
 //   Every ladder call takes an optional game (GAMES); without one it is smz3, so released apps keep working.
 //   /api/daily..., /api/tokens: the daily timed challenge, see daily.js
 //   /api/goals...: the world goals of the month, see goals.js
@@ -26,6 +27,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = Number(process.env.PORT || 3360);
+const HOST = process.env.HOST || '127.0.0.1';   // production sits behind its proxy; the staging copy listens on its own
+// Staging only: the address prefixes it answers (the home network, the VPN); anything else is hung up on. Unset in production.
+const ALLOW = (process.env.SMZ3_ALLOW || '').split(',').map(s => s.trim()).filter(Boolean);
 const DIR = process.env.LADDER_DIR || path.join(__dirname, 'data');
 const DATA = path.join(DIR, 'ladder.json');
 const SECRET_FILE = path.join(DIR, 'secret');
@@ -97,6 +101,23 @@ setInterval(() => {
 }, 600000).unref();
 
 const periodOfRun = r => r.period || r.month;
+
+// Who is playing a ranked monthly or weekly run now: each device posts its run's token while it plays (/api/playing);
+// one heard from in the last LIVE_MS that has not finished counts. Kept in memory: a restart only empties it for a while.
+const LIVE_MS = 10 * 60 * 1000;
+const live = new Map();   // game:kind:period -> Map(install -> last heard)
+function tokenParts(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length < 6 || parts.length > 8) return null;
+  const sig = Buffer.from(parts[parts.length - 1]), want = Buffer.from(hmac(parts.slice(0, -1).join('.')));
+  return sig.length === want.length && crypto.timingSafeEqual(sig, want) ? parts : null;
+}
+function playingNow(game, kind, period) {
+  const m = live.get(game + ':' + kind + ':' + period), now = Date.now();
+  if (!m) return 0;
+  for (const [inst, at] of m) if (now - at > LIVE_MS) m.delete(inst);
+  return m.size;
+}
 function ladder(game, kind, month, preset = '') {
   const best = new Map();   // best run per install
   for (const r of db.runs) {
@@ -236,6 +257,7 @@ const periods = (game, kind) => [...new Set(db.runs.filter(r => gameOfRun(r) ===
 
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
+  if (ALLOW.length && !ALLOW.some(p => (req.socket.remoteAddress || '').replace(/^::ffff:/, '').startsWith(p))) return req.socket.destroy();
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',').pop().trim();   // the entry the proxy appended
   if (url.pathname.startsWith('/api/')) console.log(new Date().toISOString(), req.method, url.pathname);
   if (req.method === 'OPTIONS') return send(res, 204, '');
@@ -259,11 +281,11 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/games') return send(res, 200, { games: GAMES, presets: presetList });
   if (req.method === 'GET' && url.pathname === '/api/monthly') {
     const month = monthOf(Date.now());
-    return send(res, 200, { month, seed: seedFor(qgame, month), months: periods(qgame, 'monthly') });
+    return send(res, 200, { month, seed: seedFor(qgame, month), months: periods(qgame, 'monthly'), playing: playingNow(qgame, 'monthly', month) });
   }
   if (req.method === 'GET' && url.pathname === '/api/weekly') {
     const week = weekOf(Date.now());
-    return send(res, 200, { week, seed: seedFor(qgame, week), weeks: periods(qgame, 'weekly'), endsAt: weekEnd(Date.now()) });
+    return send(res, 200, { week, seed: seedFor(qgame, week), weeks: periods(qgame, 'weekly'), endsAt: weekEnd(Date.now()), playing: playingNow(qgame, 'weekly', week) });
   }
   if (req.method === 'GET' && url.pathname === '/api/ladder') {
     const k = url.searchParams.get('kind');
@@ -290,6 +312,19 @@ http.createServer((req, res) => {
       send(res, 200, { token: body + '.' + hmac(body), seed });
     });
   }
+  if (req.method === 'POST' && url.pathname === '/api/playing') {
+    if (limited('p', ip, 60)) return send(res, 429, { error: 'slow down' });
+    return readJson(req, res, b => {
+      const parts = onlyKeys(b, ['token']) ? tokenParts(b.token) : null;
+      if (!parts || (parts[2] !== 'monthly' && parts[2] !== 'weekly')) return send(res, 400, { error: 'invalid' });
+      const game = parts.length >= 7 ? gameOf(parts[5]) : 'smz3';
+      if (!game || used.has(parts[0]) || Date.now() - Number(parts[4]) > MAX_MS) return send(res, 200, { ok: true });   // finished or too old: not counted
+      const key = game + ':' + parts[2] + ':' + parts[3];
+      if (!live.has(key)) live.set(key, new Map());
+      live.get(key).set(playerOf(parts[1]), Date.now());
+      send(res, 200, { ok: true, playing: playingNow(game, parts[2], parts[3]) });
+    });
+  }
   if (req.method === 'POST' && url.pathname === '/api/finish') {
     if (limited('f', ip, FINISH_PER_HOUR)) return send(res, 429, { error: 'slow down' });
     return readJson(req, res, b => {
@@ -310,6 +345,8 @@ http.createServer((req, res) => {
         if (err) return send(res, 400, { error: err });
         if (used.has(id)) return send(res, 200, { ok: true, duplicate: true });
         used.add(id);
+        const here = live.get(game + ':' + kind + ':' + month);
+        if (here) here.delete(install);
         const mine = db.runs.findIndex(r => r.install === install && gameOfRun(r) === game && r.kind === kind && (r.preset || '') === preset && (kind !== 'original' ? periodOfRun(r) === month : true) && !r.hold === !verdict.suspect);
         const entry = { game: game === 'smz3' ? undefined : game, kind, preset: preset || undefined, month: kind === 'monthly' ? month : undefined, period: kind === 'weekly' ? month : undefined, player: clean(b.player, 24) || 'Player', country: /^[A-Z]{2}$/.test(b.country) ? b.country : '', timeMs, finishedAt: Date.now(), install, hold: verdict.suspect ? verdict.reason : undefined };
         if (mine < 0) db.runs.push(entry);
@@ -323,4 +360,4 @@ http.createServer((req, res) => {
     });
   }
   send(res, 404, { error: 'not found' });
-}).listen(PORT, '127.0.0.1', () => console.log('smz3 ladder on 127.0.0.1:' + PORT));
+}).listen(PORT, HOST, () => console.log('smz3 ladder on ' + HOST + ':' + PORT + (ALLOW.length ? ' for ' + ALLOW.join(' ') : '')));

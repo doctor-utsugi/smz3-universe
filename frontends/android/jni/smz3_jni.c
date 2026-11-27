@@ -771,6 +771,10 @@ JNIEXPORT void JNICALL NATIVE(uiSetWeekly)(JNIEnv *env, jclass cls, jint mode, j
     (*env)->ReleaseStringUTFChars(env, label, l);
 }
 
+JNIEXPORT void JNICALL NATIVE(uiSetStaging)(JNIEnv *env, jclass cls, jboolean on) { g_ui.staging = on; }
+
+JNIEXPORT void JNICALL NATIVE(uiSetPlaying)(JNIEnv *env, jclass cls, jint mode, jint weekly, jint n) { ui_set_playing(&g_ui, mode, weekly, n); }
+
 JNIEXPORT void JNICALL NATIVE(uiLadderEnable)(JNIEnv *env, jclass cls, jboolean on) { ui_ladder_enable(&g_ui, on); }
 
 /* The server's answer for one online table (0 original, 1 monthly, 2 weekly); null marks it failed. */

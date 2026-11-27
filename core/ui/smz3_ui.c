@@ -244,10 +244,17 @@ static void roms_input(SmzUi *u, UiButton b)
 void ui_tick(SmzUi *u, int ms)
 {
     if (u->screen == UI_LOGO && (u->logo_ms -= ms) <= 0) { u->screen = roms_missing(u) ? UI_ROMS : UI_GAMES; u->roms_auto = 1; u->roms_cursor = 0; }
-    if (u->screen == UI_GAMES) {   /* the ring eases to the front card the short way round */
-        int want = u->game_cursor * 1000, d = ((want - u->game_spin) % 3000 + 4500) % 3000 - 1500, step = d * ms / 120;
-        u->game_spin = (abs(d) <= 4 || !step ? want : u->game_spin + step) % 3000;
-        if (u->game_spin < 0) u->game_spin += 3000;
+    if (u->screen == UI_GAMES) {   /* the ring turns to the front card the short way round, easing out to a stop in TURN_MS */
+        enum { TURN_MS = 320 };
+        int want = u->game_cursor * 1000;
+        if ((u->game_from + u->game_delta - want) % 3000) {   /* a new front card: the turn starts again from where the ring is */
+            u->game_from = u->game_spin;
+            u->game_delta = ((want - u->game_spin) % 3000 + 4500) % 3000 - 1500;
+            u->game_ms = 0;
+        }
+        u->game_ms = u->game_ms + ms < TURN_MS ? u->game_ms + ms : TURN_MS;
+        float t = 1.0f - (float)u->game_ms / TURN_MS;
+        u->game_spin = ((u->game_from + (int)lroundf(u->game_delta * (1.0f - t * t * t))) % 3000 + 3000) % 3000;
     }
     if (u->screen == UI_RACE_LIST && (u->race.find_ms += ms) >= 5000 && u->action == ACT_NONE) { u->race.find_ms = 0; u->action = ACT_RACE_FIND; }   /* the list stays fresh */
 }
@@ -1253,6 +1260,19 @@ void ui_set_weekly_game(SmzUi *u, int mode, const char *label, int seed, int day
 
 void ui_set_weekly(SmzUi *u, const char *label, int seed, int days_left) { ui_set_weekly_game(u, SMZ_MODE_SMZ3, label, seed, days_left); }
 
+void ui_set_playing(SmzUi *u, int mode, int weekly, int n)
+{
+    if (mode < 0 || mode >= SMZ_MODE_COUNT) return;
+    *(weekly ? &u->periods[mode].weekly_playing : &u->periods[mode].monthly_playing) = n > 0 ? n : 0;
+}
+
+/* The entered game's players on the seed of a run kind: online 2 monthly, 3 weekly (UiSlot.online); 0 for any other. */
+static int playing_on(const SmzUi *u, int online)
+{
+    const UiGamePeriods *g = &u->periods[u->game_mode];
+    return online == 2 ? g->monthly_playing : online == 3 ? g->weekly_playing : 0;
+}
+
 int ui_run_ladder(const SmzUi *u) { return online_game(u) && (u->run_mode >= 4 || ui_is_default(u)); }
 int ui_online_now(const SmzUi *u) { return u->player_on && u->online_mode == 1 && ui_run_ladder(u); }
 
@@ -1901,8 +1921,8 @@ static void slot_rich(SmzUi *u, int i, int y, int w)
         for (int d = 0, div = digits == 3 ? 100 : digits == 2 ? 10 : 1; d < digits; d++, div /= 10) { big_digit(u, x, y + 9, pct / div % 10, 5, color); x += 18; }
         text(u, x, y + 24, C_DIM, 0, "%");
     }
-    int fin = t->game == 3;
-    snprintf(s, sizeof s, fin ? "%.11s" : "%.20s", t->name);
+    int fin = t->game == 3, live = fin ? 0 : playing_on(u, t->online);
+    snprintf(s, sizeof s, fin || live ? "%.11s" : "%.20s", t->name);
     text(u, 88, y + 2, C_TEXT, 0, s);
     long long sec = t->play_ms / 1000;
     snprintf(s, sizeof s, "%lld:%02lld:%02lld", sec / 3600, sec / 60 % 60, sec % 60);
@@ -1911,6 +1931,13 @@ static void slot_rich(SmzUi *u, int i, int y, int w)
         int tx = 8 + w - 8 - (int)strlen(s) * 7 - 70;
         rect(u, tx, y + 1, 62, 11, C_GOLD);
         text(u, tx + 31, y + 2, C_BG, 1, "FINISHED");
+    }
+    if (live) {   /* others on the same seed now, under a green tag */
+        char tag[16];
+        snprintf(tag, sizeof tag, "%d PLAYING", live);
+        int tw = (int)strlen(tag) * 7 + 6, tx = 8 + w - 8 - (int)strlen(s) * 7 - tw - 8;
+        rect(u, tx, y + 1, tw, 11, C_GREEN);
+        text(u, tx + tw / 2, y + 2, C_BG, 1, tag);
     }
     /* Link with the crystals the run asks for, Samus with its bosses; what is missing is dark (the pictures are dimmed).
      * All seven crystals go by number; fewer are slots filled by the count, the bosses beaten first. */
@@ -2425,6 +2452,11 @@ void ui_draw(SmzUi *u)
         snprintf(buf, sizeof buf, "Slot %d  %s", u->active_slot + 1, u->slots[u->active_slot].name);
         title(u, buf);
         text(u, 16, 40, C_DIM, 0, u->slots[u->active_slot].summary);
+        if (playing_on(u, u->slots[u->active_slot].online)) {
+            int n = playing_on(u, u->slots[u->active_slot].online);
+            snprintf(buf, sizeof buf, "%d player%s on this seed right now", n, n == 1 ? "" : "s");
+            text(u, 16, 54, C_GREEN, 0, buf);
+        }
         hit(u, H_MENU, 0, 8, 70, UI_W - 16, 30);
         hit(u, H_MENU, 1, 8, 106, UI_W - 16, 30);
         rect(u, 8, 70, UI_W - 16, 30, u->menu_cursor == 0 ? C_SEL : C_PANEL);
@@ -2559,13 +2591,15 @@ void ui_draw(SmzUi *u)
             text(u, 38, y + 20, C_DIM, 0, NEEDS[i]);
             text(u, UI_W - 32, y + 13, ok ? C_GREEN : C_WARN, 2, ok ? "Found" : "Missing");
         }
-        text(u, UI_W / 2, 144, C_DIM, 1, all ? "Both are in: every game is ready" : u->roms_hint);
+        text(u, UI_W / 2, 144, all ? C_GREEN : C_DIM, 1, all ? "All good! Start playing!" : u->roms_hint);
         int bw = (UI_W - 60) / 2;
         for (int i = 0; i < 2; i++) {
             int x = 24 + i * (bw + 12);
-            rect(u, x, 164, bw, 28, i == u->roms_cursor ? C_SEL : C_PANEL);
+            int play = i && all;   /* both ROMs in: Play lights up green */
+            rect(u, x, 164, bw, 28, play ? C_GREEN : i == u->roms_cursor ? C_SEL : C_PANEL);
+            if (play && i == u->roms_cursor) { rect(u, x, 164, bw, 2, C_TEXT); rect(u, x, 190, bw, 2, C_TEXT); }   /* its focus, as green hides C_SEL */
             hit(u, H_ROMS, i, x, 164, bw, 28);
-            text(u, x + bw / 2, 172, C_TEXT, 1, i ? (all ? "Play" : "Later") : "Add ROMs");
+            text(u, x + bw / 2, 172, play ? C_BG : C_TEXT, 1, i ? (all ? "Play" : "Later") : "Add ROMs");
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         legend(u, all ? "A Choose  Left Right Move" : "A Choose  Left Right Move  B Later");
@@ -2729,6 +2763,8 @@ void ui_draw(SmzUi *u)
             hit(u, H_MODE, r, 8, y, UI_W - 16, rh);
             text(u, 20, y + dy, C_TEXT, 0, name);
             text(u, 20, y + dy + gap, C_DIM, 0, desc);
+            int live = k == 4 ? playing_on(u, 2) : k == 5 ? playing_on(u, 3) : 0;
+            if (live) { snprintf(buf, sizeof buf, "Playing: %d", live); text(u, UI_W - 18, y + dy, C_GREEN, 2, buf); }
         }
         legend(u, "A Choose  B Back");
         break;
@@ -3008,5 +3044,9 @@ void ui_draw(SmzUi *u)
     }
     smz_ui_w = full;
     smz_ui_h = full_h;
+    if (u->staging && u->screen != UI_LOGO) {   /* a test server: never mistaken for the real ladder */
+        rect(u, UI_W - 58, 0, 58, 11, C_WARN);
+        text(u, UI_W - 29, 1, C_BG, 1, "STAGING");
+    }
     u->screen = listed;
 }

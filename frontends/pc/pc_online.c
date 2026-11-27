@@ -17,6 +17,8 @@
 
 #define BASE "https://smz3-universe.duckdns.org"
 
+static char *read_text(const char *path);
+
 /* Runs curl without a shell. Returns the HTTP status (-1 when curl failed) and the body in out. */
 #ifdef _WIN32
 static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
@@ -24,7 +26,7 @@ static int http(const char *method, const char *path, const char *body, char *ou
     char req[600], res[600], cmd[2048], url[256];
     snprintf(req, sizeof req, "%s", store_path("tmp/request%lu.json", (unsigned long)GetCurrentThreadId()));   /* requests run on several threads */
     snprintf(res, sizeof res, "%s", store_path("tmp/response%lu.txt", (unsigned long)GetCurrentThreadId()));
-    snprintf(url, sizeof url, "%s%s", getenv("SMZ3_SERVER") ? getenv("SMZ3_SERVER") : BASE, path);
+    snprintf(url, sizeof url, "%s%s", online_server(), path);
     out[0] = 0;
     if (body && store_write(req, body, strlen(body))) return -1;
     int n = snprintf(cmd, sizeof cmd, "curl.exe -s -m 8 -X %s -H \"Content-Type: application/json\" ", method);
@@ -66,7 +68,7 @@ static int http(const char *method, const char *path, const char *body, char *ou
     out[0] = 0;
     if (pipe(in_pipe) || pipe(out_pipe)) return -1;
     char url[256];
-    snprintf(url, sizeof url, "%s%s", getenv("SMZ3_SERVER") ? getenv("SMZ3_SERVER") : BASE, path);
+    snprintf(url, sizeof url, "%s%s", online_server(), path);
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -141,6 +143,21 @@ static char *read_text(const char *path)
     if (t) t[n] = 0;
     return t;
 }
+
+const char *online_server(void)
+{
+    static char kept[200];
+    static int looked;
+    if (getenv("SMZ3_SERVER")) return getenv("SMZ3_SERVER");
+    if (!looked) {   /* read once: a test server for a whole session */
+        looked = 1;
+        char *t = read_text(store_path("server.txt"));
+        if (t) { t[strcspn(t, " \t\r\n")] = 0; if (!strncmp(t, "http", 4)) snprintf(kept, sizeof kept, "%s", t); free(t); }
+    }
+    return kept[0] ? kept : BASE;
+}
+
+int online_staging(void) { return strcmp(online_server(), BASE) != 0; }
 
 /* Windows builds before 2026-11-25 had no /dev/urandom and all wrote this id, so every Windows player was one install. */
 #define ZERO_ID "00000000-0000-0000-0000-000000000000"
@@ -243,11 +260,13 @@ static void iso_week(const struct tm *g, char *out, size_t cap)
     snprintf(out, cap, "%04d-W%02d", year, thursday / 7 + 1);
 }
 
-static int fetch_period(const char *path, const char *file, const char *key, int weekly, char label[16], int *seed)
+static int fetch_period(const char *path, const char *file, const char *key, int weekly, char label[16], int *seed, int *playing)
 {
     char body[512], s[32], m[16], url[64];
     snprintf(url, sizeof url, "%s%s", path, game_query('?'));
     int code = http("GET", url, NULL, body, sizeof body);
+    const char *p = code == 200 ? strstr(body, "\"playing\":") : NULL;
+    *playing = p ? atoi(p + 10) : 0;   /* only from a fresh answer: the cached file's count is old */
     if (code == 200 && json_str(body, "seed", s, sizeof s) && json_str(body, key, m, sizeof m) && atoi(s) > 0)
         store_write(store_path("runs/%s", file), body, strlen(body));
     char *t = read_text(store_path("runs/%s", file));
@@ -265,8 +284,8 @@ static int fetch_period(const char *path, const char *file, const char *key, int
     return ok;
 }
 
-int online_monthly(char label[16], int *seed) { return fetch_period("/api/monthly", "monthly.json", "month", 0, label, seed); }
-int online_weekly(char label[16], int *seed) { return fetch_period("/api/weekly", "weekly.json", "week", 1, label, seed); }
+int online_monthly(char label[16], int *seed, int *playing) { return fetch_period("/api/monthly", "monthly.json", "month", 0, label, seed, playing); }
+int online_weekly(char label[16], int *seed, int *playing) { return fetch_period("/api/weekly", "weekly.json", "week", 1, label, seed, playing); }
 
 int online_weekly_days_left(void)
 {
@@ -331,6 +350,19 @@ int online_goals_report(int slot, int64_t created, int online, const char *count
     if (country[0]) n += snprintf(body + n, sizeof body - (size_t)n, ",\"country\":\"%s\"", country);
     snprintf(body + n, sizeof body - (size_t)n, "}");
     return http("POST", "/api/goals/report", body, reply, sizeof reply) == 200;
+}
+
+int online_playing_ping(int slot)
+{
+    int kind = online_slot_kind(slot);
+    if (kind != 2 && kind != 3) return 0;   /* only ranked monthly and weekly runs are counted */
+    char *tk = read_text(store_path("runs/slot%d.token", slot));
+    if (!tk) return 0;
+    tk[strcspn(tk, "\r\n \"\\")] = 0;
+    char body[600], reply[128];
+    snprintf(body, sizeof body, "{\"token\":\"%.540s\"}", tk);
+    free(tk);
+    return http("POST", "/api/playing", body, reply, sizeof reply) == 200;
 }
 
 void online_queue_finish(int slot, int64_t time_ms, int seed)

@@ -749,9 +749,6 @@ static void page_config(float top)
 {
     float x = 16 * u, w = W - 32 * u, y = page_begin(TAB_CONFIG, 0, top, (float)W, H - top), b = 92 * u, wide = 150 * u;
     char s[48];
-    int armed = leave_at && SDL_GetTicks() - leave_at < LEAVE_MS;
-    button(x, y + 8 * u, w, 36 * u, armed ? "Tap again to leave" : "Save and leave the run", 1, HIT_LEAVE, 0);
-    y += 44 * u;
     y = cfg_head(x, y, "HOTKEYS  (tap a button to change it; hold the first, then press the second)");
     for (int a = 0; a < HK_COUNT; a++) {
         gfx_text(x, y + 10 * u, fit_px(hk_title(a), w - 2 * b - 12 * u, 16 * u, 10 * u), TEXT, 0, hk_title(a));
@@ -783,6 +780,9 @@ static void page_config(float top)
         const char *title = settings_video_row(VIDEO_DAILY + i, s, sizeof s);
         y = cfg_row(x, y, w, title, s, b, CF_DAILY + i);
     }
+    int armed = leave_at && SDL_GetTicks() - leave_at < LEAVE_MS;   /* a second tap confirms; the run is saved as on leaving */
+    button(x, y + 16 * u, w, 36 * u, armed ? "Tap again to go back" : "Back to main menu", 1, HIT_LEAVE, 0);
+    y += 52 * u;
     page_end(TAB_CONFIG, top, y + 12 * u);
 }
 
