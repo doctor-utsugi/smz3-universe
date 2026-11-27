@@ -84,6 +84,11 @@ const char *pad_key_use(SDL_Keycode k)
     return NULL;
 }
 
+int pad_one_stick(void)
+{
+    return the_pad && !SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK) && SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_LEFTSTICK);
+}
+
 void pad_cfg_reset(void)
 {
     memcpy(code_of, DEFAULTS, sizeof code_of);
@@ -92,7 +97,7 @@ void pad_cfg_reset(void)
         code_of[PA_B] = SDL_CONTROLLER_BUTTON_B; code_of[PA_A] = SDL_CONTROLLER_BUTTON_A;
         code_of[PA_Y] = SDL_CONTROLLER_BUTTON_Y; code_of[PA_X] = SDL_CONTROLLER_BUTTON_X;
     }
-    if (the_pad && !SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK) && SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_LEFTSTICK)) {
+    if (pad_one_stick()) {
         code_of[PA_TRACKER] = SDL_CONTROLLER_BUTTON_LEFTSTICK;   /* one stick (the RG 40XXV): the tracker on L3, leaving on the menu button */
         code_of[PA_LEAVE] = SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_GUIDE) ? SDL_CONTROLLER_BUTTON_GUIDE : -1;
     }

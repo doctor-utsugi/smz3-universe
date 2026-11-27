@@ -49,5 +49,7 @@ int pad_handheld_labels(void);
 int pad_virtual_handheld(void);
 /* The pad in use: the defaults fit the buttons it has (no R3: the tracker goes on L3). Before pad_cfg_load. */
 void pad_set_device(SDL_GameController *c);
+/* A pad with one stick and no R3 (the RG 40XXV): its stick is the tracker's button, so it does not move the map. */
+int pad_one_stick(void);
 
 #endif

@@ -1413,7 +1413,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
         };
         const HelpItem RIGHT[] = {
-            {"", "", "#Map"}, {"DPAD", "<", "Move the map (or the stick)"}, {"RT", "+", "Zoom in"}, {"LT", "-", "Zoom out"}, {"STICK", NULL, "Right stick up / down: zoom"}, {"A", "F", "Follow the player"},
+            {"", "", "#Map"}, {"DPAD", "<", "Move the map"}, {"RT", "+", "Zoom in"}, {"LT", "-", "Zoom out"}, {"STICK", NULL, "Right stick up / down: zoom"}, {"A", "F", "Follow the player"},
             {"Y", "D", "Dungeon pictures"}, {"DPAD", "^", "Pick dungeon and floor"}, {"A", "H", "Back to Link's floor"},
             {"", "", "#Keyboard as a pad"}, {NULL, "^", "D-pad (arrows)"}, {NULL, pad_key_label(PA_A), "A"}, {NULL, pad_key_label(PA_B), "B"}, {NULL, pad_key_label(PA_X), "X"}, {NULL, pad_key_label(PA_Y), "Y"},
             {NULL, lr, "L and R"}, {NULL, pad_key_label(PA_START), "Start"}, {NULL, pad_key_label(PA_SELECT), "Select"},
@@ -2470,7 +2470,7 @@ static void play(int slot, int game_save_only)
             if (keys[SDL_SCANCODE_MINUS] || keys[SDL_SCANCODE_KP_MINUS] || keys[SDL_SCANCODE_PAGEDOWN]) dz = 1 / 1.03f;
             if (pad) {
                 int lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX), ly = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
-                if (abs(lx) > 8000) dx += sp * lx / 32767.0f; if (abs(ly) > 8000) dy += sp * ly / 32767.0f;
+                if (!pad_one_stick()) { if (abs(lx) > 8000) dx += sp * lx / 32767.0f; if (abs(ly) > 8000) dy += sp * ly / 32767.0f; }
                 if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) dx -= sp;
                 if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) dx += sp;
                 if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) dy -= sp;
