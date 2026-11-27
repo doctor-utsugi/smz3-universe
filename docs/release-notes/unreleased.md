@@ -32,9 +32,9 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 
 ### Tests
 
-- One file sends every online call to a test server: `server.txt` with its address, on Android,
-  the 3DS and the PC. Android's ladder and cloud sync and the 3DS's sync did not follow it before. The menu shows
-  STAGING while it is in use.
+- One file sends every online call to a test server: a `server.txt` holding its address, on Android (in the app's own
+  Android/data folder, which it can always read), the 3DS and the PC. Android's ladder and cloud sync and the 3DS's sync
+  did not follow it before. The menu shows STAGING while it is in use.
 
 ### A Link to the Past
 

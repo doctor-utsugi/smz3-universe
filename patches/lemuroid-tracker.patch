@@ -2588,10 +2588,10 @@ index 0000000..9f55e23
 +private fun Color.toArgb(): Int = android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
 new file mode 100644
-index 0000000..03e6e09
+index 0000000..cdd2910
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,296 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2609,9 +2609,13 @@ index 0000000..03e6e09
 +object OnlineLadder {
 +    const val BASE = "https://smz3-universe.duckdns.org"
 +
-+    /** The server every online call goes to: /sdcard/SMZ3/server.txt names a staging copy for tests, else the real one.
-+     * Read on each call, so the file takes effect without a restart. */
-+    fun server(): String = runCatching { File("/sdcard/SMZ3/server.txt").readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } ?: BASE
++    /** The app's own folder on the shared storage (Android/data/<package>/files): it can always read a file put there. */
++    @Volatile var ownDir: File? = null
++
++    /** The server every online call goes to: a server.txt in [ownDir] or /sdcard/SMZ3 names a staging copy for tests, else
++     * the real one. Read on each call, so the file takes effect without a restart. */
++    fun server(): String = listOfNotNull(ownDir?.let { File(it, "server.txt") }, File("/sdcard/SMZ3/server.txt"))
++        .firstNotNullOfOrNull { f -> runCatching { f.readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } } ?: BASE
 +
 +    fun staging(): Boolean = server() != BASE
 +
@@ -14804,3 +14808,15 @@ index 0000000..faaa42a
 +    /** "there on 26 Nov, 14:05", for the conflict screen. */
 +    fun whenText(ms: Long): String = java.text.SimpleDateFormat("'there on' d MMM, HH:mm", java.util.Locale.ENGLISH).format(java.util.Date(ms))
 +}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/LemuroidApplication.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/LemuroidApplication.kt
+index 42f7999..bf87598 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/LemuroidApplication.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/LemuroidApplication.kt
+@@ -25,6 +25,7 @@ class LemuroidApplication : DaggerApplication(), HasWorkerInjector, ImageLoaderF
+     @SuppressLint("CheckResult")
+     override fun onCreate() {
+         super.onCreate()
++        com.swordfish.lemuroid.app.mobile.feature.runs.OnlineLadder.ownDir = getExternalFilesDir(null)   // every process: the game's too
+ 
+         val initializeComponent =
+             if (isMainProcess()) {
