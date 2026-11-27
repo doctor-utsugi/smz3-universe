@@ -330,10 +330,10 @@ index 0000000..147df74
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..b958787
+index 0000000..a773caa
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
-@@ -0,0 +1,510 @@
+@@ -0,0 +1,526 @@
 +package com.swordfish.lemuroid.app.mobile.feature.game
 +
 +import android.content.Context
@@ -494,85 +494,88 @@ index 0000000..b958787
 +        rightPad?.invoke(padScope, boxModifierRight.placed(right) { rightBounds = it }, touchSettings.copy(scale = right.scale, marginX = 0f, marginY = 0f))
 +    }
 +
-+    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-+        val portraitGameHeight = maxWidth * (3f / 4f)
-+        if (isLandscape) {
-+            Box(Modifier.fillMaxSize().onGloballyPositioned { onGameBounds(it.boundsInRoot()) })
-+            val gameWidth = maxHeight * (4f / 3f)
-+            val side = (maxWidth - gameWidth) / 2
-+            val panelsOff by com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.panelsOff.collectAsState()
-+            if (side >= 90.dp && panelsOff != true) {
-+                snapshot?.let { s ->
-+                    SidePanelLeft(s, Modifier.align(Alignment.CenterStart).width(side).fillMaxHeight())
-+                    SidePanelRight(s, Modifier.align(Alignment.CenterEnd).width(side).fillMaxHeight())
++    val menuFont = androidx.compose.runtime.remember { androidx.compose.ui.text.font.FontFamily(com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.face(context)) }
++    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = menuFont)) {   // the menus' font, not Roboto
++        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
++            val portraitGameHeight = maxWidth * (3f / 4f)
++            if (isLandscape) {
++                Box(Modifier.fillMaxSize().onGloballyPositioned { onGameBounds(it.boundsInRoot()) })
++                val gameWidth = maxHeight * (4f / 3f)
++                val side = (maxWidth - gameWidth) / 2
++                val panelsOff by com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3ScreenMode.panelsOff.collectAsState()
++                if (side >= 90.dp && panelsOff != true) {
++                    snapshot?.let { s ->
++                        SidePanelLeft(s, Modifier.align(Alignment.CenterStart).width(side).fillMaxHeight())
++                        SidePanelRight(s, Modifier.align(Alignment.CenterEnd).width(side).fillMaxHeight())
++                    }
 +                }
-+            }
-+            if (trackerOpen) {
-+                Box(
-+                    Modifier
-+                        .align(Alignment.Center)
-+                        .fillMaxWidth(0.9f)
-+                        .fillMaxHeight(0.92f)
-+                        .background(PANEL, RoundedCornerShape(8.dp))
-+                        .border(1.dp, TAB, RoundedCornerShape(8.dp)),
-+                ) {
-+                    Column(Modifier.fillMaxSize()) {
-+                        EmbeddedTracker(Modifier.fillMaxWidth().weight(1f), panel)
-+                        Row(
-+                            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-+                            horizontalArrangement = Arrangement.SpaceBetween,
-+                            verticalAlignment = Alignment.CenterVertically,
-+                        ) {
-+                            Text("L1 R1 change tab · D-pad move · A press · R3 or B close", color = DIM, fontSize = 12.sp)
-+                            val onClose by Smz3ScreenMode.closeFocused.collectAsState()
-+                            SmallButton("Close", if (onClose) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp)) else Modifier) {
-+                                Smz3ScreenMode.closeFocused.value = false; Smz3ScreenMode.trackerOpen.value = false
++                if (trackerOpen) {
++                    Box(
++                        Modifier
++                            .align(Alignment.Center)
++                            .fillMaxWidth(0.9f)
++                            .fillMaxHeight(0.92f)
++                            .background(PANEL, RoundedCornerShape(8.dp))
++                            .border(1.dp, TAB, RoundedCornerShape(8.dp)),
++                    ) {
++                        Column(Modifier.fillMaxSize()) {
++                            EmbeddedTracker(Modifier.fillMaxWidth().weight(1f), panel)
++                            Row(
++                                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
++                                horizontalArrangement = Arrangement.SpaceBetween,
++                                verticalAlignment = Alignment.CenterVertically,
++                            ) {
++                                Text("L1 R1 change tab · D-pad move · A press · R3 or B close", color = DIM, fontSize = 12.sp)
++                                val onClose by Smz3ScreenMode.closeFocused.collectAsState()
++                                SmallButton("Close", if (onClose) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp)) else Modifier) {
++                                    Smz3ScreenMode.closeFocused.value = false; Smz3ScreenMode.trackerOpen.value = false
++                                }
 +                            }
 +                        }
 +                    }
++                } else if (touchVisible) {
++                    Box(Modifier.fillMaxSize()) { pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd)) }
++                } else {   // a controller and no touch pad: which button opens the panel, quietly in the corner
++                    Text("R3  Tracker", color = DIM.copy(alpha = 0.55f), fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
 +                }
-+            } else if (touchVisible) {
-+                Box(Modifier.fillMaxSize()) { pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd)) }
-+            } else {   // a controller and no touch pad: which button opens the panel, quietly in the corner
-+                Text("R3  Tracker", color = DIM.copy(alpha = 0.55f), fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
-+            }
-+        } else {
-+            Column(Modifier.fillMaxSize()) {
-+                Box(
-+                    Modifier
-+                        .fillMaxWidth()
-+                        .height(portraitGameHeight)
-+                        .onGloballyPositioned { onGameBounds(it.boundsInRoot()) },
-+                )
-+                StatusLine(snapshot, toggle = if (!touchVisible) null else if (trackerOpen) "Pad" else "Tracker")
-+                Box(Modifier.fillMaxWidth().weight(1f)) {
-+                    if (!touchVisible || trackerOpen) {
-+                        EmbeddedTracker(Modifier.fillMaxSize(), panel)
-+                    } else {
-+                        pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd))
++            } else {
++                Column(Modifier.fillMaxSize()) {
++                    Box(
++                        Modifier
++                            .fillMaxWidth()
++                            .height(portraitGameHeight)
++                            .onGloballyPositioned { onGameBounds(it.boundsInRoot()) },
++                    )
++                    StatusLine(snapshot, toggle = if (!touchVisible) null else if (trackerOpen) "Pad" else "Tracker")
++                    Box(Modifier.fillMaxWidth().weight(1f)) {
++                        if (!touchVisible || trackerOpen) {
++                            EmbeddedTracker(Modifier.fillMaxSize(), panel)
++                        } else {
++                            pads(Modifier.align(Alignment.BottomStart), Modifier.align(Alignment.BottomEnd))
++                        }
 +                    }
 +                }
 +            }
-+        }
 +
-+        if (editing && touchVisible) {
-+            PadEditor(
-+                left = left,
-+                right = right,
-+                leftBounds = leftBounds,
-+                rightBounds = rightBounds,
-+                onChange = { isLeft, p -> if (isLeft) left = p else right = p },
-+                onReset = {
-+                    Smz3PadLayout.reset(context, isLandscape)
-+                    left = Smz3PadLayout.load(context, isLandscape, true, defaultScale)
-+                    right = Smz3PadLayout.load(context, isLandscape, false, defaultScale)
-+                },
-+                onDone = {
-+                    Smz3PadLayout.save(context, isLandscape, true, left)
-+                    Smz3PadLayout.save(context, isLandscape, false, right)
-+                    viewModel.showEditControls(false)
-+                },
-+            )
++            if (editing && touchVisible) {
++                PadEditor(
++                    left = left,
++                    right = right,
++                    leftBounds = leftBounds,
++                    rightBounds = rightBounds,
++                    onChange = { isLeft, p -> if (isLeft) left = p else right = p },
++                    onReset = {
++                        Smz3PadLayout.reset(context, isLandscape)
++                        left = Smz3PadLayout.load(context, isLandscape, true, defaultScale)
++                        right = Smz3PadLayout.load(context, isLandscape, false, defaultScale)
++                    },
++                    onDone = {
++                        Smz3PadLayout.save(context, isLandscape, true, left)
++                        Smz3PadLayout.save(context, isLandscape, false, right)
++                        viewModel.showEditControls(false)
++                    },
++                )
++            }
 +        }
 +    }
 +}
@@ -648,6 +651,19 @@ index 0000000..b958787
 +        Spacer(Modifier.height(4.dp))
 +        if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.smAlone) Counter("Zelda", s.zeldaCleared, s.zeldaTotal)
 +        if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.z3Alone) Counter("Metroid", s.metroidCleared, s.metroidTotal)
++        if (com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.on && com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.daily) {
++            Spacer(Modifier.height(8.dp))
++            Text("Daily", color = DIM, fontSize = 12.sp)
++            androidx.compose.runtime.DisposableEffect(Unit) {
++                com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.dailyInPanel = true
++                onDispose { com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.dailyInPanel = false }
++            }
++            androidx.compose.ui.viewinterop.AndroidView(   // the overlay's own lines, its goal icon included; s changes every read
++                factory = { android.widget.TextView(it).apply { setTextColor(android.graphics.Color.WHITE); textSize = 12f; typeface = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.face(it) } },
++                update = { it.tag = s; it.text = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.dailyText },
++                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
++            )
++        }
 +        if (com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.on && !com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.daily) {
 +            Spacer(Modifier.height(8.dp))
 +            Text("Race", color = DIM, fontSize = 12.sp)
@@ -845,7 +861,7 @@ index 0000000..b958787
 +    right: Smz3PadLayout.Placement,
 +) = remember { mutableStateOf(left to right) }.also { it.value = left to right }
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
-index 57f2e76..78df934 100644
+index 57f2e76..2e1afbc 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 @@ -1,5 +1,10 @@
@@ -868,7 +884,7 @@ index 57f2e76..78df934 100644
  class MainActivity : RetrogradeComponentActivity(), BusyActivity {
      @Inject
      lateinit var gameLaunchTaskHandler: GameLaunchTaskHandler
-@@ -115,17 +122,48 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -115,6 +122,20 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
              SystemBarStyle.dark(Color.TRANSPARENT),
          )
          super.onCreate(savedInstanceState)
@@ -889,18 +905,7 @@ index 57f2e76..78df934 100644
  
          GlobalScope.safeLaunch {
              reviewManager.initialize(applicationContext)
-         }
- 
-+        // The game runs in a foreground service; without this permission its notification stays hidden, but the game still starts.
-+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
-+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
-+        ) {
-+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 0)
-+        }
-+
-         setContent {
-             val navController = rememberNavController()
-             MainScreen(navController)
+@@ -126,6 +147,16 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
          }
      }
  
@@ -917,7 +922,7 @@ index 57f2e76..78df934 100644
      @OptIn(ExperimentalMaterial3Api::class)
      @Composable
      private fun MainScreen(navController: NavHostController) {
-@@ -135,7 +173,7 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -135,7 +166,7 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
              val currentRoute =
                  currentDestination?.route
                      ?.let { MainRoute.findByRoute(it) }
@@ -926,7 +931,7 @@ index 57f2e76..78df934 100644
  
              val infoDialogDisplayed =
                  remember {
-@@ -172,176 +210,36 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -172,176 +203,36 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                      .collectAsState(MainViewModel.UiState())
                      .value
  
@@ -4549,10 +4554,10 @@ index 0000000..7f25828
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt
 new file mode 100644
-index 0000000..ff3ca1e
+index 0000000..fa5752f
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,235 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -4620,17 +4625,17 @@ index 0000000..ff3ca1e
 +        timeUpShown = RunStore.load(activity, DailyChallenge.SLOT)?.completedAt?.let { it != 0L } ?: false
 +        val pad = (8 * activity.resources.displayMetrics.density).toInt()
 +        box = TextView(activity).apply {
-+            setTextColor(Color.WHITE); textSize = 13f; setPadding(pad, pad / 2, pad, pad / 2)
++            typeface = Smz3Box.face(activity); setTextColor(Color.WHITE); textSize = 13f; setPadding(pad, pad / 2, pad, pad / 2)
 +            setBackgroundColor(Color.argb(190, 8, 11, 17))
 +            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { setMargins(pad, pad, pad, pad) })
 +        }
 +        note = TextView(activity).apply {
-+            setTextColor(Color.rgb(0xF2, 0xA3, 0x3A)); textSize = 15f; setPadding(pad * 2, pad, pad * 2, pad); visibility = android.view.View.GONE
++            typeface = Smz3Box.face(activity); setTextColor(Color.rgb(0xF2, 0xA3, 0x3A)); textSize = 15f; setPadding(pad * 2, pad, pad * 2, pad); visibility = android.view.View.GONE
 +            setBackgroundColor(Color.argb(215, 8, 11, 17))
 +            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { setMargins(pad, pad, pad, pad * 3) })
 +        }
 +        fun label(gravity: Int, bottom: Int) = TextView(activity).apply {
-+            setTextColor(Color.rgb(0xE8, 0xEC, 0xF2)); textSize = 14f; setPadding(pad * 2, pad, pad * 2, pad); visibility = android.view.View.GONE
++            typeface = Smz3Box.face(activity); setTextColor(Color.rgb(0xE8, 0xEC, 0xF2)); textSize = 14f; setPadding(pad * 2, pad, pad * 2, pad); visibility = android.view.View.GONE
 +            setBackgroundColor(Color.argb(215, 8, 11, 17))
 +            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, gravity).apply { setMargins(pad, pad, pad, bottom) })
 +        }
@@ -4719,7 +4724,7 @@ index 0000000..ff3ca1e
 +        if (DailyChallenge.shown(activity, 3) && a.nextHintAt > 0 && !finished) lines += "Next hint in ${DailyChallenge.span(a.nextHintAt - now)}" to Color.rgb(0x87, 0x93, 0xA6)
 +        val below = Smz3Tracker.onSecondScreen
 +        box?.let { b ->
-+            b.visibility = if (lines.isEmpty() || below) android.view.View.GONE else android.view.View.VISIBLE
++            b.visibility = if (lines.isEmpty() || below || Smz3RaceState.dailyInPanel) android.view.View.GONE else android.view.View.VISIBLE
 +            val text = android.text.SpannableStringBuilder()
 +            lines.forEachIndexed { i, (t, c) ->
 +                if (i > 0) text.append('\n')
@@ -4728,6 +4733,7 @@ index 0000000..ff3ca1e
 +                text.setSpan(android.text.style.ForegroundColorSpan(c), from, text.length, 0)
 +            }
 +            b.text = text
++            Smz3RaceState.dailyText = text
 +        }
 +        if (now >= noteUntil || below) note?.visibility = android.view.View.GONE
 +        if (now >= newsUntil) news?.visibility = android.view.View.GONE
@@ -13479,10 +13485,10 @@ index 0000000..387684b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..848b286
+index 0000000..4c901cf
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,608 @@
+@@ -0,0 +1,611 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -13523,6 +13529,9 @@ index 0000000..848b286
 +    /** A Draft's goal line while it shows; the single-screen side panel draws it when it is up, instead of the overlay. */
 +    @Volatile var goalLine = ""
 +    @Volatile var goalInPanel = false
++    /** The daily's box (window, time, goal, next hint); the single-screen side panel draws it when it is up, instead of the overlay. */
++    @Volatile var dailyText: CharSequence = ""
++    @Volatile var dailyInPanel = false
 +    /** Sends a daily chat line (set by the daily overlay); a race's lines go out with its polls. */
 +    var dailySay: ((String) -> Unit)? = null
 +    var you = ""

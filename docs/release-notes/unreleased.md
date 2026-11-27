@@ -18,6 +18,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 
 ### Menus
 
+- The ROMs screen moves its focus to Play once the second ROM is found, instead of leaving it on Add ROMs.
+- Android: the app no longer asks for the notifications permission on its first start; the system's dialog sent it to the
+  background, and games run without it.
+- The STAGING badge of a test server sits at the top middle, clear of the Ladder button and the rupee counter.
+
 - A ROMs screen comes first on Android and the 3DS while the Super Metroid or ALttP ROM is missing (the PC already had
   its welcome screen). Two cards show which ROM is found and which exact dump is needed. Add ROMs opens the file picker
   on Android and looks in the folders again on the 3DS. Once both are in, the screen says "All good! Start playing!" and
@@ -32,6 +37,9 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Credits open with "SMZ3 Universe made by Doctor Utsugi"; the menu music is credited to Doctor Utsugi.
 
 ### In game
+
+- Android, one screen: the daily's window, time, goal and next hint sit in the left side panel, as a Draft's goal does,
+  instead of a box over the right panel. The side panels and the daily's notes use the menus' font.
 
 - The CONFIG tab ends with Back to main menu, which asks first and saves the run as leaving does. On the PC it is also
   the last row of the in-game settings (in place of Quit), and on the 3DS the last row of the pause menu.

@@ -229,8 +229,10 @@ void ui_home_open(SmzUi *u) { u->screen = UI_LOGO; u->logo_ms = LOGO_MS; u->home
 static int roms_missing(const SmzUi *u) { return u->roms_on && (u->game_state[SMZ_MODE_SM] == UI_GAME_NO_ROM || u->game_state[SMZ_MODE_Z3] == UI_GAME_NO_ROM); }
 void ui_game_state(SmzUi *u, int mode, int state)
 {
+    int was_missing = roms_missing(u);
     if (mode >= 0 && mode < SMZ_MODE_COUNT) u->game_state[mode] = state;
     if (u->screen == UI_ROMS && u->roms_auto && !roms_missing(u)) u->screen = UI_GAMES;   /* the host's look ended after the logo */
+    else if (u->screen == UI_ROMS && was_missing && !roms_missing(u)) u->roms_cursor = 1;   /* the last one found: Play takes the focus */
 }
 void ui_roms_screen(SmzUi *u, int on, const char *hint) { u->roms_on = on; snprintf(u->roms_hint, sizeof u->roms_hint, "%s", hint ? hint : ""); }
 void ui_roms_note(SmzUi *u, const char *note) { snprintf(u->notice, sizeof u->notice, "%s", note ? note : ""); }
@@ -3094,8 +3096,8 @@ void ui_draw(SmzUi *u)
     smz_ui_w = full;
     smz_ui_h = full_h;
     if (u->staging && u->screen != UI_LOGO) {   /* a test server: never mistaken for the real ladder */
-        rect(u, UI_W - 58, 0, 58, 11, C_WARN);
-        text(u, UI_W - 29, 1, C_BG, 1, "STAGING");
+        rect(u, UI_W / 2 - 29, 0, 58, 9, C_WARN);   /* top middle: the top right holds Ladder and the rupees, the bottom left the legends */
+        text(u, UI_W / 2, 0, C_BG, 1, "STAGING");
     }
     u->screen = listed;
 }
