@@ -1413,7 +1413,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
         };
         const HelpItem RIGHT[] = {
-            {"", "", "#Map"}, {"STICK", "<", "Move the map"}, {"RT", "+", "Zoom in"}, {"LT", "-", "Zoom out"}, {"STICK", NULL, "Right stick up / down: zoom"}, {"A", "F", "Follow the player"},
+            {"", "", "#Map"}, {"DPAD", "<", "Move the map (or the stick)"}, {"RT", "+", "Zoom in"}, {"LT", "-", "Zoom out"}, {"STICK", NULL, "Right stick up / down: zoom"}, {"A", "F", "Follow the player"},
             {"Y", "D", "Dungeon pictures"}, {"DPAD", "^", "Pick dungeon and floor"}, {"A", "H", "Back to Link's floor"},
             {"", "", "#Keyboard as a pad"}, {NULL, "^", "D-pad (arrows)"}, {NULL, pad_key_label(PA_A), "A"}, {NULL, pad_key_label(PA_B), "B"}, {NULL, pad_key_label(PA_X), "X"}, {NULL, pad_key_label(PA_Y), "Y"},
             {NULL, lr, "L and R"}, {NULL, pad_key_label(PA_START), "Start"}, {NULL, pad_key_label(PA_SELECT), "Select"},
@@ -1439,7 +1439,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         bar[nb++] = (HelpItem){"LR", "<", "Dungeon"}; bar[nb++] = (HelpItem){"UD", "^", "Floor"};
         bar[nb++] = (HelpItem){"A", "H", "Link's floor"}; bar[nb++] = (HelpItem){"Y", "D", "World map"};
     } else if (tab == TAB_MAP) {
-        bar[nb++] = (HelpItem){"STICK", "<", "Pan"}; bar[nb++] = (HelpItem){"RT", "+", "Zoom in"}; bar[nb++] = (HelpItem){"LT", "-", "Zoom out"};
+        bar[nb++] = (HelpItem){"DPAD", "<", "Pan"}; bar[nb++] = (HelpItem){"RT", "+", "Zoom in"}; bar[nb++] = (HelpItem){"LT", "-", "Zoom out"};
         bar[nb++] = (HelpItem){"A", "F", mv->follow ? "Following" : "Follow"};
         if (map_game_on()) bar[nb++] = (HelpItem){"Y", "D", "Next area"};
         else if (!smz3_sm_alone()) bar[nb++] = (HelpItem){"Y", "D", "Dungeons"};
@@ -2471,6 +2471,10 @@ static void play(int slot, int game_save_only)
             if (pad) {
                 int lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX), ly = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
                 if (abs(lx) > 8000) dx += sp * lx / 32767.0f; if (abs(ly) > 8000) dy += sp * ly / 32767.0f;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) dx -= sp;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) dx += sp;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) dy -= sp;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) dy += sp;
                 if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000) dz = 1.03f;
                 if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 8000) dz = 1 / 1.03f;
                 int ry = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY);   /* right stick up zooms in, down zooms out, like the triggers */

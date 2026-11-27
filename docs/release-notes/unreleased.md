@@ -62,6 +62,7 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Linux handhelds: the Ports launcher unpacks the app on the card instead of /tmp, which is RAM there, and clears a copy
   left by a run the system closed.
 - PC: the button that opens the tracker shows for 5 seconds at the start, then fades out.
+- PC: the D-pad moves the map in the tracker's MAP tab, as the stick and the arrow keys did.
 - PC: Options > Video > Corner info picks what the game's corner shows when the side panels don't fit: the % and the
   time, the % only, or nothing.
 - PC on a handheld: the prompts show the pad's buttons from the first screen, not the keyboard's keys.
