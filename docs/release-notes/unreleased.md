@@ -31,6 +31,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Races on Android: the screen stays on in a race room, and a start that came with the app in the background opens the
   game once the app is back, instead of leaving it on the run list.
 - Race server: a restart of the server no longer counts players who were already away as back.
+- 3DS: a race started about 300 ms before the other systems. Its estimate of the server's clock counted the slow
+  opening of each connection; it now times only the server's answer.
 - Championship and Online draft ask for a player name first when none is set, instead of showing others a made-up
   "Player-xxxx".
 
