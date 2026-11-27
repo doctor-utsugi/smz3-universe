@@ -2446,6 +2446,11 @@ static void play(int slot, int game_save_only)
             if (ui.race.room.state == RACE_PAUSED && !rg.back && !rg.kept) { rg.kept = 1; race_keep_paused(); rg.card = CARD_PAUSED; rg.pick = 0; show = leaving = 0; }
         }
         int waiting = rg.on && go_in > 0;   /* the game stays on its first frame until the countdown hits 0, the same moment for everyone */
+        {
+            static int was_waiting;   /* this device's clock at the start, to check it against the others */
+            if (was_waiting && !waiting && rg.on) fprintf(stderr, "race go: wall=%lld late=%lld offset=%lld\n", (long long)online_now_ms(), (long long)-go_in, (long long)ui.race.room.offset);
+            was_waiting = waiting;
+        }
         int frozen = rg.on && (rg.back || rg.kept || rg.pick || (ui.race.room.state == RACE_RUNNING && ui.race.room.vote_by[0] && !rg.card));   /* a paused game must not move; a pause vote stops everyone until it is settled */
         if (g_menu_quit) { g_menu_quit = 0; for (int i = 0; i < 4 && settings_active(); i++) settings_nav(BTN_B); show = 0; leaving = 1; }   /* Quit from the options asks to leave the run first */
         int opts = settings_active();   /* the options opened from the tracker */
