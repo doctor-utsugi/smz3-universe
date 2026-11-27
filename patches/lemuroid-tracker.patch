@@ -13800,18 +13800,21 @@ index 0000000..b5cf381
 +    }
 +}
 diff --git a/lemuroid-app/src/main/AndroidManifest.xml b/lemuroid-app/src/main/AndroidManifest.xml
-index ed9b150..50fd278 100644
+index ed9b150..5c228d4 100644
 --- a/lemuroid-app/src/main/AndroidManifest.xml
 +++ b/lemuroid-app/src/main/AndroidManifest.xml
-@@ -25,6 +25,7 @@
+@@ -24,7 +24,9 @@
+     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
      <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
      <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+-    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
++    <!-- SMZ3 only runs SNES games: no core uses the microphone -->
++    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
 +    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
  
      <application
          android:name="com.swordfish.lemuroid.app.LemuroidApplication"
-@@ -155,6 +156,17 @@
+@@ -155,6 +157,17 @@
              android:authorities="${applicationId}.androidx-startup"
              tools:node="remove" />
  
