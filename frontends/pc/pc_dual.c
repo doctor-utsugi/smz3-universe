@@ -8,6 +8,7 @@
 #include "pc_hotkeys.h"
 #include "pc_map.h"
 #include "pc_online.h"
+#include "pc_settings.h"
 #include "pc_race.h"
 #include "pc_settings.h"
 #include "pc_shortcuts.h"
@@ -311,7 +312,7 @@ static void run_left(float x, float top, float cw, float h)
         gfx_text(x, y, 12 * u, DIM, 0, "RACE"); y += 16 * u;
         y = race_lanes(F.race, x, y, cw, u) + 6 * u;
     }
-    if (smz3_sm_alone() || smz3_z3_alone()) {   /* a single game: its seed hash where the other game's count goes */
+    if ((smz3_sm_alone() || smz3_z3_alone()) && settings_seed_code()) {   /* a single game: its seed hash where the other game's count goes */
         if (run_hash[0] && smz3_z3_alone() && map_hash_icons(R, x, y - 2 * u, fminf(24 * u, cw / 6), run_hash) > 0) y += 29 * u;
         else if (run_hash[0]) { gfx_text(x, y, fit_px(run_hash, cw, 13 * u, 8 * u), AMBER, 0, run_hash); y += 29 * u; }
     }

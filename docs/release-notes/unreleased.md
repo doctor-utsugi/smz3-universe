@@ -13,7 +13,9 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   open when the app let go of its own files; it now closes cleanly.
 - 3DS: leaving a run for the main menu fades both screens to black, and the menu comes up out of it.
 - 3DS: the logo on the game carousel is drawn from a larger picture instead of a blown-up small one.
-- 3DS: the ALttP seed code (item icons) under the items has its own "SEED CODE" label, after the rewards.
+- A single game's seed code (ALttP's item icons, Super Metroid's text) is hidden on the RUN tab and the side panel
+  unless Options > Seed code is set to shown. On the 3DS it has its own "SEED CODE" line, after the rewards.
+- 3DS: after a run's end the game no longer slows down; its file was read and written on the SD card every second.
 - Android's app settings show the SMZ3 version (0.15.0 and on) instead of 1.17.0, the version of Lemuroid it is built on.
 
 ### Menus

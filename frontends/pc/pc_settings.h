@@ -34,6 +34,8 @@ void settings_video_load(void);
 /* The Menu music option, kept in video.cfg with the screen settings. */
 int settings_menu_music(void);
 void settings_set_menu_music(int on);
+int settings_seed_code(void);   /* a single game's seed code on the RUN tab and the side panel; hidden by default */
+void settings_set_seed_code(int on);
 void settings_video_save_state(void);
 /* Applies the picked window size (called when leaving full screen, where a size change waits). */
 void settings_apply_size(void);

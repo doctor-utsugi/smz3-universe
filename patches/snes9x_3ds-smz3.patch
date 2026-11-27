@@ -2824,10 +2824,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..f4962be
+index 0000000..28e2f8f
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6367 @@
+@@ -0,0 +1,6390 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -4075,6 +4075,23 @@ index 0000000..f4962be
 +static SmzUi *gMenuUi;   // what presentMenu draws while a sync call blocks the menu
 +static void presentMenu() { drawUi(gMenuUi); drawIdlePanel(gMenuUi); }
 +
++// Options > Seed code: the RUN tab shows the seed's code only when asked for (it reads like items otherwise).
++#define SEED_CODE_FILE SMZ_DIR "/seed_code.txt"
++static int seedCode = -1;
++static bool seedCodeShown()
++{
++    if (seedCode < 0) {
++        seedCode = 0;
++        if (FILE *f = fopen(SEED_CODE_FILE, "r")) { int v; if (fscanf(f, "%d", &v) == 1) seedCode = v != 0; fclose(f); }
++    }
++    return seedCode;
++}
++static void seedCodeSet(bool on)
++{
++    seedCode = on;
++    if (FILE *f = fopen(SEED_CODE_FILE, "w")) { fprintf(f, "%d\n", on ? 1 : 0); fclose(f); }
++}
++
 +static bool runMenu(char *romPathOut, size_t cap)
 +{
 +    static SmzUi ui;
@@ -4126,8 +4143,9 @@ index 0000000..f4962be
 +    smzOnlineRequestLadders(ui_ladder_preset_key(&ui));   // the bottom screen shows them from the start
 +    ui_ladder_enable(&ui, 1);
 +    ui_daily_enable(&ui, 1);
-+    ui_home_enable(&ui, UI_OPT_SOUND | UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
++    ui_home_enable(&ui, UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
 +    ui_menu_music(&ui, smz3MusicEnabled());
++    ui_seed_code(&ui, seedCodeShown());
 +    ui_race_enable(&ui, 1);
 +    smz3SyncMenu(&ui, ui.slot_count);
 +    gMenuUi = &ui;
@@ -4299,6 +4317,7 @@ index 0000000..f4962be
 +            else if (act == ACT_CONTINUE && smz3SyncOpen(&ui, slot, presentMenu)) act = ACT_NONE;   // RomM's newer files first, or the choice
 +            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { ui_busy(&ui, "Finishing the uploads ..."); drawUi(&ui); smz3SyncQuit(); quitAsked = true; break; }
 +            if (act == ACT_OPTIONS && slot == UI_OPT_SOUND) smz3MusicSetEnabled(ui.menu_music);
++            if (act == ACT_OPTIONS && slot == UI_OPT_SEED) seedCodeSet(ui.seed_code);
 +            if (act == ACT_UPDATE && !updating) {
 +                char m[44];
 +                snprintf(m, sizeof m, "Downloading %s...", ui.update);
@@ -6379,15 +6398,18 @@ index 0000000..f4962be
 +    if (bars) { drawRewards(x, y, 15); y += 20; }
 +    else y += 4;
 +    int hashIc[5];
-+    if (runHash[0] && smz3_z3_alone() && smz_z3_hash_icons(runHash, hashIc)) {   // the file select screen's five icons, named so they don't read as items
-+        text(x, y + 2, theme.dim, "SEED CODE");
-+        for (int k = 0; k < 5; k++) {
-+            char name[24];
-+            snprintf(name, sizeof name, "z3hash_%02d", hashIc[k]);
-+            if (const TrkIcon *ic = getIcon(name)) drawIcon(ic, x + 76 + k * 18, y, 16, 16, 256);
-+        }
-+        y += 22;
-+    } else if (runHash[0]) { text(x, y, theme.dim, "SEED CODE"); textFit(x + 76, y, cw - 76, theme.dim, runHash); y += 18; }
++    if (seedCodeShown() && runHash[0]) {   // under its own label: ALttP's five icons would read as items otherwise
++        text(x, y, theme.dim, "SEED CODE");
++        y += 14;
++        if (smz3_z3_alone() && smz_z3_hash_icons(runHash, hashIc)) {
++            for (int k = 0; k < 5; k++) {
++                char name[24];
++                snprintf(name, sizeof name, "z3hash_%02d", hashIc[k]);
++                if (const TrkIcon *ic = getIcon(name)) drawIcon(ic, x + k * 18, y, 16, 16, 256);
++            }
++            y += 20;
++        } else { textFit(x, y, cw, theme.dim, runHash); y += 16; }
++    }
 +    if (trk.n_recent_items > 0 && y + 28 < y1) {
 +        text(x, y, theme.dim, "RECENT ITEMS");
 +        y += 14;
@@ -8203,7 +8225,7 @@ index 0000000..f4962be
 +    if (sum.started && !startedAt) startedAt = osGetTime();
 +    if (!sum.started) startedAt = 0;
 +    // play time, proof of run and the online ladder: the shared tracker reads the same memory as the other frontends
-+    static int calls = 0, proofDirty = 0, queued = 0;
++    static int calls = 0, proofDirty = 0, queued = 0, finWritten = 0;
 +    static u64 lastMs = 0, nextToken = 0;
 +    static int deadBosses = 0;
 +    static int64_t nextHintAsk = 0, nextBeat = 0, nextPlayersNote = 0, nextChatPoll = 0;
@@ -8279,7 +8301,7 @@ index 0000000..f4962be
 +        barNoteUntil = 0;
 +        portalBaseReady = false;
 +        lastMs = osGetTime();
-+        calls = proofDirty = queued = 0;
++        calls = proofDirty = queued = finWritten = 0;
 +        nextToken = 0;
 +        readHelp();
 +        helpNote[0] = 0;
@@ -8315,8 +8337,9 @@ index 0000000..f4962be
 +        if (FILE *df = fopen(SMZ_DIR "/debug_token.txt", "r")) { fclose(df); remove(SMZ_DIR "/debug_token.txt"); smzOnlineEnsureToken(curSlot); }
 +    }
 +    if (online && trk.started && trk.running && nowMs >= nextToken) { nextToken = nowMs + 60000; smzOnlineEnsureToken(curSlot); }
-+    if (curSlot >= 0 && (++calls % 10 == 0 || trk.game == 3) && (!bgBusy || trk.game == 3)) {   // the run's file keeps the play time and the progress
-+        bool bg = trk.game != 3;   // in play the writes go to the thread; the finish is written at once, the online finish reads it
++    bool fin = trk.game == 3 && !finWritten;   // the finish is written once at once; a file write every second after it slows the game
++    if (curSlot >= 0 && (++calls % 10 == 0 || fin) && (!bgBusy || fin)) {   // the run's file keeps the play time and the progress
++        bool bg = !fin;   // in play the writes go to the thread; the online finish reads the finish's file
 +        char rp[96];
 +        SmzRun r1;
 +        snprintf(rp, sizeof rp, "%s/slot%d.run", runDir(), curSlot);
@@ -8327,7 +8350,7 @@ index 0000000..f4962be
 +        if (have && finishedBefore) {   // it keeps its result; its rewards only add up
 +            r1.boss_mask |= trk.boss_mask; r1.crystal_mask |= trk.crystal_mask;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
-+            if (bg) { bgWait(); bgRun = r1; snprintf(bgRunPath, sizeof bgRunPath, "%s", rp); } else runSave(rp, &r1);
++            if (bg) { bgWait(); bgRun = r1; snprintf(bgRunPath, sizeof bgRunPath, "%s", rp); } else if (runSave(rp, &r1) == 0) finWritten = 1;
 +        } else if (have) {
 +            r1.play_ms = trk.base_ms + trk.pending_ms;
 +            r1.last_played = (int64_t)time(NULL) * 1000;
@@ -8336,7 +8359,7 @@ index 0000000..f4962be
 +            r1.boss_mask = trk.boss_mask; r1.crystal_mask = trk.crystal_mask;
 +            if (trk.save_ms > 0) { r1.save_ms = trk.save_ms; r1.save_zelda = trk.save_zelda; r1.save_metroid = trk.save_metroid; }
 +            if (bg) { bgWait(); bgRun = r1; snprintf(bgRunPath, sizeof bgRunPath, "%s", rp); smz_tracker_commit(&trk); }
-+            else if (runSave(rp, &r1) == 0) smz_tracker_commit(&trk);
++            else if (runSave(rp, &r1) == 0) { smz_tracker_commit(&trk); finWritten = 1; }
 +            if ((online || daily || rg.on) && proofDirty) {
 +                static char ptxt[SMZ_PROOF_MAX * 24];
 +                size_t pl = smz_proof_format(&proof, ptxt, sizeof ptxt);

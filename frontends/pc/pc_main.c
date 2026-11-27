@@ -1288,7 +1288,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         if (smz3_sm_alone() || smz3_z3_alone()) {   /* with the seed hash its file select screen shows */
             char hash[64] = "";
             const char *hp = strstr(r->settings, "\"hash\":\"");
-            if (hp) snprintf(hash, sizeof hash, "%.*s", (int)strcspn(hp + 8, "\""), hp + 8);
+            if (hp && settings_seed_code()) snprintf(hash, sizeof hash, "%.*s", (int)strcspn(hp + 8, "\""), hp + 8);
             int icons = smz3_z3_alone() && smz_z3_hash_icons(hash, (int[5]){0});
             if (smz3_z3_alone()) snprintf(row, sizeof row, "Time %s    Zelda %u/%u    %s", s, t->zelda_cleared, t->zelda_total, icons ? "" : hash);
             else snprintf(row, sizeof row, "Time %s    Metroid %u/%u    %s", s, t->metroid_cleared, t->metroid_total, hash);
@@ -3161,8 +3161,9 @@ static void window_main(int start_slot)
     sync_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
-    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_QUIT);
+    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT);
     ui_menu_music(&ui, settings_menu_music());
+    ui_seed_code(&ui, settings_seed_code());
     menumusic_set(ui.menu_music);
     ui_race_enable(&ui, 1);
     race_paused_show();
@@ -3388,6 +3389,7 @@ static void window_main(int start_slot)
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
                 if (slot == UI_OPT_QUIT) quit_menu();
                 else if (slot == UI_OPT_SOUND) { settings_set_menu_music(ui.menu_music); menumusic_set(ui.menu_music); }
+                else if (slot == UI_OPT_SEED) settings_set_seed_code(ui.seed_code);
                 else settings_open_page(slot == UI_OPT_VIDEO);
             }
             else if (act == ACT_UPDATE && !g_update_state) {

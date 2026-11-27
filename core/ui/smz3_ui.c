@@ -160,6 +160,7 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
 static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits, -3: Cloud sync */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
+    {UI_OPT_SEED, "Seed code", "on the RUN tab"},
     {0, "Player", "name, country"}, {-3, "Cloud sync", "RomM"}, {-2, "Credits", "authors, licences"}, {UI_OPT_QUIT, "Quit", ""}};
 /* The Credits screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices).
    Lines starting with '#' are headings; keep each line within 40 characters for the 320-pixel screens. */
@@ -225,6 +226,7 @@ static const char *const CREDITS_LINES[] = {
 
 void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
 void ui_menu_music(SmzUi *u, int on) { u->menu_music = on; }
+void ui_seed_code(SmzUi *u, int on) { u->seed_code = on; }
 void ui_home_open(SmzUi *u) { u->screen = UI_LOGO; u->logo_ms = LOGO_MS; u->home_cursor = 0; }
 static int roms_missing(const SmzUi *u) { return u->roms_on && (u->game_state[SMZ_MODE_SM] == UI_GAME_NO_ROM || u->game_state[SMZ_MODE_Z3] == UI_GAME_NO_ROM); }
 void ui_game_state(SmzUi *u, int mode, int state)
@@ -443,6 +445,7 @@ static void options_input(SmzUi *u, UiButton b)
             return;
         }
         if (bit == UI_OPT_SOUND) u->menu_music = !u->menu_music;
+        if (bit == UI_OPT_SEED) u->seed_code = !u->seed_code;
         if (bit) { u->action = ACT_OPTIONS; u->action_slot = bit; return; }
         u->player_opts = 1;
         u->name_for = 1;
@@ -2765,7 +2768,7 @@ void ui_draw(SmzUi *u)
     }
     case UI_OPTIONS: {
         title(u, "Options");
-        int kind[OPTION_KINDS], n = option_rows(u, kind), pitch = n > 6 ? 28 : n > 5 ? 30 : 34;
+        int kind[OPTION_KINDS], n = option_rows(u, kind), pitch = n > 7 ? (UI_H - 54) / n : n > 6 ? 28 : n > 5 ? 30 : 34;
         for (int r = 0; r < n; r++) {
             int y = 36 + r * pitch, bit = OPTION_ROWS[kind[r]].bit;
             rect(u, 8, y, UI_W - 16, pitch - 6, r == u->options_cursor ? C_SEL : C_PANEL);
@@ -2775,6 +2778,7 @@ void ui_draw(SmzUi *u)
             if (!bit && u->player[0]) { snprintf(buf, sizeof buf, "%s %s", u->player, u->country); d = buf; }
             if (bit == -1) { snprintf(buf, sizeof buf, u->update_install ? "install %s" : "%s is out", u->update); d = buf; }
             if (bit == UI_OPT_SOUND) d = u->menu_music ? "on" : "off";
+            if (bit == UI_OPT_SEED) d = u->seed_code ? "shown" : "hidden";
             if (bit == -3) d = u->cloud.state == UI_CLOUD_IN ? u->cloud.user : "off";
             text(u, UI_W - 18, y + (pitch - 18) / 2, C_DIM, 2, d);
         }
