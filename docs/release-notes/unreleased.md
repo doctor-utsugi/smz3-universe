@@ -73,6 +73,9 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Leaving the race, asking to pause, the vote, the wait for the answers, the paused race, leaving the run, a daily's
   "Time is up" and the error prompts are drawn like the menus (cut corners, the chosen row glowing, the button bar),
   not as Android dialogs. The race's notes on the game use the menu font.
+- Options > Buttons and keys (and the CONFIG tab's "Change the game's buttons") is drawn like the menus and laid out
+  like the PC's page: each SNES button with what it does in the two games and the controller button on it, Reset to
+  defaults, and a six-second wait for the new button. L and R switch controllers when there are several.
 
 ### Controls
 

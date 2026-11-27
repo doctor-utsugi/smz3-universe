@@ -15026,53 +15026,230 @@ index f916da0..9839209 100644
      abstract fun gamepadShortcutBindingActivity(): GamePadShortcutBindingActivity
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/input/Smz3ControlsActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/input/Smz3ControlsActivity.kt
 new file mode 100644
-index 0000000..8620a1f
+index 0000000..f489188
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/input/Smz3ControlsActivity.kt
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,226 @@
 +package com.swordfish.lemuroid.app.mobile.feature.input
 +
++import android.annotation.SuppressLint
++import android.content.Context
++import android.graphics.Canvas
++import android.graphics.Color
++import android.graphics.LinearGradient
++import android.graphics.Paint
++import android.graphics.Path
++import android.graphics.RectF
++import android.graphics.Shader
 +import android.os.Bundle
-+import androidx.activity.compose.setContent
-+import androidx.compose.foundation.layout.Column
-+import androidx.compose.foundation.layout.fillMaxSize
-+import androidx.compose.foundation.layout.padding
-+import androidx.compose.material3.MaterialTheme
-+import androidx.compose.material3.Surface
-+import androidx.compose.material3.Text
-+import androidx.compose.ui.Modifier
-+import androidx.compose.ui.unit.dp
-+import androidx.lifecycle.ViewModelProvider
-+import com.swordfish.lemuroid.app.mobile.feature.settings.inputdevices.InputDevicesSettingsScreen
-+import com.swordfish.lemuroid.app.mobile.feature.settings.inputdevices.InputDevicesSettingsViewModel
-+import com.swordfish.lemuroid.app.mobile.shared.compose.ui.AppTheme
++import android.os.SystemClock
++import android.view.InputDevice
++import android.view.KeyEvent
++import android.view.MotionEvent
++import android.view.View
++import androidx.lifecycle.lifecycleScope
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box
++import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish
 +import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
++import com.swordfish.lemuroid.app.shared.input.InputKey
++import com.swordfish.lemuroid.app.shared.input.RetroKey
 +import com.swordfish.lemuroid.lib.android.RetrogradeActivity
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
 +import javax.inject.Inject
++import kotlin.math.min
++import kotlin.math.sin
 +
-+/** Lemuroid's controller settings (which pads are on, each game button's key) on their own, for the menu and the CONFIG tab. */
++/**
++ * Buttons and keys, drawn like the menus and laid out like the PC's page: one row per SNES button with what it does in
++ * the two games and the controller button on it, then Reset to defaults and Back. Choosing a row waits six seconds for
++ * the new button. The bindings are Lemuroid's own (per controller), so the game reads them as before.
++ */
 +class Smz3ControlsActivity : RetrogradeActivity() {
 +    @Inject
 +    lateinit var inputDeviceManager: InputDeviceManager
 +
++    private class Pad(val retro: Int, val name: String, val use: String)
++
++    private val pads = listOf(
++        Pad(KeyEvent.KEYCODE_BUTTON_B, "SNES B", "run, sword"),
++        Pad(KeyEvent.KEYCODE_BUTTON_A, "SNES A", "jump, action"),
++        Pad(KeyEvent.KEYCODE_BUTTON_Y, "SNES Y", "item cancel, item"),
++        Pad(KeyEvent.KEYCODE_BUTTON_X, "SNES X", "shoot, map"),
++        Pad(KeyEvent.KEYCODE_BUTTON_L1, "SNES L", "aim down"),
++        Pad(KeyEvent.KEYCODE_BUTTON_R1, "SNES R", "aim up"),
++        Pad(KeyEvent.KEYCODE_BUTTON_START, "Start", "pause, items"),
++        Pad(KeyEvent.KEYCODE_BUTTON_SELECT, "Select", "switch weapon"),
++    )
++    private val rows get() = pads.size + 2   // + Reset to defaults, Back
++
++    private var devices: List<InputDevice> = emptyList()
++    private var device = 0
++    private var bindings: Map<InputKey, RetroKey> = emptyMap()
++    private var cursor = 0
++    private var waiting = -1          // the row waiting for its new button
++    private var waitUntil = 0L
++    private var note = ""
++    private lateinit var page: PageView
++
 +    override fun onCreate(savedInstanceState: Bundle?) {
 +        super.onCreate(savedInstanceState)
-+        val viewModel =
-+            ViewModelProvider(this, InputDevicesSettingsViewModel.Factory(applicationContext, inputDeviceManager))[InputDevicesSettingsViewModel::class.java]
-+        setContent {
-+            AppTheme {
-+                Surface(modifier = Modifier.fillMaxSize()) {
-+                    Column {
-+                        Text("Game buttons", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(16.dp))
-+                        Text(
-+                            "Pick a button to press the key for it. Changes apply from the next game.",
-+                            style = MaterialTheme.typography.bodyMedium,
-+                            modifier = Modifier.padding(horizontal = 16.dp),
-+                        )
-+                        InputDevicesSettingsScreen(viewModel = viewModel)
-+                    }
-+                }
++        page = PageView(this)
++        setContentView(page)
++        lifecycleScope.launch {
++            devices = inputDeviceManager.getEnabledInputsObservable().first()
++            reload()
++        }
++    }
++
++    private fun current(): InputDevice? = devices.getOrNull(device)
++
++    private fun reload() {
++        val d = current() ?: run { page.invalidate(); return }
++        lifecycleScope.launch { bindings = inputDeviceManager.getCurrentBindings(d); page.invalidate() }
++    }
++
++    private fun keysFor(retro: Int): String =
++        bindings.filter { it.value.keyCode == retro }.keys.joinToString(" / ") { it.displayName() }.ifEmpty { "-" }
++
++    private fun choose(row: Int) {
++        when {
++            row < pads.size -> {
++                if (current() == null) { note = "Connect a controller first"; Smz3Finish.cue(5); return }
++                waiting = row; waitUntil = SystemClock.uptimeMillis() + 6000; Smz3Finish.cue(4)
 +            }
++            row == pads.size -> lifecycleScope.launch {
++                inputDeviceManager.resetAllBindings()
++                note = "Back to the default buttons"; Smz3Finish.cue(6); reload()
++            }
++            else -> { Smz3Finish.cue(5); finish() }
++        }
++    }
++
++    private fun bind(code: Int) {
++        val d = current() ?: return
++        val pad = pads[waiting]
++        waiting = -1
++        val lost = bindings[InputKey(code)]?.keyCode?.takeIf { it != pad.retro }?.let { r -> pads.firstOrNull { it.retro == r }?.name }
++        lifecycleScope.launch {
++            inputDeviceManager.updateBinding(d, RetroKey(pad.retro), InputKey(code))
++            val key = InputKey(code).displayName()
++            note = if (lost != null) "${pad.name} is on $key ($lost lost it)" else "${pad.name} is on $key"
++            Smz3Finish.cue(6)
++            reload()
++        }
++    }
++
++    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
++        val k = e.keyCode
++        if (waiting >= 0) {   // the next button from this controller is the new one; Back cancels
++            if (e.action != KeyEvent.ACTION_UP) return true
++            if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_ESCAPE) { waiting = -1; Smz3Finish.cue(5) }
++            else if (e.device?.descriptor == current()?.descriptor) bind(k)
++            page.invalidate()
++            return true
++        }
++        if (e.action != KeyEvent.ACTION_DOWN) return true
++        when (k) {
++            KeyEvent.KEYCODE_DPAD_UP -> { cursor = (cursor - 1 + rows) % rows; Smz3Finish.cue(1) }
++            KeyEvent.KEYCODE_DPAD_DOWN -> { cursor = (cursor + 1) % rows; Smz3Finish.cue(1) }
++            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1 ->
++                if (devices.size > 1) { device = (device + if (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_BUTTON_L1) devices.size - 1 else 1) % devices.size; note = ""; Smz3Finish.cue(2); reload() }
++            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> choose(cursor)
++            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> { Smz3Finish.cue(5); finish() }
++            else -> return super.dispatchKeyEvent(e)
++        }
++        page.invalidate()
++        return true
++    }
++
++    @SuppressLint("ViewConstructor")
++    private inner class PageView(context: Context) : View(context) {
++        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Smz3Box.face(context) }
++        private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
++        private val path = Path()
++        private val boxes = Array(rows) { RectF() }
++        private var first = 0
++
++        override fun onDraw(c: Canvas) {
++            val w = width.toFloat(); val h = height.toFloat(); val u = min(w / 960f, h / 600f)
++            val t = SystemClock.uptimeMillis() / 1000f
++            c.drawColor(Color.rgb(0x0A, 0x0E, 0x15))
++            fill.shader = LinearGradient(0f, 0f, 0f, 110 * u, Color.argb(0xE6, 0x2A, 0x21, 0x12), Color.argb(0, 0x2A, 0x21, 0x12), Shader.TileMode.CLAMP)
++            c.drawRect(0f, 0f, w, 110 * u, fill); fill.shader = null
++
++            // the title strip, as on the menus
++            val mx = 24 * u; val cw = w - 2 * mx
++            fill.color = Color.rgb(0x25, 0x32, 0x4A); c.drawRect(0f, 72 * u, w, 73 * u, fill)
++            text.color = Smz3Box.GOLD; text.textSize = 34 * u; text.textAlign = Paint.Align.LEFT
++            c.drawText("Buttons and keys", mx, 50 * u, text)
++            val pad = current()
++            text.color = Smz3Box.DIM; text.textSize = 20 * u; text.textAlign = Paint.Align.RIGHT
++            c.drawText(if (pad == null) "No controller" else if (devices.size > 1) "<  ${pad.name}  >" else pad.name, w - mx, 48 * u, text)
++
++            // the rows: as many as fit, the chosen one in view
++            val rowH = 50 * u; val gap = 8 * u; val top = 88 * u; val bottom = h - 84 * u
++            val fit = maxOf(1, ((bottom - top) / (rowH + gap)).toInt())
++            if (cursor < first) first = cursor
++            if (cursor >= first + fit) first = cursor - fit + 1
++            val pulse = 0.5f + 0.5f * sin(t * 4f)
++            for (i in 0 until fit) {
++                val r = first + i
++                if (r >= rows) break
++                val y = top + i * (rowH + gap)
++                val lit = r == cursor
++                Smz3Box.row(c, fill, path, mx, y, cw, rowH, u, lit, pulse)
++                boxes[r].set(mx, y, mx + cw, y + rowH)
++                text.textAlign = Paint.Align.LEFT; text.textSize = 24 * u; text.color = if (lit) Color.WHITE else Smz3Box.TEXT
++                val base = y + rowH / 2 + 8 * u
++                if (r < pads.size) {
++                    val p = pads[r]
++                    c.drawText(p.name, mx + 22 * u, base, text)
++                    text.color = Smz3Box.DIM; text.textSize = 19 * u
++                    c.drawText(p.use, mx + 170 * u, base, text)
++                    text.textAlign = Paint.Align.RIGHT; text.textSize = 24 * u; text.color = if (lit) Smz3Box.GOLD else Smz3Box.TEXT
++                    c.drawText(keysFor(p.retro), mx + cw - 22 * u, base, text)
++                } else c.drawText(if (r == pads.size) "Reset to defaults" else "Back", mx + 22 * u, base, text)
++            }
++            for (r in 0 until rows) if (r < first || r >= first + fit) boxes[r].setEmpty()
++
++            // the last change, then the button bar
++            text.textAlign = Paint.Align.LEFT; text.textSize = 20 * u
++            text.color = if (note.isEmpty()) Smz3Box.DIM else Smz3Box.GOLD
++            c.drawText(note.ifEmpty { "Changes apply from the next game" }, mx, h - 54 * u, text)
++            fill.color = Color.rgb(0x0C, 0x11, 0x19); c.drawRect(0f, h - 40 * u, w, h, fill)
++            fill.color = Color.rgb(0x25, 0x32, 0x4A); c.drawRect(0f, h - 40 * u, w, h - 39 * u, fill)
++            val items = if (devices.size > 1) listOf("L" to "", "R" to "Controller", "A" to "Change", "B" to "Back") else listOf("A" to "Change", "B" to "Back")
++            Smz3Box.hint(c, Paint(text), fill, w - mx, h - 20 * u, 22 * u, items)
++
++            if (waiting >= 0) waitBox(c, w, h, u, t)
++            postInvalidateOnAnimation()
++        }
++
++        /** "Press the button for ...", over the page, with the seconds left. */
++        private fun waitBox(c: Canvas, w: Float, h: Float, u: Float, t: Float) {
++            val left = waitUntil - SystemClock.uptimeMillis()
++            if (left <= 0) { waiting = -1; return }
++            c.drawColor(Color.argb(170, 0, 0, 0))
++            val bw = min(w - 32 * u, 620 * u); val bh = 190 * u; val x = (w - bw) / 2; val y = (h - bh) / 2
++            fill.color = Color.rgb(0x25, 0x32, 0x4A); c.drawPath(Smz3Box.chamfer(path, x - 2 * u, y - 2 * u, bw + 4 * u, bh + 4 * u, 14 * u), fill)
++            fill.color = Color.rgb(0x0A, 0x0E, 0x15); c.drawPath(Smz3Box.chamfer(path, x, y, bw, bh, 13 * u), fill)
++            fill.color = Smz3Finish.alpha(Smz3Box.GOLD, 0.6f + 0.4f * sin(t * 5f)); c.drawRect(x + 6 * u, y, x + bw - 6 * u, y + 3 * u, fill)
++            text.textAlign = Paint.Align.CENTER
++            text.color = Smz3Box.GOLD; text.textSize = 30 * u
++            c.drawText("Press the button for ${pads[waiting].name}", w / 2, y + 66 * u, text)
++            text.color = Smz3Box.DIM; text.textSize = 20 * u
++            c.drawText(pads[waiting].use, w / 2, y + 102 * u, text)
++            c.drawText("Back or wait to cancel  ${(left + 999) / 1000}", w / 2, y + 150 * u, text)
++        }
++
++        @SuppressLint("ClickableViewAccessibility")
++        override fun onTouchEvent(e: MotionEvent): Boolean {
++            if (e.action != MotionEvent.ACTION_UP) return true
++            if (waiting >= 0) { waiting = -1; invalidate(); return true }   // a touch cancels the wait
++            val r = boxes.indexOfFirst { !it.isEmpty && it.contains(e.x, e.y) }
++            if (r >= 0) { cursor = r; choose(r); invalidate() }
++            return true
 +        }
 +    }
 +
