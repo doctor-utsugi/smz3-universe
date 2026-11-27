@@ -43,8 +43,10 @@ its row in the list shows the crystals and bosses you have so far.
 - Custom: every option of the web generator, from item placement and keysanity to logic tweaks, starting items and
   plando. You can save a setup and pick it again later. Changed rules keep the run off the online ladder.
 - Map Rando (Super Metroid runs): [Map Rando](https://maprando.com) rebuilds the whole map, as SM races play it.
-  Pick Beginner, Season 5 or another preset and a skill level. PC, Linux handhelds, the Thor and Android make the
-  seed on the device; the 3DS downloads it from the server, so it needs a connection there. The tracker shows items
+  Pick Beginner, Season 5 or another preset and a skill level. A device with 2 GB of RAM or more (most PCs, the Thor,
+  most phones) makes the seed itself; the 3DS and smaller devices (a 1 GB handheld) download it from the server and
+  say so. Offline, a run with a preset and the preset's own skill plays one of the 32 seeds the game comes with (8 per
+  preset); races, the weekly and the monthly never do, so everyone there plays the same map. The tracker shows items
   and the hash only, since its map is the vanilla one. A Season 5 or Beginner run with the preset's own settings
   goes on that preset's online table.
 - Race presets (A Link to the Past runs): Casual Boots, Standard and AD Keys, as SahasrahBot defines them for
@@ -149,7 +151,8 @@ The community sprites come with the app. A sprite of your own (an `.rdc` file) g
 
 ### Linux handhelds with a Ports menu
 
-ROCKNIX or Knulli, arm64. Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second screen. Not tried on Knulli yet.
+ROCKNIX or Knulli, arm64. Tested on an Anbernic RG DS with ROCKNIX, where the tracker opens on the second screen, and on
+an Anbernic RG 40XXV with Knulli (one 640 x 480 screen), where the tracker opens over the game.
 
 1. On a computer, download `SMZ3-ports-aarch64.zip` from the [latest release](https://github.com/doctor-utsugi/smz3-universe/releases/latest)
    and unzip it. You get a file, `SMZ3.sh`, and a folder, `SMZ3`.
@@ -162,7 +165,15 @@ ROCKNIX or Knulli, arm64. Tested on an Anbernic RG DS with ROCKNIX, where the tr
    the seed is made.
 
 To go back to the handheld's menu, press Select + Start in the game and then A, or tap "Save and leave the run" twice at
-the top of the tracker's CONFIG tab. Then press Start on the run list and choose Quit.
+the top of the tracker's CONFIG tab. Then choose Quit in the game's menu (Start / Load game, Online draft, ...).
+
+On a handheld with one screen (the RG 40XXV):
+
+- The buttons follow the letters printed on the console, whatever mapping the system hands to games.
+- With no R3, L3 opens the tracker and the menu button leaves the run. On the MAP tab only the D-pad moves the map.
+- The tracker's CONFIG tab has the settings (save slot, fast-forward speed, screen, the corner info and the daily
+  challenge) and the button setup. The corner shows the % and the time, as the side panels don't fit.
+- Map Rando seeds are downloaded (1 GB of RAM is not enough to make one), or taken from the game's own when offline.
 
 ---
 
