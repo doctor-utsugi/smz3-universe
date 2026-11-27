@@ -25,6 +25,7 @@ add_library(smz3core SHARED
     ../../core/gen/smz3_romderived.c
     ../../core/gen/smz3_dungeonmaps.c
     ../../core/gen/smz3_md5.c
+    ../../core/gen/smz3_romsetup.c
     ../../core/ui/smz3_ui.c
     ../../core/ui/smz3_ui_opts.c
     ../../core/ui/smz3_run.c
