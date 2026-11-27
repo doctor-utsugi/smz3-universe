@@ -43,6 +43,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - PC: the race's end card says how it ended for a player with no time, like Android: "The others left", "X won",
   "Time is up" or "No result".
 - macOS: the Intel build opens on macOS 11 and later; it asked for macOS 15.
+- PC in one window with no room for the side panels (a 640 x 480 handheld like the RG 40XXV): the %, the clock and a
+  race's lanes show in the game's top left corner. The side-panels key hides them too.
 - PC on handhelds whose buttons come as a virtual PlayStation pad (the RG DS with InputPlumber): the prompts show the
   console's own letters, not PlayStation's shapes.
 

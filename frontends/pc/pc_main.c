@@ -1116,6 +1116,24 @@ static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, f
     minimap_at_bottom(t, mm, x, w, h, y + 30 * u);
 }
 
+/* One window too narrow for the side panels (a 640 x 480 handheld): the % and the clock, and a race's lanes, in the game's top
+ * left corner. top: where the first free line is (under a Draft's goal). */
+static void corner_hud(const SmzTracker *t, const SmzRun *r, int64_t clock_ms, const SmzRace *race, float gx, float top, int wh)
+{
+    float u = wh / 720.0f, pad = 10 * u, px = 22 * u, x = gx + 14 * u, y = top;
+    unsigned done = t->zelda_cleared + t->metroid_cleared, total = t->zelda_total + t->metroid_total;
+    char s[64], tm[24];
+    fmt_time(clock_ms >= 0 ? clock_ms : t->elapsed_ms ? t->elapsed_ms : r->play_ms, tm, sizeof tm);
+    snprintf(s, sizeof s, "%u%%   %s", total ? done * 100 / total : 0, tm);
+    gfx_rect(x, y, gfx_text_width(px, s) + 2 * pad, px + pad * 1.4f, (SDL_Color){0x08, 0x0B, 0x11, 190});
+    gfx_text(x + pad, y + pad * 0.7f, px, C(0xE8, 0xEC, 0xF2), 0, s);
+    if (!race || race->state != RACE_RUNNING) return;
+    y += px + pad * 1.4f + 6 * u;
+    float lw = 300 * u, lu = u * 1.3f;
+    gfx_rect(x, y, lw, race->n * 20 * lu + pad, (SDL_Color){0x08, 0x0B, 0x11, 190});
+    race_lanes(race, x + pad, y + pad / 2, lw - 2 * pad, lu);
+}
+
 static void panel_right(const SmzTracker *t, float x, float w, float h, const MiniMap *mm)
 {
     float u = fminf(h / 720.0f, w / 230.0f), pad = 18 * u, y = 40 * u;
@@ -1387,7 +1405,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         snprintf(slots, sizeof slots, "%s %s", pad_key_label(PA_QPREV), pad_key_label(PA_QNEXT));
         snprintf(lr, sizeof lr, "%s %s", pad_key_label(PA_L), pad_key_label(PA_R));
         const HelpItem LEFT[] = {
-            {"", "", "#Tracker"}, {pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER), "Open and close"}, {pad_action_icon(PA_PANELS), pad_key_label(PA_PANELS), "Hide the side panels (one window)"}, {"LR2", "Q W", "Change tab"}, {NULL, "P", "Pause the game while open"},
+            {"", "", "#Tracker"}, {pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER), "Open and close"}, {pad_action_icon(PA_PANELS), pad_key_label(PA_PANELS), "Hide the side panels or the corner info (one window)"}, {"LR2", "Q W", "Change tab"}, {NULL, "P", "Pause the game while open"},
             {"", "", "#Playing"}, {pad_action_icon(PA_FAST), pad_key_label(PA_FAST), "Fast forward"}, {pad_action_icon(PA_REWIND), pad_key_label(PA_REWIND), "Rewind (when the run allows it)"}, {pad_action_icon(PA_LEAVE), pad_key_label(PA_LEAVE), "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"START", "O", "Options (in the tracker)"},
             {pad_action_icon(PA_QSAVE), pad_key_label(PA_QSAVE), "Save state"}, {pad_action_icon(PA_QLOAD), pad_key_label(PA_QLOAD), "Load state"}, {NULL, slots, "State slot"},
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
@@ -2696,6 +2714,10 @@ static void play(int slot, int game_save_only)
             if (!g_panels_hidden || ren2) panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
         }
         float hud_bottom = daily && !show && gx < 90 ? daily_hud(&dr, finished, gx, gw, wh) : 0;
+        if (gx < 90 && !ren2 && !show && !g_panels_hidden && !rw_open && !rg.card) {   /* no room beside the game: its corner */
+            int goal = rg.draft && ui.race.room.state == RACE_RUNNING && go_in <= -6000;   /* a Draft's goal sits in that corner first */
+            corner_hud(&trk, &run, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), rg.on && !rg.daily ? &ui.race.room : NULL, gx, (goal ? 56 : 14) * (wh / 720.0f), wh);
+        }
         if (rw_open) rewind_bar(rw, rw_dir, gx, gw, wh);   /* no side panels: the only room left is a corner of the game */
         {   /* a new hint, and the short notes (states, slots) while playing */
             const char *msg = SDL_GetTicks() < hint_until ? hint_note : SDL_GetTicks() < g_note_until ? g_note : NULL;
