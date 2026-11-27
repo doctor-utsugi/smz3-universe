@@ -31,16 +31,20 @@ static void pool_setup(void)
 static char g_dir[1100];
 static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it from the server */
 
-#define MR_NEED_MB 600   /* the data loaded to build a seed, freed after it */
+/* Building a seed peaks near 780 MB (measured), on top of the game: only a device with this much RAM in all and free builds
+ * it, any other downloads it. */
+#define MR_TOTAL_MB 2048
+#define MR_FREE_MB 1100
 
-/* The memory the system can still give, in MB (Linux), or -1 where it is not known. */
-static long mem_available_mb(void)
+/* A line of /proc/meminfo ("MemTotal", "MemAvailable") in MB (Linux), or -1 where it is not known. */
+static long meminfo_mb(const char *key)
 {
     FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return -1;
-    char line[128];
+    char line[128], fmt[40];
     long kb = -1;
-    while (fgets(line, sizeof line, f)) if (sscanf(line, "MemAvailable: %ld kB", &kb) == 1) break;
+    snprintf(fmt, sizeof fmt, "%s: %%ld kB", key);
+    while (fgets(line, sizeof line, f)) if (sscanf(line, fmt, &kb) == 1) break;
     fclose(f);
     return kb < 0 ? -1 : kb / 1024;
 }
@@ -132,13 +136,14 @@ static int generate(const char *settings, uint64_t seed, const uint8_t *sm, size
                     char *info, size_t info_cap)
 {
     char err[300];
-    long free_mb = mem_available_mb();
-    if (free_mb >= 0 && free_mb < MR_NEED_MB) return from_server(settings, seed, sm, sm_len, out, cap, info, info_cap);   /* a 1 GB handheld */
+    long total_mb = meminfo_mb("MemTotal"), free_mb = meminfo_mb("MemAvailable");
+    if ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))
+        return from_server(settings, seed, sm, sm_len, out, cap, info, info_cap);   /* a 1 GB handheld */
     g_phase = 1;
     if (smz_mr_init(g_dir, err, sizeof err)) { g_phase = 0; error_json(info, info_cap, err); return -1; }
     g_phase = 2;
     int rc = smz_mr_generate(settings, seed, 0, sm, sm_len, out, cap, info, info_cap);
-    smz_mr_free();   /* about 600 MB the game does not need */
+    smz_mr_free();   /* about 780 MB the game does not need */
     g_phase = 0;
     return rc;
 }

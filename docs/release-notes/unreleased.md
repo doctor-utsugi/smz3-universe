@@ -51,8 +51,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
 - PC and Linux handhelds: the start menu has Quit under Options, so the app closes without going into Options. Quit
   asks "Quit SMZ3?" first.
-- PC: a Map Rando seed is built on the device only when it has about 600 MB free; with less (a 1 GB handheld like the
-  RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
+- PC: a Map Rando seed is built on the device only when it has 2 GB of RAM and 1.1 GB free (building one peaks near
+  780 MB); otherwise (a 1 GB handheld like the RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
 - PC: while a Map Rando seed is made the screen says "Loading", or "Downloading the Map Rando seed" when the server
   makes it, not a count of seconds and tries. Offline, it asks to connect to the internet.
 - PC and 3DS: the game comes with 32 Map Rando seeds, 8 for each preset. When a seed can be neither built nor
