@@ -46,10 +46,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - PC in one window with no room for the side panels (a 640 x 480 handheld like the RG 40XXV): the %, the clock and a
   race's lanes show in the game's top left corner. The side-panels key hides them too.
 - PC on Knulli and Batocera handhelds (the RG 40XXV): A and B, and X and Y, were swapped, and L2 / R2 did nothing where
-  they are plain buttons. The app now takes every button from the system's own pad config (which names them by place,
-  as on an Xbox pad) and shows the letters printed on the console.
+  they are plain buttons. The system hands games a pad mapping by place, as on an Xbox pad, that SDL let nothing
+  replace; the app now sets each button from the system's pad config by its printed letter.
 - PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
-- PC and Linux handhelds: the start menu has Quit under Options, so the app closes without going into Options.
+- PC and Linux handhelds: the start menu has Quit under Options, so the app closes without going into Options. Quit
+  asks "Quit SMZ3?" first.
 - PC: a Map Rando seed is built on the device only when it has about 600 MB free; with less (a 1 GB handheld like the
   RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
 - PC: while a Map Rando seed is made the screen says "Loading", or "Downloading the Map Rando seed" when the server

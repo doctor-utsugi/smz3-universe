@@ -40,6 +40,8 @@ int pad_snes_bits(SDL_GameController *c);
 /* Directions held: bit 0 up, 1 down, 2 left, 3 right (D-pad or left stick). */
 int pad_dirs(SDL_GameController *c);
 
+/* Before SDL_Init: keeps the frontend's pad mappings out of SDL's hands, so the next call can change them. */
+void pad_env_take(void);
 /* Before opening the pad: makes the buttons of a handheld's built-in pad follow their printed letters. */
 void pad_handheld_setup(void);
 int pad_handheld_labels(void);

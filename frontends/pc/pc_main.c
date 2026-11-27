@@ -2022,6 +2022,7 @@ static UiButton map_key(SDL_Keycode k, int *ok);
 static void menu_button(UiButton b);
 static void toggle_fullscreen(void);
 static int g_menu_quit;   /* Quit picked in the options */
+static int g_quit_ask;    /* Quit picked in the menu, waiting for A (quit) or B (stay) */
 
 static void play(int slot, int game_save_only)
 {
@@ -3149,6 +3150,11 @@ static SmzUi ui_before;
 static void menu_button(UiButton b)
 {
     if (fx_busy()) return;
+    if (g_quit_ask) {
+        if (b == BTN_A) { g_quit_ask = 0; quit_menu(); }
+        else if (b == BTN_B) { g_quit_ask = 0; menu_cue(UI_CUE_BACK); }
+        return;
+    }
     if (settings_active() || welcome_active()) {   /* their own menus: the sound follows the button */
         if (settings_active()) settings_nav(b); else welcome_nav(b);
         menu_cue(b == BTN_UP || b == BTN_DOWN ? UI_CUE_MOVE : b == BTN_B ? UI_CUE_BACK : b == BTN_L || b == BTN_R ? UI_CUE_TAB : UI_CUE_SELECT);
@@ -3436,7 +3442,7 @@ static void window_main(int start_slot)
             }
             else if (act == ACT_RACE_START) { pending_play = RACE_SLOT - 1; pending_state_only = 0; instant = 1; }   /* the start is the server's: no fade to wait */
             else if (act == ACT_OPTIONS) {   /* Options opens the settings screen at the page asked for */
-                if (slot == UI_OPT_QUIT) quit_menu();
+                if (slot == UI_OPT_QUIT) { g_quit_ask = 1; menu_cue(UI_CUE_SELECT); }
                 else if (slot == UI_OPT_SOUND) { settings_set_menu_music(ui.menu_music); menumusic_set(ui.menu_music); }
                 else if (slot == UI_OPT_SEED) settings_set_seed_code(ui.seed_code);
                 else settings_open_page(slot == UI_OPT_VIDEO);
@@ -3530,6 +3536,12 @@ static void window_main(int start_slot)
         }
         welcome_draw(k, ox, oy);
         settings_draw(k, ox, oy);
+        if (g_quit_ask) {
+            static const HelpItem Q[] = {{"A", "Enter", "Quit"}, {"B", "Esc", "Stay"}};
+            gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
+            gfx_text(ww / 2.0f, wh / 2.0f - 14 * k, 12 * k, C(0xE8, 0xEC, 0xF2), 1, "Quit SMZ3?");
+            help_prompt(ww / 2.0f, wh / 2.0f + 6 * k, 14 * k, Q, 2);
+        }
         {
             static int last_screen = -1, last_flags;
             int flags = welcome_active() | settings_active() << 1;
@@ -3620,6 +3632,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[1], "play") || argc < 3) { usage(); return 2; }
     }
     int start = argc > 2 ? atoi(argv[2]) - 1 : -1;
+    pad_env_take();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER)) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     pad_handheld_setup();
     int win_w0 = 1920, win_h0 = 1080;   /* 1080p, or the largest 16:9 window the screen can hold */

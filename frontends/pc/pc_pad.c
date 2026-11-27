@@ -134,14 +134,13 @@ int pad_virtual_handheld(void)
  * positions from one device to the next. The kernel's button order is reliable (south, east, north, west), so that is used. */
 #ifdef __linux__
 /* Batocera and Knulli ship each handheld's pad in es_input.cfg: every button with its SDL index (id), from the same libSDL2
- * the Ports script loads. Its a b x y name places, as on an Xbox pad (a is the bottom one), so they become the printed
- * Nintendo letters: a is B, b is A, x is Y, y is X. L2 / R2 may be plain buttons there. Writes the SDL fields
- * ("a:b4,b:b3,lefttrigger:b13,...") and returns how many, 0 when the device is not listed. */
+ * the Ports script loads, and a b x y are the printed letters there (measured on the RG 40XXV). L2 / R2 may be plain
+ * buttons. Writes the SDL fields ("a:b4,b:b3,lefttrigger:b13,...") and returns how many, 0 when the device is not listed. */
 static int es_buttons(const char *name, char *out, size_t cap)
 {
     static const char *const FILES[] = {"/userdata/system/configs/emulationstation/es_input.cfg", "/usr/share/emulationstation/es_input.cfg"};
     static const char *const ES[] = {"a", "b", "x", "y", "pageup", "pagedown", "select", "start", "hotkey", "l3", "r3", "l2", "r2"};
-    static const char *const SDLN[] = {"b", "a", "y", "x", "leftshoulder", "rightshoulder", "back", "start", "guide", "leftstick", "rightstick", "lefttrigger", "righttrigger"};
+    static const char *const SDLN[] = {"a", "b", "x", "y", "leftshoulder", "rightshoulder", "back", "start", "guide", "leftstick", "rightstick", "lefttrigger", "righttrigger"};
     char want[160];
     snprintf(want, sizeof want, "deviceName=\"%s\"", name);
     out[0] = 0;
@@ -171,8 +170,27 @@ static int es_buttons(const char *name, char *out, size_t cap)
 }
 #endif
 
+/* The mappings the frontend hands down (Knulli's SDL_GAMECONTROLLERCONFIG) put a b x y by place, as on an Xbox pad, and
+ * SDL lets nothing added later replace them: taken out before SDL starts, then added back below as ordinary mappings. */
+static char *g_env_maps;
+
+void pad_env_take(void)
+{
+#ifdef __linux__
+    const char *e = getenv("SDL_GAMECONTROLLERCONFIG");
+    if (!e) return;
+    g_env_maps = strdup(e);
+    unsetenv("SDL_GAMECONTROLLERCONFIG");
+#endif
+}
+
 void pad_handheld_setup(void)
 {
+    if (g_env_maps) {
+        char *copy = strdup(g_env_maps);
+        for (char *line = copy ? strtok(copy, "\n") : NULL; line; line = strtok(NULL, "\n")) SDL_GameControllerAddMapping(line);
+        free(copy);
+    }
     for (int i = 0; i < SDL_NumJoysticks(); i++) {
         char *map = SDL_JoystickGetDeviceGUID(i).data[0] == 0x19 ? SDL_GameControllerMappingForDeviceIndex(i) : NULL;
         if (!map) continue;
