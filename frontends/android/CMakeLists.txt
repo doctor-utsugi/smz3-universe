@@ -78,17 +78,17 @@ foreach(f HEAD packed-refs refs/tags)
     endif()
 endforeach()
 target_compile_definitions(smz3core PRIVATE SMZ3_VERSION="${SMZ3_VERSION}")
-target_compile_options(smz3core PRIVATE -O2 -Wno-parentheses -Wno-unused-function)
+target_compile_options(smz3core PRIVATE -O2 -Wno-parentheses -Wno-unused-function "-ffile-prefix-map=$ENV{HOME}=~")
 target_link_options(smz3core PRIVATE -Wl,-z,max-page-size=16384)
 # Map Rando (core/maprando, Rust): linked in when its sources are fetched (tools/maprando/fetch.sh) and cargo-ndk is installed;
-# the crate's rust-toolchain.toml pins the compiler, so cargo runs from the crate's folder
+# the crate's rust-toolchain.toml pins the compiler, so cargo runs from the crate's folder; the home folder is cut from its paths
 set(MR_CRATE ${CMAKE_CURRENT_SOURCE_DIR}/../../core/maprando)
 find_program(CARGO cargo HINTS $ENV{HOME}/.cargo/bin)
 if(CARGO AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/maprando/rust/maprando AND ANDROID_ABI STREQUAL "arm64-v8a")
     set(MR_TARGET ${CMAKE_CURRENT_SOURCE_DIR}/../../build/maprando-target)
     set(MR_LIB ${MR_TARGET}/aarch64-linux-android/release/libsmz3_maprando.a)
     add_custom_target(maprando_crate
-        COMMAND ${CMAKE_COMMAND} -E env ANDROID_NDK_HOME=${ANDROID_NDK} ${CARGO} ndk -t arm64-v8a -P 23 build --release --lib --target-dir ${MR_TARGET}
+        COMMAND ${CMAKE_COMMAND} -E env ANDROID_NDK_HOME=${ANDROID_NDK} "RUSTFLAGS=--remap-path-prefix=$ENV{HOME}=~" ${CARGO} ndk -t arm64-v8a -P 23 build --release --lib --target-dir ${MR_TARGET}
         WORKING_DIRECTORY ${MR_CRATE} BYPRODUCTS ${MR_LIB} VERBATIM)
     add_dependencies(smz3core maprando_crate)
     target_compile_definitions(smz3core PRIVATE SMZ_MAPRANDO)

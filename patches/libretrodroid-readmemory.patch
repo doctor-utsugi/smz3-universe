@@ -12,10 +12,19 @@ index 536c8ed..a03865b 100644
      }
  }
 diff --git a/libretrodroid/src/main/cpp/CMakeLists.txt b/libretrodroid/src/main/cpp/CMakeLists.txt
-index 5a845df..de2109d 100644
+index 5a845df..40597ce 100644
 --- a/libretrodroid/src/main/cpp/CMakeLists.txt
 +++ b/libretrodroid/src/main/cpp/CMakeLists.txt
-@@ -26,6 +26,7 @@ add_library(libretrodroid SHARED
+@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.13.2)
+ 
+ # now build app's shared lib
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall")
++# no build carries the builder's home folder (__FILE__ in asserts)
++add_compile_options("-ffile-prefix-map=$ENV{HOME}=~")
+ 
+ add_definitions("-DVFS_FRONTEND -DHAVE_STRL")
+ 
+@@ -26,6 +28,7 @@ add_library(libretrodroid SHARED
          libretrodroidjni.cpp
          libretrodroid.h
          libretrodroid.cpp

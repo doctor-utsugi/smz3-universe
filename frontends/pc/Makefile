@@ -25,6 +25,7 @@ endif
 # the release tag shown in the run menu: the tag CI builds, else the newest tag here
 SMZ3_VERSION ?= $(or $(filter v%,$(GITHUB_REF_NAME)),$(shell git -C $(ROOT) describe --tags --abbrev=0 2>/dev/null),dev)
 CFLAGS += -DSMZ3_VERSION='"$(SMZ3_VERSION)"'
+CFLAGS += -ffile-prefix-map=$(HOME)=~   # no build carries the builder's home folder (__FILE__ in asserts)
 
 # Map Rando (core/maprando, Rust) is linked in when its sources are fetched (tools/maprando/fetch.sh) and cargo is installed
 MAPRANDO ?= $(if $(and $(wildcard $(ROOT)/vendor/maprando/rust/maprando),$(shell command -v cargo)),1,)
@@ -110,9 +111,10 @@ $(OUT)/smz3$(EXE): $(OBJ) $(OUT)/libsnes9x.a $(MR_LIB)
 	$(CC) $(OBJ) $(OUT)/libsnes9x.a $(MR_LIB) -o $@ $(LIBS)
 
 ifdef MAPRANDO
+# The home folder is cut from the source paths Rust keeps for panics, so no build carries the builder's user name.
 # cargo decides what to rebuild; the crate's rust-toolchain.toml pins the compiler, so it runs from the crate's folder
 $(MR_LIB): FORCE
-	cd $(CORE)/maprando && cargo build --release --lib $(MR_CARGO) --target-dir $(MR_TARGET)
+	cd $(CORE)/maprando && RUSTFLAGS="$$RUSTFLAGS --remap-path-prefix=$(HOME)=~" cargo build --release --lib $(MR_CARGO) --target-dir $(MR_TARGET)
 FORCE:
 endif
 
