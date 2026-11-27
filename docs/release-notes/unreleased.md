@@ -58,6 +58,9 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   to half, being inside the goal's dungeon or area 70% and the boss's room 85%. Crystal and boss counts go by how many
   are done. Before, those goals stayed at 0% until the finish.
 - Fast forward in an online race or Draft says so, not "daily challenge".
+- Android on one screen: a Draft's goal and its time left sit in the side panel above the lanes, instead of over the
+  panel's own %. With the panels hidden it stays at the top left of the game.
+- A Draft that asks for one enemy reads "Defeat an enemy", not "Defeat 1 enemies".
 
 ### Controls
 

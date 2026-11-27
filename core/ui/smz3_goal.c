@@ -127,7 +127,7 @@ void smz_goal_text(const SmzGoal *g, char *out, size_t cap)
     static const char *const AREA[6] = {"Crateria", "Brinstar", "Norfair", "the Wrecked Ship", "Maridia", "Tourian"};
     const char *zb = "a boss";
     switch (g->kind) {
-    case GOAL_KILLS: snprintf(out, cap, "Defeat %d enemies", g->value); return;
+    case GOAL_KILLS: if (g->value == 1) snprintf(out, cap, "Defeat an enemy"); else snprintf(out, cap, "Defeat %d enemies", g->value); return;
     case GOAL_RUPEES: snprintf(out, cap, "Collect %d rupees", g->value); return;
     case GOAL_ZBOSS:
         for (unsigned i = 0; i < sizeof ZB / sizeof ZB[0]; i++) if (ZB[i].room == g->value) zb = ZB[i].name;

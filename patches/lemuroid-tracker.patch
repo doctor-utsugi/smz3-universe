@@ -323,10 +323,10 @@ index 0000000..147df74
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..7edbaef
+index 0000000..b958787
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
-@@ -0,0 +1,504 @@
+@@ -0,0 +1,510 @@
 +package com.swordfish.lemuroid.app.mobile.feature.game
 +
 +import android.content.Context
@@ -644,6 +644,12 @@ index 0000000..7edbaef
 +        if (com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.on && !com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.daily) {
 +            Spacer(Modifier.height(8.dp))
 +            Text("Race", color = DIM, fontSize = 12.sp)
++            androidx.compose.runtime.DisposableEffect(Unit) {
++                com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.goalInPanel = true
++                onDispose { com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.goalInPanel = false }
++            }
++            val goal = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.goalLine
++            if (goal.isNotEmpty()) Text(goal, color = TEXT, fontSize = 12.sp, lineHeight = 14.sp, modifier = Modifier.padding(vertical = 2.dp))
 +            androidx.compose.ui.viewinterop.AndroidView(   // the same horse race as the second screen's RUN tab; s changes every read
 +                factory = { com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceTrack(it) },
 +                update = { it.tag = s; it.update() },
@@ -13415,10 +13421,10 @@ index 0000000..387684b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..092d11a
+index 0000000..806f17f
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,613 @@
+@@ -0,0 +1,617 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -13459,6 +13465,9 @@ index 0000000..092d11a
 +    var daily = false
 +    /** The race being played is a Draft. */
 +    var draft = false
++    /** A Draft's goal line while it shows; the single-screen side panel draws it when it is up, instead of the overlay. */
++    @Volatile var goalLine = ""
++    @Volatile var goalInPanel = false
 +    /** Sends a daily chat line (set by the daily overlay); a race's lines go out with its polls. */
 +    var dailySay: ((String) -> Unit)? = null
 +    var you = ""
@@ -13859,8 +13868,9 @@ index 0000000..092d11a
 +            if (draft() && goal.isNotEmpty() && state == "running" && startAt > 0 && hold?.isShowing != true && card?.isShowing != true) {
 +                val left = maxOf(0L, startAt + 30 * 60_000L - server)
 +                val pc = Smz3Native.raceGoalProgress()
-+                v.text = (if (pc >= 0) "$goal  $pc%" else goal) + "  %d:%02d".format(left / 60000, left / 1000 % 60); v.visibility = View.VISIBLE
-+            } else v.visibility = View.GONE
++                Smz3RaceState.goalLine = (if (pc >= 0) "$goal  $pc%" else goal) + "  %d:%02d".format(left / 60000, left / 1000 % 60)
++                v.text = Smz3RaceState.goalLine; v.visibility = if (Smz3RaceState.goalInPanel) View.GONE else View.VISIBLE
++            } else { Smz3RaceState.goalLine = ""; v.visibility = View.GONE }
 +        }
 +        // news for the rivals, and the progress: 100 is the finish, from the server
 +        val snap = Smz3Tracker.latest.value
