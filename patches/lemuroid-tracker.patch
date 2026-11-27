@@ -3756,7 +3756,7 @@ index b3a4e58..2eeede2 100644
          if (activity.isBusy()) {
              activity.activity().displayToast(R.string.game_interactory_busy)
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
-index 6d06420..b913407 100644
+index 6d06420..38aba2d 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameActivity.kt
 @@ -21,6 +21,7 @@ import com.swordfish.lemuroid.app.shared.ImmersiveActivity
@@ -3814,34 +3814,24 @@ index 6d06420..b913407 100644
  
          initialiseFlows()
      }
-@@ -152,10 +167,46 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -152,10 +167,36 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      @Composable
      abstract fun GameScreen(viewModel: BaseGameScreenViewModel)
  
-+    private var leaveDialog: android.app.AlertDialog? = null
++    private var leaveBox: com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box? = null
 +
-+    /** Back outside a race asks first: one press too many must not end the run. A leaves (or presses the button the
-+     * d-pad moved to), B stays. */
++    /** Back outside a race asks first: one press too many must not end the run. A takes the chosen row, B stays. */
 +    private fun confirmLeave(title: String = "Leave the run?") {
-+        if (isFinishing || leaveDialog?.isShowing == true) return
-+        leaveDialog = android.app.AlertDialog.Builder(this)
-+            .setTitle(title)
-+            .setPositiveButton("Leave") { _, _ -> baseGameScreenViewModel.requestFinish() }
-+            .setNegativeButton("Keep playing", null)
-+            .create().apply {
-+                var moved = false
-+                setOnKeyListener { d, code, e ->
-+                    if (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN) moved = true
-+                    if (code != KeyEvent.KEYCODE_BUTTON_A && code != KeyEvent.KEYCODE_BUTTON_B) return@setOnKeyListener false
-+                    if (e.action == KeyEvent.ACTION_UP) {
-+                        val stay = code == KeyEvent.KEYCODE_BUTTON_B || (moved && getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.isFocused == true)
-+                        d.dismiss()
-+                        if (!stay) baseGameScreenViewModel.requestFinish()
-+                    }
-+                    true
-+                }
-+                show()
-+            }
++        if (isFinishing || leaveBox?.isShowing == true) return
++        val box = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box(this)
++        box.title = title
++        box.options = listOf(
++            com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.Option("Leave") { baseGameScreenViewModel.requestFinish() },
++            com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.Option("Keep playing") { },
++        )
++        box.back = { }
++        box.backLabel = "Keep playing"
++        leaveBox = box.show()
 +    }
 +
      private fun initialiseFlows() {
@@ -3861,7 +3851,7 @@ index 6d06420..b913407 100644
      }
  
      private fun setUpExceptionsHandler() {
-@@ -204,19 +255,22 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -204,19 +245,22 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                      baseGameScreenViewModel.retroGameView.retroGameView?.getAvailableDisks() ?: 0,
                  )
                  this.putExtra(GameMenuContract.EXTRA_GAME, game)
@@ -3887,7 +3877,7 @@ index 6d06420..b913407 100644
              }
          startActivityForResult(intent, DIALOG_REQUEST)
          overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-@@ -244,7 +298,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -244,7 +288,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                              it.currentTiltConfiguration,
                              it.tiltConfigurations,
                          )
@@ -3896,7 +3886,7 @@ index 6d06420..b913407 100644
                      is GameViewModelSideEffects.UiEffect.SuccessfulFinish -> performSuccessfulActivityFinish()
                      is GameViewModelSideEffects.UiEffect.FailureFinish -> performErrorFinish(it.message)
                      is GameViewModelSideEffects.UiEffect.SaveQuickSave -> performSaveQuickSave()
-@@ -262,11 +316,81 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -262,11 +306,70 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          baseGameScreenViewModel.loadQuickSave()
      }
  
@@ -3914,21 +3904,9 @@ index 6d06420..b913407 100644
 +        val (mc, mt) = pair(metroid)
 +        val daily = name.startsWith("Daily ")
 +        fin.start(com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.Card(if (daily) "CHALLENGE COMPLETE" else "RUN COMPLETE", name, ladder, daily || ladder.startsWith("Sent"), ms, zc, zt, mc, mt))
-+        fin.onMenu = { runOnUiThread { finishDialog?.dismiss(); baseGameScreenViewModel.requestFinish() } }
-+        fin.onCredits = { runOnUiThread { finishDialog?.dismiss(); finishDialog = null; if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.onSecondScreen) showCreditsExit() } }
-+        val face = runCatching { android.graphics.Typeface.createFromAsset(assets, "smz3/menu_font.ttf") }.getOrDefault(android.graphics.Typeface.DEFAULT_BOLD)
-+        finishDialog = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
-+            setContentView(com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3FinishTopView(this@BaseGameActivity, face))
-+            setCancelable(false)
-+            setOnKeyListener { _, code, e ->
-+                if (e.action != android.view.KeyEvent.ACTION_UP) return@setOnKeyListener true
-+                val yes = code == android.view.KeyEvent.KEYCODE_BUTTON_A || code == android.view.KeyEvent.KEYCODE_ENTER || code == android.view.KeyEvent.KEYCODE_DPAD_CENTER
-+                val no = code == android.view.KeyEvent.KEYCODE_BUTTON_B || code == android.view.KeyEvent.KEYCODE_BACK || code == android.view.KeyEvent.KEYCODE_ESCAPE
-+                if ((yes || no) && !fin.skip()) { if (yes) fin.menu() else fin.credits() }
-+                true
-+            }
-+            show()
-+        }
++        fin.onA = { runOnUiThread { finishDialog?.dismiss(); baseGameScreenViewModel.requestFinish() } }
++        fin.onB = { runOnUiThread { finishDialog?.dismiss(); finishDialog = null; if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.onSecondScreen) showCreditsExit() } }
++        finishDialog = fin.host(this)
 +    }
 +
 +    /** Without a second screen, the way out during the credits sits in the corner of this one. */
@@ -3936,7 +3914,7 @@ index 6d06420..b913407 100644
 +        val pad = (10 * resources.displayMetrics.density).toInt()
 +        addContentView(
 +            android.widget.TextView(this).apply {
-+                text = "Back to menu"; textSize = 15f; setPadding(pad * 2, pad, pad * 2, pad)
++                text = "Back to menu"; textSize = 15f; typeface = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.face(this@BaseGameActivity); setPadding(pad * 2, pad, pad * 2, pad)
 +                setTextColor(android.graphics.Color.rgb(0x10, 0x16, 0x1F)); setBackgroundColor(android.graphics.Color.rgb(0xF2, 0xA3, 0x3A))
 +                setOnClickListener { baseGameScreenViewModel.requestFinish() }
 +            },
@@ -3949,6 +3927,7 @@ index 6d06420..b913407 100644
 +            cornerNote ?: android.widget.TextView(this).apply {
 +                setTextColor(android.graphics.Color.WHITE)
 +                textSize = 12f
++                typeface = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.face(this@BaseGameActivity)
 +                setShadowLayer(4f, 0f, 0f, android.graphics.Color.BLACK)
 +                alpha = 0f
 +                val pad = (8 * resources.displayMetrics.density).toInt()
@@ -3978,7 +3957,15 @@ index 6d06420..b913407 100644
          val handled = baseGameScreenViewModel.sendMotionEvent(event)
          if (handled) {
              return true
-@@ -343,7 +467,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -331,6 +434,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+ 
+     private fun finishAndExitProcess() {
+         onFinishTriggered()
++        raceOverlay?.stop(true)   // the leave goes out now: the process can end before onDestroy
+         GlobalScope.launch {
+             delay(animationDuration().toLong())
+             GameService.requestTermination()
+@@ -343,7 +447,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
          finishTriggered = true
      }
  
@@ -3992,7 +3979,7 @@ index 6d06420..b913407 100644
          if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
              baseGameScreenViewModel.requestBackgroundSave()
          }
-@@ -351,6 +481,20 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -351,6 +461,21 @@ abstract class BaseGameActivity : ImmersiveActivity() {
      }
  
      override fun onDestroy() {
@@ -4004,16 +3991,17 @@ index 6d06420..b913407 100644
 +            val run = com.swordfish.lemuroid.app.mobile.feature.runs.RunStore.load(this, slot)
 +            if (run != null) com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.reportGoals(applicationContext, slot, run.id)
 +        }
-+        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.onMenu = null
-+        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.onCredits = null
++        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.onA = null
++        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Finish.onB = null
 +        finishDialog?.dismiss()
++        leaveBox?.dismiss()
 +        com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.onDailyResult = null
 +        dailyOverlay?.stop()
 +        raceOverlay?.stop(!isChangingConfigurations)
          if (!isChangingConfigurations) {
              GameService.requestTermination()
          }
-@@ -381,7 +525,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -381,7 +506,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
              if (data?.getBooleanExtra(GameMenuContract.RESULT_QUIT, false) == true) {
@@ -4022,7 +4010,7 @@ index 6d06420..b913407 100644
              }
              if (data?.hasExtra(GameMenuContract.RESULT_CHANGE_DISK) == true) {
                  val index = data.getIntExtra(GameMenuContract.RESULT_CHANGE_DISK, 0)
-@@ -397,16 +541,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
+@@ -397,16 +522,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                  }
              }
              if (data?.hasExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD) == true) {
@@ -4554,14 +4542,13 @@ index 0000000..7f25828
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt
 new file mode 100644
-index 0000000..079412a
+index 0000000..ff3ca1e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3DailyOverlay.kt
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,234 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
-+import android.app.AlertDialog
 +import android.graphics.Color
 +import android.os.Handler
 +import android.os.Looper
@@ -4784,12 +4771,12 @@ index 0000000..079412a
 +        }
 +        if (!timeUpShown && left <= 0 && !finished) {
 +            timeUpShown = true
-+            AlertDialog.Builder(activity)
-+                .setTitle("TIME IS UP")
-+                .setMessage("The window closed before the goal: this attempt is marked failed.\n\nYou can keep playing it. A finish now goes on the late list, without prize.")
-+                .setPositiveButton("Keep playing", null)
-+                .setNegativeButton("Leave the run") { _, _ -> onLeave() }
-+                .show()
++            Smz3Box(activity).apply {
++                title = "TIME IS UP"; accent = Smz3Box.RED
++                message = "The window closed before the goal: this attempt is marked failed.\n\nYou can keep playing it. A finish now goes on the late list, without prize."
++                options = listOf(Smz3Box.Option("Keep playing") { }, Smz3Box.Option("Leave the run") { onLeave() })
++                back = { }; backLabel = "Keep playing"
++            }.show()
 +        }
 +    }
 +}
@@ -5480,10 +5467,10 @@ index 0000000..66012d4
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Finish.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Finish.kt
 new file mode 100644
-index 0000000..96cc28c
+index 0000000..f0afc2e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Finish.kt
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,471 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.annotation.SuppressLint
@@ -5512,12 +5499,26 @@ index 0000000..96cc28c
 +import kotlin.random.Random
 +
 +/**
-+ * The run's end, on both screens: the top one gets the celebration (flash, rays, confetti, the title letter by letter and
-+ * the final time counting up to a fanfare), the bottom one the run's details one per second and the buttons. After
-+ * "Watch the credits" the bottom screen keeps a Back to menu button while the credits roll.
++ * The end of a run or a race, on both screens: the top one gets the celebration (flash, rays, confetti, the title letter
++ * by letter and the final time counting up to a fanfare), the bottom one the details one per second and the buttons.
++ * After "Watch the credits" the bottom screen keeps a Back to menu button while the credits roll. A race's card has its
++ * standings as the details, and the rays, confetti and fanfare only when it is won.
 + */
 +object Smz3Finish {
-+    class Card(val title: String, val name: String, @Volatile var ladder: String, val ladderBlue: Boolean, val ms: Long, val zelda: Int, val zeldaTotal: Int, val metroid: Int, val metroidTotal: Int)
++    /** One line of a race's standings: the place, the name, the time or what became of the player. */
++    class Standing(val place: String, val name: String, val value: String, val mine: Boolean)
++
++    class Card(
++        val title: String, val name: String, @Volatile var ladder: String, val ladderBlue: Boolean, val ms: Long,
++        val zelda: Int = 0, val zeldaTotal: Int = 0, val metroid: Int = 0, val metroidTotal: Int = 0,
++        val standings: List<Standing>? = null,
++        /** Shown instead of the time when there is none (a win by the others leaving, a draw). */
++        val big: String? = null,
++        val win: Boolean = true,
++        val accent: Int = Color.rgb(0xF2, 0xA3, 0x3A),
++        @Volatile var a: String = "Main menu",
++        @Volatile var b: String = "Watch the credits",
++    )
 +
 +    const val T_CARD = 0.10f
 +    const val T_TITLE = 0.35f
@@ -5527,14 +5528,18 @@ index 0000000..96cc28c
 +    const val ROWS = 4
 +    const val T_BUTTONS = T_ROWS + ROWS
 +
++    /** The details shown one per second: a race's standings (at most four), or the run's four rows. */
++    fun rows(c: Card) = c.standings?.size?.coerceIn(1, ROWS) ?: ROWS
++    fun tButtons(): Float = card?.let { T_ROWS + rows(it) } ?: T_BUTTONS
++
 +    @Volatile var card: Card? = null
 +    @Volatile private var startedAt = 0L
 +    /** While the card is up; false once it is closed for the credits. */
 +    @Volatile var open = false
-+    /** Main menu: set by the game activity. */
-+    @Volatile var onMenu: (() -> Unit)? = null
-+    /** Closes the top card for the credits: set by the game activity. */
-+    @Volatile var onCredits: (() -> Unit)? = null
++    /** The card's A button (Main menu for a run): set by whoever shows the card. */
++    @Volatile var onA: (() -> Unit)? = null
++    /** Its B button (closes the top card for the credits, for a run). */
++    @Volatile var onB: (() -> Unit)? = null
 +
 +    fun start(c: Card) { card = c; startedAt = SystemClock.uptimeMillis(); open = true; skipped = false }
 +
@@ -5550,16 +5555,33 @@ index 0000000..96cc28c
 +
 +    /** A press before the buttons are out only ends the animation: returns true then. */
 +    fun skip(): Boolean {
-+        if (time() >= T_BUTTONS) return false
-+        startedAt = SystemClock.uptimeMillis() - (T_BUTTONS * 1000).toLong()
++        val tb = tButtons()
++        if (time() >= tb) return false
++        startedAt = SystemClock.uptimeMillis() - (tb * 1000).toLong()
 +        skipped = true
 +        return true
 +    }
 +    @Volatile var skipped = false
 +
-+    fun menu() { onMenu?.invoke() }
++    fun pressA() { onA?.invoke() }
 +
-+    fun credits() { open = false; onCredits?.invoke() }
++    /** A run's B rolls the credits, so the card stays on the second screen without its buttons; a race's only closes. */
++    fun pressB() { if (card?.standings == null) open = false; onB?.invoke() }
++
++    /** The top screen's card in its own window over the game: A and B (and Enter, Back) go to [pressA] and [pressB], the
++     * first press only ends the animation. */
++    fun host(activity: android.app.Activity): android.app.Dialog = android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
++        setContentView(Smz3FinishTopView(activity, Smz3Box.face(activity)))
++        setCancelable(false)
++        setOnKeyListener { _, code, e ->
++            if (e.action != android.view.KeyEvent.ACTION_UP) return@setOnKeyListener true
++            val yes = code == android.view.KeyEvent.KEYCODE_BUTTON_A || code == android.view.KeyEvent.KEYCODE_ENTER || code == android.view.KeyEvent.KEYCODE_DPAD_CENTER
++            val no = code == android.view.KeyEvent.KEYCODE_BUTTON_B || code == android.view.KeyEvent.KEYCODE_BACK || code == android.view.KeyEvent.KEYCODE_ESCAPE
++            if ((yes || no) && !skip()) { if (yes) pressA() else pressB() }
++            true
++        }
++        show()
++    }
 +
 +    // ---- sounds, made on the fly like the PC build's
 +
@@ -5712,31 +5734,36 @@ index 0000000..96cc28c
 +        val dt = (t - last).coerceIn(0f, 0.05f)
 +        last = t
 +        val w = width.toFloat(); val h = height.toFloat(); val u = min(h / 560f, w / 900f); val mx = w / 2
-+        val cw = 700 * u; val ch = 330 * u
++        val race = card.standings?.takeIf { !Smz3Tracker.onSecondScreen }   // one screen: the standings go on the card
++        val cw = 700 * u; val ch = (330 + 34 * (race?.size?.coerceAtMost(4) ?: 0) - if (race != null) 34 else 0) * u
 +        val pop = Smz3Finish.backOut((t - Smz3Finish.T_CARD) / 0.45f)
 +        val cy0 = (h - ch) / 2; val cy = cy0 + (1 - pop) * 60 * u
 +        val inA = Smz3Finish.clamp01((t - Smz3Finish.T_CARD) / 0.3f)
 +
 +        c.drawColor(Color.argb((185 * Smz3Finish.clamp01(t / 0.3f)).toInt(), 0, 0, 0))
-+        Smz3Finish.rays(c, fill, mx, cy0 + ch / 2, w, t, inA * (0.7f + 0.3f * sin(t * 2.2f)))
-+        if (t >= Smz3Finish.T_TITLE && t < Smz3Finish.T_LAND && Random.nextFloat() < 0.25f) confetti.rain(w, u)
-+        if (t >= Smz3Finish.T_LAND && Random.nextFloat() < 0.4f) confetti.rain(w, u)
++        if (card.win) {
++            Smz3Finish.rays(c, fill, mx, cy0 + ch / 2, w, t, inA * (0.7f + 0.3f * sin(t * 2.2f)))
++            if (t >= Smz3Finish.T_TITLE && t < Smz3Finish.T_LAND && Random.nextFloat() < 0.25f) confetti.rain(w, u)
++            if (t >= Smz3Finish.T_LAND && Random.nextFloat() < 0.4f) confetti.rain(w, u)
++        }
 +        if (t >= Smz3Finish.T_LAND && !landed) {
 +            landed = true
-+            if (!Smz3Finish.skipped) Smz3Finish.fanfare()
-+            confetti.burst(mx - 365 * u, cy + 150 * u, 60, 900 * u)
-+            confetti.burst(mx + 365 * u, cy + 150 * u, 60, 900 * u)
++            if (!Smz3Finish.skipped) { if (card.win) Smz3Finish.fanfare() else Smz3Finish.cue(5) }
++            if (card.win) {
++                confetti.burst(mx - 365 * u, cy + 150 * u, 60, 900 * u)
++                confetti.burst(mx + 365 * u, cy + 150 * u, 60, 900 * u)
++            }
 +        }
 +        confetti.draw(c, dt, h, u)   // behind the card, so the numbers stay readable
 +
 +        val glow = 0.5f + 0.5f * sin(t * 3.4f)
 +        val sc = 0.86f + 0.14f * pop
 +        val bw = cw * sc; val bh = ch * sc; val x = mx - bw / 2; val y = cy + (ch - bh) / 2
-+        fill.color = Smz3Finish.alpha(Smz3Finish.GOLD, (80 + 110 * glow) / 255f * inA)
++        fill.color = Smz3Finish.alpha(card.accent, (if (card.win) 80 + 110 * glow else 70f) / 255f * inA)
 +        c.drawRect(x - 4 * u, y - 4 * u, x + bw + 4 * u, y + bh + 4 * u, fill)
 +        fill.color = Smz3Finish.alpha(Smz3Finish.CARD, inA)
 +        c.drawRect(x, y, x + bw, y + bh, fill)
-+        fill.color = Smz3Finish.alpha(Smz3Finish.PALE_GOLD, inA)
++        fill.color = Smz3Finish.alpha(if (card.win) Smz3Finish.PALE_GOLD else card.accent, inA)
 +        c.drawRect(x, y, x + bw, y + 3 * u, fill)
 +
 +        // the title, letter by letter
@@ -5749,20 +5776,21 @@ index 0000000..96cc28c
 +            val lp = Smz3Finish.clamp01((t - Smz3Finish.T_TITLE - i * 0.035f) / 0.22f)
 +            if (lp > 0 && ch1 != ' ') {
 +                val ls = 1 + 0.9f * (1 - Smz3Finish.backOut(lp))
-+                text(c, ch1.toString(), lx + lw / 2, cy + 30 * u - (ls - 1) * tpx / 2, tpx * ls, Smz3Finish.alpha(Smz3Finish.GOLD, lp))
++                text(c, ch1.toString(), lx + lw / 2, cy + 30 * u - (ls - 1) * tpx / 2, tpx * ls, Smz3Finish.alpha(card.accent, lp))
 +            }
 +            lx += lw
 +        }
 +
 +        // the final time counting up, then a punch, a ring and the fanfare
 +        val cp = Smz3Finish.easeOut((t - Smz3Finish.T_COUNT) / (Smz3Finish.T_LAND - Smz3Finish.T_COUNT))
-+        if (t >= Smz3Finish.T_COUNT && t < Smz3Finish.T_LAND && ((t - Smz3Finish.T_COUNT) / 0.11f).toInt() > ticks) { ticks = ((t - Smz3Finish.T_COUNT) / 0.11f).toInt(); Smz3Finish.tick() }
++        if (card.big == null && t >= Smz3Finish.T_COUNT && t < Smz3Finish.T_LAND && ((t - Smz3Finish.T_COUNT) / 0.11f).toInt() > ticks) { ticks = ((t - Smz3Finish.T_COUNT) / 0.11f).toInt(); Smz3Finish.tick() }
 +        val punch = if (t >= Smz3Finish.T_LAND) 1 + 0.18f * exp(-(t - Smz3Finish.T_LAND) * 7) else 1f
 +        if (t >= Smz3Finish.T_COUNT) {
-+            val ms = if (t >= Smz3Finish.T_LAND) card.ms else (card.ms * cp).toLong()
-+            text(c, Smz3Finish.clock(ms), mx, cy + 90 * u - (punch - 1) * 40 * u, 84 * u * punch, Smz3Finish.alpha(Smz3Finish.TEXT, (t - Smz3Finish.T_COUNT) / 0.2f))
++            val a = Smz3Finish.alpha(Smz3Finish.TEXT, (t - Smz3Finish.T_COUNT) / 0.2f)
++            if (card.big != null) text(c, card.big, mx, cy + 104 * u, 44 * u, a)
++            else text(c, Smz3Finish.clock(if (t >= Smz3Finish.T_LAND) card.ms else (card.ms * cp).toLong()), mx, cy + 90 * u - (punch - 1) * 40 * u, 84 * u * punch, a)
 +        }
-+        if (t >= Smz3Finish.T_LAND && t < Smz3Finish.T_LAND + 0.7f) {
++        if (card.win && t >= Smz3Finish.T_LAND && t < Smz3Finish.T_LAND + 0.7f) {
 +            val rp = (t - Smz3Finish.T_LAND) / 0.7f
 +            fill.style = Paint.Style.STROKE; fill.strokeWidth = 6 * u * (1 - rp) + u; fill.color = Smz3Finish.alpha(Smz3Finish.PALE_GOLD, 0.8f * (1 - rp))
 +            c.drawCircle(mx, cy + 134 * u, 60 * u + 300 * u * Smz3Finish.easeOut(rp), fill)
@@ -5770,14 +5798,22 @@ index 0000000..96cc28c
 +        }
 +        if (t >= Smz3Finish.T_LAND) {
 +            val a = (t - Smz3Finish.T_LAND) / 0.4f
-+            text(c, card.name, mx, cy + 196 * u, 20 * u, Smz3Finish.alpha(Smz3Finish.DIM, a))
-+            text(c, card.ladder, mx, cy + 232 * u, 20 * u, Smz3Finish.alpha(if (card.ladderBlue) Smz3Finish.BLUE else Smz3Finish.DIM, a))
++            val saved = race != null && card.ladder.isNotEmpty()   // a race's time just went to the ladder
++            text(c, if (saved) card.ladder else card.name, mx, cy + 180 * u, 20 * u, Smz3Finish.alpha(if (saved) Smz3Finish.BLUE else Smz3Finish.DIM, a))
++            if (race != null) race.take(4).forEachIndexed { i, s ->   // the standings, a line each
++                val ry = cy + 214 * u + i * 34 * u; val col = Smz3Finish.alpha(if (s.mine) Smz3Finish.GOLD else Smz3Finish.TEXT, a)
++                text(c, s.place, x + 60 * u, ry, 22 * u, col, Paint.Align.LEFT)
++                text(c, s.name, x + 110 * u, ry, 22 * u, col, Paint.Align.LEFT)
++                text(c, s.value, x + bw - 60 * u, ry, 22 * u, col, Paint.Align.RIGHT)
++            }
++            else text(c, card.ladder, mx, cy + 216 * u, 20 * u, Smz3Finish.alpha(if (card.ladderBlue) Smz3Finish.BLUE else Smz3Finish.DIM, a))
 +        }
-+        if (t >= Smz3Finish.T_BUTTONS) {
-+            val a = Smz3Finish.easeOut((t - Smz3Finish.T_BUTTONS) / 0.3f)
++        val tb = Smz3Finish.tButtons()
++        if (t >= tb) {
++            val a = Smz3Finish.easeOut((t - tb) / 0.3f)
 +            val by = cy + ch - 56 * u
-+            button(c, menuBox, mx - 250 * u, by, 230 * u, "A", "Main menu", true, a, u)
-+            button(c, creditsBox, mx + 20 * u, by, 230 * u, "B", "Watch the credits", false, a, u)
++            button(c, menuBox, mx - 250 * u, by, 230 * u, "A", card.a, true, a, u)
++            button(c, creditsBox, mx + 20 * u, by, 230 * u, "B", card.b, false, a, u)
 +        }
 +        postInvalidateOnAnimation()
 +
@@ -5798,7 +5834,7 @@ index 0000000..96cc28c
 +    override fun onTouchEvent(e: MotionEvent): Boolean {
 +        if (e.action != MotionEvent.ACTION_UP) return true
 +        if (Smz3Finish.skip()) return true
-+        if (menuBox.contains(e.x, e.y)) Smz3Finish.menu() else if (creditsBox.contains(e.x, e.y)) Smz3Finish.credits()
++        if (menuBox.contains(e.x, e.y)) Smz3Finish.pressA() else if (creditsBox.contains(e.x, e.y)) Smz3Finish.pressB()
 +        return true
 +    }
 +}
@@ -5829,17 +5865,26 @@ index 0000000..96cc28c
 +        val t = Smz3Finish.time()
 +        fill.color = Color.argb((255 * Smz3Finish.clamp01(t / 0.4f)).toInt(), 0x0A, 0x0E, 0x15)
 +        c.drawRect(0f, 0f, w, h, fill)
-+        Smz3Finish.rays(c, fill, w / 2, -40 * u, h * 1.4f, t, 0.5f * Smz3Finish.clamp01(t / 0.6f))
++        if (card.win) Smz3Finish.rays(c, fill, w / 2, -40 * u, h * 1.4f, t, 0.5f * Smz3Finish.clamp01(t / 0.6f))
 +
-+        text(c, card.title, w / 2, 34 * u, 34 * u, Smz3Finish.alpha(Smz3Finish.GOLD, t / 0.4f), Paint.Align.CENTER)
++        text(c, card.title, w / 2, 34 * u, 34 * u, Smz3Finish.alpha(card.accent, t / 0.4f), Paint.Align.CENTER)
++        if (card.standings != null) text(c, card.ladder.ifEmpty { card.name }, w / 2, 76 * u, 24 * u, Smz3Finish.alpha(if (card.ladder.isEmpty()) Smz3Finish.DIM else Smz3Finish.BLUE, t / 0.4f), Paint.Align.CENTER)
 +        val lx = 120 * u; val rx = w - 120 * u
-+        for (r in 0 until Smz3Finish.ROWS) {
++        for (r in 0 until Smz3Finish.rows(card)) {
 +            val rt = t - Smz3Finish.T_ROWS - r
 +            if (rt < 0) continue
 +            if (r >= rowsSaid) { rowsSaid = r + 1; if (!Smz3Finish.skipped) Smz3Finish.row() }
 +            val rp = Smz3Finish.easeOut(rt / 0.35f); val grow = Smz3Finish.easeOut(rt / 0.7f)
 +            val y = 120 * u + r * 170 * u + (1 - rp) * 24 * u
 +            val dim = Smz3Finish.alpha(Smz3Finish.DIM, rp)
++            val s = card.standings?.getOrNull(r)
++            if (s != null) {   // a race: the place, the name, the time
++                val col = Smz3Finish.alpha(if (s.mine) Smz3Finish.GOLD else Smz3Finish.TEXT, rp)
++                text(c, s.place, lx, y - 4 * u, 56 * u, Smz3Finish.alpha(if (s.mine) Smz3Finish.GOLD else Smz3Finish.DIM, rp))
++                text(c, s.name, lx + 110 * u, y - 4 * u, 56 * u, col)
++                text(c, s.value, rx, y - 4 * u, 56 * u, col, Paint.Align.RIGHT)
++                continue
++            }
 +            when (r) {
 +                0 -> {
 +                    text(c, "TIME", lx, y, 28 * u, dim)
@@ -5864,15 +5909,16 @@ index 0000000..96cc28c
 +                }
 +            }
 +        }
-+        if (t >= Smz3Finish.T_BUTTONS && !Smz3Finish.open) {   // the credits: one way out
-+            val a = Smz3Finish.easeOut((t - Smz3Finish.T_BUTTONS) / 0.3f)
++        val tb = Smz3Finish.tButtons()
++        if (t >= tb && !Smz3Finish.open) {   // the credits: one way out
++            val a = Smz3Finish.easeOut((t - tb) / 0.3f)
 +            val by = h - 130 * u + (1 - a) * 16 * u
 +            backBox.set(w / 2 - 260 * u, by, w / 2 + 260 * u, by + 96 * u)
 +            fill.color = Smz3Finish.alpha(Smz3Finish.GOLD, a)
 +            c.drawRoundRect(backBox, 10 * u, 10 * u, fill)
 +            text(c, "Back to menu", backBox.centerX(), by + 26 * u, 36 * u, Smz3Finish.alpha(Smz3Finish.CARD, a), Paint.Align.CENTER)
-+        } else if (t >= Smz3Finish.T_BUTTONS) {
-+            val a = Smz3Finish.easeOut((t - Smz3Finish.T_BUTTONS) / 0.3f)
++        } else if (t >= tb) {
++            val a = Smz3Finish.easeOut((t - tb) / 0.3f)
 +            val by = h - 130 * u + (1 - a) * 16 * u
 +            menuBox.set(lx, by, w / 2 - 20 * u, by + 96 * u)
 +            creditsBox.set(w / 2 + 20 * u, by, rx, by + 96 * u)
@@ -5880,10 +5926,10 @@ index 0000000..96cc28c
 +            c.drawRoundRect(menuBox, 10 * u, 10 * u, fill)
 +            fill.color = Smz3Finish.alpha(Smz3Finish.TRACK, a)
 +            c.drawRoundRect(creditsBox, 10 * u, 10 * u, fill)
-+            text(c, "Main menu", menuBox.centerX(), by + 26 * u, 36 * u, Smz3Finish.alpha(Smz3Finish.CARD, a), Paint.Align.CENTER)
-+            text(c, "Watch the credits", creditsBox.centerX(), by + 26 * u, 36 * u, Smz3Finish.alpha(Smz3Finish.TEXT, a), Paint.Align.CENTER)
++            text(c, card.a, menuBox.centerX(), by + 26 * u, 36 * u, Smz3Finish.alpha(Smz3Finish.CARD, a), Paint.Align.CENTER)
++            text(c, card.b, creditsBox.centerX(), by + 26 * u, 36 * u, Smz3Finish.alpha(Smz3Finish.TEXT, a), Paint.Align.CENTER)
 +        }
-+        if (t < Smz3Finish.T_BUTTONS + 1) postInvalidateOnAnimation() else postInvalidateDelayed(33)   // the rays keep turning
++        if (t < tb + 1) postInvalidateOnAnimation() else postInvalidateDelayed(33)   // the rays keep turning
 +    }
 +
 +    @SuppressLint("ClickableViewAccessibility")
@@ -5891,8 +5937,8 @@ index 0000000..96cc28c
 +        if (Smz3Finish.card == null) return false
 +        if (e.action != MotionEvent.ACTION_UP) return true
 +        if (Smz3Finish.skip()) return true
-+        if (!Smz3Finish.open) { if (backBox.contains(e.x, e.y)) Smz3Finish.menu() }
-+        else if (menuBox.contains(e.x, e.y)) Smz3Finish.menu() else if (creditsBox.contains(e.x, e.y)) Smz3Finish.credits()
++        if (!Smz3Finish.open) { if (backBox.contains(e.x, e.y)) Smz3Finish.pressA() }
++        else if (menuBox.contains(e.x, e.y)) Smz3Finish.pressA() else if (creditsBox.contains(e.x, e.y)) Smz3Finish.pressB()
 +        return true
 +    }
 +}
@@ -13421,16 +13467,14 @@ index 0000000..387684b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..806f17f
+index 0000000..848b286
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,617 @@
+@@ -0,0 +1,608 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
-+import android.app.AlertDialog
 +import android.app.Dialog
-+import android.content.DialogInterface
 +import android.graphics.Color
 +import android.os.Handler
 +import android.os.Looper
@@ -13442,7 +13486,6 @@ index 0000000..806f17f
 +import android.view.KeyEvent
 +import android.view.View
 +import android.view.ViewGroup
-+import android.widget.Button
 +import android.widget.FrameLayout
 +import android.widget.TextView
 +import com.swordfish.lemuroid.app.mobile.feature.runs.RaceClient
@@ -13577,10 +13620,12 @@ index 0000000..806f17f
 +    private var say: TextView? = null
 +    private var endsIn: TextView? = null
 +    private var goalLine: TextView? = null
-+    private var card: AlertDialog? = null
-+    private var box: AlertDialog? = null     // the pause picker, the vote, or the wait for the others' answers
++    private var card: Dialog? = null         // the result, the run's end card (Smz3Finish)
++    private var pausedBox: Smz3Box? = null
++    private var askBox: Smz3Box? = null      // leave the race, or ask to pause
++    private var box: Smz3Box? = null         // the pause picker, the vote, or the wait for the others' answers
 +    private var boxKind = ""
-+    private var leaveBox: AlertDialog? = null   // the way out while the game is held: asked, or offered when no answer comes
++    private var leaveBox: Smz3Box? = null    // the way out while the game is held: asked, or offered when no answer comes
 +    private var leaveKind = ""
 +    private var quietSince = 0L                 // when the wait for the server's first answer (re)started
 +    private var noSent = 0L                     // the vote this player took back or changed to no
@@ -13613,8 +13658,9 @@ index 0000000..806f17f
 +            goal = Smz3Native.raceGoalText(s)
 +        }
 +        val pad = (8 * activity.resources.displayMetrics.density).toInt()
++        val face = Smz3Box.face(activity)
 +        fun label(gravity: Int, color: Int, bottom: Int) = TextView(activity).apply {
-+            setTextColor(color); textSize = 14f; setPadding(pad * 2, pad, pad * 2, pad); visibility = View.GONE
++            setTextColor(color); textSize = 14f; typeface = face; setPadding(pad * 2, pad, pad * 2, pad); visibility = View.GONE
 +            setBackgroundColor(Color.argb(215, 8, 11, 17))
 +            activity.addContentView(this, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, gravity).apply { setMargins(pad, pad, pad, bottom) })
 +        }
@@ -13623,7 +13669,7 @@ index 0000000..806f17f
 +        endsIn = label(Gravity.TOP or Gravity.CENTER_HORIZONTAL, Color.rgb(0xF2, 0xA3, 0x3A), pad)
 +        goalLine = label(Gravity.TOP or Gravity.START, Color.rgb(0xE8, 0xEC, 0xF2), pad).apply { textSize = 12f }
 +        // until the start the game gets no input: the countdown covers it and takes every button and touch
-+        holdText = TextView(activity).apply { gravity = Gravity.CENTER; setTextColor(Color.WHITE); textSize = 28f; text = if (back) "Back in the race ..." else "Waiting for the race ..." }
++        holdText = TextView(activity).apply { gravity = Gravity.CENTER; typeface = face; setTextColor(Smz3Box.TEXT); textSize = 28f; text = if (back) "Back in the race ..." else "Waiting for the race ..." }
 +        hold = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
 +            setContentView(holdText!!)
 +            setCancelable(false)
@@ -13642,7 +13688,7 @@ index 0000000..806f17f
 +     * activity is only being made again (a turn of the screen), the race goes on. */
 +    fun stop(closing: Boolean) {
 +        main.removeCallbacks(tick)
-+        hold?.dismiss(); card?.dismiss(); box?.dismiss(); leaveBox?.dismiss()
++        hold?.dismiss(); card?.dismiss(); box?.dismiss(); leaveBox?.dismiss(); askBox?.dismiss(); pausedBox?.dismiss()
 +        if (!on || !closing) return
 +        on = false
 +        Smz3RaceState.on = false
@@ -13657,18 +13703,18 @@ index 0000000..806f17f
 +    /** The back button in a race: the abandon prompt, with the pause when it can be asked. True when it took the press. */
 +    fun handleBack(): Boolean {
 +        if (!on || (state != "running" && !back) || kept) return false
-+        if (card?.isShowing == true || box?.isShowing == true || leaveBox?.isShowing == true) return true
++        if (card?.isShowing == true || box?.isShowing == true || leaveBox?.isShowing == true || askBox?.isShowing == true) return true
 +        val timeIn = myTime() >= 0   // only watching now: nothing is abandoned
-+        val b = AlertDialog.Builder(activity)
-+            .setTitle(if (timeIn) "Leave the race?" else "Abandon the race?")
-+            .setPositiveButton(if (timeIn) "Back to menu" else "Leave the race") { _, _ -> onLeave() }
-+            .setNegativeButton(if (timeIn) "Keep watching" else "Keep racing", null)
-+        val pause = canPause()
-+        if (pause) b.setNeutralButton("Ask to pause") { _, _ -> showPicker() }
-+        var ask: AlertDialog? = null
-+        ask = keyed(b.create(), onLeave, { }) { k ->
-+            (k == KeyEvent.KEYCODE_BUTTON_Y && pause).also { if (it) { ask?.dismiss(); showPicker() } }
-+        }.apply { show() }
++        val stay = if (timeIn) "Keep watching" else "Keep racing"
++        askBox = Smz3Box(activity).apply {
++            title = if (timeIn) "Leave the race?" else "Abandon the race?"
++            options = listOfNotNull(
++                Smz3Box.Option(if (timeIn) "Back to menu" else "Leave the race") { onLeave() },
++                if (canPause()) Smz3Box.Option("Ask to pause", "the others vote") { showPicker() } else null,
++                Smz3Box.Option(stay) { },
++            )
++            back = { }; backLabel = stay
++        }.show()
 +        return true
 +    }
 +
@@ -13680,14 +13726,18 @@ index 0000000..806f17f
 +        leaveBox?.dismiss()
 +        leaveKind = kind
 +        val stay = { leaveKind = ""; quietSince = System.currentTimeMillis() }
-+        val b = AlertDialog.Builder(activity).setCancelable(false)
-+        if (noAnswer) {
-+            b.setTitle("No connection").setMessage("The race server has not answered for a minute.")
-+                .setPositiveButton("Leave") { _, _ -> onLeave() }.setNegativeButton("Keep waiting") { _, _ -> stay() }
-+        } else {
-+            b.setTitle("Leave the race?").setPositiveButton("Leave the race") { _, _ -> onLeave() }.setNegativeButton("Stay") { _, _ -> stay() }
-+        }
-+        leaveBox = keyed(b.create(), onLeave, stay).apply { show() }
++        leaveBox = Smz3Box(activity).apply {
++            if (noAnswer) {
++                title = "No connection"; message = "The race server has not answered for a minute."
++                options = listOf(Smz3Box.Option("Leave") { onLeave() }, Smz3Box.Option("Keep waiting") { stay() })
++                backLabel = "Keep waiting"
++            } else {
++                title = "Leave the race?"
++                options = listOf(Smz3Box.Option("Leave the race") { onLeave() }, Smz3Box.Option("Stay") { stay() })
++                backLabel = "Stay"
++            }
++            back = stay
++        }.show()
 +    }
 +
 +    private fun me(): JSONObject? = (0 until players.length()).map { players.getJSONObject(it) }.firstOrNull { it.optString("pid") == you }
@@ -13893,76 +13943,41 @@ index 0000000..806f17f
 +            val proof = runCatching { RaceClient.proofFile(activity).readText() }.getOrDefault("")
 +            RaceClient.send("finish", JSONObject().put("finishAt", server).put("proof", proof), true)
 +        }
-+        if (myTime() >= 0 && !mineShown && state == "running") { mineShown = true; showCard(false) }   // a multi race goes on: the places so far
-+        if (!ended && (state == "finished" || state == "cancelled")) { ended = true; box?.dismiss(); boxKind = ""; showCard(false) }
++        if (myTime() >= 0 && !mineShown && state == "running") { mineShown = true; showCard() }   // a multi race goes on: the places so far
++        if (!ended && (state == "finished" || state == "cancelled")) { ended = true; box?.dismiss(); boxKind = ""; askBox?.dismiss(); showCard(again = mineShown) }
 +    }
 +
 +    private fun place(p: JSONObject) = p.optInt("place").takeIf { it > 0 }?.toString() ?: ""
 +
 +    private fun timeOf(p: JSONObject): String {
-+        if (p.isNull("timeMs") || !p.has("timeMs")) return if (p.optBoolean("left")) "Left" else if (state == "running") "racing" else "-"
++        if (p.isNull("timeMs") || !p.has("timeMs")) return if (p.optBoolean("left")) "Left" else if (p.optInt("place") == 1) "Won" else if (state == "running") "racing" else "-"
 +        return clock(p.optLong("timeMs"))
 +    }
 +
 +    private fun ordinal(n: Int) = n.toString() + if (n % 100 / 10 == 1) "th" else when (n % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
 +
-+    private fun table(): String {
-+        val rows = (0 until players.length()).map { players.getJSONObject(it) }.sortedBy { if (it.optInt("place") > 0) it.optInt("place") else 99 }
-+        val text = StringBuilder()
-+        for (p in rows) text.append("\n").append(place(p).padEnd(3)).append(p.optString("name")).append("   ").append(timeOf(p))
-+        return text.toString()
-+    }
++    private fun sorted() = (0 until players.length()).map { players.getJSONObject(it) }.sortedBy { if (it.optInt("place") > 0) it.optInt("place") else 99 }
 +
-+    /** A box with A and B (and Y) that takes those buttons; the game behind it stands still while it is a pause box. A
-+     * presses the button the d-pad moved to, or does [a] when it was not moved. */
-+    private fun keyed(d: AlertDialog, a: (() -> Unit)?, b: (() -> Unit)?, extra: ((Int) -> Boolean)? = null) = d.apply {
-+        var moved = false
-+        setOnKeyListener { dd, k, e ->
-+            if (extra != null && e.action == KeyEvent.ACTION_DOWN && extra(k)) return@setOnKeyListener true
-+            if (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) moved = true
-+            if (e.action != KeyEvent.ACTION_UP) return@setOnKeyListener k == KeyEvent.KEYCODE_BUTTON_A || k == KeyEvent.KEYCODE_BUTTON_B
-+            when (k) {
-+                KeyEvent.KEYCODE_BUTTON_A -> {
-+                    val f = if (moved) focused(dd) else null
-+                    if (f != null) f.performClick() else if (a != null) { dd.dismiss(); a() }
-+                    true
-+                }
-+                KeyEvent.KEYCODE_BUTTON_B -> { if (b != null) { dd.dismiss(); b() }; true }
-+                else -> false
-+            }
-+        }
-+    }
++    private fun table(): String = sorted().joinToString("\n") { p -> listOf(place(p), p.optString("name"), timeOf(p)).filter { it.isNotEmpty() }.joinToString("   ") }
 +
-+    /** The box's button that has the focus, if any. */
-+    private fun focused(d: DialogInterface): Button? {
-+        val box = d as? AlertDialog ?: return null
-+        return listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)
-+            .mapNotNull { box.getButton(it) }.firstOrNull { it.visibility == View.VISIBLE && it.isFocused }
-+    }
-+
-+    /** The resume time, from an hour to a week from now; the others vote on it. */
++    /** The resume time, from an hour to a week from now; the others vote on it. Left and Right (or the row) change it. */
 +    private fun showPicker() {
 +        var i = 1
-+        fun line() = PAUSE_HOURS[i].let { h -> "<  in " + (if (h < 24) "$h hour${if (h > 1) "s" else ""}" else "${h / 24} day${if (h > 24) "s" else ""}") + ", ${whenAt(serverNow() + h * 3_600_000L)}  >" }
-+        val ask = { RaceClient.send("pause", JSONObject().put("resumeAt", serverNow() + PAUSE_HOURS[i] * 3_600_000L), true); Smz3Finish.cue(6); boxKind = "" }
++        fun line() = PAUSE_HOURS[i].let { h -> "In " + (if (h < 24) "$h hour${if (h > 1) "s" else ""}" else "${h / 24} day${if (h > 24) "s" else ""}") + ", ${whenAt(serverNow() + h * 3_600_000L)}" }
 +        val cancel = { boxKind = "" }
 +        boxKind = "pick"
-+        box = keyed(
-+            AlertDialog.Builder(activity).setTitle("Pause until").setMessage(line()).setCancelable(false)
-+                .setPositiveButton("Ask the others") { _, _ -> ask() }
-+                .setNegativeButton("Cancel") { _, _ -> cancel() }
-+                .setNeutralButton("Change time", null)
-+                .create(),
-+            ask, cancel,
-+        ) { k ->
-+            val step = when (k) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
-+            if (step != 0) { i = (i + step + PAUSE_HOURS.size) % PAUSE_HOURS.size; box?.setMessage(line()); Smz3Finish.cue(0) }
-+            step != 0
-+        }.apply {
-+            show()
-+            // touch: the neutral button moves to the next time instead of closing the box
-+            getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener { i = (i + 1) % PAUSE_HOURS.size; setMessage(line()) }
-+        }
++        val b = Smz3Box(activity)
++        fun move(d: Int) { i = (i + d + PAUSE_HOURS.size) % PAUSE_HOURS.size; b.message = line() }
++        box = b.apply {
++            title = "Pause until"; message = line()
++            options = listOf(
++                Smz3Box.Option("Ask the others") { RaceClient.send("pause", JSONObject().put("resumeAt", serverNow() + PAUSE_HOURS[i] * 3_600_000L), true); Smz3Finish.cue(6); boxKind = "" },
++                Smz3Box.Option("Later", keep = true) { move(1) },
++                Smz3Box.Option("Cancel") { cancel() },
++            )
++            step = { move(it) }
++            back = cancel; backLabel = "Cancel"
++        }.show()
 +    }
 +
 +    private fun showVote() {
@@ -13972,11 +13987,11 @@ index 0000000..806f17f
 +        val at = voteAt
 +        val yes = { voteDone = at; RaceClient.send("vote", JSONObject().put("yes", true), true); Smz3Finish.cue(6); boxKind = "" }
 +        val no = { voteDone = at; RaceClient.send("vote", JSONObject().put("yes", false), true); Smz3Finish.cue(5); boxKind = "" }
-+        box = keyed(
-+            AlertDialog.Builder(activity).setTitle("Pause the race?").setMessage("$who asks to pause until ${whenAt(at)}").setCancelable(false)
-+                .setPositiveButton("Yes") { _, _ -> yes() }.setNegativeButton("No") { _, _ -> no() }.create(),
-+            yes, no,
-+        ).apply { show() }
++        box = Smz3Box(activity).apply {
++            title = "Pause the race?"; message = "$who asks to pause until ${whenAt(at)}"
++            options = listOf(Smz3Box.Option("Yes") { yes() }, Smz3Box.Option("No") { no() })
++            back = no; backLabel = "No"
++        }.show()
 +    }
 +
 +    private fun waitKey() = "$voteAt ${voteBy == you} ${voted()} ${noSent == voteAt}"
@@ -13990,56 +14005,78 @@ index 0000000..806f17f
 +        val asker = voteBy == you
 +        val change = noSent != at && (asker || voted())
 +        val no = { noSent = at; voteDone = at; RaceClient.send("vote", JSONObject().put("yes", false), true); Smz3Finish.cue(5); boxKind = "" }
-+        val text = when {
-+            noSent == at -> if (asker) "Taken back: waiting for the server" else "You said no: waiting for the server"
-+            asker -> "You asked to pause until ${whenAt(at)}. Waiting for the others to answer"
-+            voted() -> "You said yes. Waiting for the others to answer"
-+            else -> "Waiting for the others to answer"
-+        }
-+        val b = AlertDialog.Builder(activity).setTitle("Pause the race?").setMessage(text).setCancelable(false)
-+        if (change) b.setNegativeButton(if (asker) "Take back" else "Change to No") { _, _ -> no() }
-+        box = keyed(b.create(), null, if (change) no else null).apply { show() }
++        box = Smz3Box(activity).apply {
++            title = "Pause the race?"
++            message = when {
++                noSent == at -> if (asker) "Taken back: waiting for the server" else "You said no: waiting for the server"
++                asker -> "You asked to pause until ${whenAt(at)}. Waiting for the others to answer"
++                voted() -> "You said yes. Waiting for the others to answer"
++                else -> "Waiting for the others to answer"
++            }
++            if (change) { val label = if (asker) "Take back" else "Change to No"; options = listOf(Smz3Box.Option(label) { no() }); back = no; backLabel = label }
++        }.show()
 +    }
 +
 +    private fun showPausedCard() {
 +        if (activity.isFinishing) return
-+        card?.dismiss()
-+        card = keyed(
-+            AlertDialog.Builder(activity).setTitle("RACE PAUSED")
-+                .setMessage("Goes on ${whenAt(resumeAt)}. Come back on this device, from Championship.\n" + table())
-+                .setCancelable(false)
-+                .setPositiveButton("Back to menu") { _, _ -> onLeave() }
-+                .create(),
-+            onLeave, onLeave,
-+        ).apply { show() }
++        pausedBox?.dismiss()
++        pausedBox = Smz3Box(activity).apply {
++            title = "RACE PAUSED"
++            message = "Goes on ${whenAt(resumeAt)}. Come back on this device, from Championship.\n\n" + table()
++            options = listOf(Smz3Box.Option("Back to menu") { onLeave() })
++            back = onLeave; backLabel = "Back to menu"
++        }.show()
 +    }
 +
-+    /** VICTORY, a place, DRAW, DEFEAT or RACE CANCELLED with the places; A and B answer it, and its buttons take touches. */
-+    private fun showCard(saved: Boolean) {
++    private fun closeCard() { card?.dismiss(); card = null; Smz3Finish.clear() }
++
++    /**
++     * VICTORY, a place, DRAW, DEFEAT or RACE CANCELLED: the end card of a run (Smz3Finish) with the standings, and its
++     * fanfare when won. A keeps playing (or saves the time to the ladder), B goes to the menu. [again]: the same result
++     * shown once more (a multi race that ended after this player's finish), so it comes up without the show.
++     */
++    private fun showCard(again: Boolean = false) {
 +        if (activity.isFinishing) return
-+        card?.dismiss()
 +        val cancelled = state == "cancelled"
 +        val running = state == "running"
-+        val ladder = won() && !draft() && !saved && (state == "finished" || running)
++        val ladder = won() && !draft() && (state == "finished" || running)
++        val draw = endWhy == "draw"
++        val mine = me()
++        val title = if (cancelled) "RACE CANCELLED" else if (first()) "VICTORY" else if (draw) "DRAW" else mine?.optInt("place")?.takeIf { it > 0 }?.let { "${ordinal(it).uppercase()} PLACE" } ?: "DEFEAT"
++        val win = title == "VICTORY"
 +        val head = if (cancelled && endWhy.isNotEmpty()) endWhy else when (format) { "sprint" -> "Sprint"; "half" -> "Half"; "draft" -> "Online draft"; else -> "Full game" } +
 +            if (running) ": the race goes on" else if (pauses > 0) ", paused" else ""
-+        val text = StringBuilder(head).append("\n").append(table())
-+        if (saved) text.append("\n\nSaved to the ladder")
-+        val title = if (cancelled) "RACE CANCELLED" else if (first()) "VICTORY" else if (endWhy == "draw") "DRAW" else me()?.optInt("place")?.takeIf { it > 0 }?.let { "${ordinal(it).uppercase()} PLACE" } ?: "DEFEAT"
-+        val b = AlertDialog.Builder(activity)
-+            .setTitle(title)
-+            .setMessage(text.toString())
-+            .setCancelable(false)
-+            .setNegativeButton("Back to menu") { _, _ -> onLeave() }   // shown once this time is in or the race is over
-+        if (ladder) b.setPositiveButton("Save to ladder") { _, _ -> saveToLadder() }
-+        else b.setPositiveButton(if (saved || myTime() >= 0) "Keep watching" else "Keep playing", null)
-+        card = keyed(b.create(), if (ladder) ({ saveToLadder() }) else ({ }), onLeave).apply { show() }
++        val winner = sorted().firstOrNull { it.optInt("place") == 1 }
++        val big = when {
++            myTime() >= 0 -> null
++            cancelled -> "No result"
++            draw -> "Time is up"
++            win -> "The others left"
++            winner != null -> "${winner.optString("name")} won"
++            else -> "-"
++        }
++        val stay = if (myTime() >= 0) "Keep watching" else "Keep playing"
++        val c = Smz3Finish.Card(
++            title, head, "", true, maxOf(0L, myTime()),
++            standings = sorted().map { Smz3Finish.Standing(place(it), it.optString("name"), timeOf(it), it.optString("pid") == you) },
++            big = big, win = win,
++            accent = if (win) Smz3Box.GOLD else if (cancelled || draw) Smz3Box.DIM else Smz3Box.RED,
++            a = if (ladder) "Save to ladder" else stay, b = "Back to menu",
++        )
++        val same = again && card?.isShowing == true && Smz3Finish.card?.title == title
++        card?.dismiss()
++        Smz3Finish.start(c)
++        if (same) Smz3Finish.skip()
++        Smz3Finish.onA = { main.post { if (Smz3Finish.card === c && c.a == "Save to ladder") saveToLadder(c) else closeCard() } }
++        Smz3Finish.onB = { main.post { closeCard(); onLeave() } }
++        card = Smz3Finish.host(activity)
 +    }
 +
-+    private fun saveToLadder() {
++    private fun saveToLadder(c: Smz3Finish.Card) {
 +        RaceClient.send("ladder", null, true)
 +        Smz3Finish.cue(6)
-+        showCard(true)
++        c.ladder = "Saved to the ladder"
++        c.a = "Keep watching"
 +    }
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalIcon.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3GoalIcon.kt
@@ -15146,3 +15183,254 @@ index 0000000..5d5d9a6
 +        val FLAG = Color.WHITE
 +    }
 +}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Box.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Box.kt
+new file mode 100644
+index 0000000..04e6e52
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Box.kt
+@@ -0,0 +1,215 @@
++package com.swordfish.lemuroid.app.shared.game.viewmodel
++
++import android.annotation.SuppressLint
++import android.app.Activity
++import android.app.Dialog
++import android.content.Context
++import android.graphics.Canvas
++import android.graphics.Color
++import android.graphics.LinearGradient
++import android.graphics.Paint
++import android.graphics.Path
++import android.graphics.RectF
++import android.graphics.Shader
++import android.graphics.Typeface
++import android.os.SystemClock
++import android.view.KeyEvent
++import android.view.MotionEvent
++import android.view.View
++import kotlin.math.min
++import kotlin.math.sin
++
++/**
++ * A prompt over the game drawn like the shared menus (cut corners, the chosen row glowing amber, the menu font, the
++ * button bar), in place of the system dialogs. Up and down choose a row, A takes it, B does [back]; Left and Right go to
++ * [step] when it is set (a value that the message shows). Rows take touches too.
++ */
++class Smz3Box(private val activity: Activity) {
++    /** A row; a [keep] row does its action and leaves the box up (a value to change by touch). */
++    class Option(val label: String, val detail: String = "", val keep: Boolean = false, val action: () -> Unit)
++
++    var title = ""
++    var message = ""
++        set(value) { field = value; view?.invalidate() }
++    var options: List<Option> = emptyList()
++    var back: (() -> Unit)? = null
++    var backLabel = "Back"
++    var step: ((Int) -> Unit)? = null
++    /** The title's colour: gold by default. */
++    var accent = GOLD
++    var chosen = 0
++
++    private var dialog: Dialog? = null
++    private var view: BoxView? = null
++    val isShowing get() = dialog?.isShowing == true
++
++    fun show(): Smz3Box {
++        if (activity.isFinishing) return this
++        dismiss()
++        chosen = chosen.coerceIn(0, maxOf(0, options.size - 1))
++        val v = BoxView(activity, this)
++        view = v
++        dialog = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen).apply {
++            setContentView(v)
++            setCancelable(false)
++            setOnKeyListener { _, k, e -> key(k, e) }
++            show()
++        }
++        Smz3Finish.cue(4)
++        return this
++    }
++
++    fun dismiss() { dialog?.dismiss(); dialog = null; view = null }
++
++    private fun key(k: Int, e: KeyEvent): Boolean {
++        if (e.action != KeyEvent.ACTION_DOWN) return true
++        when (k) {
++            KeyEvent.KEYCODE_DPAD_UP -> move(-1)
++            KeyEvent.KEYCODE_DPAD_DOWN -> move(1)
++            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> step?.let { it(if (k == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1); Smz3Finish.cue(1) }
++            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> choose(chosen)
++            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> back?.let { dismiss(); Smz3Finish.cue(5); it() }
++        }
++        return true
++    }
++
++    private fun move(d: Int) {
++        if (options.size < 2) return
++        chosen = (chosen + d + options.size) % options.size
++        Smz3Finish.cue(1)
++        view?.invalidate()
++    }
++
++    internal fun choose(i: Int) {
++        val o = options.getOrNull(i) ?: return
++        if (!o.keep) dismiss()
++        Smz3Finish.cue(3)
++        o.action()
++    }
++
++    companion object {
++        val GOLD = Color.rgb(0xF2, 0xA3, 0x3A)
++        val TEXT = Color.rgb(0xE8, 0xEC, 0xF2)
++        val DIM = Color.rgb(0x87, 0x93, 0xA6)
++        val RED = Color.rgb(0xE0, 0x5A, 0x4F)
++        private val EDGE = Color.rgb(0x25, 0x32, 0x4A)
++        private val INNER = Color.rgb(0x14, 0x1B, 0x27)
++        private var face: Typeface? = null
++        fun face(c: Context): Typeface = face ?: runCatching { Typeface.createFromAsset(c.assets, "smz3/menu_font.ttf") }
++            .getOrDefault(Typeface.DEFAULT_BOLD).also { face = it }
++
++        fun chamfer(p: Path, l: Float, t: Float, w: Float, h: Float, cut: Float) = p.apply {
++            reset(); moveTo(l + cut, t); lineTo(l + w - cut, t); lineTo(l + w, t + cut); lineTo(l + w, t + h - cut)
++            lineTo(l + w - cut, t + h); lineTo(l + cut, t + h); lineTo(l, t + h - cut); lineTo(l, t + cut); close()
++        }
++
++        /** A row of the shared menus: [lit] is the chosen one, which glows and breathes. */
++        fun row(c: Canvas, fill: Paint, path: Path, l: Float, t: Float, w: Float, h: Float, u: Float, lit: Boolean, pulse: Float) {
++            val cut = 10 * u
++            if (lit) {
++                for (g in 3 downTo 1) { fill.color = Smz3Finish.alpha(GOLD, (0.10f + 0.10f * pulse) / g); c.drawPath(chamfer(path, l - g * 2 * u, t - g * 2 * u, w + g * 4 * u, h + g * 4 * u, cut + g * 2 * u), fill) }
++                fill.color = Smz3Finish.alpha(GOLD, 0.55f + 0.45f * pulse); c.drawPath(chamfer(path, l, t, w, h, cut), fill)
++                fill.color = Color.rgb(0x24, 0x22, 0x1C); c.drawPath(chamfer(path, l + 2 * u, t + 2 * u, w - 4 * u, h - 4 * u, cut - 2 * u), fill)
++                fill.color = Smz3Finish.alpha(GOLD, 0.10f); c.drawRect(l + 2 * u, t + 2 * u, l + w / 2, t + h - 2 * u, fill)
++            } else {
++                fill.color = EDGE; c.drawPath(chamfer(path, l, t, w, h, cut), fill)
++                fill.color = INNER; c.drawPath(chamfer(path, l + 1.5f * u, t + 1.5f * u, w - 3 * u, h - 3 * u, cut - 1.5f * u), fill)
++            }
++        }
++
++        /** The button bar of the shared menus, right-aligned at [right]: a light circle with the letter, then its label. */
++        fun hint(c: Canvas, text: Paint, fill: Paint, right: Float, cy: Float, ih: Float, items: List<Pair<String, String>>) {
++            text.textSize = ih * 0.92f; text.textAlign = Paint.Align.LEFT
++            val gap = ih * 1.1f
++            var total = 0f
++            for ((k, it) in items.withIndex()) total += ih + ih * 0.3f + text.measureText(it.second) + if (k > 0) gap else 0f
++            var x = right - total
++            for ((b, label) in items) {
++                fill.color = Color.rgb(0xC7, 0xD0, 0xDE); c.drawCircle(x + ih / 2, cy, ih / 2, fill)
++                text.color = Color.rgb(0x0C, 0x11, 0x19); text.textAlign = Paint.Align.CENTER; text.textSize = ih * 0.72f
++                c.drawText(b, x + ih / 2, cy + ih * 0.26f, text)
++                text.color = Color.rgb(0xB8, 0xC2, 0xD4); text.textAlign = Paint.Align.LEFT; text.textSize = ih * 0.92f
++                c.drawText(label, x + ih * 1.3f, cy + ih * 0.32f, text)
++                x += ih * 1.3f + text.measureText(label) + gap
++            }
++        }
++
++        /** [s] broken into lines that fit [w], keeping the line breaks it has. */
++        fun wrap(p: Paint, s: String, w: Float): List<String> {
++            val out = ArrayList<String>()
++            for (para in s.split('\n')) {
++                var line = ""
++                for (word in para.split(' ')) {
++                    val next = if (line.isEmpty()) word else "$line $word"
++                    if (p.measureText(next) > w && line.isNotEmpty()) { out += line; line = word } else line = next
++                }
++                out += line
++            }
++            return out
++        }
++    }
++
++    @SuppressLint("ViewConstructor")
++    private class BoxView(context: Context, private val box: Smz3Box) : View(context) {
++        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = face(context) }
++        private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
++        private val path = Path()
++        private val rows = ArrayList<RectF>()
++        private val born = SystemClock.uptimeMillis()
++
++        override fun onDraw(c: Canvas) {
++            val t = (SystemClock.uptimeMillis() - born) / 1000f
++            val w = width.toFloat(); val h = height.toFloat(); val u = min(w / 900f, h / 560f)
++            val inA = Smz3Finish.easeOut(t / 0.18f)
++            c.drawColor(Color.argb((170 * inA).toInt(), 0, 0, 0))
++            val pw = min(w - 32 * u, 640 * u); val px = (w - pw) / 2
++            text.textSize = 21 * u
++            val lines = if (box.message.isEmpty()) emptyList() else wrap(text, box.message, pw - 56 * u)
++            val rowH = 54 * u; val rowGap = 12 * u
++            val ph = 64 * u + (if (lines.isEmpty()) 0f else lines.size * 29 * u + 14 * u) + box.options.size * (rowH + rowGap) + 52 * u
++            val py = (h - ph) / 2 + (1 - inA) * 18 * u
++
++            // the panel and its title strip
++            fill.color = Color.rgb(0x25, 0x32, 0x4A); c.drawPath(chamfer(path, px - 2 * u, py - 2 * u, pw + 4 * u, ph + 4 * u, 14 * u), fill)
++            fill.color = Color.rgb(0x0A, 0x0E, 0x15); c.drawPath(chamfer(path, px, py, pw, ph, 13 * u), fill)
++            fill.shader = LinearGradient(0f, py, 0f, py + 56 * u, Color.rgb(0x2A, 0x21, 0x12), Color.rgb(0x10, 0x16, 0x1F), Shader.TileMode.CLAMP)
++            c.drawRect(px + 6 * u, py + 2 * u, px + pw - 6 * u, py + 56 * u, fill); fill.shader = null
++            fill.color = Color.rgb(0x25, 0x32, 0x4A); c.drawRect(px, py + 56 * u, px + pw, py + 57 * u, fill)
++            text.color = box.accent; text.textSize = 30 * u; text.textAlign = Paint.Align.LEFT
++            c.drawText(box.title, px + 28 * u, py + 40 * u, text)
++
++            var y = py + 64 * u
++            text.textSize = 21 * u; text.color = Smz3Box.TEXT
++            if (lines.isNotEmpty()) { y += 6 * u; for (l in lines) { c.drawText(l, px + 28 * u, y + 21 * u, text); y += 29 * u }; y += 8 * u }
++
++            val pulse = 0.5f + 0.5f * sin(t * 4f)
++            while (rows.size < box.options.size) rows += RectF()
++            box.options.forEachIndexed { i, o ->
++                val lit = i == box.chosen
++                row(c, fill, path, px + 20 * u, y, pw - 40 * u, rowH, u, lit, pulse)
++                rows[i].set(px + 20 * u, y, px + pw - 20 * u, y + rowH)
++                text.textSize = 24 * u; text.color = if (lit) Color.WHITE else Smz3Box.TEXT; text.textAlign = Paint.Align.LEFT
++                c.drawText(o.label, px + 42 * u, y + rowH / 2 + 8 * u, text)
++                if (o.detail.isNotEmpty()) { text.color = Smz3Box.DIM; text.textSize = 19 * u; text.textAlign = Paint.Align.RIGHT; c.drawText(o.detail, px + pw - 42 * u, y + rowH / 2 + 7 * u, text) }
++                y += rowH + rowGap
++            }
++
++            // the buttons this box takes
++            val items = ArrayList<Pair<String, String>>()
++            if (box.options.isNotEmpty()) items += "A" to "Choose"
++            if (box.back != null) items += "B" to box.backLabel
++            if (box.step != null) items.add(0, "<>" to "Change")
++            fill.color = Color.rgb(0x0C, 0x11, 0x19); c.drawRect(px + 4 * u, py + ph - 40 * u, px + pw - 4 * u, py + ph - 4 * u, fill)
++            hint(c, Paint(text), fill, px + pw - 24 * u, py + ph - 22 * u, 22 * u, items)
++            postInvalidateOnAnimation()
++        }
++
++        @SuppressLint("ClickableViewAccessibility")
++        override fun onTouchEvent(e: MotionEvent): Boolean {
++            if (e.action != MotionEvent.ACTION_UP) return true
++            val i = rows.indexOfFirst { it.contains(e.x, e.y) }
++            if (i in box.options.indices) { box.chosen = i; box.choose(i) }
++            return true
++        }
++    }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/utils/android/ActivityUtils.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/utils/android/ActivityUtils.kt
+index f9be1c1..6a53ef0 100644
+--- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/utils/android/ActivityUtils.kt
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/utils/android/ActivityUtils.kt
+@@ -1,9 +1,8 @@
+ package com.swordfish.lemuroid.app.utils.android
+ 
+ import android.app.Activity
+-import androidx.appcompat.app.AlertDialog
+ 
+-// TODO COMPOSE... How do they look in the post compose world?
++// Drawn like the shared menus (Smz3Box), not as a system dialog.
+ fun Activity.displayErrorDialog(
+     messageId: Int,
+     actionLabelId: Int,
+@@ -17,9 +16,9 @@ fun Activity.displayErrorDialog(
+     actionLabel: String,
+     action: () -> Unit,
+ ) {
+-    AlertDialog.Builder(this)
+-        .setMessage(message)
+-        .setPositiveButton(actionLabel) { _, _ -> action() }
+-        .setCancelable(false)
+-        .show()
++    com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box(this).apply {
++        title = "Something went wrong"; accent = com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.RED
++        this.message = message
++        options = listOf(com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Box.Option(actionLabel) { action() })
++    }.show()
+ }

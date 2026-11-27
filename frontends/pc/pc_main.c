@@ -1451,7 +1451,7 @@ static void snapshot_run(SmzRun *r, SmzTracker *t, int finished)
 /* mode 0: the autosave state (or the game save when there is none), 1: the game save only */
 /* An online race in play: the rivals' news in a corner, their chat in a fading box, the pause vote, and the result card. */
 static struct {
-    int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count, mine_shown;
+    int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count, mine_shown, cheered;
     int back, skip_old, kept, offline_noted, pick, pick_i;   /* back: a paused race loaded again and waiting to go on */
     int draft;                                            /* a Draft: its goal, shown at the 3, 2, 1, is the finish */
     SmzRaceItems items;                                   /* the major items already told to the rivals */
@@ -1737,6 +1737,7 @@ static void race_in_game(void)
     const SmzRacePlayer *me = smz_race_me(r);
     if (me && me->time_ms >= 0 && !rg.mine_shown && r->state == RACE_RUNNING) { rg.mine_shown = 1; rg.card = CARD_RESULT; }   /* a multi race goes on: the places so far */
     if (!rg.ended && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED)) { rg.ended = 1; rg.card = CARD_RESULT; }
+    if (rg.card == CARD_RESULT && !rg.cheered && r->state != RACE_CANCELLED && race_first()) { rg.cheered = 1; sfx_play(SFX_FANFARE); }   /* the run-complete fanfare, once */
     if (rg.back && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED || r->state == RACE_RUNNING)) { if (r->state != RACE_RUNNING) rg.back = 0; race_forget_paused(); }
 }
 

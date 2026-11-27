@@ -2815,10 +2815,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..0bc4612
+index 0000000..a8514f5
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6322 @@
+@@ -0,0 +1,6323 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2905,7 +2905,7 @@ index 0000000..0bc4612
 +#define RACE_PAUSED_FILE RUN_DIR "/race.paused"
 +static struct {
 +    bool armed, on, finishSent, card, ladder, ended;
-+    bool resume, loadPending, back, skipOld, kept, paused, offlineNoted, mineShown, pick;   // the pause: resumed, loading, back, kept here, asking
++    bool resume, loadPending, back, skipOld, kept, paused, offlineNoted, mineShown, pick, cheered;   // the pause: resumed, loading, back, kept here, asking
 +    bool chatOff, kb, kbUpper;
 +    bool draft;   // a Draft: its goal, shown at the 3, 2, 1, is the finish
 +    int bosses, crystals, need, lastCount, newsSeq, pickI, nMuted;
@@ -7066,7 +7066,7 @@ index 0000000..0bc4612
 +    rg.on = rg.armed && curSlot == SMZ_RACE_SLOT && smzRaceJoined();
 +    rg.armed = false;
 +    rg.finishSent = rg.card = rg.ladder = rg.ended = false;
-+    rg.back = rg.skipOld = rg.kept = rg.offlineNoted = rg.mineShown = rg.pick = rg.paused = rg.loadPending = false;
++    rg.back = rg.skipOld = rg.kept = rg.offlineNoted = rg.mineShown = rg.pick = rg.paused = rg.loadPending = rg.cheered = false;
 +    rg.chatOff = rg.kb = false;
 +    rg.typed[0] = 0;
 +    rg.nMuted = 0;
@@ -7127,6 +7127,7 @@ index 0000000..0bc4612
 +    const SmzRacePlayer *me = smz_race_me(r);
 +    if (me && me->time_ms >= 0 && !rg.mineShown && r->state == RACE_RUNNING) { rg.mineShown = rg.card = true; got = true; }   // a multi race goes on: the places so far
 +    if (!rg.ended && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED)) { rg.ended = rg.card = true; got = true; }
++    if (rg.card && !rg.cheered && r->state != RACE_CANCELLED && raceFirst()) { rg.cheered = true; sfxPlay(SFX_FANFARE); }   // the run-complete fanfare, once
 +    if (rg.back && (r->state == RACE_FINISHED || r->state == RACE_CANCELLED || (r->state == RACE_RUNNING && raceGoIn() <= 0))) {   // going again, or over
 +        rg.back = false;
 +        remove(RACE_PAUSED_FILE);

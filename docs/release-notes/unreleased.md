@@ -61,6 +61,18 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Android on one screen: a Draft's goal and its time left sit in the side panel above the lanes, instead of over the
   panel's own %. With the panels hidden it stays at the top left of the game.
 - A Draft that asks for one enemy reads "Defeat an enemy", not "Defeat 1 enemies".
+- Android: the end of a race is the run's end card, the same celebration as a finished run: the title letter by letter,
+  your time, the standings, and the rays, confetti and fanfare when you win. A keeps playing (or saves the time to the
+  ladder), B goes back to the menu. Before, it was a plain system dialog.
+- PC and 3DS: winning a race plays the run's end fanfare.
+- Android: leaving a race from its menu now tells the server at once, so the rival wins straight away. Before, the
+  game closed before the leave went out and the rival waited five minutes for the win.
+
+### Android: no system dialogs
+
+- Leaving the race, asking to pause, the vote, the wait for the answers, the paused race, leaving the run, a daily's
+  "Time is up" and the error prompts are drawn like the menus (cut corners, the chosen row glowing, the button bar),
+  not as Android dialogs. The race's notes on the game use the menu font.
 
 ### Controls
 
