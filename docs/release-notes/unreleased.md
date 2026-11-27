@@ -45,6 +45,14 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - macOS: the Intel build opens on macOS 11 and later; it asked for macOS 15.
 - PC in one window with no room for the side panels (a 640 x 480 handheld like the RG 40XXV): the %, the clock and a
   race's lanes show in the game's top left corner. The side-panels key hides them too.
+- PC on Knulli and Batocera handhelds (the RG 40XXV): A and B, and X and Y, were swapped, and L2 / R2 did nothing where
+  they are plain buttons. Those systems send each button by its printed letter, not by its place; the app now reads
+  every button from the system's own pad config.
+- PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
+- PC: the button that opens the tracker shows for 5 seconds at the start, then fades out.
+- PC: Options > Video > Corner info picks what the game's corner shows when the side panels don't fit: the % and the
+  time, the % only, or nothing.
+- PC on a handheld: the prompts show the pad's buttons from the first screen, not the keyboard's keys.
 - PC on handhelds whose buttons come as a virtual PlayStation pad (the RG DS with InputPlumber): the prompts show the
   console's own letters, not PlayStation's shapes.
 

@@ -1124,7 +1124,8 @@ static void corner_hud(const SmzTracker *t, const SmzRun *r, int64_t clock_ms, c
     unsigned done = t->zelda_cleared + t->metroid_cleared, total = t->zelda_total + t->metroid_total;
     char s[64], tm[24];
     fmt_time(clock_ms >= 0 ? clock_ms : t->elapsed_ms ? t->elapsed_ms : r->play_ms, tm, sizeof tm);
-    snprintf(s, sizeof s, "%u%%   %s", total ? done * 100 / total : 0, tm);
+    if (settings_corner() == 0) snprintf(s, sizeof s, "%u%%   %s", total ? done * 100 / total : 0, tm);
+    else snprintf(s, sizeof s, "%u%%", total ? done * 100 / total : 0);
     gfx_rect(x, y, gfx_text_width(px, s) + 2 * pad, px + pad * 1.4f, (SDL_Color){0x08, 0x0B, 0x11, 190});
     gfx_text(x + pad, y + pad * 0.7f, px, C(0xE8, 0xEC, 0xF2), 0, s);
     if (!race || race->state != RACE_RUNNING) return;
@@ -2134,6 +2135,7 @@ static void play(int slot, int game_save_only)
     if (win2) dual_open(slot + 1, &run);
     int done_popup = 0, finished_before = run.game == 3;   /* the run-complete card, shown once when the run ends in this session */
     int64_t final_ms = 0;
+    Uint32 tracker_tip_at = SDL_GetTicks();   /* when the button that opens the tracker started showing */
     memset(&rg, 0, sizeof rg); g_side_goal[0] = 0;
     rg.on = slot + 1 == RACE_SLOT && race_joined();
     if (rg.on) {
@@ -2714,7 +2716,7 @@ static void play(int slot, int game_save_only)
             if (!g_panels_hidden || ren2) panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
         }
         float hud_bottom = daily && !show && gx < 90 ? daily_hud(&dr, finished, gx, gw, wh) : 0;
-        if (gx < 90 && !ren2 && !show && !g_panels_hidden && !rw_open && !rg.card) {   /* no room beside the game: its corner */
+        if (gx < 90 && !ren2 && !show && !g_panels_hidden && !rw_open && !rg.card && settings_corner() < 2) {   /* no room beside the game: its corner */
             int goal = rg.draft && ui.race.room.state == RACE_RUNNING && go_in <= -6000;   /* a Draft's goal sits in that corner first */
             corner_hud(&trk, &run, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), rg.on && !rg.daily ? &ui.race.room : NULL, gx, (goal ? 56 : 14) * (wh / 720.0f), wh);
         }
@@ -2728,13 +2730,16 @@ static void play(int slot, int game_save_only)
                 gfx_text(gx + gw / 2, wh - 44 * u - px / 2, px, msg == hint_note ? C(0xF2, 0xA3, 0x3A) : C(0xE8, 0xEC, 0xF2), 1, fm);
             }
         }
-        if (!show && !ren2 && !rw_open && !rg.card) {   /* one window: the button that opens the tracker, bottom left in the free space beside the game */
+        Uint32 tip_age = SDL_GetTicks() - tracker_tip_at;
+        if (!show && !ren2 && !rw_open && !rg.card && tip_age < 6000) {   /* one window: the button that opens the tracker, for 5 s, then it fades */
             float u = wh / 720.0f, h = 22 * u, px = 17 * u, y = wh - 20 * u;
             float need = h * 3.2f + gfx_text_width(px, "Tracker") + 20 * u, side = gx;
+            gfx_fade(tip_age < 5000 ? 1 : (6000 - tip_age) / 1000.0f);
             float x = side >= need ? (side - need) / 2 + 10 * u : gx + 10 * u;
             if (side < need) gfx_rect(x - 4 * u, y - h / 2 - 4 * u, need - 12 * u, h + 8 * u, (SDL_Color){0x08, 0x0B, 0x11, 150});   /* over the game: a backing */
             x += help_icon(x, y, h, pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER)) + 7 * u;
             gfx_text(x, y - px / 2, px, C(0x87, 0x93, 0xA6), 0, "Tracker");
+            gfx_fade(1);
         }
         if (show && !ren2) {
             size_t owl;
@@ -3641,6 +3646,8 @@ int main(int argc, char **argv)
         if (win2) SDL_RaiseWindow(win);
     }
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
+    pad_set_device(pad);
+    if (pad && (pad_handheld_labels() || pad_virtual_handheld())) help_note_pad(pad);   /* a handheld's own pad: its buttons from the first screen */
     update_cleanup();
     window_main(start);
     sync_quit();

@@ -11,6 +11,7 @@
 
 static int code_of[PA_COUNT];
 static int handheld_labels;
+static SDL_GameController *the_pad;   /* the pad in use, for the buttons it has */
 
 static const int DEFAULTS[PA_COUNT] = {
     SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y,
@@ -91,7 +92,13 @@ void pad_cfg_reset(void)
         code_of[PA_B] = SDL_CONTROLLER_BUTTON_B; code_of[PA_A] = SDL_CONTROLLER_BUTTON_A;
         code_of[PA_Y] = SDL_CONTROLLER_BUTTON_Y; code_of[PA_X] = SDL_CONTROLLER_BUTTON_X;
     }
+    if (the_pad && !SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK) && SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_LEFTSTICK)) {
+        code_of[PA_TRACKER] = SDL_CONTROLLER_BUTTON_LEFTSTICK;   /* one stick (the RG 40XXV): the tracker on L3, leaving on the menu button */
+        code_of[PA_LEAVE] = SDL_GameControllerHasButton(the_pad, SDL_CONTROLLER_BUTTON_GUIDE) ? SDL_CONTROLLER_BUTTON_GUIDE : -1;
+    }
 }
+
+void pad_set_device(SDL_GameController *c) { the_pad = c; }
 
 int pad_handheld_labels(void) { return handheld_labels; }
 
@@ -125,19 +132,103 @@ int pad_virtual_handheld(void)
 
 /* A pad built into a Linux handheld (bus 0x19) has Nintendo's letters, and the mappings in gamecontrollerdb mix letters and
  * positions from one device to the next. The kernel's button order is reliable (south, east, north, west), so that is used. */
+#ifdef __linux__
+/* The SDL button of each evdev key code of the input device with this name: SDL numbers the joystick range first. */
+static int sdl_button_of(const char *name, int code)
+{
+    for (int i = 0; i < 64; i++) {
+        char path[96], line[512] = "";
+        snprintf(path, sizeof path, "/sys/class/input/event%d/device/name", i);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        int got = fgets(line, sizeof line, f) != NULL;
+        fclose(f);
+        line[strcspn(line, "\n")] = 0;
+        if (!got || strcmp(line, name)) continue;
+        snprintf(path, sizeof path, "/sys/class/input/event%d/device/capabilities/key", i);
+        if (!(f = fopen(path, "r"))) return -1;
+        got = fgets(line, sizeof line, f) != NULL;
+        fclose(f);
+        if (!got) return -1;
+        unsigned long long w[16];
+        int n = 0;
+        for (char *t = strtok(line, " \n"); t && n < 16; t = strtok(NULL, " \n")) w[n++] = strtoull(t, NULL, 16);
+        if (!n) return -1;
+        int idx = 0;   /* the words come most significant first */
+        for (int pass = 0; pass < 2; pass++)
+            for (int k = pass ? 0 : 0x120; k < (pass ? 0x120 : n * 64); k++) {
+                int wi = n - 1 - k / 64;
+                if (wi < 0 || !((w[wi] >> (k % 64)) & 1)) continue;
+                if (k == code) return idx;
+                idx++;
+            }
+        return -1;
+    }
+    return -1;
+}
+
+/* Batocera and Knulli ship each handheld's pad in es_input.cfg with the evdev code of every button, A B X Y as the printed
+ * letters; their drivers do not all follow the kernel's south, east, north, west, and L2 / R2 may be plain buttons. Writes
+ * the SDL fields it knows ("a:b0,b:b1,lefttrigger:b10,...") and returns how many, 0 when the device is not listed. */
+static int es_buttons(const char *name, char *out, size_t cap)
+{
+    static const char *const FILES[] = {"/userdata/system/configs/emulationstation/es_input.cfg", "/usr/share/emulationstation/es_input.cfg"};
+    static const char *const ES[] = {"a", "b", "x", "y", "pageup", "pagedown", "select", "start", "hotkey", "l3", "r3", "l2", "r2"};
+    static const char *const SDLN[] = {"a", "b", "x", "y", "leftshoulder", "rightshoulder", "back", "start", "guide", "leftstick", "rightstick", "lefttrigger", "righttrigger"};
+    char want[160];
+    snprintf(want, sizeof want, "deviceName=\"%s\"", name);
+    out[0] = 0;
+    for (int f = 0; f < 2; f++) {
+        FILE *fp = fopen(FILES[f], "r");
+        if (!fp) continue;
+        char line[512];
+        int in = 0, n = 0;
+        while (fgets(line, sizeof line, fp)) {
+            if (!in) { in = strstr(line, want) != NULL; continue; }
+            if (strstr(line, "</inputConfig>")) break;
+            char *c = strstr(line, "code=\"");
+            if (!c || !strstr(line, "type=\"button\"")) continue;
+            for (int k = 0; k < 13; k++) {
+                char key[24];
+                snprintf(key, sizeof key, "name=\"%s\"", ES[k]);
+                int b;
+                if (!strstr(line, key) || (b = sdl_button_of(name, atoi(c + 6))) < 0) continue;
+                size_t l = strlen(out);
+                snprintf(out + l, cap - l, "%s:b%d,", SDLN[k], b);
+                n++;
+            }
+        }
+        fclose(fp);
+        if (in) return n;
+    }
+    return 0;
+}
+#endif
+
 void pad_handheld_setup(void)
 {
     for (int i = 0; i < SDL_NumJoysticks(); i++) {
         char *map = SDL_JoystickGetDeviceGUID(i).data[0] == 0x19 ? SDL_GameControllerMappingForDeviceIndex(i) : NULL;
         if (!map) continue;
-        char out[1024] = "";
+        char known[512] = "", out[1024] = "";
+#ifdef __linux__
+        const char *jn = SDL_JoystickNameForIndex(i);
+        if (jn) es_buttons(jn, known, sizeof known);
+#endif
+        if (!known[0]) snprintf(known, sizeof known, "a:b1,b:b0,x:b2,y:b3,");
         int field = 0;
         for (char *tok = strtok(map, ","); tok; tok = strtok(NULL, ","), field++) {
-            if (field >= 2 && strchr("abxy", tok[0]) && tok[1] == ':') continue;
+            char *colon = strchr(tok, ':'), key[40];
+            if (field >= 2 && colon && colon - tok < (int)sizeof key - 2) {   /* a field the list above sets is left out */
+                snprintf(key, sizeof key, ",%.*s:", (int)(colon - tok), tok);
+                char hay[520];
+                snprintf(hay, sizeof hay, ",%s", known);
+                if (strstr(hay, key)) continue;
+            }
             strncat(out, tok, sizeof out - strlen(out) - 2);
             strcat(out, ",");
         }
-        strncat(out, "a:b1,b:b0,x:b2,y:b3,", sizeof out - strlen(out) - 1);
+        strncat(out, known, sizeof out - strlen(out) - 1);
         SDL_free(map);
         if (SDL_GameControllerAddMapping(out) >= 0) handheld_labels = 1;
     }

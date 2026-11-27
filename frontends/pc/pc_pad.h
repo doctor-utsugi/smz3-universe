@@ -45,5 +45,7 @@ void pad_handheld_setup(void);
 int pad_handheld_labels(void);
 /* True on a handheld whose built-in buttons come as a virtual PlayStation pad: they carry Nintendo letters, by position. */
 int pad_virtual_handheld(void);
+/* The pad in use: the defaults fit the buttons it has (no R3: the tracker goes on L3). Before pad_cfg_load. */
+void pad_set_device(SDL_GameController *c);
 
 #endif

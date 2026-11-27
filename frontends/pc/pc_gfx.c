@@ -74,6 +74,10 @@ float gfx_text_width(float px, const char *s)
     return w;
 }
 
+static float fade = 1;   /* the opacity every primitive is multiplied by */
+void gfx_fade(float a) { fade = a < 0 ? 0 : a > 1 ? 1 : a; }
+static Uint8 faded(Uint8 a) { return (Uint8)(a * fade); }
+
 void gfx_text(float x, float y, float px, SDL_Color c, int align, const char *s)
 {
     const Atlas *a = &atlas[px > 64 ? 1 : 0];
@@ -81,7 +85,7 @@ void gfx_text(float x, float y, float px, SDL_Color c, int align, const char *s)
     if (align) { float w = gfx_text_width(px, s); x -= align == 1 ? w / 2 : w; }
     y -= 0.17f * px;
     SDL_SetTextureColorMod(a->tex, c.r, c.g, c.b);
-    SDL_SetTextureAlphaMod(a->tex, c.a);
+    SDL_SetTextureAlphaMod(a->tex, faded(c.a));
     for (; *s; s++) {
         int ch = (unsigned char)*s;
         if (ch < 33 || ch > 126) { if (ch == 32) { x += glyph_adv(32, px); continue; } ch = '?'; }
@@ -96,7 +100,7 @@ void gfx_text(float x, float y, float px, SDL_Color c, int align, const char *s)
 void gfx_quad(const float *xy, const SDL_Color *c)
 {
     SDL_Vertex v[4];
-    for (int i = 0; i < 4; i++) v[i] = (SDL_Vertex){{xy[i * 2], xy[i * 2 + 1]}, c[i], {0, 0}};
+    for (int i = 0; i < 4; i++) { v[i] = (SDL_Vertex){{xy[i * 2], xy[i * 2 + 1]}, c[i], {0, 0}}; v[i].color.a = faded(c[i].a); }
     int idx[6] = {0, 1, 2, 0, 2, 3};
     SDL_SetRenderDrawBlendMode(R, SDL_BLENDMODE_BLEND);
     SDL_RenderGeometry(R, NULL, v, 4, idx, 6);
@@ -104,6 +108,7 @@ void gfx_quad(const float *xy, const SDL_Color *c)
 
 void gfx_rect(float x, float y, float w, float h, SDL_Color c)
 {
+    c.a = faded(c.a);
     SDL_SetRenderDrawBlendMode(R, c.a == 255 ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(R, c.r, c.g, c.b, c.a);
     SDL_FRect r = {x, y, w, h};

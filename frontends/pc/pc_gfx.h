@@ -20,6 +20,8 @@ void gfx_backdrop_ui(float k, float ox, float oy);
 void gfx_quad(const float *xy, const SDL_Color *c);   /* four corners, each with its own colour */
 void gfx_chamfer(float x, float y, float w, float h, float cut, SDL_Color c);   /* a box with its corners cut off */
 void gfx_logo(float x, float y, float size, float alpha);
+/* Opacity for everything drawn after it, 0..1 (a fading note); set it back to 1. */
+void gfx_fade(float a);
 void gfx_rect(float x, float y, float w, float h, SDL_Color c);
 SDL_Color gfx_ui_color(int index);
 /* Draws the menu's last ui_draw command list scaled to fit the area, centred. Returns the scale (window px per canvas px)

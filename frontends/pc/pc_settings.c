@@ -18,9 +18,9 @@ static const char *quit_label = "Quit";   /* "Back to main menu" while a run is 
 
 void settings_quit_label(const char *label) { quit_label = label; }
 #ifdef __linux__
-#define VIDEO_ROWS 11
+#define VIDEO_ROWS 12
 #else
-#define VIDEO_ROWS 10   /* no Screens row: two windows only exist on Linux */
+#define VIDEO_ROWS 11   /* no Screens row: two windows only exist on Linux */
 #endif
 static int vskip;   /* two windows: no Full screen and Window size rows (both fill their displays) */
 #define VROWS (VIDEO_ROWS - vskip)
@@ -30,10 +30,11 @@ static const char *const FILTERS[] = {"Sharp", "Smooth", "Scanlines", "LCD grid"
 static const char *const SIZES[] = {"720p", "1080p", "1440p", "Desktop"};
 static const char *const MM_SIDES[] = {"Right", "Left", "Off"};
 static const char *const MM_SIZES[] = {"Small", "Medium", "Large"};
+static const char *const CORNERS[] = {"% and time", "% only", "Off"};
 static const char *const SCREENS[] = {"Auto", "Single", "Dual"};
 static int ff_speed = 4;
 static int menu_music = 1, seed_code;
-static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide, screens;   /* screens: 0 auto, 1 single, 2 dual */   /* ch_hide: bits of the daily challenge info not shown in game */
+static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide, corner, screens;   /* screens: 0 auto, 1 single, 2 dual */   /* ch_hide: bits of the daily challenge info not shown in game */
 #define ROW_H 22
 #define SHOWN 8
 #define PAD_ROWS (PA_COUNT + 3)   /* the buttons, then Item shortcuts, Reset to defaults and Back */
@@ -61,7 +62,7 @@ const char *settings_aspect_name(void) { return ASPECTS[vid_aspect]; }
 static void video_save(void)
 {
     char t[200];
-    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\nscreens=%d\nff=%d\nmenu_music=%d\nseed_code=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, screens, ff_speed, menu_music, seed_code);
+    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\ncorner=%d\nscreens=%d\nff=%d\nmenu_music=%d\nseed_code=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, corner, screens, ff_speed, menu_music, seed_code);
     store_write(store_path("video.cfg"), t, (size_t)n);
 }
 
@@ -98,6 +99,7 @@ void settings_video_load(void)
             else if (!strncmp(line, "minimap=", 8) && atoi(line + 8) >= 0 && atoi(line + 8) < 3) mm_side = atoi(line + 8);
             else if (!strncmp(line, "filter=", 7) && v >= 0 && v < 4) vid_filter = v;
             else if (!strncmp(line, "challenge_hide=", 15)) ch_hide = v & 15;
+            else if (!strncmp(line, "corner=", 7) && v >= 0 && v < 3) corner = v;
             else if (!strncmp(line, "screens=", 8) && v >= 0 && v < 3) screens = v;
             else if (!strncmp(line, "menu_music=", 11)) menu_music = v != 0;
             else if (!strncmp(line, "seed_code=", 10)) seed_code = v != 0;
@@ -118,7 +120,8 @@ static void video_change(int row, int dir)
     else if (row == 4) mm_side = (mm_side + dir + 3) % 3;
     else if (row == 5) mm_size = (mm_size + dir + 3) % 3;
     else if (row >= 6 && row < 10) ch_hide ^= 1 << (row - 6);
-    else if (row == 10) { screens = (screens + dir + 3) % 3; hk.note("Screens: this changes the next time SMZ3 opens"); }
+    else if (row == 10) corner = (corner + dir + 3) % 3;
+    else if (row == 11) { screens = (screens + dir + 3) % 3; hk.note("Screens: this changes the next time SMZ3 opens"); }
     video_save();
 }
 
@@ -126,9 +129,9 @@ static void video_change(int row, int dir)
 const char *settings_video_row(int row, char *val, size_t cap)
 {
     static const char *const L[] = {"Full screen", "Window size", "Aspect ratio", "Filter", "Minimap", "Minimap size",
-                                              "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints", "Challenge: next hint in", "Screens"};
+                                              "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints", "Challenge: next hint in", "Corner info", "Screens"};
     const char *v[] = {hk.is_fullscreen() ? "On" : "Off", SIZES[vid_size], ASPECTS[vid_aspect], FILTERS[vid_filter], MM_SIDES[mm_side], MM_SIZES[mm_size],
-                                 ch_hide & 1 ? "Hidden" : "Shown", ch_hide & 2 ? "Hidden" : "Shown", ch_hide & 4 ? "Hidden" : "Shown", ch_hide & 8 ? "Hidden" : "Shown", SCREENS[screens]};
+                                 ch_hide & 1 ? "Hidden" : "Shown", ch_hide & 2 ? "Hidden" : "Shown", ch_hide & 4 ? "Hidden" : "Shown", ch_hide & 8 ? "Hidden" : "Shown", CORNERS[corner], SCREENS[screens]};
     if (row < 0 || row >= VROWS) row = 0;
     row += vskip;
     snprintf(val, cap, "%s", v[row]);
@@ -137,6 +140,7 @@ const char *settings_video_row(int row, char *val, size_t cap)
 int settings_video_rows(void) { return VROWS; }
 void settings_video_change(int row, int dir) { if (row >= 0 && row < VROWS) video_change(row + vskip, dir); }
 int settings_minimap_side(void) { return mm_side; }
+int settings_corner(void) { return corner; }
 int settings_screens(void) { return screens; }
 int settings_ff_speed(void) { return ff_speed; }
 void settings_ff_next(void) { ff_speed = ff_speed == 2 ? 3 : ff_speed == 3 ? 4 : ff_speed == 4 ? 6 : ff_speed == 6 ? 8 : 2; video_save(); }

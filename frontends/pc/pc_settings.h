@@ -55,6 +55,8 @@ void settings_ff_next(void);
 /* Minimap: 0 right panel, 1 left panel, 2 off; its size as a share of the panel width. */
 int settings_minimap_side(void);
 float settings_minimap_scale(void);
+/* One window with no room for the side panels: 0 the % and the time in the game's corner, 1 the % only, 2 nothing. */
+int settings_corner(void);
 /* What a daily challenge shows over the game: 0 the window clock, 1 the own time, 2 the goal and new hints, 3 the time to the next hint. */
 int settings_challenge_show(int what);
 /* A menu button (from the keyboard or the controller). */
