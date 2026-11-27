@@ -49,6 +49,7 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   they are plain buttons. Those systems send each button by its printed letter, not by its place; the app now reads
   every button from the system's own pad config.
 - PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
+- The start menu has Quit under Options, so the app closes without going into Options.
 - PC: the button that opens the tracker shows for 5 seconds at the start, then fades out.
 - PC: Options > Video > Corner info picks what the game's corner shows when the side panels don't fit: the % and the
   time, the % only, or nothing.

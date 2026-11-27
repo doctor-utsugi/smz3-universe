@@ -156,8 +156,10 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 }
 
 #define LOGO_MS 2000
-#define HOME_ROWS 4
-static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options"};
+#define HOME_ROWS 5
+static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options", "Quit"};
+/* Quit is a row only where the host can close the app (the PC builds). */
+static int home_rows(const SmzUi *u) { return u->options_mask & UI_OPT_QUIT ? 5 : 4; }
 static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits, -3: Cloud sync */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
     {UI_OPT_SEED, "Seed code", "on the RUN tab"},
@@ -344,8 +346,11 @@ static void games_input(SmzUi *u, UiButton b)
 static void home_input(SmzUi *u, UiButton b)
 {
     if (b == BTN_B) { u->screen = UI_GAMES; u->notice[0] = 0; return; }
-    if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? HOME_ROWS - 1 : 1)) % HOME_ROWS;
+    int rows = home_rows(u);
+    if (u->home_cursor >= rows) u->home_cursor = 0;
+    if (b == BTN_UP || b == BTN_DOWN) u->home_cursor = (u->home_cursor + (b == BTN_UP ? rows - 1 : 1)) % rows;
     else if (b != BTN_A) return;
+    else if (u->home_cursor == 4) { u->action = ACT_OPTIONS; u->action_slot = UI_OPT_QUIT; }
     else if (u->home_cursor == 0) u->screen = UI_SLOTS_SCREEN;
     else if (u->home_cursor == 3) { u->screen = UI_OPTIONS; u->options_cursor = 0; }
     else if (!online_game(u)) snprintf(u->notice, sizeof u->notice, "Online races come later for this game");
@@ -2699,13 +2704,13 @@ void ui_draw(SmzUi *u)
     case UI_HOME:
         put(u, 2, UI_W / 2 - 16, 10, 32, 32, C_TEXT, 0, GAME_PICS[u->game_mode]);
         text(u, UI_W / 2, 48, C_ACCENT, 1, GAME_NAMES[u->game_mode]);
-        for (int r = 0; r < HOME_ROWS; r++) {
-            int y = 70 + r * 34, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
-            rect(u, 24, y, UI_W - 48, 28, r == u->home_cursor ? C_SEL : C_PANEL);
-            rect(u, 24, y, 5, 28, off ? C_DIM : C_ACCENT);
-            hit(u, H_HOME, r, 24, y, UI_W - 48, 28);
-            text(u, 38, y + 8, off ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
-            if (off) text(u, UI_W - 32, y + 8, C_DIM, 2, "Offline");
+        for (int r = 0, n = home_rows(u), pitch = n > 4 ? 28 : 34, h = n > 4 ? 24 : 28; r < n; r++) {   /* five rows: closer, above the notice line */
+            int y = (n > 4 ? 64 : 70) + r * pitch, off = (r == 1 || r == 2) && (!u->race.on || !online_game(u));   /* the online rows, without a connection */
+            rect(u, 24, y, UI_W - 48, h, r == u->home_cursor ? C_SEL : C_PANEL);
+            rect(u, 24, y, 5, h, off ? C_DIM : C_ACCENT);
+            hit(u, H_HOME, r, 24, y, UI_W - 48, h);
+            text(u, 38, y + h / 2 - 6, off ? C_DIM : C_TEXT, 0, HOME_NAMES[r]);
+            if (off) text(u, UI_W - 32, y + h / 2 - 6, C_DIM, 2, "Offline");
         }
         if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
         else if (u->update[0]) { snprintf(buf, sizeof buf, "%s is out: Options > Update", u->update); text(u, UI_W / 2, UI_H - 30, C_GOLD, 1, buf); }
