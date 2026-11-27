@@ -2766,10 +2766,10 @@ index 0000000..be959cd
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..8fe1dc2
+index 0000000..495a4aa
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6271 @@
+@@ -0,0 +1,6282 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3093,6 +3093,17 @@ index 0000000..8fe1dc2
 +    if (z3Only) return z3;
 +    if (*sm && !z3) { free(*sm); *sm = NULL; }
 +    return false;
++}
++
++static bool smFound, z3Found;   // the base ROMs found: a single game needs only its own
++
++// Looks again for the ROMs still missing and shows the result on the carousel and the ROMs screen.
++static void lookForRoms(SmzUi *u)
++{
++    if (!smFound) { unsigned char *sm = NULL; smFound = findBaseRoms(&sm, NULL, true); free(sm); }
++    if (!z3Found) { unsigned char *sm = NULL; z3Found = findBaseRoms(&sm, romScratch() + SMZ_HOST_ROM_SIZE, false, true); }
++    ui_game_state(u, SMZ_MODE_SM, smFound ? UI_GAME_READY : UI_GAME_NO_ROM);
++    ui_game_state(u, SMZ_MODE_Z3, z3Found ? UI_GAME_READY : UI_GAME_NO_ROM);
 +}
 +
 +// A sprite file (rel is "link/x.rdc"): the SD card's copy when there is one, else the app's own.
@@ -4050,13 +4061,8 @@ index 0000000..8fe1dc2
 +    bool ladderFailed = false;
 +    u64 nextWorld = 0;   // the world goals: fetched once they come on screen, then once a minute while they stay
 +    bool worldShown = false;
-+    {   // a single game needs only its own ROM: looked for until it is found, once per menu
-+        static bool smFound, z3Found;
-+        if (!smFound) { unsigned char *sm = NULL; smFound = findBaseRoms(&sm, NULL, true); free(sm); }
-+        if (!z3Found) { unsigned char *sm = NULL; z3Found = findBaseRoms(&sm, romScratch() + SMZ_HOST_ROM_SIZE, false, true); }
-+        ui_game_state(&ui, SMZ_MODE_SM, smFound ? UI_GAME_READY : UI_GAME_NO_ROM);
-+        ui_game_state(&ui, SMZ_MODE_Z3, z3Found ? UI_GAME_READY : UI_GAME_NO_ROM);
-+    }
++    ui_roms_screen(&ui, 1, "Copy them to /3ds/SMZ3, then Add ROMs");
++    lookForRoms(&ui);
 +    // Map Rando comes from the server: offered while the console has a network, checked again with the retries below
 +    smz_sm_set_maprando(smzMapRandoFetch, smzMapRandoOnline() ? SMZ_MR_READY : SMZ_MR_OFFLINE);
 +    refreshSlots(&ui);
@@ -4210,6 +4216,11 @@ index 0000000..8fe1dc2
 +                ui_busy(&ui, m);
 +                updating = true;
 +                smzUpdateStart(versionJson);
++            }
++            if (act == ACT_ROMS) {
++                lookForRoms(&ui);
++                if (!smFound || !z3Found)
++                    ui_roms_note(&ui, !wrongRom[0] ? "Not found yet: check the folder" : wrongRom[0] == 'S' ? "Super Metroid must be the (JU) dump" : "ALttP must be the Japanese v1.0 dump");
 +            }
 +            if (act == ACT_LADDER) smzOnlineRequestLadders(ui_ladder_preset_key(&ui));
 +            else if (act == ACT_DELETE) { smz3SyncDeleted(slot); deleteRun(slot); refreshSlots(&ui); }

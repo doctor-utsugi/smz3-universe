@@ -27,12 +27,12 @@ extern int smz_ui_w, smz_ui_h;
 
 typedef enum { BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_L, BTN_R, BTN_SELECT, BTN_START } UiButton;   /* START: only the keyboard uses it (to Save) */
 typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY, UI_LOGO, UI_HOME, UI_OPTIONS,
-               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_CREDITS, UI_CLOUD, UI_CLOUD_CONFLICT } UiScreen;
+               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_CREDITS, UI_CLOUD, UI_CLOUD_CONFLICT, UI_ROMS } UiScreen;
 typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
 typedef enum { ACT_NONE, ACT_CONTINUE, ACT_DELETE, ACT_GENERATE, ACT_LOAD_SAVE, ACT_LOAD_STATE, ACT_LADDER, ACT_DAILY, ACT_OPTIONS,
-               ACT_RACE_CREATE, ACT_RACE_JOIN, ACT_RACE_FIND, ACT_RACE_CLOSE, ACT_RACE_KICK, ACT_RACE_READY, ACT_RACE_LEAVE, ACT_RACE_START, ACT_RACE_RESUME, ACT_UPDATE, ACT_CLOUD } UiAction;
+               ACT_RACE_CREATE, ACT_RACE_JOIN, ACT_RACE_FIND, ACT_RACE_CLOSE, ACT_RACE_KICK, ACT_RACE_READY, ACT_RACE_LEAVE, ACT_RACE_START, ACT_RACE_RESUME, ACT_UPDATE, ACT_CLOUD, ACT_ROMS } UiAction;
 
 typedef struct {
     const char *key;             /* C# property name for logic options */
@@ -65,7 +65,7 @@ enum { C_BG, C_PANEL, C_SEL, C_TEXT, C_DIM, C_ACCENT, C_WARN, C_GREEN, C_CYAN, C
 #define UI_COLORS 22
 
 typedef struct { int16_t x, y, w, h; uint8_t kind; int16_t idx; } UiHit;
-enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME, H_CREDITS, H_CLOUD };
+enum { H_SLOT, H_MENU, H_TAB, H_ROW, H_SPRITE, H_SCROLL, H_CREATE, H_BACK, H_CHEVRON, H_CONFIRM, H_MODE, H_SAVED, H_SAVED_DEL, H_KEY, H_START, H_COUNTRY, H_ONLINE, H_LOADCHOICE, H_LADDER, H_LTAB, H_DAILY, H_DAILY_BTN, H_WORLD, H_WMONTH, H_WGOAL, H_HOME, H_OPTION, H_RACE, H_GAME, H_CREDITS, H_CLOUD, H_ROMS };
 
 /* One game's monthly and weekly seeds as the host gave them (ui_set_monthly_game, ui_set_weekly_game). */
 typedef struct { char monthly_label[16]; int monthly_seed, monthly_days; char weekly_label[16]; int weekly_seed, weekly_days; } UiGamePeriods;
@@ -117,6 +117,8 @@ typedef struct {
     int daily_on, daily_sel, daily_cursor, daily_has_run, daily_info;   /* the run list's Daily row: shown / has the cursor (2: the World goals row under it); its screen's button (0 Start, 1 Info, 2 Back, 3 Link, 4 Samus); the host keeps an attempt; the Info page is open */
     SmzDailyInfo daily;
     char start_label[24], notice[40];
+    int roms_on, roms_cursor, roms_auto;   /* the host shows the ROMs screen after the logo while a base ROM is missing / its button / opened by the logo, untouched */
+    char roms_hint[64];         /* how this host takes ROMs, shown on it */
     int home_on, home_cursor, logo_ms;   /* the start menu is on / its row / what is left of the logo's fixed time */
     int game_mode, game_cursor, game_spin, game_state[3];   /* the game entered (SMZ_MODE_*) / the carousel's front card / where it is turned to, in thousandths of a card / UI_GAME_* per game */
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
@@ -268,6 +270,11 @@ void ui_home_open(SmzUi *u);
  * opens the start menu above for that game; B there turns back to the carousel. The host sets each game's state. */
 enum { UI_GAME_READY, UI_GAME_NO_ROM, UI_GAME_SOON };
 void ui_game_state(SmzUi *u, int mode, int state);
+/* The ROMs screen: the first one after the logo while the Super Metroid or ALttP ROM is missing, and where a game card
+ * without its ROM leads. Its Add button comes back as ACT_ROMS; the host then takes ROMs (a file picker, a new look in
+ * its folders), updates ui_game_state and may say how it went with ui_roms_note. hint tells the player how. */
+void ui_roms_screen(SmzUi *u, int on, const char *hint);
+void ui_roms_note(SmzUi *u, const char *note);
 void ui_tick(SmzUi *u, int ms);
 /* The server's /api/version answer ({"tag":"v0.9.0"}) against this build's version (SMZ3_VERSION): when the tag is newer,
  * the start menu says so and Options gets an Update row. can_install: picking it comes back as ACT_UPDATE and the host

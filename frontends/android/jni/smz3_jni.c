@@ -826,6 +826,18 @@ JNIEXPORT jint JNICALL NATIVE(uiGameMode)(JNIEnv *env, jclass cls) { return g_ui
 /* Back in the game a run was played from, without the carousel (the menu was made again). */
 JNIEXPORT void JNICALL NATIVE(uiGameEnter)(JNIEnv *env, jclass cls, jint mode) { ui_game_enter(&g_ui, mode); }
 JNIEXPORT void JNICALL NATIVE(uiGameState)(JNIEnv *env, jclass cls, jint mode, jint state) { ui_game_state(&g_ui, mode, state); }
+JNIEXPORT void JNICALL NATIVE(uiRomsScreen)(JNIEnv *env, jclass cls, jstring hint)
+{
+    const char *h = (*env)->GetStringUTFChars(env, hint, NULL);
+    ui_roms_screen(&g_ui, 1, h);
+    (*env)->ReleaseStringUTFChars(env, hint, h);
+}
+JNIEXPORT void JNICALL NATIVE(uiRomsNote)(JNIEnv *env, jclass cls, jstring note)
+{
+    const char *n = (*env)->GetStringUTFChars(env, note, NULL);
+    ui_roms_note(&g_ui, n);
+    (*env)->ReleaseStringUTFChars(env, note, n);
+}
 
 JNIEXPORT jstring JNICALL NATIVE(romName)(JNIEnv *env, jclass cls, jstring json, jstring seed)
 {

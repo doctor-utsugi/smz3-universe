@@ -224,10 +224,26 @@ static const char *const CREDITS_LINES[] = {
 void ui_home_enable(SmzUi *u, int mask) { u->home_on = 1; u->options_mask = mask; }
 void ui_menu_music(SmzUi *u, int on) { u->menu_music = on; }
 void ui_home_open(SmzUi *u) { u->screen = UI_LOGO; u->logo_ms = LOGO_MS; u->home_cursor = 0; }
-void ui_game_state(SmzUi *u, int mode, int state) { if (mode >= 0 && mode < SMZ_MODE_COUNT) u->game_state[mode] = state; }
+static int roms_missing(const SmzUi *u) { return u->roms_on && (u->game_state[SMZ_MODE_SM] == UI_GAME_NO_ROM || u->game_state[SMZ_MODE_Z3] == UI_GAME_NO_ROM); }
+void ui_game_state(SmzUi *u, int mode, int state)
+{
+    if (mode >= 0 && mode < SMZ_MODE_COUNT) u->game_state[mode] = state;
+    if (u->screen == UI_ROMS && u->roms_auto && !roms_missing(u)) u->screen = UI_GAMES;   /* the host's look ended after the logo */
+}
+void ui_roms_screen(SmzUi *u, int on, const char *hint) { u->roms_on = on; snprintf(u->roms_hint, sizeof u->roms_hint, "%s", hint ? hint : ""); }
+void ui_roms_note(SmzUi *u, const char *note) { snprintf(u->notice, sizeof u->notice, "%s", note ? note : ""); }
+
+static void roms_input(SmzUi *u, UiButton b)
+{
+    u->roms_auto = 0;
+    if (b == BTN_LEFT || b == BTN_RIGHT) u->roms_cursor ^= 1;
+    else if (b == BTN_B) u->screen = UI_GAMES;
+    else if (b == BTN_A && u->roms_cursor == 0) u->action = ACT_ROMS;
+    else if (b == BTN_A) u->screen = UI_GAMES;
+}
 void ui_tick(SmzUi *u, int ms)
 {
-    if (u->screen == UI_LOGO && (u->logo_ms -= ms) <= 0) u->screen = UI_GAMES;
+    if (u->screen == UI_LOGO && (u->logo_ms -= ms) <= 0) { u->screen = roms_missing(u) ? UI_ROMS : UI_GAMES; u->roms_auto = 1; u->roms_cursor = 0; }
     if (u->screen == UI_GAMES) {   /* the ring eases to the front card the short way round */
         int want = u->game_cursor * 1000, d = ((want - u->game_spin) % 3000 + 4500) % 3000 - 1500, step = d * ms / 120;
         u->game_spin = (abs(d) <= 4 || !step ? want : u->game_spin + step) % 3000;
@@ -284,6 +300,7 @@ static void games_input(SmzUi *u, UiButton b)
     if (b == BTN_LEFT || b == BTN_RIGHT || b == BTN_L || b == BTN_R) u->game_cursor = (u->game_cursor + (b == BTN_LEFT || b == BTN_L ? SMZ_MODE_COUNT - 1 : 1)) % SMZ_MODE_COUNT;
     else if (b != BTN_A) return;
     else if (u->game_state[u->game_cursor] == UI_GAME_SOON) snprintf(u->notice, sizeof u->notice, "%s is coming soon", GAME_NAMES[u->game_cursor]);
+    else if (u->game_state[u->game_cursor] == UI_GAME_NO_ROM && u->roms_on) { u->screen = UI_ROMS; u->roms_cursor = 0; u->roms_auto = 0; }
     else if (u->game_state[u->game_cursor] == UI_GAME_NO_ROM) snprintf(u->notice, sizeof u->notice, "Add the %s ROM first", u->game_cursor == SMZ_MODE_SM ? "Super Metroid" : "Zelda");
     else {
         if (u->game_mode != u->game_cursor) game_switch(u, u->game_cursor);
@@ -1706,6 +1723,7 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_DAILY: daily_input(u, b); break;
     case UI_HOME: home_input(u, b); break;
     case UI_GAMES: games_input(u, b); break;
+    case UI_ROMS: roms_input(u, b); break;
     case UI_RACE_SIZE: case UI_RACE_WAY: case UI_RACE_FORMAT: case UI_RACE_LENGTH: case UI_RACE_PUBLIC:
     case UI_RACE_LIST: case UI_RACE_ROOM: case UI_RACE_READY: race_input(u, b); break;
     case UI_OPTIONS: options_input(u, b); break;
@@ -1785,6 +1803,7 @@ void ui_touch(SmzUi *u, int x, int y)
         }
         case H_SPRITE: u->sprite_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_HOME: u->home_cursor = t->idx; ui_input(u, BTN_A); break;
+        case H_ROMS: u->roms_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_GAME: if (t->idx == u->game_cursor) ui_input(u, BTN_A); else u->game_cursor = t->idx; break;   /* a side card turns to the front first */
         case H_OPTION: u->options_cursor = t->idx; ui_input(u, BTN_A); break;
         case H_CREDITS: ui_input(u, t->idx < 0 ? BTN_L : t->idx > 0 ? BTN_R : BTN_B); break;
@@ -2526,6 +2545,32 @@ void ui_draw(SmzUi *u)
         text(u, UI_W / 2, 150, C_DIM, 1, "A Link to the Past + Super Metroid");
         if (u->version[0]) text(u, UI_W / 2, 166, C_DIM, 1, u->version);
         break;
+    case UI_ROMS: {
+        static const char *const NAME[2] = {"Super Metroid", "A Link to the Past"}, *const NEEDS[2] = {"Super Metroid (JU)", "ALttP, Japan v1.0"};
+        title(u, "Your ROMs");
+        text(u, UI_W / 2, 36, C_DIM, 1, "SMZ3 builds its games from your own ROM files");
+        int all = 1;
+        for (int i = 0; i < 2; i++) {
+            int y = 54 + i * 42, ok = u->game_state[i ? SMZ_MODE_Z3 : SMZ_MODE_SM] != UI_GAME_NO_ROM;
+            all &= ok;
+            rect(u, 24, y, UI_W - 48, 36, C_PANEL);
+            rect(u, 24, y, 5, 36, ok ? C_GREEN : C_WARN);
+            text(u, 38, y + 6, C_TEXT, 0, NAME[i]);
+            text(u, 38, y + 20, C_DIM, 0, NEEDS[i]);
+            text(u, UI_W - 32, y + 13, ok ? C_GREEN : C_WARN, 2, ok ? "Found" : "Missing");
+        }
+        text(u, UI_W / 2, 144, C_DIM, 1, all ? "Both are in: every game is ready" : u->roms_hint);
+        int bw = (UI_W - 60) / 2;
+        for (int i = 0; i < 2; i++) {
+            int x = 24 + i * (bw + 12);
+            rect(u, x, 164, bw, 28, i == u->roms_cursor ? C_SEL : C_PANEL);
+            hit(u, H_ROMS, i, x, 164, bw, 28);
+            text(u, x + bw / 2, 172, C_TEXT, 1, i ? (all ? "Play" : "Later") : "Add ROMs");
+        }
+        if (u->notice[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->notice);
+        legend(u, all ? "A Choose  Left Right Move" : "A Choose  Left Right Move  B Later");
+        break;
+    }
     case UI_GAMES: {
         /* three cards on a ring seen from the front: the far ones smaller and higher, drawn first so the near one covers them */
         int order[SMZ_MODE_COUNT], n = 0;
