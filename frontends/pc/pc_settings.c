@@ -54,6 +54,7 @@ static char cwd[1024];
 void settings_init(const SettingsHooks *hooks) { hk = *hooks; }
 int settings_active(void) { return screen != S_OFF; }
 void settings_open(void) { screen = S_MAIN; cursor = 0; scroll = 0; direct = 0; }
+void settings_open_shortcuts(void) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 0; direct = 1; }
 void settings_open_page(int video) { screen = video ? S_MAIN : S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; direct = 1; }
 
 /* The main page: the settings shown here (settings_cfg_shown), then Buttons and keys, Item shortcuts and Quit. */
@@ -396,7 +397,7 @@ static void go_back(void)
     if (screen == S_MAIN) screen = S_OFF;
     else if (screen == S_FILES) leave_files();
     else if (screen == S_SC && sc_from_pad) { screen = S_PAD; cursor = PA_COUNT; }
-    else if (direct && from == S_PAD) screen = S_OFF;
+    else if (direct && (from == S_PAD || from == S_SC)) screen = S_OFF;
     else { screen = S_MAIN; cursor = main_index(from == S_SC ? M_SC : M_PAD); }
 }
 

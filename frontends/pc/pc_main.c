@@ -1180,8 +1180,34 @@ static void panel_right(const SmzTracker *t, float x, float w, float h, const Mi
     minimap_at_bottom(t, mm, x, w, h, y);
 }
 
-enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_COUNT, TAB_DAILY = TAB_COUNT };   /* the Daily tab only in a daily run */
-static const char *const TAB_NAMES[TAB_COUNT + 1] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "DAILY"};
+enum { TAB_RUN, TAB_ITEMS, TAB_CHECKS, TAB_MAP, TAB_HELP, TAB_CONFIG, TAB_COUNT, TAB_DAILY = TAB_COUNT };   /* the Daily tab only in a daily run */
+static const char *const TAB_NAMES[TAB_COUNT + 1] = {"RUN", "ITEMS", "CHECKS", "MAP", "HELP", "CONFIG", "DAILY"};
+
+/* The CONFIG tab: the settings shown on this screen setup (pc_settings' one list, as on the two-screen CONFIG tab), then
+ * Buttons and keys, Item shortcuts and Back to main menu. Its row is the tracker's scroll. */
+enum { CT_PAD = -1, CT_SC = -2, CT_LEAVE = -3 };
+static int config_tab_rows(int *ids)
+{
+    int n = 0;
+    for (int r = 0; r < CFG_COUNT; r++) if (settings_cfg_shown(r)) ids[n++] = r;
+    ids[n++] = CT_PAD;
+    ids[n++] = CT_SC;
+    ids[n++] = CT_LEAVE;
+    return n;
+}
+
+/* A press on the row: a setting changes by dir, a page opens; returns 1 for Back to main menu. */
+static int config_tab_press(int row, int dir)
+{
+    int ids[CFG_COUNT + 3], n = config_tab_rows(ids);
+    if (row < 0 || row >= n) return 0;
+    if (ids[row] >= 0) settings_cfg_change(ids[row], dir);
+    else if (!dir) return 0;
+    else if (ids[row] == CT_PAD) settings_open_page(0);
+    else if (ids[row] == CT_SC) settings_open_shortcuts();
+    else return 1;
+    return 0;
+}
 
 /* The daily challenge over the top-right corner of the game: the window clock (red in its last 15 minutes), the own time
  * from Start, the goal and the time to the next hint; each can be hidden in the video options. Returns its bottom (0: none). */
@@ -1259,7 +1285,8 @@ static int checks_rows(int win_h) { float u = win_h / 720.0f; return (int)((win_
 /* How far a tracker tab scrolls: CHECKS by rows, DAILY by hints; the others do not. */
 static int tab_scroll_max(int tab, int win_h, const SmzDailyRun *dr)
 {
-    int m = tab == TAB_CHECKS ? (int)smz3_location_count - checks_rows(win_h) : tab == TAB_DAILY && dr ? dr->n_hints - 1 : 0;
+    int ids[CFG_COUNT + 3];
+    int m = tab == TAB_CHECKS ? (int)smz3_location_count - checks_rows(win_h) : tab == TAB_DAILY && dr ? dr->n_hints - 1 : tab == TAB_CONFIG ? config_tab_rows(ids) - 1 : 0;
     return m > 0 ? m : 0;
 }
 
@@ -1395,6 +1422,24 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         }
         snprintf(s, sizeof s, "%d-%d of %d", first + 1, first + rows, nloc);
         gfx_text(x0 + w, bottom, 18 * u, C(0x87, 0x93, 0xA6), 2, s);
+    } else if (tab == TAB_CONFIG) {
+        int ids[CFG_COUNT + 3], n = config_tab_rows(ids);
+        float line = 34 * u, top = y0 + 56 * u, bot = win_h - 44 * u - 40 * u;
+        int shown = (int)((bot - top) / line), first = scroll - shown / 2;
+        if (first > n - shown) first = n - shown;
+        if (first < 0) first = 0;
+        for (int i = 0; i < shown && first + i < n; i++) {
+            int r = first + i, id = ids[r], sel = r == scroll;
+            float ry = top + i * line;
+            if (sel) gfx_rect(x0, ry - 3 * u, w, line - 4 * u, C(0x2E, 0x4A, 0x6B));
+            if (id < 0) { gfx_text(x0 + 12 * u, ry, 21 * u, sel ? C(0xE9, 0xA2, 0x3B) : C(0xE8, 0xEC, 0xF2), 0, id == CT_PAD ? "Buttons and keys" : id == CT_SC ? "Item shortcuts" : "Back to main menu"); continue; }
+            char v[48], vv[64];
+            const char *lab = settings_cfg_row(id, v, sizeof v);
+            snprintf(vv, sizeof vv, sel ? "<  %s  >" : "%s", v);
+            gfx_text(x0 + 12 * u, ry, 21 * u, sel ? C(0xE9, 0xA2, 0x3B) : C(0xE8, 0xEC, 0xF2), 0, lab);
+            gfx_text(x0 + w - 12 * u, ry, 21 * u, C(0xE8, 0xEC, 0xF2), 2, vv);
+        }
+        if (scroll >= 0 && scroll < n && ids[scroll] >= 0) gfx_text(x0 + 12 * u, bot + 8 * u, 18 * u, C(0x87, 0x93, 0xA6), 0, settings_cfg_section(ids[scroll]));
     } else if (tab == TAB_MAP) {
         SDL_Rect area = {(int)x0, (int)y, (int)w, (int)(bottom - y - 30 * u)};
         if (dungeon_showing(dv, live)) dungeon_draw(ren, dv, area, t, in_logic, live, wram, wram_len, sram, sram_len, !discovered_only, SDL_GetTicks());
@@ -1434,6 +1479,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         bar[nb++] = (HelpItem){"UD", "^", "Player"}; bar[nb++] = (HelpItem){"X", "F2", "Mute"}; bar[nb++] = (HelpItem){"Y", "F3", "Chat on/off"};
     }
     else if (tab == TAB_CHECKS) { bar[nb++] = (HelpItem){"UD", "^", "Scroll"}; bar[nb++] = (HelpItem){"RT", "PgUp", "Page"}; }
+    else if (tab == TAB_CONFIG) { bar[nb++] = (HelpItem){"UD", "^", "Choose"}; bar[nb++] = (HelpItem){"LR", "<", "Change"}; bar[nb++] = (HelpItem){"A", "Enter", "Open"}; }
     else if (tab_scroll_max(tab, win_h, dr)) { bar[nb++] = (HelpItem){"UD", "^", "Scroll"}; }
     else if (tab == TAB_MAP && dungeon_showing(dv, live)) {
         bar[nb++] = (HelpItem){"LR", "<", "Dungeon"}; bar[nb++] = (HelpItem){"UD", "^", "Floor"};
@@ -2292,7 +2338,8 @@ static void play(int slot, int game_save_only)
                     else dungeon_here(&dv);
                 }
                 else if (show) {
-                    if (k == SDLK_e || k == SDLK_w || (k == SDLK_RIGHT && tab != TAB_MAP)) tab = (tab + 1) % ntabs;
+                    if (tab == TAB_CONFIG && (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_RETURN)) { if (config_tab_press(scroll, k == SDLK_LEFT ? -1 : 1)) { show = 0; leaving = 1; } }
+                    else if (k == SDLK_e || k == SDLK_w || (k == SDLK_RIGHT && tab != TAB_MAP)) tab = (tab + 1) % ntabs;
                     else if (k == SDLK_q || (k == SDLK_LEFT && tab != TAB_MAP)) tab = (tab + ntabs - 1) % ntabs;
                     else if (k == SDLK_p && !rg.on) pause_on_overlay = !pause_on_overlay;   /* a race never stops */
                     else if (k == SDLK_f && tab == TAB_MAP) mv.follow = !mv.follow;
@@ -2371,6 +2418,9 @@ static void play(int slot, int game_save_only)
                 else if (show && b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) tab = (tab + 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) tab = (tab + ntabs - 1) % ntabs;
                 else if (show && b == SDL_CONTROLLER_BUTTON_B) show = 0;
+                else if (show && tab == TAB_CONFIG && (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT || b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT || b == SDL_CONTROLLER_BUTTON_A)) {
+                    if (config_tab_press(scroll, b == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? -1 : 1)) { show = 0; leaving = 1; }
+                }
                 else if (show && b == SDL_CONTROLLER_BUTTON_Y && tab == TAB_MAP) { if (map_game_on()) map_game_step(1); else dungeon_toggle(&dv, lp); }
                 else if (show && b == SDL_CONTROLLER_BUTTON_A && tab == TAB_MAP) { if (dungeon_showing(&dv, lp)) dungeon_here(&dv); else mv.follow = !mv.follow; }
             }

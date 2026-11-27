@@ -65,6 +65,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Linux handhelds: the Ports launcher unpacks the app on the card instead of /tmp, which is RAM there, and clears a copy
   left by a run the system closed.
 - PC: a run that cannot be made shows why in a box you close with A, instead of a line that the screen cut short.
+- PC with one screen (the RG 40XXV and any one-window PC): the tracker has a CONFIG tab, as with two screens: the same
+  settings with Up / Down and Left / Right, then Buttons and keys, Item shortcuts and Back to main menu.
 - PC: one Config for one and two screens. The tracker's CONFIG tab (two screens, by touch) and the Settings screen (one
   screen, by pad or keyboard) now show the same list: save slot, fast-forward speed, screen and daily challenge settings,
   each where it means something (the window size only in one window, the shortcut rows only on the touch screen).

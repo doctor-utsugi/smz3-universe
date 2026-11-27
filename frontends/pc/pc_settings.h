@@ -23,6 +23,8 @@ void settings_open(void);
 /* Opens straight at Buttons and keys (video 0) or Video (1); Back there closes the settings. */
 void settings_open_page(int video);
 void settings_open_files(void);
+/* Opens straight at Item shortcuts; Back there closes the settings. */
+void settings_open_shortcuts(void);
 /* Video options, kept in video.cfg: aspect 0 run default, 1 4:3, 2 8:7, 3 stretch, 4 pixel perfect; filter 0 sharp, 1 smooth, 2 scanlines, 3 LCD. */
 int settings_aspect(void);
 int settings_filter(void);
