@@ -361,7 +361,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..a4fe4c3 100644
+index 3692a54..d86c2e8 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -14,6 +14,7 @@
@@ -372,15 +372,16 @@ index 3692a54..a4fe4c3 100644
  
  #include "3dsutils.h"
  #include "3dssettings.h"
-@@ -32,6 +33,7 @@
+@@ -32,6 +33,8 @@
  #include "3dslcd.h"
  #include "3dsui_img.h"
  #include "3dsmenu.h"
++#include "smz3music.h"
 +#include "smz3run.h"
  #include "3dsra_ui.h"
  
  inline std::string operator "" _s(const char* s, size_t length) {
-@@ -39,6 +41,7 @@ inline std::string operator "" _s(const char* s, size_t length) {
+@@ -39,6 +42,7 @@ inline std::string operator "" _s(const char* s, size_t length) {
  }
  
  char romFileName[NAME_MAX + 1];
@@ -388,7 +389,7 @@ index 3692a54..a4fe4c3 100644
  bool slotLoaded = false;
  
  const char* hotkeysData[HOTKEYS_COUNT][3];
-@@ -401,6 +404,21 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -401,6 +405,21 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
              menu3dsHideDialog(dialogTab, isDialog, currentMenuTab, menuTabs);
          }, MenuItemType::Action, "  ROM Info"_s, ""_s);
  
@@ -410,7 +411,7 @@ index 3692a54..a4fe4c3 100644
          if (ra3dsIsAvailable())
              ra3dsAppendMenuEntry(items);
  
-@@ -492,7 +510,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -492,7 +511,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
                              return;
                          }
                      }
@@ -419,7 +420,7 @@ index 3692a54..a4fe4c3 100644
                      char statusMessage[64];
                      snprintf(statusMessage, sizeof(statusMessage), "Saving into slot #%d", slot);
  
-@@ -522,7 +540,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -522,7 +541,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
              );
          }
          AddMenuHeader2(items, ""_s);
@@ -428,7 +429,7 @@ index 3692a54..a4fe4c3 100644
          for (int slot = 1; slot <= SAVESLOTS_MAX; ++slot) {
              bool hasState = impl3dsSlotHasState(slot);
              snprintf(slotInfo, sizeof(slotInfo), "  Load Slot #%d", slot);
-@@ -532,7 +550,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
+@@ -532,7 +551,7 @@ void makeEmulatorMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menu
                  if (!result) {
                      SMenuTab dialogTab;
                      bool isDialog = false;
@@ -437,7 +438,7 @@ index 3692a54..a4fe4c3 100644
                      char errorMessage[64];
                      snprintf(errorMessage, sizeof(errorMessage), "Unable to load slot #%d!", slot);
  
-@@ -834,6 +852,17 @@ const std::vector<SMenuItem>& makeOptionsForInFramePaletteChanges() {
+@@ -834,6 +853,17 @@ const std::vector<SMenuItem>& makeOptionsForInFramePaletteChanges() {
      return items;
  }
  
@@ -455,7 +456,7 @@ index 3692a54..a4fe4c3 100644
  const std::vector<SMenuItem>& makeOptionsForScreenFilter() {
      static std::vector<SMenuItem> items;
      if (items.empty()) {
-@@ -858,6 +887,15 @@ void makeOptionMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menuTa
+@@ -858,6 +888,15 @@ void makeOptionMenu(std::vector<SMenuItem>& items, std::vector<SMenuTab>& menuTa
                      } 
                  });
      
@@ -471,7 +472,7 @@ index 3692a54..a4fe4c3 100644
      AddMenuPicker(items, "  Scale Filter"_s, "Applies when the game screen is stretched/zoomed in.\n\"Sharp\" may distort details,\n\"Balanced\" has minor performance impact."_s,
          makeOptionsForScreenFilter(), static_cast<int>(settings3DS.ScreenFilter), DIALOG_TYPE_INFO, true,
          []( int val ) {
-@@ -1383,7 +1421,7 @@ bool settingsReadWriteFullListByGame(bool writeMode)
+@@ -1383,7 +1422,7 @@ bool settingsReadWriteFullListByGame(bool writeMode)
      config3dsReadWriteInt32(stream, writeMode, "SRAMInterval=%d\n", &settings3DS.SRAMSaveInterval, 0, 4);
      config3dsReadWriteEnum(stream, writeMode, "ForceSRAMWrite=%d\n", &settings3DS.ForceSRAMWriteOnPause, 0, 1);
      config3dsReadWriteEnum(stream, writeMode, "BindCirclePad=%d\n", &settings3DS.BindCirclePad, 0, 1);
@@ -480,7 +481,7 @@ index 3692a54..a4fe4c3 100644
  
      static const char *buttonName[10] = {"A", "B", "X", "Y", "L", "R", "ZL", "ZR", "SELECT","START"};
      char keyBuf[64];
-@@ -1557,6 +1595,20 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
+@@ -1557,6 +1596,20 @@ bool settingsReadWriteFullListGlobal(bool writeMode)
  
      config3dsReadWriteEnum(stream, writeMode, "ShowFPS=%d\n", &settings3DS.ShowFPS, 0, 1);
  
@@ -501,7 +502,7 @@ index 3692a54..a4fe4c3 100644
      return true;
  }
  
-@@ -1608,6 +1660,10 @@ bool emulatorLoadRom()
+@@ -1608,6 +1661,10 @@ bool emulatorLoadRom()
  
      char romFileNameFullPath[PATH_MAX];
      snprintf(romFileNameFullPath, sizeof(romFileNameFullPath), "%s%s", file3dsGetCurrentDir(), romFileName);
@@ -512,7 +513,7 @@ index 3692a54..a4fe4c3 100644
  
      // Block the audio mixing thread from touching APU/memory state while
      // Memory.LoadROM tears down and rebuilds SNES9x globals AND while
-@@ -2103,7 +2159,7 @@ void onDirectoryEntrySelected(
+@@ -2103,7 +2160,7 @@ void onDirectoryEntrySelected(
              menu3dsRunBadgeCache(dialogTab, currentMenuTab, menuTabs, romFileName);
  
              // Restore after RA identification; pause the mixer while state changes.
@@ -521,7 +522,7 @@ index 3692a54..a4fe4c3 100644
                  snd3dsDrainMixing();
                  impl3dsLoadStateAuto();
                  snd3dsResumeMixing();
-@@ -2133,116 +2189,74 @@ void onDirectoryEntrySelected(
+@@ -2133,116 +2190,74 @@ void onDirectoryEntrySelected(
      }
  }
  
@@ -695,7 +696,15 @@ index 3692a54..a4fe4c3 100644
  }
  
  //--------------------------------------------------------
-@@ -2508,6 +2522,7 @@ void emulatorLoop()
+@@ -2314,6 +2329,7 @@ int emulatorFinalize()
+     ui3dsFinalize();
+     gpu3dsFinalize();
+     file3dsFinalize();
++    smz3MusicClose();
+     romfsExit();
+ 
+     osSetSpeedupEnable(false);
+@@ -2508,6 +2524,7 @@ void emulatorLoop()
          t3dsStartTimer(TIMER_RUN_ONE_FRAME);
          impl3dsRunOneFrame(firstFrame, skipDrawing);
          t3dsStopTimer(TIMER_RUN_ONE_FRAME);
@@ -703,7 +712,7 @@ index 3692a54..a4fe4c3 100644
  
  
          long actualTicksThisFrame = (long)(svcGetSystemTick() - startFrameTick);
-@@ -2553,6 +2568,8 @@ int main()
+@@ -2553,6 +2570,8 @@ int main()
      APT_CheckNew3DS(&settings3DS.isNew3DS);
      osSetSpeedupEnable(true);
      utils3dsInitialize();
@@ -712,7 +721,7 @@ index 3692a54..a4fe4c3 100644
  
      // ---- load/update settings first ----
      menu3dsSetHotkeysData(hotkeysData);
-@@ -2560,6 +2577,17 @@ int main()
+@@ -2560,6 +2579,17 @@ int main()
      settings3dsResetGameDefaults();
      // load global config, overwrites defaults if file exists
      cfgFileAvailable[0] = settingsReadWriteFullListGlobal(false);
@@ -730,7 +739,7 @@ index 3692a54..a4fe4c3 100644
      settings3dsUpdate(false);
  
      if (!emulatorInitialize()) {
-@@ -2589,6 +2617,7 @@ int main()
+@@ -2589,6 +2619,7 @@ int main()
      menu3dsShowSplashMessage("Saving & Exiting");
      
      settingsSave(settings3DS.isRomLoaded);
@@ -10124,10 +10133,10 @@ index 0000000..9df90f6
 +#endif
 diff --git a/source/smz3music.cpp b/source/smz3music.cpp
 new file mode 100644
-index 0000000..82c35fa
+index 0000000..b3763e0
 --- /dev/null
 +++ b/source/smz3music.cpp
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,130 @@
 +#include <3ds.h>
 +#include <stdio.h>
 +#include <string.h>
@@ -10235,6 +10244,14 @@ index 0000000..82c35fa
 +    pcm = NULL;
 +}
 +
++// The track stays open from romfs between menus; it is closed before romfs goes, or the exit's own fclose crashes.
++void smz3MusicClose(void)
++{
++    smz3MusicStop();
++    if (mp3) { drmp3_uninit(mp3); free(mp3); mp3 = NULL; }
++    if (file) { fclose(file); file = NULL; }
++}
++
 +bool smz3MusicEnabled(void)
 +{
 +    if (enabled < 0) {
@@ -10252,10 +10269,10 @@ index 0000000..82c35fa
 +}
 diff --git a/source/smz3music.h b/source/smz3music.h
 new file mode 100644
-index 0000000..3d666af
+index 0000000..7b88009
 --- /dev/null
 +++ b/source/smz3music.h
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,23 @@
 +// The launcher's music (romfs:/smz3/smz3_intro.mp3): loops at half volume on ndsp channel 5 while the menu is up.
 +#ifndef SMZ3MUSIC_H
 +#define SMZ3MUSIC_H
@@ -10269,6 +10286,8 @@ index 0000000..3d666af
 +// Fades out over half a second, then stops and frees the thread and the wave buffers (the decoder stays open).
 +void smz3MusicStop(void);
 +// The option, kept in menu_music.txt under SMZ_DIR (on when the file is missing).
++// Stops it and closes the track; before romfsExit.
++void smz3MusicClose(void);
 +bool smz3MusicEnabled(void);
 +void smz3MusicSetEnabled(bool on);
 +
