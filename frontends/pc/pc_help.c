@@ -20,7 +20,7 @@ void help_note_pad(SDL_GameController *c)
     case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO: pad_kind = K_NINTENDO; break;
     default: pad_kind = K_XBOX;
     }
-    if (pad_handheld_labels()) pad_kind = K_NINTENDO;
+    if (pad_handheld_labels() || (pad_kind == K_PS && pad_virtual_handheld())) pad_kind = K_NINTENDO;
 }
 
 static SDL_Color rgb(int r, int g, int b, float a) { return (SDL_Color){(Uint8)r, (Uint8)g, (Uint8)b, (Uint8)(255 * (a < 0 ? 0 : a > 1 ? 1 : a))}; }
@@ -136,7 +136,7 @@ static const char *pad_name(const char *p)
 {
     static const char *const KEYS[] = {"L", "R", "LT", "RT", "SELECT", "START"};
     static const char *const NAMES[3][6] = {{"LB", "RB", "LT", "RT", "View", "Menu"}, {"L1", "R1", "L2", "R2", "Share", "Options"}, {"L1", "R1", "L2", "R2", "Select", "Start"}};
-    int kind = pad_handheld_labels() ? 2 : pad_kind == K_PS;
+    int kind = pad_handheld_labels() || pad_kind == K_NINTENDO ? 2 : pad_kind == K_PS;
     for (int i = 0; i < 6; i++) if (!strcmp(p, KEYS[i])) return NAMES[kind][i];
     return p;
 }

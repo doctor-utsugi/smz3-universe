@@ -495,6 +495,15 @@ void ui_race_set_paused(SmzUi *u, const char *code, int64_t resume_at)
 
 void ui_race_fail(SmzUi *u, const char *msg)
 {
+    int kicked = !strcmp(msg, "not in this race"), gone = kicked || !strcmp(msg, "no such race");
+    int in_room = u->screen == UI_RACE_ROOM || u->screen == UI_RACE_READY || (u->screen == UI_SPRITES && u->back == UI_RACE_READY);
+    if (gone && in_room) {   /* removed by the creator, or the room expired: out of it, and the host stops asking */
+        u->action = ACT_RACE_LEAVE;
+        race_reset(u);
+        u->screen = UI_RACE_WAY; u->race.cursor = 0;
+        snprintf(u->notice, sizeof u->notice, "%s", kicked ? "You were removed from the room" : "The room closed");
+        return;
+    }
     snprintf(u->notice, sizeof u->notice, "%.31s", msg);
     u->race.getting_ready = 0;
     if (u->screen == UI_BUSY || u->screen == UI_RACE_PUBLIC || u->screen == UI_RACE_LIST) { u->screen = UI_RACE_WAY; u->race.cursor = 0; }

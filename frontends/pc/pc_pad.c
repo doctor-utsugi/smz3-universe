@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __linux__
+#include <limits.h>
+#include <unistd.h>
+#endif
 #include "pc_emu.h"
 #include "pc_pad.h"
 #include "pc_store.h"
@@ -90,6 +94,34 @@ void pad_cfg_reset(void)
 }
 
 int pad_handheld_labels(void) { return handheld_labels; }
+
+/* A handheld whose own buttons a service hands over as a virtual DualSense (InputPlumber on ARM boards like the RG DS): its
+ * buttons carry Nintendo letters, not PlayStation shapes. A real Sony pad plugged in is a USB or Bluetooth device instead. */
+int pad_virtual_handheld(void)
+{
+#ifdef __linux__
+    static int known = -1;
+    if (known >= 0) return known;
+    known = 0;
+    if (access("/sys/firmware/devicetree/base/model", F_OK)) return known;
+    for (int i = 0; i < 64; i++) {
+        char path[96], vendor[8] = "", real[512];
+        snprintf(path, sizeof path, "/sys/class/input/event%d/device/id/vendor", i);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        int got = fgets(vendor, sizeof vendor, f) != NULL;
+        fclose(f);
+        if (!got || strncmp(vendor, "054c", 4)) continue;
+        snprintf(path, sizeof path, "/sys/class/input/event%d", i);
+        if (!realpath(path, real)) continue;
+        if (!strstr(real, "/devices/virtual/")) return known = 0;
+        known = 1;
+    }
+    return known;
+#else
+    return 0;
+#endif
+}
 
 /* A pad built into a Linux handheld (bus 0x19) has Nintendo's letters, and the mappings in gamecontrollerdb mix letters and
  * positions from one device to the next. The kernel's button order is reliable (south, east, north, west), so that is used. */

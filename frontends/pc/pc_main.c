@@ -1624,6 +1624,13 @@ static void daily_chat_in_game(SmzDailyRun *dr)
 static int race_first(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return me && me->place == 1; }
 static int race_won(void) { const SmzRacePlayer *me = smz_race_me(&ui.race.room); return race_first() && me->time_ms >= 0; }
 static int64_t race_now(void) { return online_now_ms() + ui.race.room.offset; }
+/* Leaving now gives the race up: it runs, this player has no time yet and did not win it, or this is a paused race come back to. */
+static int race_leaving_abandons(void)
+{
+    const SmzRace *r = &ui.race.room;
+    const SmzRacePlayer *me = smz_race_me(r);
+    return rg.on && ((r->state == RACE_RUNNING && (!me || me->time_ms < 0) && !race_first() && !rg.kept) || (r->state == RACE_PAUSED && rg.back));
+}
 
 /* A pause can be asked in the Full game, once it started and before anyone finished, with no other vote open. */
 static int race_can_pause(int64_t go_in)
@@ -1937,7 +1944,17 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
     if (paused) { char when[24]; smz_race_when(r->resume_at, when, sizeof when); snprintf(sub, sizeof sub, "Goes on %s. Come back on this computer, from Championship.", when); }
     else if (cancelled && r->end_why[0]) snprintf(sub, sizeof sub, "%s", r->end_why);
     else snprintf(sub, sizeof sub, "%s%s", smz_race_format_name(r->format), r->state == RACE_RUNNING ? ": the race goes on" : r->pauses ? ", paused" : "");
-    float pw = fminf(fmaxf(620 * u, gfx_text_width(20 * u, sub) + 60 * u), ww - 32 * u), ph = (150 + 34 * r->n + 70) * u, px = (ww - pw) / 2, py = (wh - ph) / 2;   /* as wide as its line */
+    char big[48] = "";   /* how it ended for a player with no time of their own */
+    if (!paused && (!me || me->time_ms < 0)) {
+        const SmzRacePlayer *first = NULL;
+        for (int i = 0; i < r->n; i++) if (r->p[i].place == 1) first = &r->p[i];
+        if (cancelled) snprintf(big, sizeof big, "No result");
+        else if (!strcmp(r->end_why, "draw")) snprintf(big, sizeof big, "Time is up");
+        else if (race_first()) snprintf(big, sizeof big, "The others left");
+        else if (first) snprintf(big, sizeof big, "%.31s won", first->name);
+    }
+    float list_y = big[0] ? 154 : 120;
+    float pw = fminf(fmaxf(620 * u, gfx_text_width(20 * u, sub) + 60 * u), ww - 32 * u), ph = (list_y + 30 + 34 * r->n + 70) * u, px = (ww - pw) / 2, py = (wh - ph) / 2;   /* as wide as its line */
     float spx = fit_text(fsub, sizeof fsub, sub, 20 * u, pw - 40 * u);
     gfx_rect(px, py, pw, ph, (SDL_Color){0x10, 0x16, 0x1F, 240});
     gfx_rect(px, py, pw, 3 * u, race_first() ? (SDL_Color){0xF2, 0xA3, 0x3A, 255} : (SDL_Color){0x87, 0x93, 0xA6, 255});
@@ -1949,11 +1966,12 @@ static void race_draw(int64_t go_in, float gx, float gw, int ww, int wh, int one
     else snprintf(title, sizeof title, "DEFEAT");
     gfx_text(ww / 2.0f, py + 22 * u, 44 * u, paused || race_first() ? C(0xF2, 0xA3, 0x3A) : cancelled ? C(0x87, 0x93, 0xA6) : C(0xE0, 0x5A, 0x4F), 1, title);
     gfx_text(ww / 2.0f, py + 88 * u - spx / 2, spx, C(0x87, 0x93, 0xA6), 1, fsub);
+    if (big[0]) gfx_text(ww / 2.0f, py + 114 * u, 26 * u, C(0xE8, 0xEC, 0xF2), 1, big);
     for (int pl = 0, row = 0; pl <= r->n; pl++) {   /* by place, then the ones without one */
         for (int i = 0; i < r->n; i++) {
             const SmzRacePlayer *p = &r->p[i];
             if ((pl < r->n && p->place != pl + 1) || (pl == r->n && p->place)) continue;
-            float ry = py + (120 + 34 * row++) * u;
+            float ry = py + (list_y + 34 * row++) * u;
             char t[24], pos[8];
             if (p->time_ms >= 0) fmt_time_cs(p->time_ms, t, sizeof t); else snprintf(t, sizeof t, "%s", p->left ? "Left" : r->state == RACE_RUNNING ? "racing" : "-");
             snprintf(pos, sizeof pos, p->place ? "%d" : "", p->place);
@@ -2726,7 +2744,7 @@ static void play(int slot, int game_save_only)
         if (rg.on && !rw_open) race_draw(go_in, gx, gw, ww, wh, !(show && tab == TAB_COUNT), show && !ren2);   /* no chat box over the CHAT tab; with two windows the game still shows it */
         if (daily && !rw_open) chat_notes(gx, gw, wh, hud_bottom ? hud_bottom + 8 * (wh / 720.0f) : 16 * (wh / 720.0f), !(show && tab == chat_tab), !(show && !ren2));
         if (leaving) {
-            int abandon = rg.on && (ui.race.room.state == RACE_RUNNING || rg.back), pause = abandon && race_can_pause(go_in);
+            int abandon = race_leaving_abandons(), pause = abandon && race_can_pause(go_in);
             float u = wh / 720.0f;
             gfx_rect(0, 0, (float)ww, (float)wh, (SDL_Color){0, 0, 0, 170});
             gfx_text(ww / 2.0f, wh / 2.0f - 30 * u, 34 * u, C(0xE8, 0xEC, 0xF2), 1, abandon ? "Abandon the race?" : "Leave the run?");
@@ -2823,9 +2841,7 @@ static void play(int slot, int game_save_only)
     settings_quit_label("Quit");
     if (win2) dual_close();
     if (rg.on) {   /* out before the finish: the rivals see it at once */
-        const SmzRacePlayer *me = smz_race_me(&ui.race.room);
-        int st = ui.race.room.state;
-        if ((st == RACE_RUNNING && (!me || me->time_ms < 0) && !rg.kept) || (st == RACE_PAUSED && rg.back)) { race_send("leave", "", 1); race_forget_paused(); }   /* back from a pause and gone again: abandoned */
+        if (race_leaving_abandons()) { race_send("leave", "", 1); race_forget_paused(); }   /* back from a pause and gone again: abandoned */
         rg.on = 0; g_side_goal[0] = 0;
     }
     if (rw_open) { smz_rewind_step(rw, smz_rewind_count(rw)); emu_state_load(smz_rewind_state(rw), rw_size); }   /* closed mid-rewind: the present is kept */

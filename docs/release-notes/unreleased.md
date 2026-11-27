@@ -37,6 +37,13 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
   way out (opening the connection) is slow and uneven; it now goes by when the answer arrives.
 - Championship and Online draft ask for a player name first when none is set, instead of showing others a made-up
   "Player-xxxx".
+- Races: a player the creator removes, or whose room expired, goes back to the race menu with "You were removed from
+  the room" or "The room closed", instead of staying on the room's list with "not in this race".
+- PC: leaving a race already finished or won is "Leave the run?" again, not "Abandon the race?".
+- PC: the race's end card says how it ended for a player with no time, like Android: "The others left", "X won",
+  "Time is up" or "No result".
+- PC on handhelds whose buttons come as a virtual PlayStation pad (the RG DS with InputPlumber): the prompts show the
+  console's own letters, not PlayStation's shapes.
 
 - A ROMs screen comes first on Android and the 3DS while the Super Metroid or ALttP ROM is missing (the PC already had
   its welcome screen). Two cards show which ROM is found and which exact dump is needed. Add ROMs opens the file picker

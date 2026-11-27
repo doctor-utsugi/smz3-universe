@@ -43,5 +43,7 @@ int pad_dirs(SDL_GameController *c);
 /* Before opening the pad: makes the buttons of a handheld's built-in pad follow their printed letters. */
 void pad_handheld_setup(void);
 int pad_handheld_labels(void);
+/* True on a handheld whose built-in buttons come as a virtual PlayStation pad: they carry Nintendo letters, by position. */
+int pad_virtual_handheld(void);
 
 #endif
