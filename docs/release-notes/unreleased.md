@@ -42,6 +42,7 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - PC: leaving a race already finished or won is "Leave the run?" again, not "Abandon the race?".
 - PC: the race's end card says how it ended for a player with no time, like Android: "The others left", "X won",
   "Time is up" or "No result".
+- macOS: the Intel build opens on macOS 11 and later; it asked for macOS 15.
 - PC on handhelds whose buttons come as a virtual PlayStation pad (the RG DS with InputPlumber): the prompts show the
   console's own letters, not PlayStation's shapes.
 
