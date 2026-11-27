@@ -17,7 +17,7 @@
 #include "smz3_maprando.h"
 
 static char g_dir[1100];
-static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the seed */
+static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it from the server */
 
 #define MR_NEED_MB 600   /* the data loaded to build a seed, freed after it */
 
@@ -62,7 +62,7 @@ static int from_server(const char *settings, uint64_t seed, const uint8_t *sm, s
     snprintf(patch_path, sizeof patch_path, "%s", store_path("maprando-seed.bps"));
     snprintf(head_path, sizeof head_path, "%s", store_path("maprando-seed.head"));
     remove(patch_path); remove(head_path);
-    g_phase = 1;
+    g_phase = 3;
     int status = -1, pipefd[2];
     if (pipe(pipefd) == 0) {
         pid_t pid = fork();
@@ -86,7 +86,7 @@ static int from_server(const char *settings, uint64_t seed, const uint8_t *sm, s
         close(pipefd[0]);
     }
     g_phase = 0;
-    if (status <= 0) { error_json(info, info_cap, "Could not reach the server"); return -1; }
+    if (status <= 0) { error_json(info, info_cap, "Connect to the internet: this device downloads Map Rando seeds"); return -1; }
     if (status == 503) { error_json(info, info_cap, "The server is busy, try again in a minute"); return -1; }
     if (status == 429) { error_json(info, info_cap, "Too many seeds this hour, try later"); return -1; }
     if (status == 422) { error_json(info, info_cap, "The server found no seed for this"); return -1; }
@@ -145,8 +145,8 @@ void maprando_setup(void)
 
 int maprando_progress(char *out, size_t cap)
 {
-    if (g_phase == 1) snprintf(out, cap, "Loading Map Rando...");
-    else if (g_phase == 2) snprintf(out, cap, "Generating Map Rando seed... try %u", (unsigned)smz_mr_attempts());
+    if (g_phase == 1 || g_phase == 2) snprintf(out, cap, "Loading");
+    else if (g_phase == 3) snprintf(out, cap, "Downloading the Map Rando seed");
     return g_phase;
 }
 #else

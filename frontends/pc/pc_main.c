@@ -142,8 +142,7 @@ static void generate(GenJob *j)
         SDL_Delay(50);
         char line[64];
         if (!maprando_progress(line, sizeof line)) continue;
-        static const char *const DOTS[] = {"Loading", "Loading.", "Loading..", "Loading..."};
-        snprintf(line, sizeof line, "%s", DOTS[SDL_GetTicks() / 400 % 4]);
+        snprintf(line + strlen(line), sizeof line - strlen(line), "%.*s", (int)(SDL_GetTicks() / 400 % 4), "...");   /* moving dots, no count */
         SDL_PumpEvents();
         ui_busy(&ui, line);
         ui_present();
