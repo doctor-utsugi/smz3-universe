@@ -171,12 +171,15 @@ static int mr_from_pool(const char *settings, uint64_t want, const uint8_t *sm, 
 {
     char preset[64];
     size_t tn = 0;
-    if (!g_pool[0] || !g_pool_ok || sscanf(settings, "{\"preset\":\"%63[^\"]\"}", preset) != 1) return -1;
+    if (!g_pool[0] || !g_pool_ok || sscanf(settings, "{\"preset\":\"%63[^\"]\"}", preset) != 1) {
+        fprintf(stderr, "maprando set: not used (folder '%s', allowed %d, settings %s)\n", g_pool, g_pool_ok, settings);
+        return -1;
+    }
     char want_set[96];
     snprintf(want_set, sizeof want_set, "{\"preset\":\"%s\"}", preset);
-    if (strcmp(settings, want_set)) return -1;   /* a skill or other choice the set was not made with */
+    if (strcmp(settings, want_set)) { fprintf(stderr, "maprando set: no seeds for %s\n", settings); return -1; }   /* a skill or other choice the set was not made with */
     char *txt = (char *)pool_file("pool.txt", &tn);
-    if (!txt) return -1;
+    if (!txt) { fprintf(stderr, "maprando set: cannot read %s/pool.txt\n", g_pool); return -1; }
     int count = 0, rc = -1;
     size_t plen = strlen(preset);
     for (char *l = txt; l && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL) if (!strncmp(l, preset, plen) && l[plen] == '\t') count++;
@@ -196,6 +199,7 @@ static int mr_from_pool(const char *settings, uint64_t want, const uint8_t *sm, 
                 snprintf(info, icap, "%.*s", (int)jl, js + 1);
                 rc = 0;
             }
+            if (rc) fprintf(stderr, "maprando set: %s line %d: zip %u bytes, patch %u bytes, failed\n", preset, line, (unsigned)zn, (unsigned)pn);
             free(patch);
             break;
         }
