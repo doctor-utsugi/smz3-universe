@@ -158,8 +158,8 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 #define LOGO_MS 2000
 #define HOME_ROWS 5
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options", "Quit"};
-/* Quit is a row only where the host can close the app (the PC builds). */
-static int home_rows(const SmzUi *u) { return u->options_mask & UI_OPT_QUIT ? 5 : 4; }
+/* Quit on the start menu only where the host asks for it (the PC builds, Linux handhelds among them). */
+static int home_rows(const SmzUi *u) { return u->options_mask & UI_OPT_HOME_QUIT ? 5 : 4; }
 static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits, -3: Cloud sync */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
     {UI_OPT_SEED, "Seed code", "on the RUN tab"},

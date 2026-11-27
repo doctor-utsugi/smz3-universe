@@ -275,7 +275,7 @@ const char *ui_run_label(const SmzUi *u);
 /* The start menu: a logo for a fixed 2 seconds, then Start / Load game, the online modes and Options; B on the run list comes back
  * to it. mask holds the UI_OPT_* rows the host opens itself: picking one comes back as ACT_OPTIONS with the row in action_slot.
  * The Player row is there whenever ui_player_enable is on. ui_home_open shows the logo; the host calls ui_tick every frame. */
-enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8, UI_OPT_SEED = 16 };
+enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8, UI_OPT_SEED = 16, UI_OPT_HOME_QUIT = 32 };   /* HOME_QUIT: Quit also on the start menu */
 void ui_home_enable(SmzUi *u, int mask);
 /* The UI_OPT_SOUND row is the Menu music toggle: A flips u->menu_music and comes back as ACT_OPTIONS for the host to save
  * and apply. ui_menu_music sets the saved value at start-up (default on). */

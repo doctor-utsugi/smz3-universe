@@ -3209,7 +3209,7 @@ static void window_main(int start_slot)
     sync_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
-    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT);
+    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT | UI_OPT_HOME_QUIT);
     ui_menu_music(&ui, settings_menu_music());
     ui_seed_code(&ui, settings_seed_code());
     menumusic_set(ui.menu_music);
