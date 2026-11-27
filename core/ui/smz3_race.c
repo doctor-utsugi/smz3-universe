@@ -142,7 +142,11 @@ int smz_race_read(SmzRace *r, const char *json, int64_t local_now)
     /* stamped answers: the server read its clock about halfway through the trip, and the quickest trip is the surest,
      * unless the clock itself jumped */
     int64_t sent = num(get(json, "sent"), 0), got = num(get(json, "got"), 0);
-    if (now && sent && got >= sent) {
+    if (now && sent && got == sent) {   /* stamped on arrival only (a trip too uneven to halve): the server read its clock before it, the largest estimate is the closest */
+        int64_t est = now - got;
+        if (!r->synced || est > r->offset || est < r->offset - 2000) r->offset = est;
+        r->synced = 1;
+    } else if (now && sent && got > sent) {
         int64_t rtt = got - sent, est = now - (sent + got) / 2;
         if (!r->synced || rtt <= r->rtt || est > r->offset + 2000 || est < r->offset - 2000) { r->offset = est; r->rtt = rtt; r->rtt_at = got; }
         r->synced = 1;

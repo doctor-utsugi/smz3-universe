@@ -1186,10 +1186,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..02041fc
+index 0000000..84e535b
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1487 @@
+@@ -0,0 +1,1486 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1317,8 +1317,8 @@ index 0000000..02041fc
 +    return wifi != 0;
 +}
 +
-+// t0 and t1, when given: this clock once the request is out and when the answer's head is in, the span the server answered in
-+static int httpRequest(const char *method, const char *path, const char *body, char *out, size_t cap, int64_t *t0 = nullptr, int64_t *t1 = nullptr)
++// t1, when given: this clock when the answer's head is in
++static int httpRequest(const char *method, const char *path, const char *body, char *out, size_t cap, int64_t *t1 = nullptr)
 +{
 +    out[0] = 0;
 +    if (!onNetwork()) { log3dsWrite("http %s: no wifi", path); return -1; }
@@ -1338,7 +1338,6 @@ index 0000000..02041fc
 +            httpcAddPostDataRaw(&ctx, (const u32 *)body, (u32)strlen(body));
 +        }
 +        if (R_FAILED(rc = httpcBeginRequest(&ctx))) { log3dsWrite("http %s: begin failed %08lx", path, (unsigned long)rc); httpcCloseContext(&ctx); continue; }
-+        if (t0) *t0 = smzDailyNowMs();
 +        u32 status = 0;
 +        if (R_FAILED(rc = httpcGetResponseStatusCodeTimeout(&ctx, &status, 8ULL * 1000 * 1000 * 1000))) { log3dsWrite("http %s: no answer %08lx", path, (unsigned long)rc); httpcCancelConnection(&ctx); httpcCloseContext(&ctx); continue; }
 +        if (t1) *t1 = smzDailyNowMs();
@@ -2202,7 +2201,7 @@ index 0000000..02041fc
 +    if (!strcmp(what, "nop")) return 0;
 +    if (!strcmp(what, "forget")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; gRaceProgress = 0; gRaceNe = gRaceNc = 0; gRaceSlow = false; gRaceOfflineSince = 0; raceUnlock(); return 0; }
 +    int code;
-+    int64_t sent = 0, got = 0;   // the opening and the closing of the connection are slow on the 3DS: they would put its clock ~300 ms ahead
++    int64_t got = 0;   // the 3DS's way out (opening the connection) is slow and uneven: halving the trip put its clock ~300 ms ahead
 +    if (find) {   // a list asked for by hand: one more try before saying there is no connection (fields: the game, "" for SMZ3)
 +        char path[48];
 +        snprintf(path, sizeof path, "/api/race/open%s%s", fields[0] ? "?game=" : "", fields);
@@ -2218,7 +2217,7 @@ index 0000000..02041fc
 +        char *body = (char *)malloc(RACE_ANS_CAP);
 +        if (!body) { raceAnswer(SMZ_RACE_ERROR, "Out of memory"); return 0; }
 +        snprintf(body, RACE_ANS_CAP, "{%s%s%s%s}", withToken ? "\"token\":" : "", withToken ? tok : "", withToken && fields[0] ? "," : "", fields);
-+        code = httpRequest("POST", path, body, buf, RACE_ANS_CAP, &sent, &got);
++        code = httpRequest("POST", path, body, buf, RACE_ANS_CAP, &got);
 +        free(body);
 +    }
 +    if (!strcmp(what, "leave")) { raceLock(); gRaceToken[0] = 0; gRaceSince = 0; raceUnlock(); return 0; }   // gone either way
@@ -2244,9 +2243,9 @@ index 0000000..02041fc
 +        raceUnlock();
 +        return 0;   // the room itself comes with the next poll, at once
 +    }
-+    char *st = buf[0] == '{' && buf[1] != '}' && sent && got ? (char *)malloc(RACE_ANS_CAP + 64) : NULL;
-+    if (st) {   // stamped with this device's clock around the trip, for the server's "now"
-+        snprintf(st, RACE_ANS_CAP + 64, "{\"sent\":%lld,\"got\":%lld,%s", (long long)sent, (long long)got, buf + 1);
++    char *st = buf[0] == '{' && buf[1] != '}' && got ? (char *)malloc(RACE_ANS_CAP + 64) : NULL;
++    if (st) {   // stamped with this device's clock on arrival only (sent = got), for the server's "now"
++        snprintf(st, RACE_ANS_CAP + 64, "{\"sent\":%lld,\"got\":%lld,%s", (long long)got, (long long)got, buf + 1);
 +        raceAnswer(SMZ_RACE_ROOM, st);
 +        free(st);
 +    } else raceAnswer(SMZ_RACE_ROOM, buf);
