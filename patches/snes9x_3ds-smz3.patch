@@ -361,7 +361,7 @@ index c8b5241..d7673cd 100644
  
  }
 diff --git a/source/3dsmain.cpp b/source/3dsmain.cpp
-index 3692a54..97d6ac2 100644
+index 3692a54..a4fe4c3 100644
 --- a/source/3dsmain.cpp
 +++ b/source/3dsmain.cpp
 @@ -14,6 +14,7 @@
@@ -703,15 +703,16 @@ index 3692a54..97d6ac2 100644
  
  
          long actualTicksThisFrame = (long)(svcGetSystemTick() - startFrameTick);
-@@ -2553,6 +2568,7 @@ int main()
+@@ -2553,6 +2568,8 @@ int main()
      APT_CheckNew3DS(&settings3DS.isNew3DS);
      osSetSpeedupEnable(true);
      utils3dsInitialize();
 +    smz3MoveDataDir();
++    smz3MoveFifthStates();
  
      // ---- load/update settings first ----
      menu3dsSetHotkeysData(hotkeysData);
-@@ -2560,6 +2576,17 @@ int main()
+@@ -2560,6 +2577,17 @@ int main()
      settings3dsResetGameDefaults();
      // load global config, overwrites defaults if file exists
      cfgFileAvailable[0] = settingsReadWriteFullListGlobal(false);
@@ -729,7 +730,7 @@ index 3692a54..97d6ac2 100644
      settings3dsUpdate(false);
  
      if (!emulatorInitialize()) {
-@@ -2589,6 +2616,7 @@ int main()
+@@ -2589,6 +2617,7 @@ int main()
      menu3dsShowSplashMessage("Saving & Exiting");
      
      settingsSave(settings3DS.isRomLoaded);
@@ -2765,10 +2766,10 @@ index 0000000..be959cd
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..152fcb4
+index 0000000..8fe1dc2
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6238 @@
+@@ -0,0 +1,6271 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3006,6 +3007,35 @@ index 0000000..152fcb4
 +    if (stat(SMZ_DIR, &st) == 0 || stat(OLD_DIR, &st) != 0) return;
 +    mkdir("sdmc:/3ds", 0777);
 +    rename(OLD_DIR, SMZ_DIR);
++}
++
++static int gFifthKept;   // states still in the 5th slot because slots 1 to 4 were taken (told once in the menu)
++
++// Builds up to v0.14.0 had five state slots: a state in the 5th moves to the first free one of the four, with its
++// goal counters and RomM copy, so it can be loaded again.
++void smz3MoveFifthStates(void)
++{
++    DIR *d = opendir(SMZ_DIR "/savestates");
++    if (!d) return;
++    static const char *const TAIL[] = {"", ".goals", ".v14"};
++    char from[PATH_MAX], to[PATH_MAX];
++    struct stat st;
++    while (struct dirent *e = readdir(d)) {
++        size_t l = strlen(e->d_name);
++        if (l <= 6 || strcmp(e->d_name + l - 6, ".5.frz")) continue;
++        int free_slot = 0;
++        for (int k = 1; k <= 4 && !free_slot; k++) {
++            snprintf(to, sizeof to, SMZ_DIR "/savestates/%.*s.%d.frz", (int)(l - 6), e->d_name, k);
++            if (stat(to, &st) != 0) free_slot = k;
++        }
++        if (!free_slot) { gFifthKept++; continue; }
++        for (int t = 0; t < 3; t++) {
++            snprintf(from, sizeof from, SMZ_DIR "/savestates/%s%s", e->d_name, TAIL[t]);
++            snprintf(to, sizeof to, SMZ_DIR "/savestates/%.*s.%d.frz%s", (int)(l - 6), e->d_name, free_slot, TAIL[t]);
++            if (stat(from, &st) == 0) rename(from, to);
++        }
++    }
++    closedir(d);
 +}
 +
 +// smOnly: Super Metroid alone needs only its ROM (z3Out may then be NULL and is not written).
@@ -3964,6 +3994,10 @@ index 0000000..152fcb4
 +    gRewindRun = false;
 +    gRunStates = false;
 +    ui_init(&ui);
++    if (gFifthKept) {
++        snprintf(ui.notice, sizeof ui.notice, "%d old 5th state%s kept: free a slot 1-4", gFifthKept, gFifthKept > 1 ? "s" : "");
++        gFifthKept = 0;
++    }
 +    ui.rings = 1;   // the run list's percent sits in a progress ring (drawRing)
 +    ui.orbs = 1;    // and the load choice's marker is an orb (drawOrb)
 +    ui.flags = 1;   // countries as flags (romfs:/smz3/flags)
@@ -9009,10 +9043,10 @@ index 0000000..152fcb4
 +}
 diff --git a/source/smz3run.h b/source/smz3run.h
 new file mode 100644
-index 0000000..464e375
+index 0000000..6510aa4
 --- /dev/null
 +++ b/source/smz3run.h
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,70 @@
 +#ifndef SMZ3RUN_H
 +#define SMZ3RUN_H
 +
@@ -9023,6 +9057,7 @@ index 0000000..464e375
 +// Before anything else at boot: the data folder of older builds (sdmc:/SMZ3) is moved to SMZ_DIR when SMZ_DIR does not
 +// exist yet, so its runs and saves carry over.
 +void smz3MoveDataDir(void);
++void smz3MoveFifthStates(void);
 +
 +// Shows the SMZ3 run menu, the app's home. Returns true with the full path of the ROM to play in romPathOut when the
 +// player picked Continue on a run, false when the app is closing.

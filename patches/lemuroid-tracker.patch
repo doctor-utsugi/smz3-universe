@@ -801,7 +801,7 @@ index 0000000..35969c0
 +    right: Smz3PadLayout.Placement,
 +) = remember { mutableStateOf(left to right) }.also { it.value = left to right }
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
-index 57f2e76..3ec3a43 100644
+index 57f2e76..78df934 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/main/MainActivity.kt
 @@ -1,5 +1,10 @@
@@ -824,10 +824,12 @@ index 57f2e76..3ec3a43 100644
  class MainActivity : RetrogradeComponentActivity(), BusyActivity {
      @Inject
      lateinit var gameLaunchTaskHandler: GameLaunchTaskHandler
-@@ -116,16 +123,46 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -115,17 +122,48 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+             SystemBarStyle.dark(Color.TRANSPARENT),
          )
          super.onCreate(savedInstanceState)
- 
++        com.swordfish.lemuroid.app.mobile.feature.runs.AppBackup.restoreIfEmpty(applicationContext)   // a reinstall after an update with another key
++
 +        // On a dual-screen device the launcher on the bottom screen starts the app there; the menu belongs on the main (top) screen.
 +        // The bottom screen is the tracker's Presentation, so relaunch once on display 0.
 +        val shownOn = if (android.os.Build.VERSION.SDK_INT >= 30) display?.displayId else null
@@ -840,7 +842,7 @@ index 57f2e76..3ec3a43 100644
 +            finish()
 +            return
 +        }
-+
+ 
          GlobalScope.safeLaunch {
              reviewManager.initialize(applicationContext)
          }
@@ -871,7 +873,7 @@ index 57f2e76..3ec3a43 100644
      @OptIn(ExperimentalMaterial3Api::class)
      @Composable
      private fun MainScreen(navController: NavHostController) {
-@@ -135,7 +172,7 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -135,7 +173,7 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
              val currentRoute =
                  currentDestination?.route
                      ?.let { MainRoute.findByRoute(it) }
@@ -880,7 +882,7 @@ index 57f2e76..3ec3a43 100644
  
              val infoDialogDisplayed =
                  remember {
-@@ -172,176 +209,36 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+@@ -172,176 +210,36 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                      .collectAsState(MainViewModel.UiState())
                      .value
  
@@ -1393,10 +1395,10 @@ index 0000000..5004db1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..e12a88e
+index 0000000..30140a6
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
-@@ -0,0 +1,1152 @@
+@@ -0,0 +1,1157 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.graphics.Paint
@@ -1678,6 +1680,11 @@ index 0000000..e12a88e
 +    }
 +
 +    fun installUpdate(apk: File) {
++        if (!AppBackup.sameSigner(context, apk)) {   // the installer would refuse it; uninstalling first would wipe the runs
++            Smz3Native.uiUpdateEnd(if (AppBackup.save(context)) "Reinstall: your runs are saved" else "Other key: don't uninstall")
++            version++
++            return
++        }
 +        val failed = runCatching { AppUpdate.install(context, apk) }.onFailure { android.util.Log.e("NativeMenu", "update install failed", it) }.isFailure
 +        Smz3Native.uiUpdateEnd(if (failed) "Cannot open the installer" else "")
 +        version++
@@ -13919,6 +13926,75 @@ index 0000000..1655f82
 +            Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
 +                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
 +        )
++    }
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppBackup.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppBackup.kt
+new file mode 100644
+index 0000000..2d69b72
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppBackup.kt
+@@ -0,0 +1,63 @@
++package com.swordfish.lemuroid.app.mobile.feature.runs
++
++import android.content.Context
++import android.content.pm.PackageManager
++import android.os.Build
++import java.io.File
++
++/**
++ * An update signed with another key can't install over this app, and uninstalling it to get past that wipes the app's
++ * files: the runs, the sign-ins, the install id. Before that, they are copied to /sdcard/SMZ3/backup/<package>, which an
++ * uninstall leaves alone, and the next install takes them back on its first start.
++ */
++object AppBackup {
++    private val KEEP = listOf("runs", "sync.txt", "saved_customs.txt")
++
++    private fun dir(context: Context) = File("/sdcard/SMZ3/backup/" + context.packageName)
++
++    /** False when the downloaded APK is signed with another key than this app (it could not install over it). */
++    fun sameSigner(context: Context, apk: File): Boolean = runCatching {
++        val pm = context.packageManager
++        if (Build.VERSION.SDK_INT >= 28) {
++            val flag = PackageManager.GET_SIGNING_CERTIFICATES
++            val theirs = pm.getPackageArchiveInfo(apk.path, flag)?.signingInfo?.apkContentsSigners ?: return@runCatching true
++            val mine = pm.getPackageInfo(context.packageName, flag).signingInfo?.apkContentsSigners ?: return@runCatching true
++            theirs.map { it.toByteArray().contentHashCode() }.toSet() == mine.map { it.toByteArray().contentHashCode() }.toSet()
++        } else {
++            @Suppress("DEPRECATION")
++            val theirs = pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNATURES)?.signatures ?: return@runCatching true
++            @Suppress("DEPRECATION")
++            val mine = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures ?: return@runCatching true
++            theirs.map { it.toByteArray().contentHashCode() }.toSet() == mine.map { it.toByteArray().contentHashCode() }.toSet()
++        }
++    }.getOrDefault(true)
++
++    /** Copies the app's own files that an uninstall would lose; false when the shared folder can't be written. */
++    fun save(context: Context): Boolean = runCatching {
++        val to = dir(context)
++        to.mkdirs()
++        if (!to.canWrite()) return@runCatching false
++        for (name in KEEP) {
++            val f = File(context.filesDir, name)
++            if (f.exists()) f.copyRecursively(File(to, name), overwrite = true)
++        }
++        File(to, "saved.txt").writeText(System.currentTimeMillis().toString())
++        true
++    }.getOrDefault(false)
++
++    /** On the first start of an install that has no runs, takes back a backup made by [save]. */
++    fun restoreIfEmpty(context: Context) {
++        runCatching {
++            val checked = File(context.filesDir, "backup_checked")
++            if (checked.exists()) return
++            checked.writeText("")
++            val from = dir(context)
++            val runs = File(context.filesDir, "runs")
++            if (!File(from, "saved.txt").exists() || runs.walkTopDown().any { it.isFile && it.name.startsWith("slot") && it.name.endsWith(".json") }) return
++            for (name in KEEP) {
++                val f = File(from, name)
++                if (f.exists()) f.copyRecursively(File(context.filesDir, name), overwrite = true)
++            }
++        }
 +    }
 +}
 diff --git a/lemuroid-app/src/main/res/xml/update_paths.xml b/lemuroid-app/src/main/res/xml/update_paths.xml

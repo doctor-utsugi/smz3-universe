@@ -39,9 +39,14 @@ if [ -d "$root/build/maprando-data/rust" ]; then
     md5sum "$assets/data.zip" | cut -c1-32 > "$assets/stamp.txt"
 fi
 if [ "$variant" = "release" ]; then
-    # Local signing key (kept out of git); packaging the 190 MB APK needs more heap than the default 2.5 GB.
-    [ -f release.jks ] || "$JAVA_HOME/bin/keytool" -genkeypair -keystore release.jks -alias lemuroid -storepass lemuroid -keypass lemuroid \
-        -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=SMZ3 local release, O=utsugi"
+    # The signing key (kept out of git) must be the releases' one: an APK signed with another can't update the
+    # installed app, and uninstalling it to get past that wipes the player's runs. A new key only with SMZ3_NEW_KEY=1.
+    if [ ! -f release.jks ]; then
+        [ "${SMZ3_NEW_KEY:-}" = 1 ] || { echo "release.jks is missing: put the releases' key in vendor/Lemuroid (or SMZ3_NEW_KEY=1 for a new one)" >&2; exit 1; }
+        "$JAVA_HOME/bin/keytool" -genkeypair -keystore release.jks -alias lemuroid -storepass lemuroid -keypass lemuroid \
+            -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=SMZ3 local release, O=utsugi"
+    fi
+    # packaging the 190 MB APK needs more heap than the default 2.5 GB
     ./gradlew :lemuroid-app:assembleFreeBundleRelease --console=plain -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
     cp lemuroid-app/build/outputs/apk/freeBundle/release/lemuroid-app-free-bundle-release.apk ../../build/smz3-release.apk
 else
