@@ -1073,7 +1073,7 @@ static float daily_panel(const SmzDailyRun *r, int finished, float x, float w, f
 
 static char g_side_goal[64], g_side_left[32];   /* a Draft race's goal and time left, shown in the left panel when there is one */
 
-static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, float h, const MiniMap *mm, int64_t clock_ms, const SmzDailyRun *dr, int finished)
+static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, float h, const MiniMap *mm, int64_t clock_ms, const SmzDailyRun *dr, int finished, const SmzRace *race)
 {
     float u = fminf(h / 720.0f, w / 230.0f), pad = 18 * u, y = 40 * u;
     if (w < 90) return;
@@ -1107,6 +1107,11 @@ static void panel_left(const SmzTracker *t, const SmzRun *r, float x, float w, f
         gfx_text(x + pad, y + 40 * u, 20 * u, C(0xE8, 0xEC, 0xF2), 0, g_side_goal);
         gfx_text(x + pad, y + 66 * u, 26 * u, C(0xF2, 0xA3, 0x3A), 0, g_side_left);
         y += 70 * u;
+    }
+    if (race) {   /* one window: the race beside the game too */
+        y += 40 * u;
+        gfx_text(x + pad, y, 20 * u, C(0x87, 0x93, 0xA6), 0, "Race");
+        y = race_lanes(race, x + pad, y + 28 * u, w - 2 * pad, u * 1.4f);
     }
     minimap_at_bottom(t, mm, x, w, h, y + 30 * u);
 }
@@ -2282,7 +2287,7 @@ static void play(int slot, int game_save_only)
                         else if (hk == HK_SAVE) quick_state(slot, qslot, 1);
                         else if (quick_state(slot, qslot, 0)) trk.state_loaded = 3;
                     } else if (hk == HK_NEXT) { qslot = (qslot + 1) % QSLOTS; char m[32]; snprintf(m, sizeof m, "Save slot %d", qslot + 1); note(m); }
-                    else if (hk == HK_FAST && challenge) note("No fast forward in a daily challenge");
+                    else if (hk == HK_FAST && challenge) note(rg.on ? rg.draft ? "No fast forward in an online draft" : "No fast forward in an online race" : "No fast forward in a daily challenge");
                     else if (hk == HK_REWIND) { if (!rw) note("Rewind is off in this run"); else if (!finished) rw_cmd = 3; }
                     else if (hk == HK_LEAVE) { if (finished) exit_at = SDL_GetTicks(); else leaving = 1; }
                     if (hk >= 0) continue;
@@ -2451,7 +2456,7 @@ static void play(int slot, int game_save_only)
         {   /* one window: say why fast forward does nothing (the hotkeys say it with two) */
             static int ff_was;
             int want = !win2 && ((ffk != SDLK_UNKNOWN && keys[SDL_GetScancodeFromKey(ffk)]) || pad_ff);
-            if (want && !ff_was && challenge && !show && !opts && !leaving && !rw_open && !done_popup && !fail_popup && !rg.card) note("No fast forward in a daily challenge");
+            if (want && !ff_was && challenge && !show && !opts && !leaving && !rw_open && !done_popup && !fail_popup && !rg.card) note(rg.on ? rg.draft ? "No fast forward in an online draft" : "No fast forward in an online race" : "No fast forward in a daily challenge");
             ff_was = want;
         }
         int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
@@ -2516,7 +2521,7 @@ static void play(int slot, int game_save_only)
                     int nn = smz_race_item_news(&rg.items, trk.inventory, SMZ_TRK_MAX_INV, news, 8);
                     for (int i = 0; i < nn; i++) race_event(news[i]);
                 }
-                if (rg.on && rg.draft) race_set_progress(smz_goal_progress(&trk.goal, &g_goalc, 0));
+                if (rg.on && rg.draft) race_set_progress(smz_goal_progress_live(&trk.goal, &g_goalc, wram, wl, sram, sl, rg.items.got, 0));
                 if (trk.game == 3 && !finished) {
                     finished = 1;
                     states = 0;   /* no state can take a finished run back */
@@ -2663,7 +2668,7 @@ static void play(int slot, int game_save_only)
             const uint8_t *mw = emu_wram(&mwl);
             MiniMap mm = {&disc, discovered_only, have_logic ? in_logic : NULL, mw, mwl, sram, sl, &minimv, &minidv, have_live ? &live : NULL};
             int on = trk.started || getenv("SMZ3_MINIMAP"), mside = settings_minimap_side();
-            if (!g_panels_hidden || ren2) panel_left(&trk, &run, 0, gx, (float)wh, on && mside == 1 ? &mm : NULL, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), daily ? &dr : NULL, finished);
+            if (!g_panels_hidden || ren2) panel_left(&trk, &run, 0, gx, (float)wh, on && mside == 1 ? &mm : NULL, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), daily ? &dr : NULL, finished, rg.on && !rg.daily ? &ui.race.room : NULL);
             if (!g_panels_hidden || ren2) panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
         }
         float hud_bottom = daily && !show && gx < 90 ? daily_hud(&dr, finished, gx, gw, wh) : 0;

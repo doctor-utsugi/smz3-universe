@@ -31,6 +31,11 @@ int smz_goal_done(const SmzGoal *g, const uint8_t *wram, size_t wram_len, const 
 int smz_goal_counted(const SmzGoal *g, const SmzCounters *c);
 /* How far the goal is, 0 to 100: the count so far for a counted goal, otherwise 0 until done. */
 int smz_goal_progress(const SmzGoal *g, const SmzCounters *c, int done);
+/* How far the goal is, 0 to 100, for the race standings. A counted goal: its count. Crystals or bosses: those done over the
+ * target. One place (a boss, Agahnim, a dungeon, an area, an item): items, the major items found since the start, give up to
+ * 50; inside the place's dungeon or area is 70, in the boss's room 85. 100 once done, 99 at most before. */
+int smz_goal_progress_live(const SmzGoal *g, const SmzCounters *c, const uint8_t *wram, size_t wram_len, const uint8_t *sram,
+                           size_t sram_len, int items, int done);
 /* The goal for people ("Defeat 25 enemies", "Defeat Kraid"). */
 void smz_goal_text(const SmzGoal *g, char *out, size_t cap);
 /* A goal text that defeats one boss ("Defeat Arrghus"): the boss's name ("Arrghus"), its goal icon ("boss_arrghus", "" when

@@ -15,6 +15,9 @@
 
 static SmzGoal g_goal;   /* the daily challenge or Draft goal of the run being played (smz3_goal.h) */
 static SmzCounters g_counters;   /* the run's counters: world goals, and a Draft's kills and rupees */
+#include "smz3_race.h"
+static SmzRaceItems g_race_items;   /* the major items already told to the rivals in this game's race */
+static int g_live_progress;         /* the Draft goal's progress at the last summarize (smz_goal_progress_live) */
 
 /* Takes the goal from the run's settings JSON; a run without one clears it. */
 static int g_dead;   /* the run's Super Metroid bosses dead from the start (a mid-game daily start) */
@@ -145,6 +148,7 @@ JNIEXPORT jintArray JNICALL NATIVE(summarize)(JNIEnv *env, jclass cls, jbyteArra
     smz3_summary sum;
     smz3_summarize((const uint8_t *)w, (size_t)wl, (const uint8_t *)s, (size_t)sl, &sum);
     if (g_goal.kind != GOAL_NONE && (smz_goal_done(&g_goal, (const uint8_t *)w, (size_t)wl, (const uint8_t *)s, (size_t)sl) || smz_goal_counted(&g_goal, &g_counters))) sum.finished = 1;
+    if (g_goal.kind != GOAL_NONE) g_live_progress = smz_goal_progress_live(&g_goal, &g_counters, (const uint8_t *)w, (size_t)wl, (const uint8_t *)s, (size_t)sl, g_race_items.got, 0);
     (*env)->ReleaseByteArrayElements(env, wram, w, JNI_ABORT);
     (*env)->ReleaseByteArrayElements(env, sram, s, JNI_ABORT);
 
@@ -1097,8 +1101,6 @@ JNIEXPORT jstring JNICALL NATIVE(raceGoalText)(JNIEnv *env, jclass cls, jstring 
 }
 
 /* How far the run's counted goal (kills, rupees) is, 0 to 99 (100 is the finish, from the server); -1 for the other kinds. */
-#include "smz3_race.h"
-static SmzRaceItems g_race_items;   /* the major items already told to the rivals in this game's race */
 
 JNIEXPORT void JNICALL NATIVE(raceItemsReset)(JNIEnv *env, jclass cls) { memset(&g_race_items, 0, sizeof g_race_items); }
 
@@ -1118,6 +1120,8 @@ JNIEXPORT jobjectArray JNICALL NATIVE(raceItemNews)(JNIEnv *env, jclass cls, jin
     for (int i = 0; i < k; i++) (*env)->SetObjectArrayElement(env, out, i, (*env)->NewStringUTF(env, v[i]));
     return out;
 }
+
+JNIEXPORT jint JNICALL NATIVE(raceProgress)(JNIEnv *env, jclass cls) { return g_live_progress; }
 
 JNIEXPORT jint JNICALL NATIVE(raceGoalProgress)(JNIEnv *env, jclass cls)
 {

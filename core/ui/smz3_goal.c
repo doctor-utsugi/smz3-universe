@@ -82,6 +82,42 @@ int smz_goal_progress(const SmzGoal *g, const SmzCounters *c, int done)
     return n >= (uint32_t)g->value ? 99 : (int)(n * 100 / (uint32_t)g->value);
 }
 
+/* Zelda: a boss's room, its dungeon ($040C) and Agahnim's; Super Metroid: each boss's area ($079F) and room ($079B). */
+static const struct { int room, dungeon; } ZPLACE[] = {
+    {0xC8, 0x04}, {0x33, 0x06}, {0x07, 0x14}, {0x5A, 0x0C}, {0x06, 0x0A}, {0x29, 0x10}, {0xAC, 0x16}, {0xDE, 0x12}, {0x90, 0x0E}, {0xA4, 0x18}};
+static const struct { int area, room; } SMPLACE[4] = {{1, 0xA59F}, {3, 0xCD13}, {4, 0xDA60}, {2, 0xB32E}};
+
+int smz_goal_progress_live(const SmzGoal *g, const SmzCounters *c, const uint8_t *wram, size_t wl, const uint8_t *sram, size_t sl,
+                           int items, int done)
+{
+    if (done) return 100;
+    if (g->kind == GOAL_KILLS || g->kind == GOAL_RUPEES) return smz_goal_progress(g, c, 0);
+    smz3_game game = smz3_current_game(sram, sl);
+    if (game == SMZ3_GAME_NONE || !smz3_started(wram, wl, sram, sl)) return 0;
+    if (g->kind == GOAL_CRYSTALS || g->kind == GOAL_SMBOSSES) {
+        int n = g->kind == GOAL_CRYSTALS ? popcount((unsigned)smz_crystal_mask(wram, wl, sram, sl, (int)game))
+                                         : popcount((unsigned)smz_boss_mask(wram, wl, sram, sl, (int)game) & 15);
+        return g->value > 0 ? (n >= g->value ? 99 : n * 100 / g->value) : 0;
+    }
+    int pc = items * 8 > 50 ? 50 : items * 8;
+    int in_zelda = game == SMZ3_GAME_ZELDA && wl > 0x40C && wram[0x1B];   /* indoors */
+    int zroom = in_zelda && wl > 0xA1 ? wram[0xA0] | wram[0xA1] << 8 : -1, zdun = in_zelda ? wram[0x40C] : -1;
+    int smarea = game == SMZ3_GAME_METROID && wl > 0x79F ? wram[0x79F] : -1, smroom = smarea >= 0 ? wram[0x79B] | wram[0x79C] << 8 : -1;
+    int here = 0, boss = 0;
+    switch (g->kind) {
+    case GOAL_ZBOSS:
+        for (unsigned i = 0; i < sizeof ZPLACE / sizeof ZPLACE[0]; i++)
+            if (ZPLACE[i].room == g->value) { here = zdun == ZPLACE[i].dungeon; boss = zroom == g->value; }
+        break;
+    case GOAL_AGA: here = zdun == 0x08; boss = zroom == 0x20; break;
+    case GOAL_SMBOSS: if (g->value >= 0 && g->value < 4) { here = smarea == SMPLACE[g->value].area; boss = smroom == SMPLACE[g->value].room; } break;
+    default: break;   /* a dungeon or an area is done on arrival; an item has no place to read */
+    }
+    if (boss) return 85;
+    if (here) return 70 > pc ? 70 : pc;
+    return pc;
+}
+
 void smz_goal_text(const SmzGoal *g, char *out, size_t cap)
 {
     static const struct { int room; const char *name; } ZB[] = {

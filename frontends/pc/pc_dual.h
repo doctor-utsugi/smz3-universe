@@ -40,4 +40,8 @@ int dual_event(const SDL_Event *e, SDL_Window *win, SDL_Renderer *r);
 /* What the finish buttons asked for since the last call. */
 int dual_take(void);
 
+/* The race as a horse race: one lane per player with a runner at their % and the finish line at the right, from y over the
+ * width w; returns the y under it. u is the drawing scale. */
+float race_lanes(const SmzRace *r, float x, float y, float w, float u);
+
 #endif

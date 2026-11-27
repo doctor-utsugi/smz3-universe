@@ -184,6 +184,34 @@ static void bar(float x, float y, float w, float h, float frac, SDL_Color fill)
     if (frac > 0) gfx_rect(x, y, w * (frac > 1 ? 1 : frac), h, fill);
 }
 
+float race_lanes(const SmzRace *r, float x, float y, float w, float u)
+{
+    int order[RACE_MAX], n = 0;
+    for (int pl = 0; pl <= r->n; pl++)
+        for (int i = 0; i < r->n; i++) if ((pl < r->n && r->p[i].place == pl + 1) || (pl == r->n && !r->p[i].place)) order[n++] = i;
+    for (int i = 1; i < n; i++)   /* the ones without a place by their % */
+        for (int j = i; j > 0 && !r->p[order[j]].place && !r->p[order[j - 1]].place && r->p[order[j]].progress > r->p[order[j - 1]].progress; j--) { int k = order[j]; order[j] = order[j - 1]; order[j - 1] = k; }
+    float px = 13 * u, lane = 20 * u, name_w = w * 0.34f, t0 = x + name_w + 4 * u, t1 = x + w - 8 * u;
+    for (int k = 0; k < n; k++) {
+        const SmzRacePlayer *p = &r->p[order[k]];
+        int mine = r->you[0] && !strcmp(p->pid, r->you), done = p->time_ms >= 0, pc = done ? 100 : p->progress < 0 ? 0 : p->progress > 100 ? 100 : p->progress;
+        char s[40], v[24];
+        snprintf(s, sizeof s, "%d %s", k + 1, p->name);
+        gfx_text(x, y + 2 * u, px, mine ? AMBER : p->left ? DIM : TEXT, 0, cut_text(s, name_w - 2 * u, px));
+        float mid = y + lane / 2, rx = t0 + (t1 - t0) * pc / 100.0f;
+        SDL_Color c = p->left ? DIM : mine ? AMBER : C(0x4F, 0x9D, 0xE0);
+        gfx_rect(t0, mid - 3 * u, t1 - t0, 6 * u, TRACK);
+        gfx_rect(t1, y + 2 * u, 2 * u, lane - 4 * u, TEXT);   /* the finish line */
+        gfx_rect(t0, mid - 3 * u, rx - t0, 6 * u, c);
+        gfx_rect(rx - 6 * u, mid - 6 * u, 12 * u, 12 * u, c);   /* the runner */
+        if (done) fmt_time(p->time_ms, v, sizeof v); else if (p->left) snprintf(v, sizeof v, "left"); else snprintf(v, sizeof v, "%d%%", pc);
+        float tw = gfx_text_width(11 * u, v);
+        gfx_text(rx + 10 * u + tw < t1 ? rx + 10 * u : rx - 10 * u - tw, y + 4 * u, 11 * u, done ? AMBER : TEXT, 0, v);
+        y += lane;
+    }
+    return y;
+}
+
 static void button(float x, float y, float w, float h, const char *label, int enabled, int id, int arg)
 {
     int down = P.on && P.has_hit && P.hit.id == id && P.hit.arg == arg;
@@ -279,26 +307,9 @@ static void run_left(float x, float top, float cw, float h)
     fmt_time(F.clock_ms >= 0 ? F.clock_ms : played, s, sizeof s);
     gfx_text(hx, y + 24 * u, fit_px(s, hw, 20 * u, 12 * u), TEXT, 0, s);
     y += 54 * u;
-    if (F.race) {   /* the race: the top three and this player, each with a time or the % done */
-        const SmzRace *r = F.race;
-        int order[RACE_MAX], n = 0;
-        for (int pl = 0; pl <= r->n; pl++)
-            for (int i = 0; i < r->n; i++) if ((pl < r->n && r->p[i].place == pl + 1) || (pl == r->n && !r->p[i].place)) order[n++] = i;
-        for (int i = 1; i < n; i++)   /* the ones without a place by their % */
-            for (int j = i; j > 0 && !r->p[order[j]].place && !r->p[order[j - 1]].place && r->p[order[j]].progress > r->p[order[j - 1]].progress; j--) { int k = order[j]; order[j] = order[j - 1]; order[j - 1] = k; }
+    if (F.race) {
         gfx_text(x, y, 12 * u, DIM, 0, "RACE"); y += 16 * u;
-        for (int k = 0; k < n; k++) {
-            const SmzRacePlayer *p = &r->p[order[k]];
-            int mine = r->you[0] && !strcmp(p->pid, r->you);
-            if (k >= 3 && !mine) continue;
-            char v[24];
-            if (p->time_ms >= 0) fmt_time(p->time_ms, v, sizeof v); else if (p->left) snprintf(v, sizeof v, "left"); else snprintf(v, sizeof v, "%d%%", p->progress);
-            snprintf(s, sizeof s, "%d  %s", k + 1, p->name);
-            gfx_text(x, y, 13 * u, mine ? AMBER : TEXT, 0, cut_text(s, cw - 60 * u, 13 * u));
-            gfx_text(x + cw, y, 13 * u, mine ? AMBER : DIM, 2, v);
-            y += 17 * u;
-        }
-        y += 6 * u;
+        y = race_lanes(F.race, x, y, cw, u) + 6 * u;
     }
     if (smz3_sm_alone() || smz3_z3_alone()) {   /* a single game: its seed hash where the other game's count goes */
         if (run_hash[0] && smz3_z3_alone() && map_hash_icons(R, x, y - 2 * u, fminf(24 * u, cw / 6), run_hash) > 0) y += 29 * u;

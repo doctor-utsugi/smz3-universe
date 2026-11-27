@@ -52,6 +52,13 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Races and Drafts tell the rivals each major item picked up ("got the Hookshot", "got the Titan's Mitt"), as the
   design always said; until now only bosses, pendants and crystals went out. Hearts, tanks, ammo and bottles stay quiet.
 
+- The race standings are a horse race: one lane per player with a runner at their %, on the second screen's RUN tab
+  (Android, PC, 3DS) and in the side panel beside the game on one screen (Android, PC).
+- A Draft whose goal is a boss, a dungeon, an area or an item moves on the standings too: the major items found give up
+  to half, being inside the goal's dungeon or area 70% and the boss's room 85%. Crystal and boss counts go by how many
+  are done. Before, those goals stayed at 0% until the finish.
+- Fast forward in an online race or Draft says so, not "daily challenge".
+
 ### Controls
 
 - Android: Options > Buttons and keys, and the CONFIG tab's "Change the game's buttons", open the controller

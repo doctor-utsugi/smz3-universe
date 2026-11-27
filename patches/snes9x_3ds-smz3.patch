@@ -2815,10 +2815,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..43251cb
+index 0000000..0bc4612
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6315 @@
+@@ -0,0 +1,6322 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -6334,7 +6334,7 @@ index 0000000..43251cb
 +    bool bars = !daily && !goalsRun;   // a challenge shows what it asks for instead
 +    if (daily) y = drawDailyBlock(x, y, cw);
 +    else if (goalsRun) y = drawGoals(x, y, cw);
-+    else if (rg.on) y = drawRaceStandings(x, y, cw);   // the race's top three and this player
++    else if (rg.on) y = drawRaceStandings(x, y, cw);   // the race as a horse race
 +    else {
 +        if (trk.zelda_total) {   // none in Super Metroid alone
 +            textf(x, y, theme.text, "Zelda  %u / %u", trk.zelda_cleared, trk.zelda_total);
@@ -7181,7 +7181,7 @@ index 0000000..43251cb
 +        int nn = smz_race_item_news(&rg.items, trk.inventory, SMZ_TRK_MAX_INV, news, 8);
 +        for (int i = 0; i < nn && !quiet; i++) smzRaceEvent(news[i]);
 +    }
-+    if (rg.draft) smzRaceSetProgress(smz_goal_progress(&trk.goal, &goalc, 0));
++    if (rg.draft && Memory.RAM && Memory.SRAM) smzRaceSetProgress(smz_goal_progress_live(&trk.goal, &goalc, Memory.RAM, 0x20000, Memory.SRAM, 0x20000, rg.items.got, 0));
 +    if (trk.game == 3 && !rg.finishSent && rg.room.state == RACE_RUNNING) {   // the server's time, from the start to this request or to finishAt if it was down
 +        rg.finishSent = true;
 +        size_t cap = SMZ_PROOF_MAX * 24;
@@ -7285,7 +7285,8 @@ index 0000000..43251cb
 +    textFit(6, 15, 308, 0x4FC3F7, line);
 +}
 +
-+// RUN's race block: the top three and this player, each with a time or the % done. Returns the y under it.
++// RUN's race block as a horse race: one lane per player, a runner at their % and the finish line at the right. Returns
++// the y under it.
 +static int drawRaceStandings(int x, int y, int cw)
 +{
 +    const SmzRace *r = &rg.room;
@@ -7296,16 +7297,22 @@ index 0000000..43251cb
 +        for (int j = i; j > 0 && !r->p[order[j]].place && !r->p[order[j - 1]].place && r->p[order[j]].progress > r->p[order[j - 1]].progress; j--) { int k = order[j]; order[j] = order[j - 1]; order[j - 1] = k; }
 +    text(x, y, theme.dim, "RACE");
 +    y += 13;
++    int nameW = 52, t0 = x + nameW, t1 = x + cw - 4;
 +    for (int k = 0; k < n; k++) {
 +        const SmzRacePlayer *p = &r->p[order[k]];
-+        bool mine = r->you[0] && !strcmp(p->pid, r->you);
-+        if (k >= 3 && !mine) continue;
++        bool mine = r->you[0] && !strcmp(p->pid, r->you), done = p->time_ms >= 0;
++        int pc = done ? 100 : p->progress < 0 ? 0 : p->progress > 100 ? 100 : p->progress;
 +        char v[24], s[40];
-+        if (p->time_ms >= 0) fmtClock(p->time_ms, v, sizeof v); else if (p->left) snprintf(v, sizeof v, "left"); else snprintf(v, sizeof v, "%d%%", p->progress);
 +        snprintf(s, sizeof s, "%d %s", k + 1, p->name);
-+        textFit(x, y, cw - 44, mine ? theme.accent : theme.text, s);
-+        text(x + cw, y, mine ? theme.accent : theme.dim, v, HALIGN_RIGHT);
-+        y += 13;
++        textFit(x, y, nameW - 3, mine ? theme.accent : p->left ? theme.dim : theme.text, s);
++        int rx = t0 + (t1 - t0) * pc / 100, c = p->left ? theme.dim : mine ? theme.accent : 0x4F9DE0;
++        fill(t0, y + 5, t1, y + 8, 0x1D2430);
++        fill(t1, y + 1, t1 + 1, y + 12, 0xFFFFFF);   // the finish line
++        if (rx > t0) fill(t0, y + 5, rx, y + 8, c);
++        fill(rx - 3, y + 3, rx + 3, y + 10, c);       // the runner
++        if (done) fmtClock(p->time_ms, v, sizeof v); else if (p->left) snprintf(v, sizeof v, "left"); else snprintf(v, sizeof v, "%d%%", pc);
++        if (pc < 60) text(rx + 6, y, done ? theme.accent : theme.text, v); else text(rx - 6, y, done ? theme.accent : theme.text, v, HALIGN_RIGHT);
++        y += 14;
 +    }
 +    return y + 4;
 +}

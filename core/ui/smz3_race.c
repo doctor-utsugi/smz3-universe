@@ -282,6 +282,7 @@ int smz_race_item_news(SmzRaceItems *r, const int *inventory, int count, char (*
         int counted = it->kind == SMZ3_INV_HEARTS || it->kind == SMZ3_INV_WORD || it->kind == SMZ3_INV_ENERGY_TANKS ||
                       it->kind == SMZ3_INV_BOTTLES || !strcmp(it->name, "Heart Pieces");
         const char *name = counted ? NULL : level_name(it->name, now);
+        if (name) r->got++;
         if (name && n < max) snprintf(out[n++], sizeof out[0], "got the %s", name);
         r->seen[i] = now;
     }

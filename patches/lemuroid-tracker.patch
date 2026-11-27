@@ -323,10 +323,10 @@ index 0000000..147df74
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
 new file mode 100644
-index 0000000..318fccd
+index 0000000..7edbaef
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/game/Smz3SingleScreen.kt
-@@ -0,0 +1,495 @@
+@@ -0,0 +1,504 @@
 +package com.swordfish.lemuroid.app.mobile.feature.game
 +
 +import android.content.Context
@@ -641,6 +641,15 @@ index 0000000..318fccd
 +        Spacer(Modifier.height(4.dp))
 +        if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.smAlone) Counter("Zelda", s.zeldaCleared, s.zeldaTotal)
 +        if (!com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Tracker.z3Alone) Counter("Metroid", s.metroidCleared, s.metroidTotal)
++        if (com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.on && !com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceState.daily) {
++            Spacer(Modifier.height(8.dp))
++            Text("Race", color = DIM, fontSize = 12.sp)
++            androidx.compose.ui.viewinterop.AndroidView(   // the same horse race as the second screen's RUN tab; s changes every read
++                factory = { com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3RaceTrack(it) },
++                update = { it.tag = s; it.update() },
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
 +    }
 +}
 +
@@ -4027,7 +4036,7 @@ index 6d06420..b913407 100644
              }
              if (data?.hasExtra(GameMenuContract.RESULT_CHANGE_TILT_CONFIG) == true) {
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
-index 8f91e6c..b0bea77 100644
+index 8f91e6c..9912463 100644
 --- a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/BaseGameScreenViewModel.kt
 @@ -16,6 +16,10 @@ import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
@@ -4093,7 +4102,7 @@ index 8f91e6c..b0bea77 100644
 +    /** Same path as the fast-forward hotkey: the configured speed, the run clock scaled with it, none in a daily challenge. */
 +    fun setFastForward(enabled: Boolean): Boolean {
 +        if (enabled && Smz3Hotkeys.challengeRun(appContext)) {
-+            sideEffects.showToast("No fast forward in a daily challenge")
++            sideEffects.showToast(Smz3Hotkeys.noFastForward())
 +            return false
 +        }
 +        hotkeyHost.hotkeyFastForward(if (enabled) Smz3Hotkeys.speed(appContext) else 1)
@@ -6203,10 +6212,10 @@ index 0000000..76a0cb6
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
 new file mode 100644
-index 0000000..6fb065f
+index 0000000..9ccac31
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Hotkeys.kt
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,213 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.content.Context
@@ -6332,6 +6341,13 @@ index 0000000..6fb065f
 +    }
 +
 +    /** A daily challenge run (its settings have "challenge":true): no fast forward. */
++    /** Why fast forward is refused in a [challengeRun]. */
++    fun noFastForward(): String = when {
++        Smz3RaceState.on && Smz3RaceState.draft -> "No fast forward in an online draft"
++        Smz3RaceState.on -> "No fast forward in an online race"
++        else -> "No fast forward in a daily challenge"
++    }
++
 +    fun challengeRun(context: Context): Boolean {
 +        val run = RunStore.activeSlot(context)?.let { RunStore.load(context, it) } ?: return false
 +        return runCatching { org.json.JSONObject(run.settings).optBoolean("challenge", false) }.getOrDefault(false)
@@ -6356,7 +6372,7 @@ index 0000000..6fb065f
 +        when (action) {
 +            Smz3HotkeyAction.SAVE_STATE -> { h.hotkeySaveState(slot(context)); h.hotkeyToast("State saved in slot ${slot(context)}") }
 +            Smz3HotkeyAction.LOAD_STATE -> h.hotkeyLoadState(slot(context))   // its toast comes from the result
-+            Smz3HotkeyAction.FAST_FORWARD -> if (challengeRun(context)) h.hotkeyToast("No fast forward in a daily challenge") else h.hotkeyFastForward(speed(context))   // held: released in onKey
++            Smz3HotkeyAction.FAST_FORWARD -> if (challengeRun(context)) h.hotkeyToast(noFastForward()) else h.hotkeyFastForward(speed(context))   // held: released in onKey
 +            Smz3HotkeyAction.REWIND -> when {
 +                !Smz3Rewind.allowed(context) -> h.hotkeyToast("Rewind is off in this run")
 +                Smz3Rewind.open() -> Smz3Rewind.heldOnOpen(keys(context, action).filter { it in pressed })
@@ -7611,10 +7627,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..eab653c
+index 0000000..ff04871
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,282 @@
+@@ -0,0 +1,285 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7803,6 +7819,9 @@ index 0000000..eab653c
 +    /** The run's kills or rupees goal, 0 to 99 done; -1 for the other goals. */
 +    @JvmStatic external fun raceGoalProgress(): Int
 +
++    /** A Draft goal's progress for the standings, from the last tracker read (smz_goal_progress_live). */
++    @JvmStatic external fun raceProgress(): Int
++
 +    @JvmStatic external fun raceItemsReset()
 +
 +    /** The major items picked up since the last call, as rival news ("got the Hookshot"). */
@@ -7977,10 +7996,10 @@ index 0000000..0574a4b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
 new file mode 100644
-index 0000000..a498fe2
+index 0000000..19d2e5a
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Presentation.kt
-@@ -0,0 +1,1320 @@
+@@ -0,0 +1,1324 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Presentation
@@ -8324,6 +8343,8 @@ index 0000000..a498fe2
 +        dailyBlock = Smz3DailyBlock(context).apply { visibility = View.GONE; setTheme(theme) }
 +        standings = label(13f, Role.TEXT).apply { visibility = View.GONE; setLineSpacing(0f, 1.1f) }
 +        column.addView(standings, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
++        raceTrack = Smz3RaceTrack(context).apply { visibility = View.GONE }
++        column.addView(raceTrack, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 +        listOf(zeldaText, zeldaBar, metroidText, metroidBar, goals, dailyBlock, stats).forEach {
 +            column.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (it is ProgressBar) dp(8) else ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (it === zeldaText || it === goals || it === dailyBlock || it === stats) topMargin = dp(4) })
 +        }
@@ -8765,6 +8786,7 @@ index 0000000..a498fe2
 +    private val configButtons = mutableListOf<() -> Unit>()
 +
 +    private lateinit var standings: TextView
++    private lateinit var raceTrack: Smz3RaceTrack
 +    private lateinit var chatLines: TextView
 +    private lateinit var chatScroll: ScrollView
 +    private lateinit var chatInput: android.widget.EditText
@@ -8830,6 +8852,7 @@ index 0000000..a498fe2
 +            if (!race.on && selectedTab == CHAT_TAB) select(0)
 +        }
 +        standings.visibility = if (race.on && !race.daily && Smz3Tracker.onSecondScreen) View.VISIBLE else View.GONE
++        if (Smz3Tracker.onSecondScreen) raceTrack.update() else raceTrack.visibility = View.GONE
 +        if (!race.on || race.version == raceVersion) return
 +        raceVersion = race.version
 +        if (race.phrases != phrasesShown) {
@@ -8841,7 +8864,7 @@ index 0000000..a498fe2
 +                phraseBox.addView(line)
 +            }
 +        }
-+        if (!race.daily) standings.text = race.standings()
++        if (!race.daily) standings.text = "RACE"
 +        val shown = race.lines.filter { race.shown(it) }.takeLast(30)
 +        chatLines.text = if (race.chatOff) "Chat is off" else if (shown.isEmpty() && race.daily) "No one has said anything in this window yet" else shown.joinToString("\n") { race.text(it) }
 +        chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
@@ -13392,10 +13415,10 @@ index 0000000..387684b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..39f2014
+index 0000000..092d11a
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,625 @@
+@@ -0,0 +1,613 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -13434,6 +13457,8 @@ index 0000000..39f2014
 +     * until its first poll. */
 +    var started = false
 +    var daily = false
++    /** The race being played is a Draft. */
++    var draft = false
 +    /** Sends a daily chat line (set by the daily overlay); a race's lines go out with its polls. */
 +    var dailySay: ((String) -> Unit)? = null
 +    var you = ""
@@ -13476,20 +13501,6 @@ index 0000000..39f2014
 +    fun toggleMute(pid: String) { if (!muted.remove(pid)) muted += pid; version++ }
 +
 +    fun toggleChat() { chatOff = !chatOff; version++ }
-+
-+    /** The top three and this player, each with a time or the % done. */
-+    fun standings(): String {
-+        val all = (0 until players.length()).map { players.getJSONObject(it) }
-+        val rows = all.sortedWith(compareBy<JSONObject>({ if (it.optInt("place") > 0) it.optInt("place") else 99 }, { -it.optInt("progress") }))
-+        val sb = StringBuilder("RACE")
-+        rows.forEachIndexed { i, p ->
-+            val mine = p.optString("pid") == you
-+            if (i >= 3 && !mine) return@forEachIndexed
-+            val v = if (!p.isNull("timeMs") && p.has("timeMs")) Smz3RaceOverlay.clock(p.optLong("timeMs")) else if (p.optBoolean("left")) "left" else "${p.optInt("progress")}%"
-+            sb.append("\n").append(i + 1).append("  ").append(p.optString("name")).append(if (mine) " (you)" else "").append("   ").append(v)
-+        }
-+        return sb.toString()
-+    }
 +}
 +
 +/**
@@ -13710,7 +13721,7 @@ index 0000000..39f2014
 +    private fun read(text: String) {
 +        val o = runCatching { JSONObject(text) }.getOrNull() ?: return
 +        val room = o.optJSONObject("room") ?: return
-+        state = room.optString("state"); format = room.optString("format"); endWhy = room.optString("endWhy"); code = room.optString("code", code)
++        state = room.optString("state"); format = room.optString("format"); Smz3RaceState.draft = format == "draft"; endWhy = room.optString("endWhy"); code = room.optString("code", code)
 +        startAt = room.optLong("startAt", 0L)
 +        goAt = room.optLong("goAt", startAt); endAt = room.optLong("endAt", 0L)
 +        resumeAt = room.optLong("resumeAt", 0L); pauses = room.optInt("pauses")
@@ -13865,7 +13876,7 @@ index 0000000..39f2014
 +                if (!draft()) RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))
 +            }
 +            Smz3Native.raceItemNews(snap.inventory).forEach { RaceClient.event(it) }
-+            if (draft()) RaceClient.setProgress(maxOf(0, Smz3Native.raceGoalProgress()))
++            if (draft()) RaceClient.setProgress(Smz3Native.raceProgress())
 +        }
 +        if (Smz3Tracker.currentGame == 3 && !finishSent && state == "running") {   // the server's time, or finishAt if it was down then
 +            finishSent = true
@@ -15020,4 +15031,108 @@ index 0000000..8620a1f
 +
 +    @dagger.Module
 +    abstract class Module
++}
+diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceTrack.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceTrack.kt
+new file mode 100644
+index 0000000..5d5d9a6
+--- /dev/null
++++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceTrack.kt
+@@ -0,0 +1,98 @@
++package com.swordfish.lemuroid.app.shared.game.viewmodel
++
++import android.content.Context
++import android.graphics.Canvas
++import android.graphics.Color
++import android.graphics.Paint
++import android.graphics.RectF
++import android.view.View
++import org.json.JSONObject
++
++/**
++ * The race as a horse race: one lane per player, a runner at their progress (the Draft goal's %, or bosses and crystals in
++ * a Championship), the finish line at the right, the time once they are in, and the player's own lane in gold.
++ */
++class Smz3RaceTrack(context: Context) : View(context) {
++    private class Lane(val name: String, val mine: Boolean, val progress: Int, val place: Int, val time: String?, val left: Boolean)
++
++    private var lanes = emptyList<Lane>()
++    private var shown = -1
++    private val density = resources.displayMetrics.density
++    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11f * density }
++    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val rect = RectF()
++
++    /** Reads [Smz3RaceState] again when it changed; true when there is a race to show. */
++    fun update(): Boolean {
++        val race = Smz3RaceState
++        val on = race.on && !race.daily && race.players.length() > 0
++        visibility = if (on) VISIBLE else GONE
++        if (!on || race.version == shown) return on
++        shown = race.version
++        lanes = (0 until race.players.length()).map { race.players.getJSONObject(it) }
++            .sortedWith(compareBy<JSONObject>({ if (it.optInt("place") > 0) it.optInt("place") else 99 }, { -it.optInt("progress") }))
++            .map {
++                val done = it.has("timeMs") && !it.isNull("timeMs")
++                Lane(it.optString("name"), it.optString("pid") == race.you, if (done) 100 else it.optInt("progress").coerceIn(0, 100),
++                    it.optInt("place"), if (done) Smz3RaceOverlay.clock(it.optLong("timeMs")).removePrefix("0:") else null, it.optBoolean("left"))
++            }
++        requestLayout()
++        invalidate()
++        return true
++    }
++
++    private fun laneHeight() = 20f * density
++
++    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
++        val w = MeasureSpec.getSize(widthMeasureSpec)
++        setMeasuredDimension(w, (laneHeight() * maxOf(1, lanes.size) + 4 * density).toInt())
++    }
++
++    override fun onDraw(canvas: Canvas) {
++        val h = laneHeight()
++        val pad = 2 * density
++        val nameW = width * 0.34f
++        val track0 = nameW + 4 * density
++        val track1 = width - pad - 10 * density
++        lanes.forEachIndexed { i, l ->
++            val y = pad + i * h
++            val mid = y + h / 2
++            text.color = if (l.mine) GOLD else if (l.left) DIM else TEXT
++            text.textAlign = Paint.Align.LEFT
++            val label = (if (l.place > 0) "${l.place} " else "") + l.name
++            canvas.drawText(ellipsize(label, nameW - 2 * density), pad, mid + text.textSize / 3, text)
++            fill.color = LANE
++            rect.set(track0, mid - 3 * density, track1, mid + 3 * density)
++            canvas.drawRoundRect(rect, 3 * density, 3 * density, fill)
++            fill.color = FLAG
++            canvas.drawRect(track1, y + 2 * density, track1 + 2 * density, y + h - 2 * density, fill)
++            val x = track0 + (track1 - track0) * l.progress / 100f
++            fill.color = if (l.left) DIM else if (l.mine) GOLD else RIVAL
++            rect.set(track0, mid - 3 * density, x, mid + 3 * density)
++            canvas.drawRoundRect(rect, 3 * density, 3 * density, fill)
++            canvas.drawCircle(x, mid, 6 * density, fill)
++            val tag = l.time ?: if (l.left) "left" else "${l.progress}%"
++            text.color = if (l.time != null) GOLD else TEXT
++            text.textAlign = Paint.Align.RIGHT
++            val tw = text.measureText(tag)
++            val tx = if (x + 10 * density + tw < track1) x + 10 * density + tw else x - 10 * density
++            canvas.drawText(tag, tx, mid + text.textSize / 3, text)
++        }
++    }
++
++    private fun ellipsize(s: String, w: Float): String {
++        if (text.measureText(s) <= w) return s
++        var n = s.length
++        while (n > 1 && text.measureText(s.take(n) + "…") > w) n--
++        return s.take(n) + "…"
++    }
++
++    private companion object {
++        val GOLD = Color.rgb(0xF2, 0xA3, 0x3A)
++        val TEXT = Color.rgb(0xE8, 0xEC, 0xF2)
++        val DIM = Color.rgb(0x87, 0x93, 0xA6)
++        val RIVAL = Color.rgb(0x4F, 0x9D, 0xE0)
++        val LANE = Color.rgb(0x1D, 0x24, 0x30)
++        val FLAG = Color.WHITE
++    }
 +}

@@ -75,7 +75,7 @@ void smz_race_quote(const char *s, char *out, size_t cap);
 /* Rival news for items: the major items picked up since the race began (not counts like hearts, tanks or ammo). The host
  * keeps one per race, zeroed when the race starts; the first call takes the inventory as it is (the starting items). */
 #define RACE_ITEMS_MAX 64
-typedef struct { int ready; int seen[RACE_ITEMS_MAX]; } SmzRaceItems;
+typedef struct { int ready, got; int seen[RACE_ITEMS_MAX]; } SmzRaceItems;   /* got: the news sent, the items found since the start */
 /* inventory: SmzTracker.inventory (levels per smz3_inventory_items entry, -1 unknown). Writes up to max texts such as
  * "got the Hookshot" or "got the Titan's Mitt" into out and returns how many; a level lost to a loaded state is not news again. */
 int smz_race_item_news(SmzRaceItems *r, const int *inventory, int count, char (*out)[40], int max);
