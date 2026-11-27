@@ -64,6 +64,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - 3DS: while the server makes a Map Rando seed the screen says "Downloading the Map Rando seed", not a count of seconds.
 - Linux handhelds: the Ports launcher unpacks the app on the card instead of /tmp, which is RAM there, and clears a copy
   left by a run the system closed.
+- PC: one Config for one and two screens. The tracker's CONFIG tab (two screens, by touch) and the Settings screen (one
+  screen, by pad or keyboard) now show the same list: save slot, fast-forward speed, screen and daily challenge settings,
+  each where it means something (the window size only in one window, the shortcut rows only on the touch screen).
+  Fast-forward on one screen now follows its speed setting, not a fixed x4. Fixes the CONFIG tab's Screen shape and
+  Screen mode rows, which changed the minimap and the corner info instead.
 - PC: the button that opens the tracker shows for 5 seconds at the start, then fades out.
 - PC: the D-pad moves the map in the tracker's MAP tab, as the stick and the arrow keys did. On a pad with no R3
   (the RG 40XXV) only the D-pad does: its stick is pressed to open the tracker.

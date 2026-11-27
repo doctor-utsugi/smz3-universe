@@ -28,8 +28,6 @@ static const char *const TAB_NAMES[TAB_COUNT] = {"RUN", "ITEMS", "CHECKS", "MAP"
 enum { HIT_TAB, HIT_ZOOM, HIT_SLOT, HIT_SHORTCUT, HIT_PICK, HIT_PICK_CLEAR, HIT_PICK_CLOSE, HIT_REGION, HIT_HINT, HIT_REVEAL, HIT_REVEAL_REGION, HIT_CENTER, HIT_FOLLOW, HIT_DUNGEONS, HIT_AREA,
        HIT_CHIP, HIT_MINI_CHIP, HIT_CONFIG, HIT_HOTKEY, HIT_RESET, HIT_LEAVE, HIT_FIN_MENU, HIT_FIN_CREDITS, HIT_FIN_BACK,
        HIT_PHRASE, HIT_CHAT_OFF, HIT_MUTE };
-enum { CF_SLOT, CF_SPEED, CF_SHAPE, CF_SCREENS, CF_FIXED, CF_ROW, CF_WEAPONS, CF_DAILY };
-enum { VIDEO_ASPECT = 2, VIDEO_DAILY = 6, VIDEO_SCREENS = 10 };   /* settings_video_row's rows */
 enum { DRAG_NONE, DRAG_SCROLL, DRAG_PAN };
 
 typedef struct { float x, y, w, h; int id, arg; } Hit;
@@ -768,54 +766,29 @@ static void page_config(float top)
         button(x + w - b, y, b, 36 * u, hk_name(a, 1), 1, HIT_HOTKEY, a * 2 + 1);
         y += 40 * u;
     }
-    y = cfg_head(x, y, "SAVE STATES AND SPEED");
-    if (F.qslot) { snprintf(s, sizeof s, "Slot %d", *F.qslot + 1); y = cfg_row(x, y, w, "Active save slot", s, b, CF_SLOT); }
-    snprintf(s, sizeof s, "x%d", settings_ff_speed());
-    y = cfg_row(x, y, w, "Fast-forward speed", s, b, CF_SPEED);
-    y = cfg_row(x, y, w, "Screen shape", settings_aspect_name(), wide, CF_SHAPE);
+    y = wrapped(x, y + 2 * u, w, 12 * u, DIM, "The hotkeys work in game on the main screen. A state is saved in the active slot.");
+    const char *section = NULL;   /* the same list as the Config screen on one screen (pc_settings) */
+    for (int r = 0; r < CFG_COUNT; r++) {
+        if (!settings_cfg_shown(r)) continue;
+        if (section != settings_cfg_section(r)) y = cfg_head(x, y, section = settings_cfg_section(r));
+        const char *title = settings_cfg_row(r, s, sizeof s);
+        y = cfg_row(x, y, w, title, s, r == CFG_ASPECT || r == CFG_SCREENS ? wide : b, r);
+        if (settings_cfg_note(r)) y = wrapped(x, y + 2 * u, w, 12 * u, DIM, settings_cfg_note(r));
+    }
     button(x, y + 8 * u, wide, 36 * u, "Reset to defaults", 1, HIT_RESET, 0);
-    y = wrapped(x, y + 52 * u, w, 12 * u, DIM, "The hotkeys work in game on the main screen. The state is saved in the active slot.");
-    y = cfg_head(x, y, "SCREENS");
-    settings_video_row(VIDEO_SCREENS, s, sizeof s);
-    y = cfg_row(x, y, w, "Screen mode", s, wide, CF_SCREENS);
-    y = wrapped(x, y + 2 * u, w, 12 * u, DIM, "Dual puts the tracker on a second screen, single puts it over the game. It changes the next time SMZ3 opens.");
-    if (!smz3_sm_alone()) {   /* A Link to the Past's dungeons only */
-        y = cfg_head(x, y, "DUNGEON MAPS");
-        y = cfg_row(x, y, w, "Fixed keys", hints_fixed_keys() ? "Shown" : "Hidden", b, CF_FIXED);
-    }
-    y = cfg_head(x, y, "ITEM SHORTCUTS  (the row over the RUN tab's map)");
-    y = cfg_row(x, y, w, "Shortcut row", sc_row_shown() ? "Shown" : "Hidden", b, CF_ROW);
-    y = cfg_row(x, y, w, "Weapon row", sc_weapon_row_shown() ? "Shown" : "Hidden", b, CF_WEAPONS);
-    y = wrapped(x, y + 2 * u, w, 12 * u, DIM, "Tap a slot to equip its item on Y, a beam to turn it on or off, or a weapon to pick it (again: back to the beam). Hold a slot to change it.");
-    y = cfg_head(x, y, "DAILY CHALLENGE  (over the game)");
-    for (int i = 0; i < 4; i++) {
-        const char *title = settings_video_row(VIDEO_DAILY + i, s, sizeof s);
-        y = cfg_row(x, y, w, title, s, b, CF_DAILY + i);
-    }
+    y += 52 * u;
     int armed = leave_at && SDL_GetTicks() - leave_at < LEAVE_MS;   /* a second tap confirms; the run is saved as on leaving */
     button(x, y + 16 * u, w, 36 * u, armed ? "Tap again to go back" : "Back to main menu", 1, HIT_LEAVE, 0);
     y += 52 * u;
     page_end(TAB_CONFIG, top, y + 12 * u);
 }
 
-static void config_tap(int arg)
-{
-    if (arg == CF_SLOT) { if (F.qslot && F.qslots) *F.qslot = (*F.qslot + 1) % F.qslots; }
-    else if (arg == CF_SPEED) settings_ff_next();
-    else if (arg == CF_SHAPE) settings_video_change(VIDEO_ASPECT, 1);
-    else if (arg == CF_SCREENS) settings_video_change(VIDEO_SCREENS, 1);
-    else if (arg == CF_FIXED) hints_set_fixed_keys(!hints_fixed_keys());
-    else if (arg == CF_ROW) sc_toggle_row();
-    else if (arg == CF_WEAPONS) sc_toggle_weapon_row();
-    else settings_video_change(VIDEO_DAILY + arg - CF_DAILY, 1);
-}
+static void config_tap(int arg) { settings_cfg_change(arg, 1); }
 
 static void config_reset(void)
 {
     hk_reset();
-    if (F.qslot) *F.qslot = 0;
-    while (settings_ff_speed() != 4) settings_ff_next();
-    for (int i = 0; i < 8 && strcmp(settings_aspect_name(), "Run default"); i++) settings_video_change(VIDEO_ASPECT, 1);
+    settings_cfg_reset();
 }
 
 /* ---------- the portal ---------- */

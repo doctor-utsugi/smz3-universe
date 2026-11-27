@@ -59,6 +59,22 @@ float settings_minimap_scale(void);
 int settings_corner(void);
 /* What a daily challenge shows over the game: 0 the window clock, 1 the own time, 2 the goal and new hints, 3 the time to the next hint. */
 int settings_challenge_show(int what);
+/* Every setting in one list, shown as rows on one screen (the Settings screen here) and as touch buttons on the tracker's
+ * CONFIG tab with two screens (pc_dual): each row has its section, and settings_cfg_shown says whether it means something on
+ * this screen setup and in this moment (the save slot only in a run). */
+enum { CFG_SLOT, CFG_SPEED, CFG_FULLSCREEN, CFG_SIZE, CFG_ASPECT, CFG_FILTER, CFG_MINIMAP, CFG_MINIMAP_SIZE, CFG_CORNER, CFG_SCREENS,
+       CFG_ROW, CFG_WEAPONS, CFG_FIXED, CFG_DAILY, CFG_COUNT = CFG_DAILY + 4 };
+/* The run being played: its active save slot and how many there are (NULL out of a run). */
+void settings_run(int *qslot, int qslots);
+int settings_cfg_shown(int row);
+const char *settings_cfg_section(int row);
+/* The row's title, and its value in val. */
+const char *settings_cfg_row(int row, char *val, size_t cap);
+/* A line under the row on the CONFIG tab, or NULL. */
+const char *settings_cfg_note(int row);
+void settings_cfg_change(int row, int dir);
+/* The save slot, the fast-forward speed and the aspect back to their defaults. */
+void settings_cfg_reset(void);
 /* A menu button (from the keyboard or the controller). */
 void settings_nav(UiButton b);
 /* Raw events while a button is being assigned; returns 1 when the event was used. */

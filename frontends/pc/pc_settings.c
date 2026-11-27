@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "pc_compat.h"
+#include "pc_hints.h"
 #include "pc_gfx.h"
 #include "pc_help.h"
 #include "pc_pad.h"
@@ -11,9 +12,10 @@
 #include "pc_shortcuts.h"
 #include "pc_store.h"
 #include "smz3_shortcuts.h"
+#include "smz3_state.h"
 
-enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_VIDEO, S_SC, S_SCBIND };
-#define MAIN_COUNT 4
+enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_SC, S_SCBIND };
+enum { M_PAD = -1, M_SC = -2, M_QUIT = -3 };   /* the main page's rows after the settings */
 static const char *quit_label = "Quit";   /* "Back to main menu" while a run is played */
 
 void settings_quit_label(const char *label) { quit_label = label; }
@@ -24,7 +26,6 @@ void settings_quit_label(const char *label) { quit_label = label; }
 #endif
 static int vskip;   /* two windows: no Full screen and Window size rows (both fill their displays) */
 #define VROWS (VIDEO_ROWS - vskip)
-#define VIDEO_COUNT (VROWS + 1)
 static const char *const ASPECTS[] = {"Run default", "4:3", "8:7 (square pixels)", "Stretch", "Pixel perfect"};
 static const char *const FILTERS[] = {"Sharp", "Smooth", "Scanlines", "LCD grid"};
 static const char *const SIZES[] = {"720p", "1080p", "1440p", "Desktop"};
@@ -53,7 +54,31 @@ static char cwd[1024];
 void settings_init(const SettingsHooks *hooks) { hk = *hooks; }
 int settings_active(void) { return screen != S_OFF; }
 void settings_open(void) { screen = S_MAIN; cursor = 0; scroll = 0; direct = 0; }
-void settings_open_page(int video) { screen = video ? S_VIDEO : S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; direct = 1; }
+void settings_open_page(int video) { screen = video ? S_MAIN : S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; direct = 1; }
+
+/* The main page: the settings shown here (settings_cfg_shown), then Buttons and keys, Item shortcuts and Quit. */
+static int main_rows(int *ids)
+{
+    int n = 0;
+    for (int r = 0; r < CFG_COUNT; r++) if (settings_cfg_shown(r)) ids[n++] = r;
+    ids[n++] = M_PAD;
+    ids[n++] = M_SC;
+    if (!direct) ids[n++] = M_QUIT;
+    return n;
+}
+
+static int main_row(int i)
+{
+    int ids[CFG_COUNT + 3], n = main_rows(ids);
+    return i >= 0 && i < n ? ids[i] : M_QUIT;
+}
+
+static int main_index(int id)
+{
+    int ids[CFG_COUNT + 3], n = main_rows(ids);
+    for (int i = 0; i < n; i++) if (ids[i] == id) return i;
+    return 0;
+}
 
 int settings_aspect(void) { return vid_aspect; }
 int settings_filter(void) { return vid_filter; }
@@ -158,6 +183,99 @@ int settings_screens_saved(void)
 }
 float settings_minimap_scale(void) { return mm_size == 0 ? 0.6f : mm_size == 1 ? 0.8f : 1.0f; }
 int settings_challenge_show(int what) { return !(ch_hide >> what & 1); }
+
+/* ---- the one list of settings, for both screens ---- */
+
+static int *cfg_qslot, cfg_qslots;   /* the run's active save slot, while a run is played */
+void settings_run(int *qslot, int qslots) { cfg_qslot = qslot; cfg_qslots = qslots; }
+
+int settings_cfg_shown(int row)
+{
+    int dual = vskip != 0;
+    switch (row) {
+    case CFG_SLOT: return cfg_qslot != NULL && cfg_qslots > 0;
+    case CFG_FULLSCREEN: case CFG_SIZE: case CFG_MINIMAP: case CFG_MINIMAP_SIZE: case CFG_CORNER: return !dual;
+    case CFG_ROW: case CFG_WEAPONS: return dual && !smz3_sm_alone();   /* the touch rows over the RUN tab's map */
+    case CFG_FIXED: return dual && cfg_qslot != NULL && !smz3_sm_alone();   /* A Link to the Past's dungeons */
+#ifndef __linux__
+    case CFG_SCREENS: return 0;   /* two windows only exist on Linux */
+#endif
+    default: return row >= 0 && row < CFG_COUNT;
+    }
+}
+
+const char *settings_cfg_section(int row)
+{
+    return row <= CFG_SPEED ? "GAME" : row <= CFG_SCREENS ? "SCREEN" : row <= CFG_FIXED ? "TRACKER" : "DAILY CHALLENGE";
+}
+
+const char *settings_cfg_row(int row, char *val, size_t cap)
+{
+    static const char *const L[CFG_COUNT] = {"Active save slot", "Fast-forward speed", "Full screen", "Window size", "Aspect ratio",
+                                             "Filter", "Minimap", "Minimap size", "Corner info", "Screens", "Shortcut row", "Weapon row",
+                                             "Fixed keys", "Challenge: window clock", "Challenge: own time", "Challenge: goal and hints",
+                                             "Challenge: next hint in"};
+    if (row < 0 || row >= CFG_COUNT) row = CFG_SPEED;
+    switch (row) {
+    case CFG_SLOT: snprintf(val, cap, "Slot %d", cfg_qslot ? *cfg_qslot + 1 : 1); break;
+    case CFG_SPEED: snprintf(val, cap, "x%d", ff_speed); break;
+    case CFG_FULLSCREEN: snprintf(val, cap, "%s", hk.is_fullscreen && hk.is_fullscreen() ? "On" : "Off"); break;
+    case CFG_SIZE: snprintf(val, cap, "%s", SIZES[vid_size]); break;
+    case CFG_ASPECT: snprintf(val, cap, "%s", ASPECTS[vid_aspect]); break;
+    case CFG_FILTER: snprintf(val, cap, "%s", FILTERS[vid_filter]); break;
+    case CFG_MINIMAP: snprintf(val, cap, "%s", MM_SIDES[mm_side]); break;
+    case CFG_MINIMAP_SIZE: snprintf(val, cap, "%s", MM_SIZES[mm_size]); break;
+    case CFG_CORNER: snprintf(val, cap, "%s", CORNERS[corner]); break;
+    case CFG_SCREENS: snprintf(val, cap, "%s", SCREENS[screens]); break;
+    case CFG_ROW: snprintf(val, cap, "%s", sc_row_shown() ? "Shown" : "Hidden"); break;
+    case CFG_WEAPONS: snprintf(val, cap, "%s", sc_weapon_row_shown() ? "Shown" : "Hidden"); break;
+    case CFG_FIXED: snprintf(val, cap, "%s", hints_fixed_keys() ? "Shown" : "Hidden"); break;
+    default: snprintf(val, cap, "%s", ch_hide >> (row - CFG_DAILY) & 1 ? "Hidden" : "Shown"); break;
+    }
+    return L[row];
+}
+
+const char *settings_cfg_note(int row)
+{
+    if (row == CFG_SCREENS) return "Dual puts the tracker on a second screen, single puts it over the game. It changes the next time SMZ3 opens.";
+    if (row == CFG_WEAPONS) return "Tap a slot to equip its item on Y, a beam to turn it on or off, or a weapon to pick it (again: back to the beam). Hold a slot to change it.";
+    return NULL;
+}
+
+void settings_cfg_change(int row, int dir)
+{
+    switch (row) {
+    case CFG_SLOT: if (cfg_qslot && cfg_qslots) *cfg_qslot = (*cfg_qslot + cfg_qslots + dir) % cfg_qslots; return;
+    case CFG_SPEED: {
+        static const int SP[] = {2, 3, 4, 6, 8};
+        int i = 0;
+        while (i < 4 && SP[i] != ff_speed) i++;
+        ff_speed = SP[(i + 5 + dir) % 5];
+        break;
+    }
+    case CFG_ROW: sc_toggle_row(); return;
+    case CFG_WEAPONS: sc_toggle_weapon_row(); return;
+    case CFG_FIXED: hints_set_fixed_keys(!hints_fixed_keys()); return;
+    case CFG_FULLSCREEN: video_change(0, dir); return;
+    case CFG_SIZE: video_change(1, dir); return;
+    case CFG_ASPECT: video_change(2, dir); return;
+    case CFG_FILTER: video_change(3, dir); return;
+    case CFG_MINIMAP: video_change(4, dir); return;
+    case CFG_MINIMAP_SIZE: video_change(5, dir); return;
+    case CFG_CORNER: video_change(10, dir); return;
+    case CFG_SCREENS: video_change(11, dir); return;
+    default: if (row >= CFG_DAILY && row < CFG_COUNT) video_change(6 + row - CFG_DAILY, dir); return;
+    }
+    video_save();
+}
+
+void settings_cfg_reset(void)
+{
+    if (cfg_qslot) *cfg_qslot = 0;
+    ff_speed = 4;
+    vid_aspect = 0;
+    video_save();
+}
 
 /* ---- file browser ---- */
 static int is_rom_name(const char *n)
@@ -264,7 +382,11 @@ static void clamp_scroll(int rows)
     if (scroll < 0) scroll = 0;
 }
 
-static int rows_of(void) { return screen == S_MAIN ? MAIN_COUNT : screen == S_VIDEO ? VIDEO_COUNT : screen == S_PAD ? PAD_ROWS : screen == S_SC ? SC_COUNT + 1 : screen == S_FILES ? file_rows() : 0; }
+static int rows_of(void)
+{
+    int ids[CFG_COUNT + 3];
+    return screen == S_MAIN ? main_rows(ids) : screen == S_PAD ? PAD_ROWS : screen == S_SC ? SC_COUNT + 1 : screen == S_FILES ? file_rows() : 0;
+}
 
 /* Back: to the page it came from, or closed when it was opened straight at this page */
 static void go_back(void)
@@ -274,8 +396,8 @@ static void go_back(void)
     if (screen == S_MAIN) screen = S_OFF;
     else if (screen == S_FILES) leave_files();
     else if (screen == S_SC && sc_from_pad) { screen = S_PAD; cursor = PA_COUNT; }
-    else if (direct) screen = S_OFF;
-    else { cursor = from == S_SC ? 2 : from == S_VIDEO ? 1 : 0; screen = S_MAIN; }
+    else if (direct && from == S_PAD) screen = S_OFF;
+    else { screen = S_MAIN; cursor = main_index(from == S_SC ? M_SC : M_PAD); }
 }
 
 void settings_nav(UiButton b)
@@ -284,20 +406,18 @@ void settings_nav(UiButton b)
     if (screen == S_REBIND || screen == S_SCBIND) return;
     if (b == BTN_DOWN && cursor < rows - 1) cursor++;
     else if (b == BTN_UP && cursor > 0) cursor--;
-    else if ((b == BTN_LEFT || b == BTN_RIGHT) && screen == S_VIDEO && cursor < VROWS) video_change(cursor + vskip, b == BTN_RIGHT ? 1 : -1);
+    else if ((b == BTN_LEFT || b == BTN_RIGHT) && screen == S_MAIN && main_row(cursor) >= 0) settings_cfg_change(main_row(cursor), b == BTN_RIGHT ? 1 : -1);
     else if ((b == BTN_R || b == BTN_L) && screen == S_SC) cursor = b == BTN_R ? (cursor + SHOWN < rows ? cursor + SHOWN : rows - 1) : (cursor > SHOWN ? cursor - SHOWN : 0);
     else if (b == BTN_R && screen == S_FILES) cursor = cursor + SHOWN < rows ? cursor + SHOWN : rows - 1;
     else if (b == BTN_L && screen == S_FILES) cursor = cursor > SHOWN ? cursor - SHOWN : 0;
     else if (b == BTN_B) go_back();
     else if (b == BTN_A) {
         if (screen == S_MAIN) {
-            if (cursor == 0) { screen = S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; }
-            else if (cursor == 1) { screen = S_VIDEO; cursor = 0; scroll = 0; }
-            else if (cursor == 2) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 0; }
+            int id = main_row(cursor);
+            if (id >= 0) settings_cfg_change(id, 1);
+            else if (id == M_PAD) { screen = S_PAD; cursor = 0; scroll = 0; sc_msg[0] = 0; }
+            else if (id == M_SC) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 0; }
             else hk.quit();
-        } else if (screen == S_VIDEO) {
-            if (cursor == VROWS) go_back();
-            else video_change(cursor + vskip, 1);
         } else if (screen == S_PAD) {
             if (cursor < PA_COUNT) { rebind_action = cursor; rebind_until = SDL_GetTicks() + 6000; screen = S_REBIND; }
             else if (cursor == PA_COUNT) { screen = S_SC; cursor = 0; scroll = 0; sc_msg[0] = 0; sc_from_pad = 1; }
@@ -405,25 +525,23 @@ void settings_draw(float k, float ox, float oy)
     if (screen == S_OFF) return;
     gfx_backdrop_ui(k, ox, oy);
     rect(k, ox, oy, 0, 0, 320, 28, 1);
-    const char *title = screen == S_MAIN ? "Settings" : screen == S_FILES ? "Find the ROM files" : screen == S_VIDEO ? "Video" : screen == S_SC || screen == S_SCBIND ? "Item shortcuts" : "Buttons and keys";
+    const char *title = screen == S_MAIN ? "Config" : screen == S_FILES ? "Find the ROM files" : screen == S_SC || screen == S_SCBIND ? "Item shortcuts" : "Buttons and keys";
     gfx_logo(ox + 8 * k, oy + 2 * k, 24 * k, 1);
     text(k, ox, oy, 38, 6, 5, 0, title);
     const char *hint = "A Choose  B Back";
     (void)hint;
     if (screen == S_MAIN) {
-        const char *const L[] = {"Buttons and keys", "Video", "Item shortcuts", quit_label};
-        for (int i = 0; i < MAIN_COUNT; i++) row(k, ox, oy, i, L[i], NULL, i == cursor);
-        hint = "A Choose  B Back";
-    } else if (screen == S_VIDEO) {
-        for (int i = 0; i < SHOWN && scroll + i < VIDEO_COUNT; i++) {
-            int r = scroll + i;
+        int ids[CFG_COUNT + 3], n = main_rows(ids);
+        for (int i = 0; i < SHOWN && scroll + i < n; i++) {
+            int r = scroll + i, id = ids[r];
+            if (id < 0) { row(k, ox, oy, i, id == M_PAD ? "Buttons and keys" : id == M_SC ? "Item shortcuts" : quit_label, NULL, r == cursor); continue; }
             char val[48], v[64];
-            if (r == VROWS) { row(k, ox, oy, i, "Back", NULL, cursor == r); continue; }
-            const char *lab = settings_video_row(r, val, sizeof val);
+            const char *lab = settings_cfg_row(id, val, sizeof val);
             snprintf(v, sizeof v, "< %s >", val);
             row(k, ox, oy, i, lab, v, r == cursor);
         }
-        hint = "Left Right Change  B Back";
+        if (main_row(cursor) >= 0) text(k, ox, oy, 12, 32 + SHOWN * ROW_H - 1, 4, 0, settings_cfg_section(main_row(cursor)));
+        hint = main_row(cursor) >= 0 ? "Left Right Change  B Back" : "A Choose  B Back";
     } else if (screen == S_SC || screen == S_SCBIND) {
         for (int i = 0; i < SHOWN && scroll + i < SC_COUNT + 1; i++) {
             int r = scroll + i;

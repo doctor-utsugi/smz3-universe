@@ -2193,6 +2193,7 @@ static void play(int slot, int game_save_only)
     Uint32 mouse_at = SDL_GetTicks();   /* the pointer hides while the game moves and the mouse has been still a moment */
     int pointer_off = 0;
     settings_quit_label("Back to main menu");
+    settings_run(states ? &qslot : NULL, QSLOTS);
     while (running) {
         {
             size_t lwl;
@@ -2509,7 +2510,7 @@ static void play(int slot, int game_save_only)
             if (want && !ff_was && challenge && !show && !opts && !leaving && !rw_open && !done_popup && !fail_popup && !rg.card) note(rg.on ? rg.draft ? "No fast forward in an online draft" : "No fast forward in an online race" : "No fast forward in a daily challenge");
             ff_was = want;
         }
-        int ff = win2 ? settings_ff_speed() : 4, frames = fast ? ff : 1;
+        int ff = settings_ff_speed(), frames = fast ? ff : 1;
         int hold = (show && pause_on_overlay) || opts || leaving || exit_at || done_popup || fail_popup || vpanel || rw_open || frozen || waiting || rg.card;
         int hide = !hold && !show && SDL_GetTicks() - mouse_at > 1500;
         if (hide != pointer_off) { SDL_ShowCursor(hide ? SDL_DISABLE : SDL_ENABLE); pointer_off = hide; }
@@ -2872,6 +2873,7 @@ static void play(int slot, int game_save_only)
 
     SDL_ShowCursor(SDL_ENABLE);
     settings_quit_label("Quit");
+    settings_run(NULL, 0);
     if (win2) dual_close();
     if (rg.on) {   /* out before the finish: the rivals see it at once */
         if (race_leaving_abandons()) { race_send("leave", "", 1); race_forget_paused(); }   /* back from a pause and gone again: abandoned */
