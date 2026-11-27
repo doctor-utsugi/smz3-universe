@@ -7611,10 +7611,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..7aa0234
+index 0000000..eab653c
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,277 @@
+@@ -0,0 +1,282 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7802,6 +7802,11 @@ index 0000000..7aa0234
 +    @JvmStatic external fun raceGoalText(settings: String): String
 +    /** The run's kills or rupees goal, 0 to 99 done; -1 for the other goals. */
 +    @JvmStatic external fun raceGoalProgress(): Int
++
++    @JvmStatic external fun raceItemsReset()
++
++    /** The major items picked up since the last call, as rival news ("got the Hookshot"). */
++    @JvmStatic external fun raceItemNews(inventory: IntArray): Array<String>
 +    /** A goal that defeats one boss ("Defeat Arrghus"): {name, goal icon ("" when none), place}; null for the other goals. */
 +    @JvmStatic external fun goalBoss(text: String): Array<String>?
 +    /** The daily chat's quick lines, emotes among them. */
@@ -13387,10 +13392,10 @@ index 0000000..387684b
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
 new file mode 100644
-index 0000000..f7af6c6
+index 0000000..39f2014
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3RaceOverlay.kt
-@@ -0,0 +1,623 @@
+@@ -0,0 +1,625 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.app.Activity
@@ -13531,6 +13536,7 @@ index 0000000..f7af6c6
 +    private var players = JSONArray()
 +    private var need = 11
 +    private var bosses = 0
++    init { Smz3Native.raceItemsReset() }   // one race per game: the items picked up before it are not news
 +    private var crystals = 0
 +    private var goal = ""          // a Draft's goal for people, shown at the 3, 2, 1 and then at the top left
 +    private var finishSent = false
@@ -13858,6 +13864,7 @@ index 0000000..f7af6c6
 +                bosses = bosses or nb; crystals = crystals or nc
 +                if (!draft()) RaceClient.setProgress(minOf(99, if (need > 0) 100 * (Integer.bitCount(bosses) + Integer.bitCount(crystals)) / need else 0))
 +            }
++            Smz3Native.raceItemNews(snap.inventory).forEach { RaceClient.event(it) }
 +            if (draft()) RaceClient.setProgress(maxOf(0, Smz3Native.raceGoalProgress()))
 +        }
 +        if (Smz3Tracker.currentGame == 3 && !finishSent && state == "running") {   // the server's time, or finishAt if it was down then

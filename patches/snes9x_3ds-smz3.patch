@@ -2815,10 +2815,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..83bc88c
+index 0000000..43251cb
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6308 @@
+@@ -0,0 +1,6315 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -2909,6 +2909,7 @@ index 0000000..83bc88c
 +    bool chatOff, kb, kbUpper;
 +    bool draft;   // a Draft: its goal, shown at the 3, 2, 1, is the finish
 +    int bosses, crystals, need, lastCount, newsSeq, pickI, nMuted;
++    SmzRaceItems items;   // the major items already told to the rivals
 +    int64_t shown, voteDone, voteNo;   // the vote last answered, the one last answered no
 +    char news[96], say[112], typed[84], muted[RACE_MAX][12];
 +    u64 newsUntil, sayAt;
@@ -7071,6 +7072,7 @@ index 0000000..83bc88c
 +    rg.nMuted = 0;
 +    rg.voteDone = rg.voteNo = 0;
 +    rg.bosses = rg.crystals = 0;
++    memset(&rg.items, 0, sizeof rg.items);
 +    rg.lastCount = -2;
 +    rg.news[0] = rg.say[0] = 0;
 +    rg.newsUntil = rg.sayAt = 0;
@@ -7173,6 +7175,11 @@ index 0000000..83bc88c
 +        rg.bosses |= nb; rg.crystals |= nc;
 +        int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
 +        if (!rg.draft) smzRaceSetProgress(pc > 99 ? 99 : pc);   // 100 is the finish, from the server
++    }
++    {
++        char news[8][40];
++        int nn = smz_race_item_news(&rg.items, trk.inventory, SMZ_TRK_MAX_INV, news, 8);
++        for (int i = 0; i < nn && !quiet; i++) smzRaceEvent(news[i]);
 +    }
 +    if (rg.draft) smzRaceSetProgress(smz_goal_progress(&trk.goal, &goalc, 0));
 +    if (trk.game == 3 && !rg.finishSent && rg.room.state == RACE_RUNNING) {   // the server's time, from the start to this request or to finishAt if it was down

@@ -1097,6 +1097,28 @@ JNIEXPORT jstring JNICALL NATIVE(raceGoalText)(JNIEnv *env, jclass cls, jstring 
 }
 
 /* How far the run's counted goal (kills, rupees) is, 0 to 99 (100 is the finish, from the server); -1 for the other kinds. */
+#include "smz3_race.h"
+static SmzRaceItems g_race_items;   /* the major items already told to the rivals in this game's race */
+
+JNIEXPORT void JNICALL NATIVE(raceItemsReset)(JNIEnv *env, jclass cls) { memset(&g_race_items, 0, sizeof g_race_items); }
+
+/* The rival news for items since the last call (smz_race_item_news), from the tracker's inventory levels. */
+JNIEXPORT jobjectArray JNICALL NATIVE(raceItemNews)(JNIEnv *env, jclass cls, jintArray inventory)
+{
+    int inv[RACE_ITEMS_MAX], n = (*env)->GetArrayLength(env, inventory);
+    if (n > RACE_ITEMS_MAX) n = RACE_ITEMS_MAX;
+    jint tmp[RACE_ITEMS_MAX];
+    (*env)->GetIntArrayRegion(env, inventory, 0, n, tmp);
+    for (int i = 0; i < n; i++) inv[i] = tmp[i];
+    char news[8][40];
+    const char *v[8];
+    int k = smz_race_item_news(&g_race_items, inv, n, news, 8);
+    for (int i = 0; i < k; i++) v[i] = news[i];
+    jobjectArray out = (*env)->NewObjectArray(env, k, (*env)->FindClass(env, "java/lang/String"), NULL);
+    for (int i = 0; i < k; i++) (*env)->SetObjectArrayElement(env, out, i, (*env)->NewStringUTF(env, v[i]));
+    return out;
+}
+
 JNIEXPORT jint JNICALL NATIVE(raceGoalProgress)(JNIEnv *env, jclass cls)
 {
     if (g_goal.kind != GOAL_KILLS && g_goal.kind != GOAL_RUPEES) return -1;

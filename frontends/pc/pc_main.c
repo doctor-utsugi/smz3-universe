@@ -1449,6 +1449,7 @@ static struct {
     int on, finish_sent, card, ladder, ended, bosses, crystals, need, last_count, mine_shown;
     int back, skip_old, kept, offline_noted, pick, pick_i;   /* back: a paused race loaded again and waiting to go on */
     int draft;                                            /* a Draft: its goal, shown at the 3, 2, 1, is the finish */
+    SmzRaceItems items;                                   /* the major items already told to the rivals */
     SmzGoal goal;
     int64_t shown, vote_done, vote_no;                    /* vote_no: the vote this player said no to (or took back) */
     int vote_yes;
@@ -2509,6 +2510,11 @@ static void play(int slot, int game_save_only)
                     rg.bosses |= nb; rg.crystals |= nc;
                     int got = __builtin_popcount((unsigned)rg.bosses) + __builtin_popcount((unsigned)rg.crystals), pc = rg.need ? 100 * got / rg.need : 0;
                     if (!rg.draft) race_set_progress(pc > 99 ? 99 : pc);   /* 100 is the finish, from the server */
+                }
+                if (rg.on && trk.started) {
+                    char news[8][40];
+                    int nn = smz_race_item_news(&rg.items, trk.inventory, SMZ_TRK_MAX_INV, news, 8);
+                    for (int i = 0; i < nn; i++) race_event(news[i]);
                 }
                 if (rg.on && rg.draft) race_set_progress(smz_goal_progress(&trk.goal, &g_goalc, 0));
                 if (trk.game == 3 && !finished) {

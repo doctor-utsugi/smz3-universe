@@ -1,4 +1,5 @@
 #include "smz3_race.h"
+#include "smz3_state.h"
 #include "smz3_rom.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -252,4 +253,38 @@ int smz_race_apply_start(uint8_t *rom, const char *settings)
     int rc = sscanf(start, "sm:%d:%d", &a, &b) == 2 ? smz_rom_start_sm(rom, a, b) : sscanf(start, "z3:%d", &a) == 1 ? smz_rom_start_z3(rom, a) : -1;
     if (!rc) smz_rom_checksum(rom);
     return rc;
+}
+
+/* Progressive items: the name of each level, from 1. */
+static const char *level_name(const char *item, int level)
+{
+    static const struct { const char *item, *names[4]; } LEVELS[] = {
+        {"Sword", {"Fighter's Sword", "Master Sword", "Tempered Sword", "Golden Sword"}},
+        {"Shield", {"Fighter's Shield", "Fire Shield", "Mirror Shield", NULL}},
+        {"Mail", {"Blue Mail", "Red Mail", NULL, NULL}},
+        {"Gloves", {"Power Glove", "Titan's Mitt", NULL, NULL}},
+    };
+    for (size_t i = 0; i < sizeof LEVELS / sizeof LEVELS[0]; i++)
+        if (!strcmp(LEVELS[i].item, item)) return level >= 1 && level <= 4 ? LEVELS[i].names[level - 1] : NULL;
+    return item;
+}
+
+int smz_race_item_news(SmzRaceItems *r, const int *inventory, int count, char (*out)[40], int max)
+{
+    int n = 0;
+    if (count > (int)smz3_inventory_count) count = (int)smz3_inventory_count;
+    if (count > RACE_ITEMS_MAX) count = RACE_ITEMS_MAX;
+    for (int i = 0; i < count; i++) {
+        const smz3_inv_item *it = &smz3_inventory_items[i];
+        int now = inventory[i];
+        if (!r->ready || r->seen[i] < 0) { r->seen[i] = now; continue; }   /* the start, or a game read for the first time */
+        if (now <= r->seen[i]) continue;
+        int counted = it->kind == SMZ3_INV_HEARTS || it->kind == SMZ3_INV_WORD || it->kind == SMZ3_INV_ENERGY_TANKS ||
+                      it->kind == SMZ3_INV_BOTTLES || !strcmp(it->name, "Heart Pieces");
+        const char *name = counted ? NULL : level_name(it->name, now);
+        if (name && n < max) snprintf(out[n++], sizeof out[0], "got the %s", name);
+        r->seen[i] = now;
+    }
+    r->ready = 1;
+    return n;
 }

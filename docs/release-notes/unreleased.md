@@ -47,6 +47,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Quickswap is on by default: L and R change the Y item.
 - Tapping an item in the tracker equips it; on Android L3 gives the pad back to the game.
 
+### Races
+
+- Races and Drafts tell the rivals each major item picked up ("got the Hookshot", "got the Titan's Mitt"), as the
+  design always said; until now only bosses, pendants and crystals went out. Hearts, tanks, ammo and bottles stay quiet.
+
 ### Controls
 
 - Android: Options > Buttons and keys, and the CONFIG tab's "Change the game's buttons", open the controller
