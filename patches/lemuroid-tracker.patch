@@ -1406,7 +1406,7 @@ index 0000000..5004db1
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 new file mode 100644
-index 0000000..b444dec
+index 0000000..df5379e
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/NativeMenuScreen.kt
 @@ -0,0 +1,1194 @@
@@ -2226,7 +2226,7 @@ index 0000000..b444dec
 +                CloudSync.KEEP_HERE, CloudSync.KEEP_CLOUD -> Smz3Native.uiCloudInfo()[0].toIntOrNull()?.let { s ->
 +                    synced(s, forcePull = slot == CloudSync.KEEP_CLOUD, forcePush = slot == CloudSync.KEEP_HERE) { continueRun(s) }
 +                }
-+                else -> CloudSync.action(context, slot, Smz3Native.uiCloudInfo()[1])
++                else -> Smz3Native.uiCloudInfo().let { CloudSync.action(context, slot, it[1], it[2]) }
 +            }
 +            Act.LOAD_SAVE -> RunStore.load(context, slot)?.let { play(it, false) }
 +            Act.LOAD_STATE -> RunStore.load(context, slot)?.let { play(it, true) }
@@ -14407,10 +14407,10 @@ index 0000000..e470c29
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
 new file mode 100644
-index 0000000..faaa42a
+index 0000000..863fb07
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
-@@ -0,0 +1,436 @@
+@@ -0,0 +1,442 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -14622,7 +14622,6 @@ index 0000000..faaa42a
 + * before they open and pushed after they close, account runs brought into free slots. The logic is the shared C code.
 + */
 +object CloudSync {
-+    private const val DEFAULT_ROMM = "https://romm.example.com"
 +    const val OK = 0
 +    const val CONFLICT = 1
 +    const val HELD = 3
@@ -14639,10 +14638,11 @@ index 0000000..faaa42a
 +    const val SIGN_OUT = 6
 +    const val KEEP_HERE = 7
 +    const val KEEP_CLOUD = 8
++    const val ADDRESS = 9
 +
 +    /** One sync call at a time, in the order asked (an open waits for the push before it). */
 +    private val worker = Executors.newSingleThreadExecutor()
-+    @Volatile private var base = DEFAULT_ROMM
++    @Volatile private var base = ""   // each player's own RomM, typed on the Cloud sync screen
 +    @Volatile private var token = ""
 +    @Volatile private var device = ""
 +    @Volatile private var user = ""
@@ -14763,10 +14763,16 @@ index 0000000..faaa42a
 +    }
 +
 +    /** The Cloud sync screen's rows (ACT_CLOUD); the conflict choice is the menu's, see [open]. */
-+    fun action(context: Context, what: Int, link: String) {
++    fun action(context: Context, what: Int, link: String, address: String = "") {
 +        val app = context.applicationContext
 +        when (what) {
-+            SIGN_IN -> if (loginState != 1) {
++            ADDRESS -> {
++                base = address; token = ""; device = ""; user = ""
++                worker.execute { save(app) }
++                Smz3Native.uiCloudState(STATE_OUT, "", host(), "", "")
++                Smz3Native.uiCloudMsg("RomM address saved")
++            }
++            SIGN_IN -> if (loginState != 1 && base.isNotEmpty()) {
 +                loginCancel = false
 +                Smz3Native.uiCloudMsg("Asking RomM for a code...")
 +                Thread { runCatching { login(app) }.onFailure { say("Sign-in failed"); loginState = 3 } }.start()

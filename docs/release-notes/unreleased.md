@@ -49,6 +49,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 
 ### Updates and data
 
+- Cloud sync has no built-in RomM server: Options > Cloud sync > RomM address takes your own (a host, or a full
+  address with port).
 - 3DS: a save state left in the old 5th slot (versions up to v0.14.0) moves to the first free slot of the four.
 - Android: when an update is signed with another key, the app copies the runs and sign-ins to /sdcard/SMZ3/backup and
   says to reinstall; the reinstalled app takes them back on its first start.

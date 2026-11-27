@@ -16,7 +16,6 @@
 #include "smz3_sync.h"
 #include <SDL.h>
 
-#define DEFAULT_ROMM "https://romm.example.com"
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;   /* one sync call at a time */
 static SmzRomm g_romm;
@@ -132,7 +131,7 @@ static void config_load(void)
 {
     memset(&g_romm, 0, sizeof g_romm);
     g_romm.http = http;
-    snprintf(g_romm.base, sizeof g_romm.base, "%s", getenv("SMZ3_ROMM") ? getenv("SMZ3_ROMM") : DEFAULT_ROMM);
+    snprintf(g_romm.base, sizeof g_romm.base, "%s", getenv("SMZ3_ROMM") ? getenv("SMZ3_ROMM") : "");   /* each player names their own RomM */
     size_t n;
     char *t = (char *)store_read(store_path("sync.txt"), &n);
     if (!t) return;
@@ -590,8 +589,17 @@ static void *link_thread(void *arg)
 int sync_action(SmzUi *u, int what, void (*present)(void))
 {
     switch (what) {
+    case CLOUD_ADDRESS:
+        pthread_mutex_lock(&g_lock);
+        snprintf(g_romm.base, sizeof g_romm.base, "%s", u->cloud.addr);
+        g_romm.token[0] = g_romm.device[0] = g_user[0] = 0;
+        config_save();
+        pthread_mutex_unlock(&g_lock);
+        ui_cloud_state(u, UI_CLOUD_OUT, NULL, server_host(), NULL, NULL);
+        ui_cloud_msg(u, "RomM address saved");
+        break;
     case CLOUD_SIGN_IN:
-        if (g_login_state == 1) break;
+        if (g_login_state == 1 || !g_romm.base[0]) break;
         g_login_cancel = 0;
         ui_cloud_msg(u, "Asking RomM for a code...");
         start(login_thread, NULL);

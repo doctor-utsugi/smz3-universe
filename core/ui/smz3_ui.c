@@ -366,7 +366,7 @@ static void credits_input(SmzUi *u, UiButton b)
 static int cloud_rows(const SmzUi *u, int *row)
 {
     int n = 0;
-    if (u->cloud.state == UI_CLOUD_OUT) row[n++] = CLOUD_SIGN_IN;
+    if (u->cloud.state == UI_CLOUD_OUT) { row[n++] = CLOUD_ADDRESS; row[n++] = CLOUD_SIGN_IN; }
     else if (u->cloud.state == UI_CLOUD_WAITING) row[n++] = CLOUD_CANCEL;
     else { row[n++] = CLOUD_SYNC; row[n++] = CLOUD_CODE; row[n++] = CLOUD_LINK; row[n++] = CLOUD_SIGN_OUT; }
     return n;
@@ -379,6 +379,15 @@ static void cloud_input(SmzUi *u, UiButton b)
     if (b == BTN_UP || b == BTN_DOWN) { *c = (*c + (b == BTN_UP ? n - 1 : 1)) % n; return; }
     if (b != BTN_A || *c >= n) return;
     if (row[*c] == CLOUD_LINK) { u->name_for = 4; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; return; }
+    if (row[*c] == CLOUD_ADDRESS || (row[*c] == CLOUD_SIGN_IN && !u->cloud.server[0])) {   /* each player's own RomM: no default */
+        u->name_for = 5;
+        snprintf(u->name, sizeof u->name, "%s", u->cloud.server);
+        for (char *p = u->name; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+        u->name_len = (int)strlen(u->name);
+        u->key_cursor = 0;
+        u->screen = UI_NAME;
+        return;
+    }
     u->action = ACT_CLOUD;
     u->action_slot = row[*c];
     u->cloud.msg[0] = 0;
@@ -1435,20 +1444,25 @@ static int mode_kind(const SmzUi *u, int row)
     return kinds[row < n ? row : n - 1];
 }
 
-#define KEY_CHARS "1234567890QWERTYUIOPASDFGHJKL-ZXCVBNM.'!"   /* QWERTY, 10 to a row */
+#define KEY_CHARS_NAME "1234567890QWERTYUIOPASDFGHJKL-ZXCVBNM.'!"   /* QWERTY, 10 to a row */
+#define KEY_CHARS_ADDR "1234567890QWERTYUIOPASDFGHJKL-ZXCVBNM.:/"   /* an address: : and / for the scheme and port */
+#define KEY_CHARS (u->name_for == 5 ? KEY_CHARS_ADDR : KEY_CHARS_NAME)
 #define KEY_COLS 10
 #define KEY_ROWS 4
 #define KEY_COUNT (KEY_COLS * KEY_ROWS)
 #define KEY_CTRL 4        /* Space, Delete, Save, Cancel */
 
+/* Names fit the 24-byte name fields they go to; an address takes the whole buffer. */
+static int name_cap(const SmzUi *u) { return u->name_for == 5 ? (int)sizeof u->name - 1 : 23; }
+
 static void name_input(SmzUi *u, UiButton b)
 {
     int c = u->key_cursor;
-    UiScreen back = u->name_for == 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
+    UiScreen back = u->name_for >= 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
     if (b == BTN_B) { u->screen = back; return; }
     if (b == BTN_START) { u->key_cursor = KEY_COUNT + 2; return; }   /* to Save */
     if (b == BTN_L) { if (u->name_len) u->name[--u->name_len] = 0; return; }
-    if (b == BTN_R) { if (u->name_len < (int)sizeof u->name - 1) { u->name[u->name_len++] = ' '; u->name[u->name_len] = 0; } return; }
+    if (b == BTN_R) { if (u->name_len < name_cap(u)) { u->name[u->name_len++] = ' '; u->name[u->name_len] = 0; } return; }
     if (b == BTN_LEFT || b == BTN_RIGHT) {
         int d = b == BTN_LEFT ? -1 : 1;
         if (c < KEY_COUNT) u->key_cursor = c / KEY_COLS * KEY_COLS + (c % KEY_COLS + d + KEY_COLS) % KEY_COLS;
@@ -1463,15 +1477,27 @@ static void name_input(SmzUi *u, UiButton b)
             u->key_cursor = b == BTN_UP ? (KEY_ROWS - 1) * KEY_COLS + k * KEY_COLS / KEY_CTRL : k * KEY_COLS / KEY_CTRL;
         }
     } else if (b == BTN_A) {
-        if (c < KEY_COUNT) { if (u->name_len < (int)sizeof u->name - 1) { u->name[u->name_len++] = KEY_CHARS[c]; u->name[u->name_len] = 0; } }
+        if (c < KEY_COUNT) { if (u->name_len < name_cap(u)) { u->name[u->name_len++] = KEY_CHARS[c]; u->name[u->name_len] = 0; } }
         else switch (c - KEY_COUNT) {
-        case 0: if (u->name_len < (int)sizeof u->name - 1) { u->name[u->name_len++] = ' '; u->name[u->name_len] = 0; } break;
+        case 0: if (u->name_len < name_cap(u)) { u->name[u->name_len++] = ' '; u->name[u->name_len] = 0; } break;
         case 1: if (u->name_len) u->name[--u->name_len] = 0; break;
         case 2: {
             char spec[UI_SPEC_LEN];
             int len = u->name_len;
             while (len && u->name[len - 1] == ' ') u->name[--len] = 0;
             if (!len) break;
+            if (u->name_for == 5) {
+                const char *t = u->name;
+                while (*t == ' ') t++;
+                snprintf(u->cloud.addr, sizeof u->cloud.addr, "%s%s", strstr(t, "://") ? "" : "https://", t);
+                for (char *p = u->cloud.addr; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+                size_t al = strlen(u->cloud.addr);
+                while (al && u->cloud.addr[al - 1] == '/') u->cloud.addr[--al] = 0;
+                u->screen = UI_CLOUD;
+                u->action = ACT_CLOUD;
+                u->action_slot = CLOUD_ADDRESS;
+                break;
+            }
             if (u->name_for == 4) {   /* a link code: its digits */
                 int k = 0;
                 for (int i = 0; u->name[i] && k < (int)sizeof u->cloud.link - 1; i++) if (u->name[i] >= '0' && u->name[i] <= '9') u->cloud.link[k++] = u->name[i];
@@ -2690,8 +2716,8 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_CLOUD: {
-        static const char *const NAMES[] = {"", "Sign in to RomM", "Cancel", "Sync now", "Link another device", "Enter a link code", "Sign out"};
-        static const char *const DESCS[] = {"", "with a code, on its page", "", "runs, saves and states", "show a code for it", "from another device", ""};
+        static const char *const NAMES[] = {"", "Sign in to RomM", "Cancel", "Sync now", "Link another device", "Enter a link code", "Sign out", "", "", "RomM address"};
+        static const char *const DESCS[] = {"", "with a code, on its page", "", "runs, saves and states", "show a code for it", "from another device", "", "", "", ""};
         title(u, "Cloud sync");
         if (u->cloud.state == UI_CLOUD_IN) {
             snprintf(buf, sizeof buf, "Signed in as %s", u->cloud.user);
@@ -2701,7 +2727,7 @@ void ui_draw(SmzUi *u)
             text(u, UI_W / 2, 32, C_DIM, 1, "On your phone or PC, open");
             text(u, UI_W / 2, 46, C_CYAN, 1, u->cloud.url);
             text(u, UI_W / 2, 60, C_DIM, 1, "sign in and enter this code:");
-        } else text(u, UI_W / 2, 44, C_DIM, 1, "Your runs, saves and states on every device");
+        } else text(u, UI_W / 2, 44, C_DIM, 1, "Your runs, saves and states on your own RomM");
         if (u->cloud.state == UI_CLOUD_WAITING) { rect(u, UI_W / 2 - 70, 76, 140, 30, C_PANEL); text(u, UI_W / 2, 84, C_GOLD, 1, u->cloud.code); }
         int row[6], n = cloud_rows(u, row), y0 = u->cloud.state == UI_CLOUD_WAITING ? 116 : 72;
         for (int r = 0; r < n; r++) {
@@ -2709,7 +2735,9 @@ void ui_draw(SmzUi *u)
             rect(u, 8, y, UI_W - 16, 26, r == u->cloud.cursor ? C_SEL : C_PANEL);
             hit(u, H_CLOUD, r, 8, y, UI_W - 16, 26);
             text(u, 18, y + 5, C_TEXT, 0, NAMES[row[r]]);
-            text(u, UI_W - 18, y + 5, C_DIM, 2, DESCS[row[r]]);
+            const char *d = DESCS[row[r]];
+            if (row[r] == CLOUD_ADDRESS) d = u->cloud.server[0] ? u->cloud.server : "not set";
+            text(u, UI_W - 18, y + 5, C_DIM, 2, d);
         }
         if (u->cloud.msg[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->cloud.msg);
         legend(u, "A Choose  B Back");
@@ -2815,9 +2843,9 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_NAME: {
-        title(u, u->name_for == 4 ? "Link code" : u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
-        char field[40];
-        snprintf(field, sizeof field, "%s_", u->name);
+        title(u, u->name_for == 5 ? "RomM address" : u->name_for == 4 ? "Link code" : u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
+        char field[72];
+        snprintf(field, sizeof field, "%s_", u->name_len > 44 ? u->name + u->name_len - 44 : u->name);   /* a long address: its end */
         rect(u, 10, 32, UI_W - 20, 24, C_PANEL);
         text(u, 16, 38, C_TEXT, 0, field);
         for (int k = 0; k < KEY_COUNT; k++) {

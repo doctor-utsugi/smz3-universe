@@ -1573,6 +1573,6 @@ JNIEXPORT jobjectArray JNICALL NATIVE(uiCloudInfo)(JNIEnv *env, jclass cls)
 {
     char slot[8];
     snprintf(slot, sizeof slot, "%d", g_ui.cloud.slot);
-    const char *v[2] = {slot, g_ui.cloud.link};
-    return jstrings(env, v, 2);
+    const char *v[3] = {slot, g_ui.cloud.link, g_ui.cloud.addr};
+    return jstrings(env, v, 3);
 }

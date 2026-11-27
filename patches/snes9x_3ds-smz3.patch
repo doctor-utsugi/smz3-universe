@@ -9205,10 +9205,10 @@ index 0000000..6510aa4
 +#endif
 diff --git a/source/smz3sync.cpp b/source/smz3sync.cpp
 new file mode 100644
-index 0000000..aa6522b
+index 0000000..2945b8e
 --- /dev/null
 +++ b/source/smz3sync.cpp
-@@ -0,0 +1,808 @@
+@@ -0,0 +1,815 @@
 +// Cloud sync on the 3DS: frontends/pc/pc_sync.c over libcurl, with this emulator's paths and states.
 +#include "smz3sync.h"
 +#include "smz3online.h"
@@ -9235,7 +9235,6 @@ index 0000000..aa6522b
 +#include "smz3_version.h"
 +}
 +
-+#define DEFAULT_ROMM "https://romm.example.com"
 +#define DEFAULT_SERVER "https://smz3-universe.duckdns.org"
 +#define SYNC_TXT SMZ_DIR "/sync.txt"
 +#define SOC_SIZE 0x100000
@@ -9391,7 +9390,6 @@ index 0000000..aa6522b
 +{
 +    memset(&gRomm, 0, sizeof gRomm);
 +    gRomm.http = http;
-+    snprintf(gRomm.base, sizeof gRomm.base, DEFAULT_ROMM);
 +    snprintf(gServer, sizeof gServer, "%s", defaultServer());
 +    size_t n;
 +    char *t = (char *)readFile(SYNC_TXT, &n);
@@ -9972,8 +9970,17 @@ index 0000000..aa6522b
 +{
 +    lockInit();
 +    switch (what) {
++    case CLOUD_ADDRESS:
++        LightLock_Lock(&gLock);
++        snprintf(gRomm.base, sizeof gRomm.base, "%s", u->cloud.addr);
++        gRomm.token[0] = gRomm.device[0] = gUser[0] = 0;
++        configSave();
++        LightLock_Unlock(&gLock);
++        ui_cloud_state(u, UI_CLOUD_OUT, NULL, serverHost(), NULL, NULL);
++        ui_cloud_msg(u, "RomM address saved");
++        break;
 +    case CLOUD_SIGN_IN:
-+        if (gLoginState == 1) break;
++        if (gLoginState == 1 || !gRomm.base[0]) break;
 +        gLoginCancel = false;
 +        ui_cloud_msg(u, "Asking RomM for a code...");
 +        if (!start(loginThread, NULL)) ui_cloud_msg(u, "Not enough memory");
