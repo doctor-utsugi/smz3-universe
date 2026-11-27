@@ -18,6 +18,8 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 
 ### Menus
 
+- PC and handhelds: the second screen's ladder could stay on "No times yet" when the tables were asked for twice at
+  launch; each request now has its own buffer.
 - The ROMs screen moves its focus to Play once the second ROM is found, instead of leaving it on Add ROMs.
 - Android: the app no longer asks for the notifications permission on its first start; the system's dialog sent it to the
   background, and games run without it.

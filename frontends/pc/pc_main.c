@@ -807,7 +807,7 @@ static int g_goals_state, g_goals_mode;   /* as g_ladder_state; the game they we
 static void *goals_thread(void *arg)
 {
     (void)arg;
-    static char buf[8192];
+    char buf[8192];
     g_goals_mode = store_get_mode();
     int ok = online_goals_json(buf, sizeof buf);
     if (ok) memcpy(g_goals, buf, sizeof buf);
@@ -819,7 +819,7 @@ static void *ladder_thread(void *arg)
 {
     (void)arg;
     for (int t = 0; t < 3; t++) {
-        static char buf[16384];
+        char buf[sizeof g_ladder[0]];   /* its own: a launch and a game change can fetch at once */
         char preset[32];
         snprintf(preset, sizeof preset, "%s", g_ladder_preset);
         int ok = online_ladder_json(t, preset, buf, sizeof buf);
