@@ -2824,7 +2824,7 @@ void ui_draw(SmzUi *u)
             else if (k == 1) snprintf(desc, sizeof desc, "%s", original(u)->desc);
             else if (k == 2) snprintf(desc, sizeof desc, "Pick every option yourself");
             else if (k == 3) snprintf(desc, sizeof desc, "%d saved", u->saved_count);
-            else if (k == 6) snprintf(desc, sizeof desc, "%s", smz_sm_maprando_state() != SMZ_MR_OFFLINE ? "A rebuilt map, as SM races play it" : smz_sm_maprando_pool() ? "Offline: one of the seeds the game comes with" : "Needs an internet connection");
+            else if (k == 6) snprintf(desc, sizeof desc, "%s", smz_sm_maprando_state() != SMZ_MR_OFFLINE ? "A rebuilt map, as SM races play it" : smz_sm_maprando_pool() ? "Offline seed. Connect to get new ones" : "Needs an internet connection");
             else if (k == 5 && u->weekly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today, %s", u->weekly_label, wgoal);
             else if (k == 5) snprintf(desc, sizeof desc, "%s: %dd left, %s", u->weekly_label, u->weekly_days, wgoal);
             else if (u->monthly_days <= 0) snprintf(desc, sizeof desc, "%s: ends today", u->monthly_label);
