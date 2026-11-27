@@ -1,5 +1,11 @@
 Changes on main since v0.15.0, for the next release's notes. Not built or tested together yet.
 
+### Android: games start again
+
+- v0.15.0's APK went out without the snes9x core, so no game could start ("the libretro core was not loaded"). The
+  build puts it back and now stops if an APK comes out without it.
+- Android's app settings show the SMZ3 version (0.15.0 and on) instead of 1.17.0, the version of Lemuroid it is built on.
+
 ### Menus
 
 - A ROMs screen comes first on Android and the 3DS while the Super Metroid or ALttP ROM is missing (the PC already had

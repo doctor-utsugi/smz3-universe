@@ -23,6 +23,9 @@ s9x_out="$root/build/android-snes9x"
 "$ndk/ndk-build" -s -C "$s9x/libretro/jni" APP_ABI=arm64-v8a NDK_OUT="$s9x_out/obj" NDK_LIBS_OUT="$s9x_out/libs" -j"$(getconf _NPROCESSORS_ONLN)"
 s9x_jni=lemuroid-cores/lemuroid_core_snes9x/src/main/jniLibs/arm64-v8a
 mkdir -p "$s9x_jni" && cp "$s9x_out/libs/arm64-v8a/libretro.so" "$s9x_jni/libsnes9x_libretro_android.so"
+# bundled-cores is what the app packages, through a symlink to that file; the CI's sparse checkout ('!*.so') leaves the link out
+bundled=lemuroid-cores/bundled-cores/src/main/jniLibs/arm64-v8a
+mkdir -p "$bundled" && ln -sfn ../../../../../lemuroid_core_snes9x/src/main/jniLibs/arm64-v8a/libsnes9x_libretro_android.so "$bundled/libsnes9x_libretro_android.so"
 # keeps lemuroid-cores clean, so a git diff of vendor/Lemuroid (the patch) never picks up the swapped core
 git -C lemuroid-cores update-index --skip-worktree "${s9x_jni#lemuroid-cores/}/libsnes9x_libretro_android.so" 2>/dev/null || true
 jdk="$HOME/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2"
@@ -48,8 +51,12 @@ if [ "$variant" = "release" ]; then
     fi
     # packaging the 190 MB APK needs more heap than the default 2.5 GB
     ./gradlew :lemuroid-app:assembleFreeBundleRelease --console=plain -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
-    cp lemuroid-app/build/outputs/apk/freeBundle/release/lemuroid-app-free-bundle-release.apk ../../build/smz3-release.apk
+    apk=../../build/smz3-release.apk
+    cp lemuroid-app/build/outputs/apk/freeBundle/release/lemuroid-app-free-bundle-release.apk "$apk"
 else
     ./gradlew :lemuroid-app:assembleFreeBundleDebug --console=plain
-    cp lemuroid-app/build/outputs/apk/freeBundle/debug/lemuroid-app-free-bundle-debug.apk ../../build/smz3-debug.apk
+    apk=../../build/smz3-debug.apk
+    cp lemuroid-app/build/outputs/apk/freeBundle/debug/lemuroid-app-free-bundle-debug.apk "$apk"
 fi
+# v0.15.0 went out without it and no game could start ("the libretro core was not loaded")
+unzip -l "$apk" lib/arm64-v8a/libsnes9x_libretro_android.so >/dev/null || { echo "$apk has no snes9x core" >&2; exit 1; }

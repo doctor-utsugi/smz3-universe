@@ -1,8 +1,8 @@
 diff --git a/lemuroid-app/build.gradle.kts b/lemuroid-app/build.gradle.kts
-index 741cef4..a7d9a0e 100644
+index 741cef4..5911b46 100644
 --- a/lemuroid-app/build.gradle.kts
 +++ b/lemuroid-app/build.gradle.kts
-@@ -9,10 +9,20 @@ plugins {
+@@ -9,10 +9,26 @@ plugins {
  }
  
  android {
@@ -16,15 +16,22 @@ index 741cef4..a7d9a0e 100644
 +    sourceSets["main"].assets.srcDir("../../../build/android-assets")
      defaultConfig {
          versionCode = 252
-         versionName = "1.17.0" // Always remember to update Cores Tag!
+-        versionName = "1.17.0" // Always remember to update Cores Tag!
 -        applicationId = "com.swordfish.lemuroid"
++        // the SMZ3 release tag, the same one the second screen shows (frontends/android/CMakeLists.txt)
++        versionName = (System.getenv("GITHUB_REF_NAME")?.takeIf { it.startsWith("v") }
++            ?: providers.exec {
++                commandLine("git", "describe", "--tags", "--abbrev=0")
++                workingDir = file("../../..")
++                isIgnoreExitValue = true
++            }.standardOutput.asText.get().trim()).removePrefix("v").ifEmpty { "dev" }
 +        applicationId = "com.utsugi.smz3"
 +        // SMZ3 only runs on the AYN Thor (arm64).
 +        ndk { abiFilters += "arm64-v8a" }
      }
      flavorDimensions += listOf("opensource", "cores")
  
-@@ -72,6 +82,8 @@ android {
+@@ -72,6 +88,8 @@ android {
              // Stripping created some issues with some libretro cores such as ppsspp
              keepDebugSymbols += setOf("*/*/*_libretro_android.so")
              useLegacyPackaging = true
@@ -33,7 +40,7 @@ index 741cef4..a7d9a0e 100644
          }
          resources {
              excludes += setOf("META-INF/DEPENDENCIES", "META-INF/library_release.kotlin_module")
-@@ -96,12 +108,12 @@ android {
+@@ -96,12 +114,12 @@ android {
              isMinifyEnabled = true
              signingConfig = signingConfigs["release"]
              proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
@@ -48,7 +55,7 @@ index 741cef4..a7d9a0e 100644
          }
      }
  
-@@ -125,6 +137,7 @@ android {
+@@ -125,6 +143,7 @@ android {
  }
  
  dependencies {
