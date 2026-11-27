@@ -6647,10 +6647,10 @@ index 0000000..3d11f48
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
 new file mode 100644
-index 0000000..0996447
+index 0000000..59131d1
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3IdlePresentation.kt
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,369 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +import android.animation.ValueAnimator
@@ -6699,6 +6699,7 @@ index 0000000..0996447
 +
 +    override fun onCreate(savedInstanceState: Bundle?) {
 +        super.onCreate(savedInstanceState)
++        setCancelable(false)   // the second screen's own Back button would close it and leave the system's app drawer
 +        window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.BLACK))
 +        window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
 +        val view = IdleView(context).also { this.view = it }
@@ -6983,7 +6984,9 @@ index 0000000..0996447
 +        val target = Smz3ScreenMode.secondDisplay(context)
 +        if (target == null) { hide(); return }   // the screen mode was set to single in the game
 +        presentation?.let { it.clearFade(); return }   // back from a game that never started
-+        runCatching { presentation = Smz3IdlePresentation(context, target).also { it.show() } }
++        runCatching {
++            presentation = Smz3IdlePresentation(context, target).also { p -> p.setOnDismissListener { if (presentation === p) presentation = null }; p.show() }
++        }
 +    }
 +
 +    fun hide() {
@@ -7001,6 +7004,7 @@ index 0000000..0996447
 +        val target = Smz3ScreenMode.secondDisplay(context) ?: return
 +        runCatching {
 +            black = Presentation(context, target).apply {
++                setCancelable(false)
 +                val cover = View(context).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
 +                setContentView(cover)
 +                window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))   // fades in over the menu's screen
@@ -10072,7 +10076,7 @@ index 0000000..378f91a
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 new file mode 100644
-index 0000000..d2658b8
+index 0000000..96bc1a0
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Tracker.kt
 @@ -0,0 +1,499 @@
@@ -10565,7 +10569,7 @@ index 0000000..d2658b8
 +        if (presentation != null) return
 +        val target = Smz3ScreenMode.secondDisplay(context) ?: return
 +        runCatching {
-+            presentation = Smz3Presentation(context, target).also { it.show() }
++            presentation = Smz3Presentation(context, target).also { p -> p.setOnDismissListener { if (presentation === p) presentation = null }; p.show() }
 +            Smz3Idle.hideBlack()
 +        }.onFailure { Timber.e(it, "Cannot show the SMZ3 tracker on display ${target.displayId}") }
 +    }

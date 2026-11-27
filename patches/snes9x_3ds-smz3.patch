@@ -2815,10 +2815,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..07646e1
+index 0000000..f4962be
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6327 @@
+@@ -0,0 +1,6367 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -3238,6 +3238,7 @@ index 0000000..07646e1
 +    snprintf(p.key, sizeof p.key, "%s", key);
 +    char path[160];
 +    if (!strcmp(key, "logo")) snprintf(path, sizeof path, "romfs:/smz3/logo.pv");   // the app logo beside the menu titles
++    else if (!strcmp(key, "logo_big")) snprintf(path, sizeof path, "romfs:/smz3/logo_big.pv");   // and on the carousel's card, drawn at its own size
 +    else if (!strncmp(key, "reward/", 7)) snprintf(path, sizeof path, "romfs:/smz3/icons/%.24s_boss_token.pv", key + 7);   // a boss token
 +    else if (!strncmp(key, "flag/", 5)) snprintf(path, sizeof path, "romfs:/smz3/flags/%.2s.pv", key + 5);   // a country flag
 +    else if (!strncmp(key, "goal/", 5)) {   // "goal/boss/kraid": the app's goals/boss_kraid, or the sprite cut from the ROM
@@ -3262,14 +3263,14 @@ index 0000000..07646e1
 +
 +static void drawPreview(const UiCmd *c)
 +{
-+    const Preview *p = getPreview(c->text);
++    const Preview *p = getPreview(!strcmp(c->text, "logo") && c->w > 30 ? "logo_big" : c->text);
 +    if (!p) return;
 +    int dw = p->w, dh = p->h;
 +    if (dw > c->w || dh > c->h) {   /* shrink to fit, keeping the aspect */
 +        if (dw * c->h > dh * c->w) { dh = dh * c->w / dw; dw = c->w; } else { dw = dw * c->h / dh; dh = c->h; }
 +        if (dw < 1) dw = 1;
 +        if (dh < 1) dh = 1;
-+    } else {   /* grow by whole steps, as the other frontends fill the box, and the pixels stay sharp */
++    } else if (strcmp(c->text, "logo")) {   /* a sprite grows by whole steps to fill its box, as on the other frontends; the logo is no pixel art */
 +        int k = c->w / dw < c->h / dh ? c->w / dw : c->h / dh;
 +        if (k > 1) { dw *= k; dh *= k; }
 +    }
@@ -3550,6 +3551,8 @@ index 0000000..07646e1
 +
 +static u64 wipeStart;
 +static float launchDark;   // 0..1: how far both screens have gone to black for the game
++#define QUIT_FADE_MS 350     // a run left for the main menu: both screens go to black, then the menu comes up out of it
++static bool menuFadeIn;
 +
 +static void darken(gfxScreen_t screen, int width)
 +{
@@ -4156,7 +4159,7 @@ index 0000000..07646e1
 +    }
 +    static char versionJson[256];
 +    static bool updating;   // Options > Update: the release downloads on a thread, the menu waits on its progress
-+    u64 lastTick = osGetTime();
++    u64 lastTick = osGetTime(), fadeFrom = 0;
 +    while (aptMainLoop()) {
 +        hidScanInput();
 +        u32 down = hidKeysDown();
@@ -4337,6 +4340,12 @@ index 0000000..07646e1
 +                    smz3_set_mode(r.mode | smz3_mode_flags(r.settings));   // the tracker reads memory the way the run's ROM keeps it
 +                    mkdir(SMZ_DIR "/saves", 0777); mkdir(SMZ_DIR "/savestates", 0777); addShortcutHooks(r.rom_path); snprintf(romPathOut, cap, "%s", r.rom_path); gPlaySlot = slot; chosen = true; break; }
 +            }
++        }
++        if (menuFadeIn) {
++            if (!fadeFrom) fadeFrom = osGetTime();
++            u64 t = osGetTime() - fadeFrom;
++            launchDark = t >= QUIT_FADE_MS ? 0 : 1 - (float)t / QUIT_FADE_MS;
++            if (t >= QUIT_FADE_MS) menuFadeIn = false;
 +        }
 +        drawUi(&ui);
 +        drawIdlePanel(&ui);
@@ -6358,17 +6367,18 @@ index 0000000..07646e1
 +    if (sec >= 300) snprintf(pace, sizeof pace, "%.1f", done * 3600.0f / sec);
 +    textf(x, y, theme.text, "Items %d / %d   %s/h", owned, items, pace);
 +    y += 15;
++    if (bars) { drawRewards(x, y, 15); y += 20; }
++    else y += 4;
 +    int hashIc[5];
-+    if (runHash[0] && smz3_z3_alone() && smz_z3_hash_icons(runHash, hashIc)) {   // the file select screen's five icons
++    if (runHash[0] && smz3_z3_alone() && smz_z3_hash_icons(runHash, hashIc)) {   // the file select screen's five icons, named so they don't read as items
++        text(x, y + 2, theme.dim, "SEED CODE");
 +        for (int k = 0; k < 5; k++) {
 +            char name[24];
 +            snprintf(name, sizeof name, "z3hash_%02d", hashIc[k]);
-+            if (const TrkIcon *ic = getIcon(name)) drawIcon(ic, x + k * 18, y, 16, 16, 256);
++            if (const TrkIcon *ic = getIcon(name)) drawIcon(ic, x + 76 + k * 18, y, 16, 16, 256);
 +        }
-+        y += 19;
-+    } else if (runHash[0]) { textFit(x, y, cw, theme.dim, runHash); y += 15; }
-+    if (bars) { drawRewards(x, y, 15); y += 20; }
-+    else y += 4;
++        y += 22;
++    } else if (runHash[0]) { text(x, y, theme.dim, "SEED CODE"); textFit(x + 76, y, cw - 76, theme.dim, runHash); y += 18; }
 +    if (trk.n_recent_items > 0 && y + 28 < y1) {
 +        text(x, y, theme.dim, "RECENT ITEMS");
 +        y += 14;
@@ -8504,6 +8514,7 @@ index 0000000..07646e1
 +{
 +    bool want = wantRunList;
 +    wantRunList = false;
++    if (want) menuFadeIn = true;
 +    return want;
 +}
 +
@@ -8894,6 +8905,7 @@ index 0000000..07646e1
 +    ui3dsDrawRect(0, UI_H - 16, UI_W, UI_H, 0x0C1119);
 +    ui3dsDrawRect(0, UI_H - 16, UI_W, UI_H - 15, 0x25324A);
 +    drawHintBar(legend);
++    darken(settings3DS.SecondScreen, UI_W);
 +    impl3dsFlushScreen(settings3DS.SecondScreen, false, false);
 +    gfxScreenSwapBuffers(settings3DS.SecondScreen, false);
 +    gpu3dsWaitForVBlank(settings3DS.SecondScreen);
@@ -8923,6 +8935,8 @@ index 0000000..07646e1
 +    ui3dsSetViewport(0, 0, menuWidth, SCREEN_HEIGHT);
 +}
 +
++static u16 *pdTracker;   // the bottom screen's buffer that shows the tracker again once a dialog closes
++
 +// A dialog over the list until A (true) or B (false), or a tap on its Yes or No (OK) button on the bottom screen.
 +static bool pauseDialog(const PauseRow *rows, int n, int cursor, int scroll, int slot, const char *title, const char *body, bool ask, const char *legend = NULL)
 +{
@@ -8946,6 +8960,7 @@ index 0000000..07646e1
 +        }
 +        if (answer < 0) drawPause(rows, n, cursor, scroll, slot, NULL, title, body, legend);
 +    }
++    pdTracker = (u16 *)gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
 +    gfxScreenSwapBuffers(GFX_BOTTOM, false);   // the tracker as it was under the menu
 +    dirty = true;
 +    if (answer < 0) return false;
@@ -9037,6 +9052,30 @@ index 0000000..07646e1
 +    input3dsWaitForRelease();
 +}
 +
++// Back to the main menu: the pause menu and the tracker under it go to black together.
++static void quitFade(const PauseRow *rows, int n, int cursor, int scroll, int slot, const char *legend)
++{
++    u16 *under = pdTracker && gfxGetScreenFormat(GFX_BOTTOM) == GSP_RGB565_OES ? (u16 *)malloc(320 * 240 * 2) : NULL;
++    if (under) memcpy(under, pdTracker, 320 * 240 * 2);
++    u64 start = osGetTime();
++    for (;;) {
++        u64 t = osGetTime() - start;
++        launchDark = t >= QUIT_FADE_MS ? 1 : (float)t / QUIT_FADE_MS;
++        if (under) {
++            u16 *fb = (u16 *)gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
++            int k = (int)(256 * launchDark);
++            for (int i = 0; i < 320 * 240; i++) fb[i] = blend565(under[i], 0, k);
++            impl3dsFlushScreen(GFX_BOTTOM, false, false);
++            gfxScreenSwapBuffers(GFX_BOTTOM, false);
++        }
++        drawPause(rows, n, cursor, scroll, slot, NULL, NULL, NULL, legend);
++        if (t >= QUIT_FADE_MS) break;
++    }
++    free(under);
++    launchDark = 0;
++    menuFadeIn = true;
++}
++
 +int smz3PauseMenu(void)
 +{
 +    PauseRow rows[16];
@@ -9113,6 +9152,7 @@ index 0000000..07646e1
 +                if (act == 1 && (raceRunning() ? pauseDialog(rows, n, cursor, scroll, slot, "Leave the race", "Your rivals see you leave, and the race can't be joined again. Leave it?", true)
 +                                               : pauseDialog(rows, n, cursor, scroll, slot, "Back to main menu", "The run keeps its time and progress. Go back to the main menu?", true))) {
 +                    uiCueSound(UI_CUE_CONFIRM);
++                    quitFade(rows, n, cursor, scroll, slot, "A Choose Left Right Change B Resume");
 +                    result = SMZ3_PAUSE_RUNS;
 +                    goto done;
 +                }

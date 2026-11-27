@@ -7,6 +7,11 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Android: the daily challenge's game froze on a black screen from its first frame (v0.15.0 too); it plays again.
 - 3DS: Link, Samus and the logo fill their cards on the game carousel, as on the other systems.
 - 3DS: in an A Link to the Past run the map opens zoomed on one world and follows Link.
+- Thor: the second screen's own Back button closed SMZ3's bottom screen and left the system's app drawer there for good;
+  it now stays.
+- 3DS: leaving a run for the main menu fades both screens to black, and the menu comes up out of it.
+- 3DS: the logo on the game carousel is drawn from a larger picture instead of a blown-up small one.
+- 3DS: the ALttP seed code (item icons) under the items has its own "SEED CODE" label, after the rewards.
 - Android's app settings show the SMZ3 version (0.15.0 and on) instead of 1.17.0, the version of Lemuroid it is built on.
 
 ### Menus
