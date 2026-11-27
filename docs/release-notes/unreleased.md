@@ -47,6 +47,15 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - Quickswap is on by default: L and R change the Y item.
 - Tapping an item in the tracker equips it; on Android L3 gives the pad back to the game.
 
+### Controls
+
+- Android: Options > Buttons and keys, and the CONFIG tab's "Change the game's buttons", open the controller
+  settings, where each game button takes any key of the pad.
+- Android: the touch controls can be shown with a controller connected (CONFIG > Touch controls, off by default) and
+  moved and resized from there. With no controller they show on their own, as before.
+- One window (PC, and Android in single-screen landscape): the side panels beside the game hide and come back with a
+  shortcut, H on the PC keyboard (or a pad button set in the options) and L2 + R3 on Android.
+
 ### Updates and data
 
 - Cloud sync has no built-in RomM server: Options > Cloud sync > RomM address takes your own (a host, or a full

@@ -1238,6 +1238,24 @@ static int tab_scroll_max(int tab, int win_h, const SmzDailyRun *dr)
     return m > 0 ? m : 0;
 }
 
+/* One window: the side panels beside the game can be hidden (PA_PANELS), kept in panels.cfg. */
+static int g_panels_hidden = -1;
+
+static void panels_toggle(void)
+{
+    g_panels_hidden = !g_panels_hidden;
+    store_write(store_path("panels.cfg"), g_panels_hidden ? "1" : "0", 1);
+    note(g_panels_hidden ? "Side panels hidden" : "Side panels shown");
+}
+
+static void panels_load(void)
+{
+    size_t n;
+    char *t = (char *)store_read(store_path("panels.cfg"), &n);
+    g_panels_hidden = t && n && t[0] == '1';
+    free(t);
+}
+
 /* chat: an online race, whose CHAT tab takes the Daily's place and whose game never pauses here; a daily run has both */
 static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, int pause, int win_w, int win_h, float ax, float aw, MapView *mv,
                     const SmzDiscovery *disc, int discovered_only, const uint8_t *in_logic, const uint8_t *wram, size_t wram_len,
@@ -1364,7 +1382,7 @@ static void overlay(const SmzTracker *t, const SmzRun *r, int tab, int scroll, i
         snprintf(slots, sizeof slots, "%s %s", pad_key_label(PA_QPREV), pad_key_label(PA_QNEXT));
         snprintf(lr, sizeof lr, "%s %s", pad_key_label(PA_L), pad_key_label(PA_R));
         const HelpItem LEFT[] = {
-            {"", "", "#Tracker"}, {pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER), "Open and close"}, {"LR2", "Q W", "Change tab"}, {NULL, "P", "Pause the game while open"},
+            {"", "", "#Tracker"}, {pad_action_icon(PA_TRACKER), pad_key_label(PA_TRACKER), "Open and close"}, {pad_action_icon(PA_PANELS), pad_key_label(PA_PANELS), "Hide the side panels (one window)"}, {"LR2", "Q W", "Change tab"}, {NULL, "P", "Pause the game while open"},
             {"", "", "#Playing"}, {pad_action_icon(PA_FAST), pad_key_label(PA_FAST), "Fast forward"}, {pad_action_icon(PA_REWIND), pad_key_label(PA_REWIND), "Rewind (when the run allows it)"}, {pad_action_icon(PA_LEAVE), pad_key_label(PA_LEAVE), "Leave the run (saved)"}, {NULL, "F11", "Full screen"}, {"START", "O", "Options (in the tracker)"},
             {pad_action_icon(PA_QSAVE), pad_key_label(PA_QSAVE), "Save state"}, {pad_action_icon(PA_QLOAD), pad_key_label(PA_QLOAD), "Load state"}, {NULL, slots, "State slot"},
             {"SELECT", NULL, "Hold + R1 / L1: save / load state"}, {"SELECT", NULL, "Hold + Left / Right: state slot"},
@@ -2068,6 +2086,7 @@ static void play(int slot, int game_save_only)
     float aspect = shape_aspect(run.settings);
     SDL_Texture *tex = NULL;
     int tw = 0, th = 0, tex_mode = 0, tab = getenv("SMZ3_TAB") ? atoi(getenv("SMZ3_TAB")) % ntabs : TAB_RUN, scroll = 0, show = getenv("SMZ3_TAB") != NULL, pause_on_overlay = 1, leaving = 0, running = 1, finished = 0, fast = 0;
+    if (g_panels_hidden < 0) panels_load();
     if (ren2) { pause_on_overlay = 0; show = 0; }   /* dual screen: the tracker is always on its own screen, and the pad never leaves the game */
     if (win2) dual_open(slot + 1, &run);
     int done_popup = 0, finished_before = run.game == 3;   /* the run-complete card, shown once when the run ends in this session */
@@ -2189,6 +2208,7 @@ static void play(int slot, int game_save_only)
                     continue;
                 }
                 if (!show && !leaving && !vpanel && !finished && k == pad_key(PA_REWIND)) { if (rw) rw_cmd = 3; else note("Rewind is off in this run"); continue; }
+                if (!show && !leaving && !vpanel && !ren2 && k == pad_key(PA_PANELS)) { panels_toggle(); continue; }
                 if (vpanel) {
                     if (k == SDLK_ESCAPE || k == SDLK_v || k == SDLK_BACKSPACE) vpanel = 0;
                     else if (k == SDLK_UP) vrow = (vrow + settings_video_rows() - 1) % settings_video_rows();
@@ -2268,6 +2288,7 @@ static void play(int slot, int game_save_only)
                 }
                 int own = !win2 || !hk_uses(b);   /* dual screen: a button of a hotkey combo stays the combo's */
                 if (own && !show && !leaving && !vpanel && !finished && b == pad_code(PA_REWIND)) { if (rw) rw_cmd = 3; else note("Rewind is off in this run"); continue; }
+                if (own && !show && !leaving && !vpanel && !ren2 && b >= 0 && b == pad_code(PA_PANELS)) { panels_toggle(); continue; }
                 if (vpanel) {
                     if (b == SDL_CONTROLLER_BUTTON_B || b == SDL_CONTROLLER_BUTTON_X || b == pad_code(PA_TRACKER)) vpanel = 0;
                     else if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) vrow = (vrow + settings_video_rows() - 1) % settings_video_rows();
@@ -2636,8 +2657,8 @@ static void play(int slot, int game_save_only)
             const uint8_t *mw = emu_wram(&mwl);
             MiniMap mm = {&disc, discovered_only, have_logic ? in_logic : NULL, mw, mwl, sram, sl, &minimv, &minidv, have_live ? &live : NULL};
             int on = trk.started || getenv("SMZ3_MINIMAP"), mside = settings_minimap_side();
-            panel_left(&trk, &run, 0, gx, (float)wh, on && mside == 1 ? &mm : NULL, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), daily ? &dr : NULL, finished);
-            panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
+            if (!g_panels_hidden || ren2) panel_left(&trk, &run, 0, gx, (float)wh, on && mside == 1 ? &mm : NULL, !daily ? -1 : finished ? final_ms : online_now_ms() - smz_daily_clock_from(&dr), daily ? &dr : NULL, finished);
+            if (!g_panels_hidden || ren2) panel_right(&trk, gx + gw, ww - (gx + gw), (float)wh, on && mside == 0 ? &mm : NULL);
         }
         float hud_bottom = daily && !show && gx < 90 ? daily_hud(&dr, finished, gx, gw, wh) : 0;
         if (rw_open) rewind_bar(rw, rw_dir, gx, gw, wh);   /* no side panels: the only room left is a corner of the game */

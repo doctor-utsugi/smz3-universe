@@ -14,12 +14,13 @@ static const int DEFAULTS[PA_COUNT] = {
     SDL_CONTROLLER_BUTTON_RIGHTSTICK, SDL_CONTROLLER_BUTTON_LEFTSTICK, PAD_AXIS_BASE + SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
     -1, -1, -1, -1,   /* quick states: free by default, Select + R / L / D-pad also work while playing */
     PAD_AXIS_BASE + SDL_CONTROLLER_AXIS_TRIGGERLEFT,
+    -1,   /* side panels: H on the keyboard */
 };
-static const char *const NAMES[PA_COUNT] = {"SNES B", "SNES A", "SNES Y", "SNES X", "SNES L", "SNES R", "Start", "Select", "Tracker", "Leave run", "Fast forward", "Save state", "Load state", "State slot -", "State slot +", "Rewind"};
+static const char *const NAMES[PA_COUNT] = {"SNES B", "SNES A", "SNES Y", "SNES X", "SNES L", "SNES R", "Start", "Select", "Tracker", "Leave run", "Fast forward", "Save state", "Load state", "State slot -", "State slot +", "Rewind", "Side panels"};
 static const int SNES_BIT[8] = {PAD_B, PAD_A, PAD_Y, PAD_X, PAD_L, PAD_R, PAD_START, PAD_SELECT};
 static const SDL_Keycode KEY_DEFAULTS[PA_COUNT] = {SDLK_z, SDLK_x, SDLK_a, SDLK_s, SDLK_q, SDLK_w, SDLK_RETURN, SDLK_BACKSPACE,
     [PA_TRACKER] = SDLK_TAB, [PA_LEAVE] = SDLK_ESCAPE, [PA_FAST] = SDLK_SPACE, [PA_QSAVE] = SDLK_F5, [PA_QLOAD] = SDLK_F7,
-    [PA_QPREV] = SDLK_F6, [PA_QNEXT] = SDLK_F8, [PA_REWIND] = SDLK_r};
+    [PA_QPREV] = SDLK_F6, [PA_QNEXT] = SDLK_F8, [PA_REWIND] = SDLK_r, [PA_PANELS] = SDLK_h};
 static SDL_Keycode key_of[PA_COUNT];
 
 int pad_keyed(int action) { return action >= 0 && action < PA_COUNT; }
