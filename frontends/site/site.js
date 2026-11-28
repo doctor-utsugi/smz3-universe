@@ -32,49 +32,28 @@
     return m + ' min';
   }
 
-  // ---------- tabs ----------
-  const tabs = [...document.querySelectorAll('.tablist [role="tab"]')];
-  const panels = tabs.map(t => $(t.getAttribute('aria-controls')));
-  panels.forEach((p, i) => {
-    p.setAttribute('role', 'tabpanel');
-    p.setAttribute('aria-labelledby', tabs[i].id);
-    p.tabIndex = 0;
-  });
+  // ---------- sections: the header links show one panel at a time ----------
+  const panels = [...document.querySelectorAll('.panels > .panel')];
+  const links = [...document.querySelectorAll('a[data-tab]')];
   const onShow = {};
 
-  function select(id, focus) {
-    const i = panels.findIndex(p => p.id === id);
-    if (i < 0) return false;
-    tabs.forEach((t, j) => {
-      t.setAttribute('aria-selected', j === i ? 'true' : 'false');
-      t.tabIndex = j === i ? 0 : -1;
-      panels[j].hidden = j !== i;
+  function select(id) {
+    if (!panels.some(p => p.id === id)) return false;
+    panels.forEach(p => { p.hidden = p.id !== id; });
+    document.querySelectorAll('.sections-nav a').forEach(a => {
+      if (a.dataset.tab === id) a.setAttribute('aria-current', 'true');
+      else a.removeAttribute('aria-current');
     });
-    if (focus) tabs[i].focus();
     if (onShow[id]) onShow[id]();
     return true;
   }
   function selectAndShow(id) {
-    if (!select(id, true)) return;
+    if (!select(id)) return;
     history.replaceState(null, '', '#' + id);
     $('sections').scrollIntoView({ block: 'start' });
   }
 
-  tabs.forEach((t, i) => {
-    t.addEventListener('click', () => {
-      select(panels[i].id, false);
-      history.replaceState(null, '', '#' + panels[i].id);
-    });
-    t.addEventListener('keydown', e => {
-      const n = tabs.length;
-      const to = { ArrowRight: (i + 1) % n, ArrowLeft: (i - 1 + n) % n, Home: 0, End: n - 1 }[e.key];
-      if (to === undefined) return;
-      e.preventDefault();
-      select(panels[to].id, true);
-      history.replaceState(null, '', '#' + panels[to].id);
-    });
-  });
-  document.querySelectorAll('a[data-tab]').forEach(a => a.addEventListener('click', e => {
+  links.forEach(a => a.addEventListener('click', e => {
     e.preventDefault();
     selectAndShow(a.dataset.tab);
   }));
@@ -197,7 +176,7 @@
   onShow.rankings = () => { if (!boardsStarted) { boardsStarted = true; showBoard(board); } };
 
   const start = location.hash.slice(1);
-  if (!select(start, false)) select('games', false);
+  if (!select(start)) select('games');
 
   loadDaily();
   loadGoals();

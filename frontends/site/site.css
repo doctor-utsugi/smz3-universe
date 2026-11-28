@@ -83,6 +83,16 @@ img { display: block; }
 .hero-rule { width: 56px; height: 3px; background: var(--accent); border-radius: 2px; }
 .hero-lead { margin: 0; max-width: 640px; color: var(--soft); font-size: 17px; }
 .hero-cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 8px; }
+.platforms { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px; }
+.platforms li { display: inline-flex; align-items: center; gap: 6px; font-family: var(--head); font-size: 13px; letter-spacing: 0.04em; color: var(--dim); }
+.platforms svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+.credits-lead, .credits-note { margin: 0 0 16px; color: var(--soft); }
+.credits-note { margin: 16px 0 0; font-size: 13px; color: var(--dim); }
+.credits-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.credit { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+.credit h3 { margin: 0 0 8px; font-family: var(--head); font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.credit ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--soft); }
 
 /* Live cards */
 .today { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
@@ -113,27 +123,19 @@ img { display: block; }
 .goal-bar::-webkit-progress-value { background: var(--blue); border-radius: 3px; }
 .goal-bar::-moz-progress-bar { background: var(--blue); border-radius: 3px; }
 
-/* Tabs. Without JS the tab row stays hidden and every panel is shown with its own heading. */
-.tablist { display: none; flex-wrap: wrap; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px 8px 0 0; overflow: hidden; }
-.js .tablist { display: flex; }
-.tab {
-  flex: 1 1 140px; min-height: 48px; padding: 12px 16px; border: none; cursor: pointer; margin: 0;
-  font-family: var(--head); font-size: 16px; letter-spacing: 0.08em;
-  background: transparent; color: var(--tab);
+/* Section links in the header; with JS they show one panel at a time, without it every panel stays on the page. */
+.sections-nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.sections-nav a {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 6px; text-decoration: none;
+  font-family: var(--head); font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tab);
 }
-.tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.03); }
-.tab[aria-selected="true"] { background: #1f2b22; color: var(--gold); box-shadow: inset 0 -3px 0 var(--accent); }
-.tab:focus-visible { outline-offset: -3px; }
+.sections-nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.sections-nav a[aria-current="true"] { color: var(--gold); box-shadow: inset 0 -3px 0 var(--accent); border-radius: 6px 6px 0 0; }
 
 .panels { display: flex; flex-direction: column; gap: 16px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 24px; }
-.js .panels { gap: 0; }
-.js .panel { border-top: none; border-radius: 0 0 8px 8px; }
 .panel:focus-visible { outline-offset: -2px; }
 .panel-title { margin: 0 0 16px; font-family: var(--head); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
-.js .panel-title {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-}
 
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
@@ -198,7 +200,8 @@ img { display: block; }
   .hero-title img { width: 72px; height: 72px; }
   .hero-sub { font-size: 15px; }
   .panel { padding: 16px; }
-  .tab { flex-basis: 50%; font-size: 15px; }
+  .sections-nav { width: 100%; justify-content: center; }
+  .sections-nav a { padding: 0 8px; font-size: 14px; }
   .nav { margin-left: 0; }
   .foot-legal { margin-left: 0; }
   .today { grid-template-columns: 1fr; }
@@ -213,5 +216,5 @@ img { display: block; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .btn, .tab, .pill { transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
+  .btn, .sections-nav a, .pill { transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
 }
