@@ -1,0 +1,4 @@
+[
+  {"description": "API flood (the server keeps its own per-IP limits too)", "expression": "starts_with(http.request.uri.path, \"/api/\")", "action": "block",
+   "ratelimit": {"characteristics": ["ip.src", "cf.colo.id"], "period": 10, "requests_per_period": 100, "mitigation_timeout": 10}}
+]

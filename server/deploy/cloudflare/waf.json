@@ -1,0 +1,5 @@
+[
+  {"description": "Only the methods the server uses", "expression": "not http.request.method in {\"GET\" \"POST\" \"HEAD\" \"OPTIONS\"}", "action": "block"},
+  {"description": "No admin over HTTP: admin is a CLI over SSH", "expression": "starts_with(http.request.uri.path, \"/api/admin\")", "action": "block"},
+  {"description": "Scanner paths", "expression": "starts_with(http.request.uri.path, \"/.\") or starts_with(http.request.uri.path, \"/wp-\") or ends_with(http.request.uri.path, \".php\")", "action": "block"}
+]

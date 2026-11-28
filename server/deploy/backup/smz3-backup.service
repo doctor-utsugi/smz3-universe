@@ -1,0 +1,20 @@
+# /etc/systemd/system/smz3-backup.service
+[Unit]
+Description=SMZ3 Universe nightly backup (app data + Redis)
+After=redis-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/smz3-backup.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/backups/smz3
+PrivateTmp=yes
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

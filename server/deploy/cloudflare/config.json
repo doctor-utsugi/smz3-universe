@@ -1,0 +1,6 @@
+[
+  {"description": "API clients are consoles, phones and curl: no browser checks or challenges", "expression": "(http.host eq \"api.smz3.com\") or starts_with(http.request.uri.path, \"/api/\")",
+   "action": "set_config", "action_parameters": {"bic": false, "security_level": "essentially_off", "rocket_loader": false, "email_obfuscation": false}},
+  {"description": "Nothing rewritten in the site's pages", "expression": "(http.host eq \"smz3.com\")",
+   "action": "set_config", "action_parameters": {"rocket_loader": false, "email_obfuscation": false}}
+]

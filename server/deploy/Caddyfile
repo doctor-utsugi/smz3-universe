@@ -1,0 +1,140 @@
+import cloudflare-ips.caddy
+
+{
+	servers {
+		import cf_ips trusted_proxies static
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+(access_log) {
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 7
+		}
+		format json
+	}
+}
+
+(app) {
+	request_body /api/* {
+		max_size 1MB
+	}
+	# No admin endpoint exists (admin is a CLI over SSH); never let one leak out.
+	respond /api/admin* 404
+	reverse_proxy 127.0.0.1:3360 {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# Cloudflare's origin certificate, and only Cloudflare's Authenticated Origin Pulls client certificate gets in.
+# verify_if_given until Authenticated Origin Pulls is on at Cloudflare, then require_and_verify (APPLY.md).
+(cf_origin_tls) {
+	tls /etc/caddy/cf/origin.pem /etc/caddy/cf/origin.key {
+		client_auth {
+			mode verify_if_given
+			trust_pool file /etc/caddy/cf/origin-pull-ca.pem
+		}
+	}
+}
+
+(play) {
+	redir /play /play/
+	handle_path /play/* {
+		root * /srv/smz3-web
+		header Cross-Origin-Opener-Policy same-origin
+		header Cross-Origin-Embedder-Policy require-corp
+		header Cross-Origin-Resource-Policy same-origin
+		header X-Content-Type-Options nosniff
+		@page path / /index.html
+		header @page Cache-Control no-cache
+		header ?Cache-Control "public, max-age=31536000, immutable"
+		file_server {
+			precompressed br gzip
+		}
+	}
+}
+
+smz3.com, www.smz3.com {
+	import cf_origin_tls
+	import access_log
+	import cf_ips @notcf not remote_ip
+	@www host www.smz3.com
+	route {
+		abort @notcf
+		redir @www https://smz3.com{uri} permanent
+		header {
+			defer
+			-Server
+			Strict-Transport-Security "max-age=31536000"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			X-Frame-Options DENY
+			Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		}
+		encode zstd gzip
+		import play
+		handle /ladder {
+			rewrite * /
+			import app
+		}
+		handle /api/* {
+			import app
+		}
+		handle /download {
+			import app
+		}
+		handle {
+			header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+			root * /srv/smz3-site
+			try_files {path} {path}/index.html =404
+			file_server
+		}
+	}
+}
+
+# Listing http:// on its own block keeps Caddy from redirecting it: the 3DS speaks plain HTTP.
+(api) {
+	import access_log
+	import cf_ips @notcf not remote_ip
+	route {
+		abort @notcf
+		header {
+			defer
+			-Server
+			X-Content-Type-Options nosniff
+		}
+		encode gzip
+		import app
+	}
+}
+
+https://api.smz3.com {
+	import cf_origin_tls
+	import api
+}
+
+http://api.smz3.com {
+	import api
+}
+
+# Direct, public, Let's Encrypt: stays open until the clients move to smz3.com / api.smz3.com.
+http://smz3-universe.duckdns.org, https://smz3-universe.duckdns.org {
+	import access_log
+	header {
+		defer
+		-Server
+		X-Content-Type-Options nosniff
+	}
+	encode gzip
+	@play_http {
+		protocol http
+		path /play /play/*
+	}
+	redir @play_http https://{host}{uri}
+	import play
+	handle {
+		import app
+	}
+}

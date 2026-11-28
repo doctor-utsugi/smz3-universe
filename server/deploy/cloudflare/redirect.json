@@ -1,0 +1,8 @@
+[
+  {"description": "www to the apex", "expression": "(http.host eq \"www.smz3.com\")", "action": "redirect",
+   "action_parameters": {"from_value": {"status_code": 301, "preserve_query_string": true,
+     "target_url": {"expression": "concat(\"https://smz3.com\", http.request.uri.path)"}}}},
+  {"description": "HTTPS for the site (api.smz3.com keeps plain HTTP for the 3DS)", "expression": "(http.host eq \"smz3.com\") and not ssl", "action": "redirect",
+   "action_parameters": {"from_value": {"status_code": 301, "preserve_query_string": true,
+     "target_url": {"expression": "concat(\"https://smz3.com\", http.request.uri.path)"}}}}
+]

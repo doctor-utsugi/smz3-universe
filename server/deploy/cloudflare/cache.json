@@ -1,0 +1,6 @@
+[
+  {"description": "API and app pages never cached", "expression": "(http.host eq \"api.smz3.com\") or starts_with(http.request.uri.path, \"/api/\") or http.request.uri.path in {\"/ladder\" \"/download\"}",
+   "action": "set_cache_settings", "action_parameters": {"cache": false}},
+  {"description": "Web build: cache everything, as long as the origin says", "expression": "(http.host eq \"smz3.com\") and starts_with(http.request.uri.path, \"/play/\")",
+   "action": "set_cache_settings", "action_parameters": {"cache": true, "edge_ttl": {"mode": "respect_origin"}, "browser_ttl": {"mode": "respect_origin"}}}
+]
