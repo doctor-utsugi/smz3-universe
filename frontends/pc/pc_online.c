@@ -20,7 +20,20 @@
 static char *read_text(const char *path);
 
 /* Runs curl without a shell. Returns the HTTP status (-1 when curl failed) and the body in out. */
-#ifdef _WIN32
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
+{
+    char url[256];
+    uint8_t *o = NULL;
+    snprintf(url, sizeof url, "%s%s", online_server(), path);
+    int code = web_http(method, url, body ? "Content-Type: application/json\n" : NULL, (const uint8_t *)body, body ? strlen(body) : 0,
+                        &o, NULL, NULL, NULL, 0);
+    snprintf(out, cap, "%s", o ? (char *)o : "");
+    free(o);
+    return code;
+}
+#elif defined(_WIN32)
 static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
 {
     char req[600], res[600], cmd[2048], url[256];

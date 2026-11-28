@@ -12,6 +12,9 @@
 #include "pc_store.h"
 #include "smz3_bps.h"
 #include "smz3_sm.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#endif
 
 /* The seeds the game comes with (assets/maprando): the AppImage's share folder, beside the program, or the repo's from build/pc */
 static void pool_setup(void)
@@ -39,6 +42,9 @@ static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the see
 /* A line of /proc/meminfo ("MemTotal", "MemAvailable") in MB (Linux), or -1 where it is not known. */
 static long meminfo_mb(const char *key)
 {
+#ifdef __EMSCRIPTEN__
+    return web_meminfo_mb(key);
+#endif
     FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return -1;
     char line[128], fmt[40];
@@ -79,7 +85,20 @@ static int from_server(const char *settings, uint64_t seed, const uint8_t *sm, s
     snprintf(head_path, sizeof head_path, "%s", store_path("maprando-seed.head"));
     remove(patch_path); remove(head_path);
     g_phase = 3;
-    int status = -1, pipefd[2];
+    int status = -1;
+#ifdef __EMSCRIPTEN__
+    {   /* the reply's X-Seed-Info into the .head file the code below reads, as curl -D writes it */
+        uint8_t *body = NULL;
+        size_t body_len = 0;
+        char seed_info[1024] = "", head[1100];
+        status = web_http("GET", url, NULL, NULL, 0, &body, &body_len, "X-Seed-Info", seed_info, sizeof seed_info);
+        if (status == 200 && body) store_write(patch_path, body, body_len);
+        free(body);
+        int hn = snprintf(head, sizeof head, "X-Seed-Info: %s\r\n", seed_info);
+        if (seed_info[0]) store_write(head_path, head, (size_t)hn);
+    }
+#else
+    int pipefd[2];
     if (pipe(pipefd) == 0) {
         pid_t pid = fork();
         if (pid == 0) {
@@ -101,6 +120,7 @@ static int from_server(const char *settings, uint64_t seed, const uint8_t *sm, s
         }
         close(pipefd[0]);
     }
+#endif
     g_phase = 0;
     if (status <= 0) { error_json(info, info_cap, "Connect to the internet: this device downloads Map Rando seeds"); return -1; }
     if (status == 503) { error_json(info, info_cap, "The server is busy, try again in a minute"); return -1; }

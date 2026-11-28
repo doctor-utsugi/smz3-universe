@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SMZ3 Universe</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e15; color: #e8e8f0; font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
+  #bar { position: fixed; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 2; opacity: .3; transition: opacity .2s; }
+  #bar:hover, #bar:focus-within { opacity: 1; }
+  #bar button, #bar label { background: #1a2130; color: #e8e8f0; border: 1px solid #36405a; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
+  #status { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 2em; z-index: 1; pointer-events: none; }
+  #status.hide { display: none; }
+  #drop { position: fixed; inset: 0; border: 4px dashed #f2a33a; display: none; z-index: 3; pointer-events: none; }
+  body.dragging #drop { display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<div id="status">Loading SMZ3 Universe…</div>
+<div id="bar">
+  <label title="Your own Super Metroid and A Link to the Past ROMs, or a saves file from Export">Add ROMs<input id="roms" type="file" multiple hidden accept=".sfc,.smc,.zip,.rdc,.tar"></label>
+  <button id="export" type="button" title="Download your runs, saves and states, to keep or to move to another browser">Export saves</button>
+  <button id="full" type="button">Full screen</button>
+</div>
+<div id="drop"></div>
+<script>
+  var statusEl = document.getElementById('status');
+  if (!self.crossOriginIsolated) statusEl.textContent = 'This page needs a browser with SharedArrayBuffer and a server that sends the COOP/COEP headers.';
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    setStatus: function (t) { statusEl.textContent = t ? t.replace(/\(.*\)/, '') : ''; statusEl.classList.toggle('hide', !t); },
+    onRuntimeInitialized: function () { Module.setStatus(''); Module.canvas.focus(); },
+    onAbort: function () { statusEl.classList.remove('hide'); statusEl.textContent = 'SMZ3 stopped. Your saves are kept: reload the page.'; },
+    locateFile: function (p) { return p + '?v=@BUILD@'; }
+  };
+  var roms = document.getElementById('roms');
+  roms.addEventListener('change', function (e) { Module.smz3AddFiles(e.target.files); e.target.value = ''; Module.canvas.focus(); });
+  document.getElementById('export').addEventListener('click', function () { Module.smz3Export(); Module.canvas.focus(); });
+  document.getElementById('full').addEventListener('click', function () { document.documentElement.requestFullscreen(); Module.canvas.focus(); });
+  ['dragenter', 'dragover'].forEach(function (t) { addEventListener(t, function (e) { e.preventDefault(); document.body.classList.add('dragging'); }); });
+  ['dragleave', 'drop'].forEach(function (t) { addEventListener(t, function (e) { e.preventDefault(); document.body.classList.remove('dragging'); }); });
+  addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length) Module.smz3AddFiles(e.dataTransfer.files); });
+</script>
+<script src="sprites.js?v=@BUILD@"></script>
+<script src="maprando.js?v=@BUILD@"></script>
+<script src="smz3.js?v=@BUILD@"></script>
+</body>
+</html>

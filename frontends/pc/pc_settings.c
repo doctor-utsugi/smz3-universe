@@ -13,6 +13,9 @@
 #include "pc_store.h"
 #include "smz3_shortcuts.h"
 #include "smz3_state.h"
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+#endif
 
 enum { S_OFF, S_MAIN, S_PAD, S_REBIND, S_FILES, S_SC, S_SCBIND };
 enum { M_PAD = -1, M_SC = -2, M_QUIT = -3 };   /* the main page's rows after the settings */
@@ -342,6 +345,10 @@ static void go_up(void)
 
 void settings_open_files(void)
 {
+#ifdef __EMSCRIPTEN__
+    web_pick_files();   /* the browser's own picker: the files land in /incoming, which the menu takes */
+    return;
+#endif
     const char *home = getenv("HOME");
     if (!home) home = getenv("USERPROFILE");
     char start[1024] = ".";

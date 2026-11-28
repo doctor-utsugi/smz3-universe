@@ -11,6 +11,28 @@
 #include "pc_compat.h"
 #include "smz3_version.h"
 #include <SDL.h>
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+/* The canvas can have more pixels than the page has points, and the menu maps clicks with the renderer's output size:
+ * mouse positions are scaled into output pixels as they arrive, so every handler stays as it is. */
+static int web_poll_event(SDL_Event *e)
+{
+    int r = SDL_PollEvent(e);
+    if (!r || (e->type != SDL_MOUSEBUTTONDOWN && e->type != SDL_MOUSEBUTTONUP && e->type != SDL_MOUSEMOTION)) return r;
+    SDL_Window *w = SDL_GetWindowFromID(e->type == SDL_MOUSEMOTION ? e->motion.windowID : e->button.windowID);
+    SDL_Renderer *rr = w ? SDL_GetRenderer(w) : NULL;
+    int ww, wh, ow, oh;
+    if (!rr || SDL_GetRendererOutputSize(rr, &ow, &oh)) return r;
+    SDL_GetWindowSize(w, &ww, &wh);
+    if (ww <= 0 || wh <= 0 || (ow == ww && oh == wh)) return r;
+    if (e->type == SDL_MOUSEMOTION) {
+        e->motion.x = e->motion.x * ow / ww; e->motion.y = e->motion.y * oh / wh;
+        e->motion.xrel = e->motion.xrel * ow / ww; e->motion.yrel = e->motion.yrel * oh / wh;
+    } else { e->button.x = e->button.x * ow / ww; e->button.y = e->button.y * oh / wh; }
+    return r;
+}
+#define SDL_PollEvent web_poll_event
+#endif
 #include "pc_emu.h"
 #include "pc_assets.h"
 #include "pc_sfx.h"
@@ -878,6 +900,28 @@ static void refill_slots(void) { store_fill_slots(&ui); for (int i = 0; i < UI_S
 static char g_note[200];
 static Uint32 g_note_until;
 static void note(const char *msg) { snprintf(g_note, sizeof g_note, "%s", msg); g_note_until = SDL_GetTicks() + 6000; }
+
+#ifdef __EMSCRIPTEN__
+/* Files the page put in /incoming (picked or dropped) are taken like a file dropped on the window */
+static void web_take_incoming(void)
+{
+    static Uint32 next;
+    if (SDL_GetTicks() < next) return;
+    next = SDL_GetTicks() + 300;
+    DIR *d = opendir(WEB_INCOMING);
+    struct dirent *de;
+    while (d && (de = readdir(d))) {
+        if (de->d_name[0] == '.') continue;
+        char p[600];
+        snprintf(p, sizeof p, WEB_INCOMING "/%s", de->d_name);
+        note(accept_rom(p));
+        g_base_checked = 0;
+        welcome_added();
+        remove(p);
+    }
+    if (d) closedir(d);
+}
+#endif
 
 #define QSLOTS 4
 #define LAUNCH_MS 2000       /* from Continue or a new run to the game */
@@ -3340,6 +3384,9 @@ static void window_main(int start_slot)
                 menumusic_set(0);
                 play(pending_play, pending_state_only);
                 sync_left(pending_play);
+#ifdef __EMSCRIPTEN__
+                web_store_save();   /* the run's save and states into IndexedDB now, not at the next timer */
+#endif
                 menumusic_set(ui.menu_music);
                 if (pending_play == RACE_SLOT - 1) { race_forget(); ui_race_end(&ui); race_paused_show(); }   /* a race is played once, or kept paused */
                 pending_play = -1;
@@ -3351,6 +3398,10 @@ static void window_main(int start_slot)
             }
         }
         if (SDL_GetTicks() >= next_daily) { next_daily = SDL_GetTicks() + 60000; detach(daily_thread, NULL); }
+#ifdef __EMSCRIPTEN__
+        web_take_incoming();
+        next_version = UINT32_MAX;   /* the page is always the newest build */
+#endif
         if (SDL_GetTicks() >= next_version && !g_update_state) { next_version = SDL_GetTicks() + 30 * 60000; detach(version_thread, NULL); }
         if (g_version_ready) { g_version_ready = 0; ui_update_load_json(&ui, g_version_ans, SMZ3_VERSION, update_can_install()); }
         if (g_update_state == 2) { g_restart = 1; break; }   /* main starts the new release */

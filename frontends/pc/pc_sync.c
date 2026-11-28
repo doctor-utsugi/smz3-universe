@@ -85,6 +85,17 @@ static int run_curl(const char *const *argv, char *code, size_t cap)
 }
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include "web.h"
+/* RomM answers a browser only when it sends CORS headers for this page's origin */
+static int http(void *ctx, const char *method, const char *url, const char *headers, const uint8_t *body, size_t len, uint8_t **out, size_t *out_len)
+{
+    (void)ctx;
+    int status = web_http(method, url, headers, body, len, out, out_len, NULL, NULL, 0);
+    if (getenv("SMZ3_SYNC_LOG")) fprintf(stderr, "sync: %s %s -> %d\n", method, url, status);
+    return status;
+}
+#else
 static int http(void *ctx, const char *method, const char *url, const char *headers, const uint8_t *body, size_t len, uint8_t **out, size_t *out_len)
 {
     (void)ctx;
@@ -117,6 +128,7 @@ static int http(void *ctx, const char *method, const char *url, const char *head
     if (getenv("SMZ3_SYNC_LOG")) fprintf(stderr, "sync: %s %s -> %d\n", method, url, rc || !status ? -1 : status);
     return rc || !status ? -1 : status;
 }
+#endif
 
 /* ---- sign-in, kept in sync.txt ---- */
 
