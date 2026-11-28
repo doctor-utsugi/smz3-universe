@@ -50,7 +50,7 @@ block, before the proxy to the ladder server:
 ```
 redir /play /play/
 handle_path /play/* {
-	root * /srv/smz3/web
+	root * /srv/smz3-web
 	header Cross-Origin-Opener-Policy same-origin
 	header Cross-Origin-Embedder-Policy require-corp
 	header Cross-Origin-Resource-Policy same-origin
