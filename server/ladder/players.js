@@ -2,6 +2,8 @@
 //   POST /api/player/code {install}                 -> {code, expiresAt}   a short code another device enters to join
 //   POST /api/player/link {install, code}           -> {ok, player}        this install joins the code's player
 //   GET  /api/player?install=                       -> {player, devices}
+//   POST /api/player/recovery {install, renew?}     -> {code}   the player's recovery code, made on first ask; renew replaces it
+//   POST /api/player/recover {install, code}        -> {ok, player}   this install joins the code's player (every device lost)
 //   POST /api/sync/hash {install, run, hash, online?, playMs?, proof?} -> {ok}   a save or state SMZ3 itself wrote
 //   GET  /api/sync/hash?install=&run=&hash=         -> {known, playMs?, proof?}
 //   POST /api/sync/hold {install, run, force?}      -> {ok} or 409 {holder}   an online run plays on one device at a time
@@ -17,13 +19,22 @@ const CODE_MS = 10 * 60 * 1000;
 const HASHES_PER_RUN = 64;
 const RUN_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const HASH_RE = /^[0-9a-f]{16,128}$/;
+// Recovery codes: 20 Crockford base32 characters (100 bits), shown as 4 groups of 5. They hold no personal data and work
+// like the install ids, which already are the players' only credential.
+const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const newRecovery = () => Array.from({ length: 20 }, (_, i) => (i && i % 5 === 0 ? '-' : '') + B32[crypto.randomInt(32)]).join('');
+const readRecovery = c => {
+  const t = String(c || '').toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  return /^[0-9A-HJKMNP-TV-Z]{20}$/.test(t) ? t.replace(/(.{5})(?=.)/g, '$1-') : null;
+};
 
 module.exports = function players(ctx) {
   const { DIR, send, readJson, onlyKeys, limited, validInstall } = ctx;
   const clock = ctx.now || Date.now;
   const FILE = path.join(DIR, 'players.json');
   // of[install] = player; codes[code] = {player, exp}; hashes[player][run][hash] = {at, playMs?, proof?}; holds[player][run] = {install, at}
-  let db = { of: {}, codes: {}, hashes: {}, holds: {} };
+  // recovery[player] = code; recovered[code] = player
+  let db = { of: {}, codes: {}, hashes: {}, holds: {}, recovery: {}, recovered: {} };
   try { db = Object.assign(db, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) {}
   function save() {
     fs.writeFileSync(FILE + '.tmp', JSON.stringify(db));
@@ -64,6 +75,38 @@ module.exports = function players(ctx) {
         if (c.player === b.install) delete db.of[b.install]; else db.of[b.install] = c.player;
         save();
         send(res, 200, { ok: true, player: c.player });
+      });
+      return true;
+    }
+    if (req.method === 'POST' && p === '/api/player/recovery') {
+      if (limited('recovery', ip, 20)) { send(res, 429, { error: 'slow down' }); return true; }
+      readJson(req, res, b => {
+        if (!onlyKeys(b, ['install', 'renew']) || !validInstall(b.install)) return send(res, 400, { error: 'bad request' });
+        const player = of(b.install);
+        let code = db.recovery[player];
+        if (!code || b.renew) {
+          if (code) delete db.recovered[code];
+          do code = newRecovery(); while (db.recovered[code]);
+          db.recovery[player] = code;
+          db.recovered[code] = player;
+          save();
+        }
+        send(res, 200, { code });
+      });
+      return true;
+    }
+    if (req.method === 'POST' && p === '/api/player/recover') {
+      if (limited('recover', ip, 10)) { send(res, 429, { error: 'slow down' }); return true; }
+      readJson(req, res, b => {
+        if (!onlyKeys(b, ['install', 'code']) || !validInstall(b.install)) return send(res, 400, { error: 'bad request' });
+        const code = readRecovery(b.code), player = code && db.recovered[code];
+        if (!code) return send(res, 400, { error: 'a recovery code has 20 letters and digits' });
+        if (!player) return send(res, 404, { error: 'unknown recovery code' });
+        if (of(b.install) === player) return send(res, 200, { ok: true, player });
+        if (Object.values(db.of).includes(b.install)) return send(res, 409, { error: 'this device already has other devices linked to it' });
+        if (player === b.install) delete db.of[b.install]; else db.of[b.install] = player;
+        save();
+        send(res, 200, { ok: true, player });
       });
       return true;
     }

@@ -160,10 +160,10 @@ void ui_set_sprites(SmzUi *u, int game, const char *const *names, int n)
 static const char *const HOME_NAMES[HOME_ROWS] = {"Start / Load game", "Online draft", "Championship", "Options", "Quit"};
 /* Quit on the start menu only where the host asks for it (the PC builds, Linux handhelds among them). */
 static int home_rows(const SmzUi *u) { return u->options_mask & UI_OPT_HOME_QUIT ? 5 : 4; }
-static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits, -3: Cloud sync */
+static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /* bit 0: the Player row, -1: the Update row, -2: Credits, -3: Cloud sync, -4: Recovery code */
     {-1, "Update", ""}, {UI_OPT_BUTTONS, "Buttons and keys", ""}, {UI_OPT_VIDEO, "Video", "resolution, screen"}, {UI_OPT_SOUND, "Menu music", ""},
     {UI_OPT_SEED, "Seed code", "on the RUN tab"}, {UI_OPT_MAPRANDO, "Map Rando seeds", ""},
-    {0, "Player", "name, country"}, {-3, "Cloud sync", "RomM"}, {-2, "Credits", "authors, licences"}, {UI_OPT_QUIT, "Quit", ""}};
+    {0, "Player", "name, country"}, {-3, "Cloud sync", "RomM"}, {-4, "Recovery code", "on a new device"}, {-2, "Credits", "authors, licences"}, {UI_OPT_QUIT, "Quit", ""}};
 /* The Credits screen: whose work the app is built on, and under which licence (THIRD_PARTY.md has the notices).
    Lines starting with '#' are headings; keep each line within 40 characters for the 320-pixel screens. */
 static const char *const CREDITS_LINES[] = {
@@ -278,7 +278,7 @@ static int option_rows(const SmzUi *u, int *kind)
     int n = 0;
     for (int i = 0; i < OPTION_KINDS; i++) {
         int bit = OPTION_ROWS[i].bit;
-        if (bit == -2 || (bit == -3 ? u->cloud.on : bit == -1 ? u->update[0] : bit ? u->options_mask & bit : u->player_on)) kind[n++] = i;
+        if (bit == -2 || (bit <= -3 ? u->cloud.on : bit == -1 ? u->update[0] : bit ? u->options_mask & bit : u->player_on)) kind[n++] = i;
     }
     return n;
 }
@@ -416,6 +416,42 @@ static void cloud_conflict_input(SmzUi *u, UiButton b)
     else if (b == BTN_A) { u->action = ACT_CLOUD; u->action_slot = *c ? CLOUD_KEEP_CLOUD : CLOUD_KEEP_HERE; u->screen = UI_SLOTS_SCREEN; }
 }
 
+/* The Recovery code screen's rows: CLOUD_RECOVERY, Enter a code, CLOUD_RECOVERY_NEW (asked twice, the old code stops working). */
+static void recovery_input(SmzUi *u, UiButton b)
+{
+    int *c = &u->cloud.cursor;
+    if (b == BTN_B) { u->screen = UI_OPTIONS; return; }
+    if (b == BTN_UP || b == BTN_DOWN) { *c = (*c + (b == BTN_UP ? 2 : 1)) % 3; u->cloud.armed = 0; return; }
+    if (b != BTN_A) return;
+    if (*c != 2) u->cloud.armed = 0;   /* a tap on another row */
+    if (*c == 1) { u->name_for = 7; u->name[0] = 0; u->name_len = 0; u->key_cursor = 0; u->screen = UI_NAME; return; }
+    if (*c == 2 && !u->cloud.armed) { u->cloud.armed = 1; ui_cloud_msg(u, "A again: the old code stops working"); return; }
+    u->cloud.armed = 0;
+    u->action = ACT_CLOUD;
+    u->action_slot = *c ? CLOUD_RECOVERY_NEW : CLOUD_RECOVERY;
+    ui_cloud_msg(u, "Asking the server...");
+}
+
+/* t as a recovery code, "XXXXX-XXXXX-XXXXX-XXXXX" (spaces and dashes skipped, O read as 0, I and L as 1), or "" when it is not one. */
+static void recovery_code(const char *t, char out[24])
+{
+    static const char B32[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    char buf[24];
+    int k = 0, n = 0;
+    for (; *t; t++) {
+        char ch = *t >= 'a' && *t <= 'z' ? *t - 32 : *t;
+        if (ch == ' ' || ch == '-') continue;
+        ch = ch == 'O' ? '0' : ch == 'I' || ch == 'L' ? '1' : ch;
+        if (!ch || !strchr(B32, ch) || k == 20) { out[0] = 0; return; }
+        if (k && k % 5 == 0) buf[n++] = '-';
+        buf[n++] = ch;
+        k++;
+    }
+    buf[n] = 0;
+    if (k == 20) memcpy(out, buf, sizeof buf);
+    else out[0] = 0;
+}
+
 void ui_cloud_enable(SmzUi *u, int on) { u->cloud.on = on; }
 
 void ui_cloud_state(SmzUi *u, int state, const char *user, const char *server, const char *code, const char *url)
@@ -429,7 +465,13 @@ void ui_cloud_state(SmzUi *u, int state, const char *user, const char *server, c
     if (state == UI_CLOUD_WAITING) u->cloud.msg[0] = 0;   /* the code replaces "Asking RomM for a code..." */
 }
 
-void ui_cloud_msg(SmzUi *u, const char *msg) { snprintf(u->cloud.msg, sizeof u->cloud.msg, "%s", msg ? msg : ""); }
+void ui_cloud_msg(SmzUi *u, const char *msg)
+{
+    char code[24];
+    recovery_code(msg ? msg : "", code);
+    if (code[0] && !strcmp(code, msg)) { memcpy(u->cloud.recovery, code, sizeof code); u->cloud.msg[0] = 0; return; }   /* the code the host was asked for */
+    snprintf(u->cloud.msg, sizeof u->cloud.msg, "%s", msg ? msg : "");
+}
 
 void ui_cloud_conflict(SmzUi *u, int slot, const char *device, const char *when)
 {
@@ -450,6 +492,7 @@ static void options_input(SmzUi *u, UiButton b)
         int bit = OPTION_ROWS[kind[*c]].bit;
         if (bit == -2) { u->credits_scroll = 0; u->screen = UI_CREDITS; return; }
         if (bit == -3) { u->cloud.cursor = 0; u->cloud.msg[0] = 0; u->screen = UI_CLOUD; return; }
+        if (bit == -4) { u->cloud.cursor = u->cloud.armed = 0; u->cloud.msg[0] = 0; u->screen = UI_RECOVERY; return; }
         if (bit < 0) {
             if (u->update_install) u->action = ACT_UPDATE;
             else snprintf(u->notice, sizeof u->notice, "smz3.com/download");
@@ -1484,7 +1527,7 @@ static int name_cap(const SmzUi *u) { return u->name_for == 5 ? (int)sizeof u->n
 static void name_input(SmzUi *u, UiButton b)
 {
     int c = u->key_cursor;
-    UiScreen back = u->name_for == 6 ? UI_HOME : u->name_for >= 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
+    UiScreen back = u->name_for == 6 ? UI_HOME : u->name_for == 7 ? UI_RECOVERY : u->name_for >= 4 ? UI_CLOUD : u->name_for == 2 ? UI_RACE_WAY : u->name_for ? u->player_opts ? UI_OPTIONS : UI_START : UI_CREATE;
     if (b == BTN_B) { u->screen = back; return; }
     if (b == BTN_START) { u->key_cursor = KEY_COUNT + 2; return; }   /* to Save */
     if (b == BTN_L) { if (u->name_len) u->name[--u->name_len] = 0; return; }
@@ -1522,6 +1565,15 @@ static void name_input(SmzUi *u, UiButton b)
                 u->screen = UI_CLOUD;
                 u->action = ACT_CLOUD;
                 u->action_slot = CLOUD_ADDRESS;
+                break;
+            }
+            if (u->name_for == 7) {
+                recovery_code(u->name, u->cloud.link);
+                u->screen = UI_RECOVERY;
+                if (!u->cloud.link[0]) { ui_cloud_msg(u, "A recovery code has 20 letters and digits"); break; }
+                u->action = ACT_CLOUD;
+                u->action_slot = CLOUD_RECOVER;
+                ui_cloud_msg(u, "Recovering...");
                 break;
             }
             if (u->name_for == 4) {   /* a link code: its digits */
@@ -1824,6 +1876,7 @@ void ui_input(SmzUi *u, UiButton b)
     case UI_OPTIONS: options_input(u, b); break;
     case UI_CREDITS: credits_input(u, b); break;
     case UI_CLOUD: cloud_input(u, b); break;
+    case UI_RECOVERY: recovery_input(u, b); break;
     case UI_CLOUD_CONFLICT: cloud_conflict_input(u, b); break;
     case UI_LOGO:
     case UI_BUSY: break;
@@ -2771,6 +2824,25 @@ void ui_draw(SmzUi *u)
         legend(u, "A Choose  B Back");
         break;
     }
+    case UI_RECOVERY: {
+        static const char *const NAMES[] = {"Show my code", "Enter a code", "New code"};
+        static const char *const DESCS[] = {"write it down", "on a new device", "the old one stops working"};
+        title(u, "Recovery code");
+        text(u, UI_W / 2, 32, C_DIM, 1, "Lost every device? This code brings back");
+        text(u, UI_W / 2, 46, C_DIM, 1, "your player: ladders, dailies and goals");
+        rect(u, UI_W / 2 - 110, 64, 220, 30, C_PANEL);
+        text(u, UI_W / 2, 72, u->cloud.recovery[0] ? C_GOLD : C_DIM, 1, u->cloud.recovery[0] ? u->cloud.recovery : "not shown yet");
+        for (int r = 0; r < 3; r++) {
+            int y = 104 + r * 30;
+            rect(u, 8, y, UI_W - 16, 26, r == u->cloud.cursor ? C_SEL : C_PANEL);
+            hit(u, H_CLOUD, r, 8, y, UI_W - 16, 26);
+            text(u, 18, y + 5, C_TEXT, 0, NAMES[r]);
+            text(u, UI_W - 18, y + 5, C_DIM, 2, DESCS[r]);
+        }
+        if (u->cloud.msg[0]) text(u, UI_W / 2, UI_H - 30, C_WARN, 1, u->cloud.msg);
+        legend(u, "A Choose  B Back");
+        break;
+    }
     case UI_CLOUD_CONFLICT: {
         title(u, "Which one to keep?");
         text(u, UI_W / 2, 36, C_TEXT, 1, "This run changed on this device");
@@ -2873,7 +2945,7 @@ void ui_draw(SmzUi *u)
         break;
     }
     case UI_NAME: {
-        title(u, u->name_for == 5 ? "RomM address" : u->name_for == 4 ? "Link code" : u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
+        title(u, u->name_for == 7 ? "Recovery code" : u->name_for == 5 ? "RomM address" : u->name_for == 4 ? "Link code" : u->name_for == 2 ? "Room code" : u->name_for ? "Player name" : "Save custom as");
         char field[72];
         snprintf(field, sizeof field, "%s_", u->name_len > 44 ? u->name + u->name_len - 44 : u->name);   /* a long address: its end */
         rect(u, 10, 32, UI_W - 20, 24, C_PANEL);
@@ -2885,7 +2957,7 @@ void ui_draw(SmzUi *u)
             hit(u, H_KEY, k, x, y, 28, 28);
             text(u, x + 14, y + 8, C_TEXT, 1, ch);
         }
-        const char *const CTRL[KEY_CTRL] = {"Space", "Delete", u->name_for == 2 || u->name_for == 4 ? "Join" : "Save", "Cancel"};
+        const char *const CTRL[KEY_CTRL] = {"Space", "Delete", u->name_for == 2 || u->name_for == 4 ? "Join" : u->name_for == 7 ? "Use" : "Save", "Cancel"};
         for (int k = 0; k < KEY_CTRL; k++) {
             int x = 10 + k * 75;
             rect(u, x, 186, 73, 26, KEY_COUNT + k == u->key_cursor ? C_SEL : C_PANEL);

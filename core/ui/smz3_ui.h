@@ -27,7 +27,7 @@ extern int smz_ui_w, smz_ui_h;
 
 typedef enum { BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_L, BTN_R, BTN_SELECT, BTN_START } UiButton;   /* START: only the keyboard uses it (to Save) */
 typedef enum { UI_SLOTS_SCREEN, UI_SLOT_MENU, UI_CREATE, UI_SPRITES, UI_BUSY, UI_CONFIRM, UI_MODE, UI_SAVED, UI_NAME, UI_START, UI_COUNTRY, UI_ONLINE, UI_LOADCHOICE, UI_LADDER, UI_RULES, UI_DAILY, UI_LOGO, UI_HOME, UI_OPTIONS,
-               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_CREDITS, UI_CLOUD, UI_CLOUD_CONFLICT, UI_ROMS } UiScreen;
+               UI_RACE_SIZE, UI_RACE_WAY, UI_RACE_FORMAT, UI_RACE_LENGTH, UI_RACE_PUBLIC, UI_RACE_LIST, UI_RACE_ROOM, UI_RACE_READY, UI_GAMES, UI_CREDITS, UI_CLOUD, UI_CLOUD_CONFLICT, UI_ROMS, UI_RECOVERY } UiScreen;
 typedef enum { OPT_ENUM, OPT_INT, OPT_BOOL, OPT_SEED, OPT_SPRITE } OptKind;
 /* Tabs of the Create run screen; Quick repeats the options most players change.  Only LEVEL_ITEMS is read from UiOptDef.level; the other tabs list their keys in UI_TABS. */
 typedef enum { LEVEL_QUICK, LEVEL_RUN, LEVEL_ZELDA, LEVEL_METROID, LEVEL_PLAY, LEVEL_ITEMS, LEVEL_COUNT } OptLevel;
@@ -89,7 +89,7 @@ typedef struct {
     int keep_custom;             /* saving failed (list full): Custom opens with the options as they were */
     char name[64];               /* what the keyboard is typing: a saved custom's or player's name, a code, an address */
     int name_len, key_cursor;
-    int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes, 4 link code, 5 RomM address, 6 player name before a race */
+    int name_for;                /* 0 saved custom, 1 player name, 2 room code, 3 player name for the online Yes, 4 link code, 5 RomM address, 6 player name before a race, 7 recovery code */
     int player_on, player_dirty; /* the host shows the Player row (it has an online ladder) / the profile changed */
     char version[16];   /* the release shown in the run list's corner; empty where another screen shows it */
     int picked, last_slot[3];   /* the game entered last and each game's slot opened last (ui_memory_text) */
@@ -139,8 +139,8 @@ typedef struct {
              SmzRace room; } race;            /* the online race being set up (see ui_race_*) */
     int rules_scroll;            /* first row shown on the rules screen */
     int credits_scroll;          /* first line shown on the Credits screen */
-    struct { int on, state, cursor, slot;     /* the host syncs with RomM / UI_CLOUD_* / the row / the run of a conflict */
-             char user[24], server[64], code[16], url[64], link[8], msg[48], dev[40], when[24], addr[72]; } cloud;   /* see ui_cloud_* */
+    struct { int on, state, cursor, slot, armed;     /* the host syncs with RomM / UI_CLOUD_* / the row / the run of a conflict / New code asked once */
+             char user[24], server[64], code[16], url[64], link[24], msg[48], dev[40], when[24], addr[72], recovery[24]; } cloud;   /* see ui_cloud_* */
     int start_cursor, start_col;  /* sprite screen: row (Link, Samus, Start) and column (sprite, Random) */
     UiScreen start_from;
     uint32_t rng;
@@ -320,9 +320,12 @@ void ui_race_fail(SmzUi *u, const char *msg);
 void ui_race_end(SmzUi *u);
 const char *ui_race_format_key(const SmzUi *u);
 /* Cloud sync (RomM): its screen and the conflict choice come back as ACT_CLOUD with a CLOUD_* in action_slot (CLOUD_LINK:
- * the code is in cloud.link; CLOUD_ADDRESS: the RomM address the player typed, a full URL, is in cloud.addr; CLOUD_KEEP_*: the run is cloud.slot). The host answers with ui_cloud_state and ui_cloud_msg. */
+ * the code is in cloud.link; CLOUD_ADDRESS: the RomM address the player typed, a full URL, is in cloud.addr; CLOUD_KEEP_*: the run is cloud.slot). The host answers with ui_cloud_state and ui_cloud_msg.
+ * The Recovery code screen, which needs no RomM, sends CLOUD_RECOVERY (show the code), CLOUD_RECOVERY_NEW (replace it) and
+ * CLOUD_RECOVER (the code typed, "XXXXX-XXXXX-XXXXX-XXXXX", is in cloud.link); the host answers a code with ui_cloud_msg(code). */
 enum { UI_CLOUD_OUT, UI_CLOUD_WAITING, UI_CLOUD_IN };
-enum { CLOUD_SIGN_IN = 1, CLOUD_CANCEL, CLOUD_SYNC, CLOUD_CODE, CLOUD_LINK, CLOUD_SIGN_OUT, CLOUD_KEEP_HERE, CLOUD_KEEP_CLOUD, CLOUD_ADDRESS };
+enum { CLOUD_SIGN_IN = 1, CLOUD_CANCEL, CLOUD_SYNC, CLOUD_CODE, CLOUD_LINK, CLOUD_SIGN_OUT, CLOUD_KEEP_HERE, CLOUD_KEEP_CLOUD, CLOUD_ADDRESS,
+       CLOUD_RECOVERY, CLOUD_RECOVERY_NEW, CLOUD_RECOVER };
 void ui_cloud_enable(SmzUi *u, int on);
 /* UI_CLOUD_WAITING shows code and url (where to approve it); UI_CLOUD_IN shows user and server. */
 void ui_cloud_state(SmzUi *u, int state, const char *user, const char *server, const char *code, const char *url);

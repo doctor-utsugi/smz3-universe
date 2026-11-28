@@ -130,6 +130,33 @@ int smz_sync_player_link(SmzSync *s, const char *code)
     return st == 200 ? 0 : -1;
 }
 
+int smz_sync_recovery(SmzSync *s, int renew, char code[24])
+{
+    char body[96];
+    snprintf(body, sizeof body, "{\"install\":\"%s\"%s}", s->install, renew ? ",\"renew\":true" : "");
+    uint8_t *o = NULL;
+    int st = server(s, "POST", "/api/player/recovery", body, &o);
+    int ok = st == 200 && sj_str(sj_get((const char *)o, "code"), code, 24) == 23;
+    if (!ok) snprintf(s->romm->err, sizeof s->romm->err, st < 0 ? "No connection to the SMZ3 server" : "The server gave no code (%d)", st);
+    free(o);
+    return ok ? 0 : -1;
+}
+
+int smz_sync_recover(SmzSync *s, const char *code)
+{
+    char body[128];
+    snprintf(body, sizeof body, "{\"install\":\"%s\",\"code\":\"%.23s\"}", s->install, code);
+    uint8_t *o = NULL;
+    int st = server(s, "POST", "/api/player/recover", body, &o);
+    if (st != 200) {
+        char e[96] = "";
+        if (o) sj_str(sj_get((const char *)o, "error"), e, sizeof e);
+        snprintf(s->romm->err, sizeof s->romm->err, "%s", st < 0 ? "No connection to the SMZ3 server" : e[0] ? e : "The code was not accepted");
+    }
+    free(o);
+    return st == 200 ? 0 : -1;
+}
+
 int smz_sync_hold(SmzSync *s, const char *run_id, int force)
 {
     char body[160];

@@ -1624,17 +1624,19 @@ JNIEXPORT void JNICALL NATIVE(syncKeepIds)(JNIEnv *env, jclass cls, jobject host
     smz_sync_record_ids(&fs, romId, noteId);
 }
 
-/* The player link: what 0 asks for a code ({"0", code} or {"-1", why}), 1 links this install with code. */
+/* The player link: what 0 asks for a code ({"0", code} or {"-1", why}), 1 links this install with code; the recovery code:
+ * 2 shows it, 3 replaces it, 4 makes this install the player of code. */
 JNIEXPORT jobjectArray JNICALL NATIVE(syncPlayer)(JNIEnv *env, jclass cls, jobject host, jobjectArray cfg, jint what, jstring code)
 {
     JHost h; SmzRomm r; SmzSync s;
     sync_setup(env, host, cfg, &h, &r, &s);
-    char c[8] = "";
+    char c[24] = "";
     int e;
     if (what == 0) e = smz_sync_player_code(&s, c);
+    else if (what == 2 || what == 3) e = smz_sync_recovery(&s, what == 3, c);
     else {
         const char *t = (*env)->GetStringUTFChars(env, code, NULL);
-        e = smz_sync_player_link(&s, t);
+        e = what == 4 ? smz_sync_recover(&s, t) : smz_sync_player_link(&s, t);
         (*env)->ReleaseStringUTFChars(env, code, t);
     }
     const char *v[2] = {e ? "-1" : "0", e ? r.err : c};
@@ -1685,7 +1687,7 @@ JNIEXPORT void JNICALL NATIVE(uiCloudConflict)(JNIEnv *env, jclass cls, jint slo
     (*env)->ReleaseStringUTFChars(env, when, w);
 }
 
-/* {the run of the conflict, the link code typed}. */
+/* {the run of the conflict, the link or recovery code typed, the RomM address typed}. */
 JNIEXPORT jobjectArray JNICALL NATIVE(uiCloudInfo)(JNIEnv *env, jclass cls)
 {
     char slot[8];

@@ -85,6 +85,10 @@ void smz_sync_new_id(char letter, uint64_t entropy, char out[40]);
  * when another device holds the run (holder gets its install id) and force takes it over. */
 int smz_sync_player_code(SmzSync *s, char code[8]);
 int smz_sync_player_link(SmzSync *s, const char *code);
+/* The player's recovery code ("XXXXX-XXXXX-XXXXX-XXXXX"), made on first ask, a new one with renew; recover makes this
+ * install that code's player, for when every other device is lost. 0, or -1 with s->romm->err set. */
+int smz_sync_recovery(SmzSync *s, int renew, char code[24]);
+int smz_sync_recover(SmzSync *s, const char *code);
 int smz_sync_hold(SmzSync *s, const char *run_id, int force);
 void smz_sync_release(SmzSync *s, const char *run_id);
 

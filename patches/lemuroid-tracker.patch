@@ -14646,7 +14646,7 @@ new file mode 100644
 index 0000000..863fb07
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/CloudSync.kt
-@@ -0,0 +1,442 @@
+@@ -0,0 +1,448 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -14875,6 +14875,9 @@ index 0000000..863fb07
 +    const val KEEP_HERE = 7
 +    const val KEEP_CLOUD = 8
 +    const val ADDRESS = 9
++    const val RECOVERY = 10
++    const val RECOVERY_NEW = 11
++    const val RECOVER = 12
 +
 +    /** One sync call at a time, in the order asked (an open waits for the push before it). */
 +    private val worker = Executors.newSingleThreadExecutor()
@@ -15025,6 +15028,9 @@ index 0000000..863fb07
 +                Thread { val r = Smz3Native.syncPlayer(net, cfg(app), 0, ""); say(if (r[0] == "0") "On the other device enter ${r[1]}" else r[1].take(47)) }.start()
 +            }
 +            LINK -> Thread { val r = Smz3Native.syncPlayer(net, cfg(app), 1, link); say(if (r[0] == "0") "Linked: one player on both devices" else r[1].take(47)) }.start()
++            // the code itself goes to the screen, which keeps it (ui_cloud_msg)
++            RECOVERY, RECOVERY_NEW -> Thread { say(Smz3Native.syncPlayer(net, cfg(app), if (what == RECOVERY) 2 else 3, "")[1].take(47)) }.start()
++            RECOVER -> Thread { val r = Smz3Native.syncPlayer(net, cfg(app), 4, link); say(if (r[0] == "0") "Recovered: this device is your player again" else r[1].take(47)) }.start()
 +        }
 +    }
 +

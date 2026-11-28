@@ -21,7 +21,7 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;   /* one sync call at
 static SmzRomm g_romm;
 static char g_user[24];
 static int g_pending;   /* background uploads running */
-static char g_link[8];  /* the link code typed */
+static char g_link[24];  /* the link or recovery code typed */
 
 /* ---- transport: curl, as pc_online does, but with binary bodies and headers ---- */
 
@@ -595,6 +595,11 @@ static void *link_thread(void *arg)
         if (smz_sync_player_code(&s, code)) say(r.err);
         else { char m[48]; snprintf(m, sizeof m, "On the other device enter %s", code); say(m); }
     } else if (what == CLOUD_LINK) say(smz_sync_player_link(&s, g_link) ? r.err : "Linked: one player on both devices");
+    else if (what == CLOUD_RECOVER) say(smz_sync_recover(&s, g_link) ? r.err : "Recovered: this device is your player again");
+    else {
+        char code[24];
+        say(smz_sync_recovery(&s, what == CLOUD_RECOVERY_NEW, code) ? r.err : code);   /* the screen keeps the code */
+    }
     return NULL;
 }
 
@@ -636,9 +641,12 @@ int sync_action(SmzUi *u, int what, void (*present)(void))
         ui_cloud_msg(u, "Asking the server for a code...");
         start(link_thread, (void *)(intptr_t)CLOUD_CODE);
         break;
-    case CLOUD_LINK:
+    case CLOUD_LINK: case CLOUD_RECOVER:
         snprintf(g_link, sizeof g_link, "%s", u->cloud.link);
-        start(link_thread, (void *)(intptr_t)CLOUD_LINK);
+        start(link_thread, (void *)(intptr_t)what);
+        break;
+    case CLOUD_RECOVERY: case CLOUD_RECOVERY_NEW:
+        start(link_thread, (void *)(intptr_t)what);
         break;
     case CLOUD_KEEP_HERE: case CLOUD_KEEP_CLOUD: {
         Job j = {0};
