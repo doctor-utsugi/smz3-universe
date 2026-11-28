@@ -7711,10 +7711,10 @@ index 0000000..a5aaa3c
 +}
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
 new file mode 100644
-index 0000000..186901c
+index 0000000..7919202
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/shared/game/viewmodel/Smz3Native.kt
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,293 @@
 +package com.swordfish.lemuroid.app.shared.game.viewmodel
 +
 +/** JNI bridge to the shared C core (core/smz3_state.c). */
@@ -7768,6 +7768,8 @@ index 0000000..186901c
 +    @JvmStatic external fun generateSm(sm: ByteArray, settingsJson: String, samusRdc: ByteArray?): ByteArray?
 +    /** Offers Map Rando with its unpacked data folder; false when this build has no Map Rando. */
 +    @JvmStatic external fun mapRandoSetup(dataDir: String): Boolean
++    /** The folder of the seeds the game comes with, used when a seed can be neither built nor downloaded. */
++    @JvmStatic external fun mapRandoPool(dir: String)
 +    /** -2 downloading the seed, -1 idle, 0 loading Map Rando's data, else 1 + the attempts of the seed being built. */
 +    @JvmStatic external fun mapRandoProgress(): Int
 +    /** Called by the native Map Rando on a phone short of memory: the server's patch, or null with the reason in [mapRandoInfo]. */
@@ -14484,10 +14486,10 @@ index 09b87ea..4091294 100644
              LemuroidSettingsMenuLink(
 diff --git a/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
 new file mode 100644
-index 0000000..e4f2a10
+index 0000000..89c8b19
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,93 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -14503,6 +14505,7 @@ index 0000000..e4f2a10
 +/** Map Rando (core/maprando): its packed data ships as assets/maprando/data.zip and is unpacked once into the app's storage. */
 +object MapRando {
 +    private const val ASSET = "maprando"
++    private const val POOL = "maprando-pool"
 +
 +    private fun dataDir(context: Context) = File(context.filesDir, "maprando-data")
 +
@@ -14517,6 +14520,7 @@ index 0000000..e4f2a10
 +
 +    /** Unpacks the data when this APK's differs from what is there (blocking: call it off the main thread). */
 +    fun ensure(context: Context) {
++        pool(context)
 +        val want = stamp(context) ?: return
 +        val dir = dataDir(context)
 +        val mark = File(dir, ".stamp")
@@ -14534,6 +14538,21 @@ index 0000000..e4f2a10
 +            }
 +        }
 +        mark.writeText(want)
++    }
++
++    /** Copies out the seeds the game comes with (assets/maprando-pool) when this APK's differ, as the core reads files. */
++    private fun pool(context: Context) {
++        val names = runCatching { context.assets.list(POOL) }.getOrNull()?.takeIf { "pool.txt" in it } ?: return
++        val dir = File(context.filesDir, POOL)
++        val want = context.assets.open("$POOL/pool.txt").use { it.readBytes() }
++        val list = File(dir, "pool.txt")
++        if (!list.isFile || !list.readBytes().contentEquals(want)) {
++            dir.deleteRecursively()
++            dir.mkdirs()
++            for (n in names) if (n != "pool.txt") context.assets.open("$POOL/$n").use { i -> File(dir, n).outputStream().use { i.copyTo(it) } }
++            list.writeBytes(want)   // last, so a copy cut short is made again
++        }
++        Smz3Native.mapRandoPool(dir.path)
 +    }
 +
 +    /** The busy line while a seed is built, from the native progress and the seconds since [since]. */

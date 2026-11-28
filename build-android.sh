@@ -33,6 +33,8 @@ jdk="$HOME/.gradle/jdks/eclipse_adoptium-21-amd64-linux.2"
 mkdir -p ../../build
 # the menu music (assets/music) goes in beside the app's own smz3 assets
 mkdir -p "$root/build/android-assets/smz3" && cp "$root/assets/music/smz3_intro.mp3" "$root/build/android-assets/smz3/"
+# the Map Rando seeds the game comes with (tools/maprando/make_pool.py), for a phone that can neither build nor download one
+rm -rf "$root/build/android-assets/maprando-pool" && cp -r "$root/assets/maprando" "$root/build/android-assets/maprando-pool"
 # Map Rando's data (tools/maprando/fetch.sh packs build/maprando-data) goes in as one zip, with a stamp that says when to unpack again
 assets="$root/build/android-assets/maprando"
 rm -rf "$assets"

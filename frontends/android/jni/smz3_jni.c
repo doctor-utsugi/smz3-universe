@@ -509,6 +509,13 @@ JNIEXPORT jboolean JNICALL NATIVE(mapRandoSetup)(JNIEnv *env, jclass cls, jstrin
 #endif
 }
 
+JNIEXPORT void JNICALL NATIVE(mapRandoPool)(JNIEnv *env, jclass cls, jstring dir)
+{
+    const char *d = (*env)->GetStringUTFChars(env, dir, NULL);
+    smz_sm_set_maprando_pool(d);
+    (*env)->ReleaseStringUTFChars(env, dir, d);
+}
+
 /* -1 idle, 0 loading Map Rando's data, else 1 + the attempts of the seed being built. */
 JNIEXPORT jint JNICALL NATIVE(mapRandoProgress)(JNIEnv *env, jclass cls)
 {
