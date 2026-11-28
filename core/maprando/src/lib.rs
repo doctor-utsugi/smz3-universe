@@ -353,7 +353,7 @@ struct CheckCache {
 /// The hub randomize() chose: its start location step replayed with the item seed's generator, which it draws from first.
 fn hub_of(r: &Randomizer, attempt: usize, item_seed: usize) -> Result<(usize, usize)> {
     let mut rs = [0u8; 32];
-    rs[..8].copy_from_slice(&item_seed.to_le_bytes());
+    rs[..8].copy_from_slice(&(item_seed as u64).to_le_bytes());
     let mut rng = rand::rngs::StdRng::from_seed(rs);
     let (global, local) = r.get_initial_states();
     let n = r.game_data.vertex_isv.keys.len();
@@ -572,6 +572,16 @@ pub fn bps_encode(source: &[u8], target: &[u8]) -> Vec<u8> {
     let crc = crc32fast::hash(&out);
     out.extend_from_slice(&crc.to_le_bytes());
     out
+}
+
+/// The randomization of a seed as JSON, without a ROM: for comparing hosts (examples/parity.rs, the web build's wasm32).
+#[doc(hidden)]
+pub fn randomization_with(data_dir: &Path, settings_json: &str, seed: u64) -> Result<String> {
+    let st = load(data_dir)?;
+    in_dir(&st.dir, || {
+        let f = find(&st, settings_json, seed, 0)?;
+        Ok(format!("{} {} {}", f.attempt, f.item_seed, serde_json::to_string(&f.randomization)?))
+    })
 }
 
 /// Loads the data folder and builds a seed, for the server's command line tool.

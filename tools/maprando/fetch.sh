@@ -17,8 +17,13 @@ if [ "$(git -C "$SRC" rev-parse HEAD)" != "$COMMIT" ]; then
     git -C "$SRC" checkout --force "$COMMIT"
 fi
 git -C "$SRC" submodule update --init --depth 1 rust/lznint sm-json-data
+# Applied once on the pristine checkout. A patch that no longer applies stops here: seeds would silently differ from
+# the other hosts' (the 32-bit fixes in it keep wasm32, armv7 and the 3DS on the PC's seeds).
 if git -C "$SRC" apply --check "$ROOT/patches/maprando-device.patch" 2>/dev/null; then
     git -C "$SRC" apply "$ROOT/patches/maprando-device.patch"
+elif ! git -C "$SRC" apply --reverse --check "$ROOT/patches/maprando-device.patch" 2>/dev/null; then
+    echo "patches/maprando-device.patch does not apply to vendor/maprando (pinned $COMMIT)" >&2
+    exit 1
 fi
 
 if [ ! -d "$SRC/patches/mosaic" ]; then
