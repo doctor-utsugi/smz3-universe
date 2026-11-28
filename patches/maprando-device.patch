@@ -53,7 +53,7 @@ index 2b5eed3..1e3df3f 100644
  pub enum GlowPatchSection {
      Direct {
 diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
-index 2f74136..9a8d2d2 100644
+index 2f74136..09151ce 100644
 --- a/rust/maprando-game/src/lib.rs
 +++ b/rust/maprando-game/src/lib.rs
 @@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Formatter};
@@ -515,7 +515,7 @@ index 2f74136..9a8d2d2 100644
      pub reduced_flashing_patch: GlowPatch,
      pub strat_videos: HashMap<(RoomId, StratId), Vec<StratVideo>>,
      pub map_tile_data: Vec<MapTileData>,
-@@ -1689,6 +1765,162 @@ impl<T: Hash + Eq> IndexedVec<T> {
+@@ -1689,6 +1765,178 @@ impl<T: Hash + Eq> IndexedVec<T> {
      }
  }
  
@@ -595,36 +595,52 @@ index 2f74136..9a8d2d2 100644
 +    use super::*;
 +    use serde::de::Error;
 +    use serde::{Deserializer, Serializer};
-+    use std::cell::RefCell;
++    use std::cell::Cell;
 +
 +    enum Table {
 +        Writing(HashMap<Arc<Requirement>, u32>, Vec<Arc<Requirement>>),
 +        Reading(Vec<Arc<Requirement>>),
 +    }
 +
++    // A pointer to a table on the caller's stack: a thread local with a destructor aborts on the 3DS, where std cannot
++    // register thread-exit destructors.
 +    thread_local! {
-+        static TABLE: RefCell<Option<Table>> = const { RefCell::new(None) };
++        static TABLE: Cell<*mut Table> = const { Cell::new(std::ptr::null_mut()) };
++    }
++
++    fn with_table<T>(table: &mut Table, f: impl FnOnce() -> T) -> T {
++        struct Reset;
++        impl Drop for Reset {
++            fn drop(&mut self) {
++                TABLE.with(|t| t.set(std::ptr::null_mut()));
++            }
++        }
++        TABLE.with(|t| t.set(table));
++        let _reset = Reset;
++        f()
++    }
++
++    fn current<T>(f: impl FnOnce(Option<&mut Table>) -> T) -> T {
++        // SAFETY: the pointer is set only while with_table borrows the table, on this thread.
++        f(TABLE.with(|t| unsafe { t.get().as_mut() }))
 +    }
 +
 +    /// Runs `f` (a serialization) and returns its result with the table of the requirements it wrote.
 +    pub fn writing<T>(f: impl FnOnce() -> T) -> (T, Vec<Requirement>) {
-+        TABLE.with(|t| *t.borrow_mut() = Some(Table::Writing(HashMap::new(), vec![])));
-+        let out = f();
-+        let table = TABLE.with(|t| t.borrow_mut().take());
-+        let Some(Table::Writing(_, reqs)) = table else { unreachable!() };
++        let mut table = Table::Writing(HashMap::new(), vec![]);
++        let out = with_table(&mut table, f);
++        let Table::Writing(_, reqs) = table else { unreachable!() };
 +        (out, reqs.iter().map(|r| (**r).clone()).collect())
 +    }
 +
 +    /// Runs `f` (a deserialization) with the requirements table written next to it.
 +    pub fn reading<T>(reqs: Vec<Requirement>, f: impl FnOnce() -> T) -> T {
-+        TABLE.with(|t| *t.borrow_mut() = Some(Table::Reading(reqs.into_iter().map(Arc::new).collect())));
-+        let out = f();
-+        TABLE.with(|t| *t.borrow_mut() = None);
-+        out
++        let mut table = Table::Reading(reqs.into_iter().map(Arc::new).collect());
++        with_table(&mut table, f)
 +    }
 +
 +    pub fn serialize<S: Serializer>(r: &Arc<Requirement>, s: S) -> Result<S::Ok, S::Error> {
-+        let idx = TABLE.with(|t| match t.borrow_mut().as_mut() {
++        let idx = current(|t| match t {
 +            Some(Table::Writing(index, reqs)) => Some(*index.entry(r.clone()).or_insert_with(|| {
 +                reqs.push(r.clone());
 +                reqs.len() as u32 - 1
@@ -639,7 +655,7 @@ index 2f74136..9a8d2d2 100644
 +
 +    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Arc<Requirement>, D::Error> {
 +        let i = u32::deserialize(d)? as usize;
-+        TABLE.with(|t| match t.borrow().as_ref() {
++        current(|t| match t {
 +            Some(Table::Reading(reqs)) => reqs.get(i).cloned().ok_or_else(|| D::Error::custom("bad requirement index")),
 +            _ => Err(D::Error::custom("link requirement outside shared_requirement::reading")),
 +        })
@@ -678,7 +694,7 @@ index 2f74136..9a8d2d2 100644
  fn read_json(path: &Path) -> Result<JsonValue> {
      let file = File::open(path).with_context(|| format!("unable to open {}", path.display()))?;
      let json_str = std::io::read_to_string(file)
-@@ -3151,7 +3383,8 @@ impl GameData {
+@@ -3151,7 +3399,8 @@ impl GameData {
      }
  
      pub fn load_rooms(&mut self, room_pattern: &str) -> Result<()> {
@@ -688,7 +704,7 @@ index 2f74136..9a8d2d2 100644
          for entry in glob::glob(room_pattern).unwrap() {
              if let Ok(path) = entry {
                  let path_str = path.to_str().with_context(|| {
-@@ -3163,26 +3396,37 @@ impl GameData {
+@@ -3163,26 +3412,37 @@ impl GameData {
  
                  let source = std::fs::read_to_string(&path)
                      .with_context(|| format!("unable to read {}", path.display()))?;
@@ -732,7 +748,7 @@ index 2f74136..9a8d2d2 100644
          }
  
          self.populate_target_locations()?;
-@@ -3597,10 +3841,10 @@ impl GameData {
+@@ -3597,10 +3857,10 @@ impl GameData {
          let mut links = self.links.clone();
          for (link, _) in self.node_gmode_regain_mobility.values().flatten() {
              let mut new_link = link.clone();
@@ -746,7 +762,7 @@ index 2f74136..9a8d2d2 100644
              links.push(new_link);
          }
          links
-@@ -4322,7 +4566,7 @@ impl GameData {
+@@ -4322,7 +4582,7 @@ impl GameData {
                  requires_vec.push(r.clone());
              }
              requires_vec.extend(self.parse_requires_list(&requires_json, &ctx)?);
@@ -755,7 +771,7 @@ index 2f74136..9a8d2d2 100644
              let strat_notes = self.parse_note(&strat_json["note"]);
  
              if strat_json["bypassesDoorShell"].as_str().unwrap_or("no") == "yes" {
-@@ -4441,7 +4685,7 @@ impl GameData {
+@@ -4441,7 +4701,7 @@ impl GameData {
              let link = Link {
                  from_vertex_id,
                  to_vertex_id,
@@ -764,7 +780,7 @@ index 2f74136..9a8d2d2 100644
                  start_with_shinecharge,
                  end_with_shinecharge,
                  difficulty: 0,
-@@ -4510,19 +4754,21 @@ impl GameData {
+@@ -4510,19 +4770,21 @@ impl GameData {
                                  }
  
                                  let mut farm_link = link.clone();
@@ -791,7 +807,7 @@ index 2f74136..9a8d2d2 100644
                                      requirement: Box::new(requirement.clone()),
                                      enemy_drops: enemy_drops.clone(),
                                      enemy_drops_buffed: enemy_drops_buffed.clone(),
-@@ -4530,7 +4776,7 @@ impl GameData {
+@@ -4530,7 +4792,7 @@ impl GameData {
                                      full_missiles,
                                      full_supers,
                                      full_power_bombs,
@@ -800,7 +816,7 @@ index 2f74136..9a8d2d2 100644
                                  self.links.push(farm_link.clone());
                              }
                          }
-@@ -4552,13 +4798,13 @@ impl GameData {
+@@ -4552,13 +4814,13 @@ impl GameData {
                  self.links.push(Link {
                      from_vertex_id: to_vertex_id,
                      to_vertex_id: plain_to_vertex_id,
@@ -816,7 +832,7 @@ index 2f74136..9a8d2d2 100644
                      strat_notes: vec![],
                  });
              }
-@@ -4574,25 +4820,25 @@ impl GameData {
+@@ -4574,25 +4836,25 @@ impl GameData {
                      self.links.push(Link {
                          from_vertex_id: to_vertex_id,
                          to_vertex_id: unlock_vertex_id,
@@ -846,7 +862,7 @@ index 2f74136..9a8d2d2 100644
                          strat_notes: vec![],
                      });
                  }
-@@ -4760,16 +5006,16 @@ impl GameData {
+@@ -4760,16 +5022,16 @@ impl GameData {
                      let link = Link {
                          from_vertex_id,
                          to_vertex_id,
@@ -866,7 +882,7 @@ index 2f74136..9a8d2d2 100644
                          },
                          strat_notes: vec![],
                      };
-@@ -4863,7 +5109,9 @@ impl GameData {
+@@ -4863,7 +5125,9 @@ impl GameData {
          let dst_ptr = self.node_ptr_map.get(&dst).copied();
          let is_west_ocean_bridge = src == (32, 7) || src == (32, 8);
          if (src_ptr.is_some() || dst_ptr.is_some()) && !is_west_ocean_bridge {
@@ -877,7 +893,7 @@ index 2f74136..9a8d2d2 100644
              self.reverse_door_ptr_pair_map
                  .insert(src, (src_ptr, dst_ptr));
          }
-@@ -4952,11 +5200,13 @@ impl GameData {
+@@ -4952,11 +5216,13 @@ impl GameData {
                          .entry((vertex_key.room_id, vertex_key.node_id))
                          .or_default()
                          .push((vertex_id, entrance_condition.clone())),
@@ -896,7 +912,7 @@ index 2f74136..9a8d2d2 100644
                      VertexAction::ItemCollect(node_id) => {
                          item_location_vertex_map
                              .entry((vertex_key.room_id, *node_id))
-@@ -5112,7 +5362,7 @@ impl GameData {
+@@ -5112,7 +5378,7 @@ impl GameData {
                  continue;
              }
              if Self::has_energy_fill(&link.requirement) {
@@ -905,7 +921,7 @@ index 2f74136..9a8d2d2 100644
              }
          }
  
-@@ -5194,19 +5444,81 @@ impl GameData {
+@@ -5194,19 +5460,81 @@ impl GameData {
          &mut self,
          link_difficulty_length_fn: &dyn Fn(&Link, &GameData) -> (u8, LinkLength),
      ) {
@@ -994,7 +1010,7 @@ index 2f74136..9a8d2d2 100644
      fn process_reset_room_req(req: &Requirement, free_unlock_id: (RoomId, NodeId)) -> Requirement {
          match req {
              &Requirement::DoorUnlocked { room_id, node_id }
-@@ -5267,30 +5579,31 @@ impl GameData {
+@@ -5267,30 +5595,31 @@ impl GameData {
              let mut req_or: Vec<Requirement> = vec![];
              let mut entrance_reqs_map: HashMap<VertexId, Vec<Requirement>> = HashMap::new();
              for &entrance_id in &entrance_vertex_ids {
@@ -1033,7 +1049,7 @@ index 2f74136..9a8d2d2 100644
                  }
              }
  
-@@ -5319,30 +5632,8 @@ impl GameData {
+@@ -5319,30 +5648,8 @@ impl GameData {
      }
  
      pub fn load_title_screens(&mut self, path: &Path) -> Result<()> {
