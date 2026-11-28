@@ -51,8 +51,8 @@ int web_http(const char *method, const char *url, const char *headers, const uin
     return status;
 }
 
-/* Phones and tablets get Map Rando seeds from the server (MemTotal below the 2 GB it needs); elsewhere what is left of
- * the 4 GB a wasm32 program can address is what is free. */
+/* MemTotal for Map Rando's gate (768 MB in all, 400 MB free, pc_maprando.c): phones and tablets count as 1 GB, other
+ * devices report navigator.deviceMemory. Free is what is left of the 4 GB a wasm32 program can address. */
 EM_JS(int, web_device_mb, (void), {
   var ua = navigator.userAgentData;
   if ((ua && ua.mobile) || /Android|iPhone|iPad|iPod|Mobile/.test(navigator.userAgent)) return 1024;
