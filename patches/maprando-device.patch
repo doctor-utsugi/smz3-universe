@@ -11,7 +11,7 @@ index d708535..9ae16eb 100644
  
  [[package]]
 diff --git a/rust/maprando-game/Cargo.toml b/rust/maprando-game/Cargo.toml
-index aa88d36..5c32b94 100644
+index aa88d36..d747dd9 100644
 --- a/rust/maprando-game/Cargo.toml
 +++ b/rust/maprando-game/Cargo.toml
 @@ -6,14 +6,14 @@ edition = "2024"
@@ -19,8 +19,9 @@ index aa88d36..5c32b94 100644
  anyhow = { version = "1.0.68", features = ["backtrace"] }
  glob = "0.3.1"
 -hashbrown = "0.14.5"
+-image = "0.24.5"
 +hashbrown = { version = "0.14.5", features = ["serde"] }
- image = "0.24.5"
++image = { version = "0.24.5", default-features = false, features = ["png"] }
  json = "0.12.4"
  log = "0.4.17"
 -ndarray = "0.15.6"
@@ -1083,10 +1084,17 @@ index 2f74136..09151ce 100644
      }
  
 diff --git a/rust/maprando/Cargo.toml b/rust/maprando/Cargo.toml
-index f1440c1..592099a 100644
+index f1440c1..b3e0a78 100644
 --- a/rust/maprando/Cargo.toml
 +++ b/rust/maprando/Cargo.toml
-@@ -28,13 +28,26 @@ slice-of-array = "0.3.2"
+@@ -22,19 +22,32 @@ serde_json = "1.0.91"
+ serde_path_to_error = "0.1.16"
+ serde = "1.0.152"
+ serde_derive = "1.0.152"
+-image = "0.24.5"
++image = { version = "0.24.5", default-features = false, features = ["png"] }
+ ndarray = "0.15.6"
+ slice-of-array = "0.3.2"
  pathfinding = "4.2.1"
  env_logger = "0.10.0"
  log = "0.4.17"
