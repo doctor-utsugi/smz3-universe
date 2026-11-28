@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMZ3 Universe</title>
+<meta name="description" content="A Link to the Past and Super Metroid randomizer runs with a tracker, daily challenges and online ladders. On Nintendo 3DS, Android, PC and in the browser.">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+
+<header class="bar">
+  <div class="wrap bar-in">
+    <a class="brand" href="#top">
+      <img src="logo.png" alt="" width="36" height="36">
+      <span>SMZ3</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a class="btn btn-line" href="/play/">Play in browser</a>
+      <a class="btn btn-ghost" href="https://github.com/doctor-utsugi/smz3-universe">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.9a3.4 3.4 0 0 0-.9-2.6c3.1-.3 6.4-1.5 6.4-7a5.4 5.4 0 0 0-1.5-3.7 5 5 0 0 0-.1-3.8s-1.2-.3-3.9 1.5a13.4 13.4 0 0 0-7 0C6.3 1.7 5.1 2 5.1 2a5 5 0 0 0-.1 3.8A5.4 5.4 0 0 0 3.5 9.5c0 5.4 3.3 6.6 6.4 7a3.4 3.4 0 0 0-.9 2.6V23"></path></svg>
+        GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top" class="wrap main">
+
+  <section class="hero">
+    <h1 class="hero-title">
+      <img src="logo.png" alt="" width="108" height="108">
+      <span>SMZ3</span>
+    </h1>
+    <p class="hero-sub">A LINK TO THE PAST - SUPER METROID</p>
+    <div class="hero-rule" aria-hidden="true"></div>
+    <p class="hero-lead">Randomized runs of both games, with a tracker, daily challenges and online ladders. On Nintendo 3DS, Android, PC and in the browser.</p>
+    <div class="hero-cta">
+      <a class="btn btn-solid btn-big" href="#downloads" data-tab="downloads">Download</a>
+      <a class="btn btn-line btn-big" href="/play/">Play in browser</a>
+    </div>
+  </section>
+
+  <section class="today" aria-label="Today">
+    <div class="card card-daily">
+      <div class="card-head"><span class="c-accent">DAILY</span><span id="daily-left"></span></div>
+      <div class="card-main" id="daily-goal">Live data needs JavaScript.</div>
+      <div class="card-meta" id="daily-meta"></div>
+    </div>
+    <div class="card card-goals">
+      <div class="card-head"><span class="c-blue">WORLD GOALS</span><span id="goals-left"></span></div>
+      <div class="card-main">Goals every player works on together this month</div>
+      <div class="card-meta" id="goals-list">Live data needs JavaScript.</div>
+    </div>
+  </section>
+
+  <section class="tabs" id="sections" aria-label="Sections">
+    <div class="tablist" role="tablist" aria-label="Sections">
+      <button type="button" class="tab" role="tab" id="tab-games" aria-controls="games" aria-selected="true">GAMES</button>
+      <button type="button" class="tab" role="tab" id="tab-downloads" aria-controls="downloads" aria-selected="false" tabindex="-1">DOWNLOADS</button>
+      <button type="button" class="tab" role="tab" id="tab-rankings" aria-controls="rankings" aria-selected="false" tabindex="-1">RANKINGS</button>
+      <button type="button" class="tab" role="tab" id="tab-community" aria-controls="community" aria-selected="false" tabindex="-1">COMMUNITY</button>
+    </div>
+
+    <div class="panels">
+
+      <div class="panel" id="games">
+        <h2 class="panel-title">Games</h2>
+        <div class="games">
+          <article class="game">
+            <h3>SMZ3</h3>
+            <p class="game-text">A Link to the Past and Super Metroid in one randomized world. Doors between the two games carry you across. The generator is a C port of SMZ3Randomizer, checked seed by seed against the original.</p>
+            <p class="game-modes">Cozy, Original and Custom runs · monthly seed, weekly run, daily challenge · world goals</p>
+          </article>
+          <article class="game">
+            <h3>A Link to the Past</h3>
+            <p class="game-text">The Zelda randomizer on its own, ported from the generator behind alttpr.com. Seeds are made on the device from the Japan 1.0 ROM.</p>
+            <p class="game-modes">Original (alttpr's default) · race presets Casual Boots, Standard, AD Keys · monthly seed, weekly Fast Ganon, daily challenge</p>
+          </article>
+          <article class="game">
+            <h3>Super Metroid</h3>
+            <p class="game-text">The Super Metroid randomizer on its own, Map Rando included: it rebuilds the whole map, as SM races play it.</p>
+            <p class="game-modes">Original (Tournament logic, Split placement) · Map Rando Season 5, Map Rando Beginner · monthly seed, weekly run, daily challenge</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="panel" id="downloads">
+        <h2 class="panel-title">Downloads</h2>
+        <div class="stack">
+          <p class="lead">Latest release: <span class="strong" id="dl-version">see GitHub</span>. You bring your own ROMs.</p>
+          <div class="plat">
+            <div class="plat-info"><span class="plat-name">Nintendo 3DS</span><span class="plat-file">.cia for the HOME menu (install with FBI), .3dsx for the Homebrew Launcher</span></div>
+            <div class="plat-links">
+              <a class="btn btn-line" data-asset="SMZ3-3ds.cia" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">.cia</a>
+              <a class="btn btn-line" data-asset="SMZ3-3ds.3dsx" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">.3dsx</a>
+            </div>
+          </div>
+          <div class="plat">
+            <div class="plat-info"><span class="plat-name">Android</span><span class="plat-file">SMZ3-android-arm64.apk · AYN Thor and arm64 phones</span></div>
+            <div class="plat-links">
+              <a class="btn btn-line" data-asset="SMZ3-android-arm64.apk" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">Download</a>
+            </div>
+          </div>
+          <div class="plat">
+            <div class="plat-info"><span class="plat-name">PC</span><span class="plat-file">Windows .zip · Linux .AppImage (x86_64). macOS, ARM and handheld builds are on the release page.</span></div>
+            <div class="plat-links">
+              <a class="btn btn-line" data-asset="SMZ3-windows-x64.zip" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">Windows</a>
+              <a class="btn btn-line" data-asset="SMZ3-x86_64.AppImage" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">Linux</a>
+            </div>
+          </div>
+          <div class="plat">
+            <div class="plat-info"><span class="plat-name">Browser</span><span class="plat-file">Nothing to install</span></div>
+            <div class="plat-links">
+              <a class="btn btn-line" href="/play/">Play now</a>
+            </div>
+          </div>
+          <a class="more" href="https://github.com/doctor-utsugi/smz3-universe/releases/latest">Every file of the release →</a>
+        </div>
+      </div>
+
+      <div class="panel" id="rankings">
+        <h2 class="panel-title">Rankings</h2>
+        <div class="stack">
+          <div class="pills" role="group" aria-label="Game">
+            <button type="button" class="pill" data-game="smz3" aria-pressed="true">SMZ3</button>
+            <button type="button" class="pill" data-game="z3" aria-pressed="false">A Link to the Past</button>
+            <button type="button" class="pill" data-game="sm" aria-pressed="false">Super Metroid</button>
+          </div>
+          <div class="board-title" id="board-title">ORIGINAL RULES · BEST TIMES</div>
+          <div class="table-wrap">
+            <table class="board">
+              <thead><tr><th scope="col" class="col-rank">#</th><th scope="col">Player</th><th scope="col">Country</th><th scope="col" class="col-time">Time</th></tr></thead>
+              <tbody id="board-rows"></tbody>
+            </table>
+            <p class="quiet" id="board-note">The top times need JavaScript.</p>
+          </div>
+          <a class="more" href="/ladder">Full ladder, weekly and monthly →</a>
+        </div>
+      </div>
+
+      <div class="panel" id="community">
+        <h2 class="panel-title">Community</h2>
+        <div class="stack">
+          <p class="lead">Questions, seeds to share, bug reports and ideas. The forum lives on GitHub Discussions, so there is nothing to sign up for here.</p>
+          <div class="row">
+            <a class="btn btn-solid btn-big" href="https://github.com/doctor-utsugi/smz3-universe/discussions">Open the community forum</a>
+            <a class="btn btn-line btn-big" href="https://github.com/doctor-utsugi/smz3-universe">Source code</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="foot-name">SMZ3 Universe</span>
+    <a href="https://github.com/doctor-utsugi/smz3-universe">Source on GitHub</a>
+    <a href="https://github.com/doctor-utsugi/smz3-universe#credits">Credits</a>
+    <span>Privacy: no cookies, no accounts, no tracking.</span>
+    <span class="foot-legal">Not affiliated with Nintendo. You need your own ROMs.</span>
+  </div>
+</footer>
+</body>
+</html>

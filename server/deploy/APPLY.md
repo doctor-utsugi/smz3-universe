@@ -90,7 +90,7 @@ sudo install -d -m 0750 -o root -g caddy /etc/caddy/cf
 sudo install -m 0644 origin.pem /etc/caddy/cf/origin.pem
 sudo install -m 0640 -g caddy origin.key /etc/caddy/cf/origin.key
 sudo install -m 0644 authenticated_origin_pull_ca.pem /etc/caddy/cf/origin-pull-ca.pem
-sudo install -d -m 0755 /srv/smz3-site       # the landing page's files go here
+sudo install -d -m 0755 /srv/smz3-site       # the landing page: frontends/site/deploy.sh puts its files here
 sudo install -m 0644 $D/Caddyfile $D/cloudflare-ips.caddy /etc/caddy/
 ```
 
