@@ -38,6 +38,8 @@ int settings_menu_music(void);
 void settings_set_menu_music(int on);
 int settings_seed_code(void);   /* a single game's seed code on the RUN tab and the side panel; hidden by default */
 void settings_set_seed_code(int on);
+int settings_mr_where(void);   /* the Map Rando seeds option, a UI_MR_* */
+void settings_set_mr_where(int where);
 void settings_video_save_state(void);
 /* Applies the picked window size (called when leaving full screen, where a size change waits). */
 void settings_apply_size(void);

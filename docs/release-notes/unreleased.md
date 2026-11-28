@@ -51,11 +51,18 @@ Changes on main since v0.15.0, for the next release's notes. Not built or tested
 - PC on a pad with no R3 (the RG 40XXV): the tracker opens with L3, and the menu button leaves the run.
 - PC and Linux handhelds: the start menu has Quit under Options, so the app closes without going into Options. Quit
   asks "Quit SMZ3?" first.
-- Android: a phone with less than 2 GB of RAM, or 1.1 GB free, downloads its Map Rando seed from the server instead of
+- Android: a phone with less than 768 MB of RAM, or 400 MB free, downloads its Map Rando seed from the server instead of
   building it, which closed the app. The screen says "Downloading the Map Rando seed", or "Loading" while the phone builds
   one, instead of a count of seconds and tries.
-- PC: a Map Rando seed is built on the device only when it has 2 GB of RAM and 1.1 GB free (building one peaks near
-  780 MB); otherwise (a 1 GB handheld like the RG 40XXV) the server builds it and sends a small patch, as on the 3DS. Before, the system closed the app halfway.
+- PC: a Map Rando seed is built on the device only when it has 768 MB of RAM and 400 MB free (building one now peaks
+  near 120 MB, down from 870 MB, and takes a fifth of the work); otherwise the server builds it and sends a small patch.
+  Before, the system closed the app halfway. A 1 GB handheld like the RG 40XXV builds its own, in 10 to 70 seconds.
+- New 3DS: the CIA builds Map Rando seeds on the console, in one to three minutes, so they need no connection. It
+  runs in the New 3DS's 178 MB memory mode for it. An Old 3DS and the Homebrew Launcher version still download them.
+- Options has a Map Rando seeds row where the game can build them: automatic (by the device's memory), built here, or
+  from the server. On the 3DS "built here" is automatic, since a console without the memory would hang.
+- Web: the browser's own memory figure decides whether a Map Rando seed is built in the page; a phone browser that
+  does not give one asks the server, unless Options says to build it here.
 - PC: while a Map Rando seed is made the screen says "Loading", or "Downloading the Map Rando seed" when the server
   makes it, not a count of seconds and tries. Offline, it asks to connect to the internet.
 - Offline, starting a run no longer asks whether to send its time to the online ladder: the run starts off the ladder.

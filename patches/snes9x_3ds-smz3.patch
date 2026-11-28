@@ -1211,10 +1211,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..505dd7c
+index 0000000..3b4b45d
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1679 @@
+@@ -0,0 +1,1708 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1237,6 +1237,7 @@ index 0000000..505dd7c
 +#include "smz3_version.h"
 +#include "smz3_bps.h"
 +#include "smz3_sync.h"
++#include "smz3_ui.h"
 +#ifdef SMZ_MAPRANDO
 +#include "smz3_maprando.h"
 +#endif
@@ -2793,7 +2794,7 @@ index 0000000..505dd7c
 +static bool mrLocal(void)
 +{
 +    struct stat st;
-+    return memLeft() >= (size_t)MR_NEED_MB << 20 && stat(MR_DATA "/rust/gamedata.bin", &st) == 0;
++    return smzMapRandoWhere() != UI_MR_SERVER && memLeft() >= (size_t)MR_NEED_MB << 20 && stat(MR_DATA "/rust/gamedata.bin", &st) == 0;
 +}
 +
 +static int mrBuild(const char *settings, uint64_t seed, const uint8_t *sm, size_t smLen, uint8_t *out, size_t cap, char *info, size_t infoCap)
@@ -2817,6 +2818,34 @@ index 0000000..505dd7c
 +}
 +
 +#endif
++
++#define MR_WHERE_FILE SMZ_DIR "/maprando_where.txt"
++static int gMrWhere = -1;
++
++int smzMapRandoWhere(void)
++{
++    if (gMrWhere < 0) {
++        gMrWhere = UI_MR_AUTO;
++        if (FILE *f = fopen(MR_WHERE_FILE, "r")) { int v; if (fscanf(f, "%d", &v) == 1 && v >= UI_MR_AUTO && v <= UI_MR_SERVER) gMrWhere = v; fclose(f); }
++    }
++    return gMrWhere;
++}
++
++void smzMapRandoSetWhere(int where)
++{
++    gMrWhere = where;
++    if (FILE *f = fopen(MR_WHERE_FILE, "w")) { fprintf(f, "%d\n", where); fclose(f); }
++}
++
++bool smzMapRandoHere(void)
++{
++#ifdef SMZ_MAPRANDO
++    struct stat st;
++    return stat(MR_DATA "/rust/gamedata.bin", &st) == 0;
++#else
++    return false;
++#endif
++}
 +
 +bool smzMapRandoOnline(void)
 +{
@@ -2896,10 +2925,10 @@ index 0000000..505dd7c
 +}
 diff --git a/source/smz3online.h b/source/smz3online.h
 new file mode 100644
-index 0000000..e6432a9
+index 0000000..9c19c4a
 --- /dev/null
 +++ b/source/smz3online.h
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,148 @@
 +#ifndef SMZ3ONLINE_H
 +#define SMZ3ONLINE_H
 +
@@ -3032,9 +3061,15 @@ index 0000000..e6432a9
 +void smzRaceWho(const char *player, const char *country, char *out, size_t cap);
 +
 +
-+// Map Rando seeds from the server (GET /api/maprando/seed): a BPS patch applied to the player's ROM, as smz3_sm.h's
-+// SmzMapRandoFn. Online says whether the console has a network now; Progress gives the busy line while a fetch runs (0: none).
++// Map Rando seeds from the server (GET /api/maprando/seed), or built here on a New 3DS with the memory for it: a BPS patch
++// applied to the player's ROM, as smz3_sm.h's SmzMapRandoFn. Online says whether a seed can be had now; Progress gives
++// the busy line while a fetch or build runs (0: none).
 +bool smzMapRandoOnline(void);
++// Here: whether this build carries the generator (the Map Rando seeds option). Where: that option, a UI_MR_* saved on
++// the SD card; this device is automatic here, since a seed that runs out of memory hangs the console.
++bool smzMapRandoHere(void);
++int smzMapRandoWhere(void);
++void smzMapRandoSetWhere(int where);
 +int smzMapRandoFetch(const char *settings, uint64_t seed, const uint8_t *sm, size_t smLen, uint8_t *out, size_t cap, char *info, size_t infoCap);
 +int smzMapRandoProgress(char *out, size_t cap);
 +
@@ -3044,10 +3079,10 @@ index 0000000..e6432a9
 +#endif
 diff --git a/source/smz3run.cpp b/source/smz3run.cpp
 new file mode 100644
-index 0000000..21ee854
+index 0000000..c0f889c
 --- /dev/null
 +++ b/source/smz3run.cpp
-@@ -0,0 +1,6391 @@
+@@ -0,0 +1,6396 @@
 +// SMZ3 runs: the shared C menu (core/ui) drawn on the second screen, and offline generation (core/gen).
 +#include <3ds.h>
 +#include <dirent.h>
@@ -4363,9 +4398,10 @@ index 0000000..21ee854
 +    smzOnlineRequestLadders(ui_ladder_preset_key(&ui));   // the bottom screen shows them from the start
 +    ui_ladder_enable(&ui, 1);
 +    ui_daily_enable(&ui, 1);
-+    ui_home_enable(&ui, UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT);   // the buttons are set in the game menu, and the screen shape comes with each run
++    ui_home_enable(&ui, UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT | (smzMapRandoHere() ? UI_OPT_MAPRANDO : 0));   // the buttons are set in the game menu, and the screen shape comes with each run
 +    ui_menu_music(&ui, smz3MusicEnabled());
 +    ui_seed_code(&ui, seedCodeShown());
++    ui_mr_where(&ui, smzMapRandoWhere());
 +    ui_race_enable(&ui, 1);
 +    smz3SyncMenu(&ui, ui.slot_count);
 +    gMenuUi = &ui;
@@ -4539,6 +4575,10 @@ index 0000000..21ee854
 +            if (act == ACT_OPTIONS && slot == UI_OPT_QUIT) { ui_busy(&ui, "Finishing the uploads ..."); drawUi(&ui); smz3SyncQuit(); quitAsked = true; break; }
 +            if (act == ACT_OPTIONS && slot == UI_OPT_SOUND) smz3MusicSetEnabled(ui.menu_music);
 +            if (act == ACT_OPTIONS && slot == UI_OPT_SEED) seedCodeSet(ui.seed_code);
++            if (act == ACT_OPTIONS && slot == UI_OPT_MAPRANDO) {
++                smzMapRandoSetWhere(ui.mr_where);
++                smz_sm_set_maprando(smzMapRandoFetch, smzMapRandoOnline() ? SMZ_MR_READY : SMZ_MR_OFFLINE);
++            }
 +            if (act == ACT_UPDATE && !updating) {
 +                char m[44];
 +                snprintf(m, sizeof m, "Downloading %s...", ui.update);

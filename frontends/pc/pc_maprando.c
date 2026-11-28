@@ -12,6 +12,7 @@
 #include "pc_store.h"
 #include "smz3_bps.h"
 #include "smz3_sm.h"
+#include "smz3_ui.h"
 #ifdef __EMSCRIPTEN__
 #include "web.h"
 #endif
@@ -33,6 +34,7 @@ static void pool_setup(void)
 
 static char g_dir[1100];
 static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it from the server */
+static int g_where = UI_MR_AUTO, g_here;
 
 /* Building a seed peaks near 130 MB (measured), on top of the game: only a device with this much RAM in all and free builds
  * it, any other downloads it. */
@@ -157,7 +159,7 @@ static int generate(const char *settings, uint64_t seed, const uint8_t *sm, size
 {
     char err[300];
     long total_mb = meminfo_mb("MemTotal"), free_mb = meminfo_mb("MemAvailable");
-    if ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))
+    if (g_where == UI_MR_SERVER || (g_where == UI_MR_AUTO && ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))))
         return from_server(settings, seed, sm, sm_len, out, cap, info, info_cap);
     g_phase = 1;
     if (smz_mr_init(g_dir, err, sizeof err)) { g_phase = 0; error_json(info, info_cap, err); return -1; }
@@ -177,9 +179,12 @@ void maprando_setup(void)
         char probe[1200];
         snprintf(g_dir, sizeof g_dir, ROOTS[r], store_exe_dir());
         snprintf(probe, sizeof probe, "%s/rust/data/presets", g_dir);
-        if (access(probe, F_OK) == 0) { smz_sm_set_maprando(generate, SMZ_MR_READY); return; }
+        if (access(probe, F_OK) == 0) { smz_sm_set_maprando(generate, SMZ_MR_READY); g_here = 1; return; }
     }
 }
+
+int maprando_here(void) { return g_here; }
+void maprando_where(int where) { g_where = where; }
 
 int maprando_progress(char *out, size_t cap)
 {
@@ -189,5 +194,7 @@ int maprando_progress(char *out, size_t cap)
 }
 #else
 void maprando_setup(void) { pool_setup(); }
+int maprando_here(void) { return 0; }
+void maprando_where(int where) { (void)where; }
 int maprando_progress(char *out, size_t cap) { (void)out; (void)cap; return 0; }
 #endif

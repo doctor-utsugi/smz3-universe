@@ -3321,9 +3321,11 @@ static void window_main(int start_slot)
     sync_init(&ui);
     ui_ladder_enable(&ui, 1);
     ui_daily_enable(&ui, 1);
-    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT | UI_OPT_HOME_QUIT);
+    ui_home_enable(&ui, UI_OPT_BUTTONS | UI_OPT_VIDEO | UI_OPT_SOUND | UI_OPT_SEED | UI_OPT_QUIT | UI_OPT_HOME_QUIT | (maprando_here() ? UI_OPT_MAPRANDO : 0));
     ui_menu_music(&ui, settings_menu_music());
     ui_seed_code(&ui, settings_seed_code());
+    ui_mr_where(&ui, settings_mr_where());
+    maprando_where(ui.mr_where);
     menumusic_set(ui.menu_music);
     ui_race_enable(&ui, 1);
     race_paused_show();
@@ -3557,6 +3559,7 @@ static void window_main(int start_slot)
                 if (slot == UI_OPT_QUIT) { g_quit_ask = 1; menu_cue(UI_CUE_SELECT); }
                 else if (slot == UI_OPT_SOUND) { settings_set_menu_music(ui.menu_music); menumusic_set(ui.menu_music); }
                 else if (slot == UI_OPT_SEED) settings_set_seed_code(ui.seed_code);
+                else if (slot == UI_OPT_MAPRANDO) { settings_set_mr_where(ui.mr_where); maprando_where(ui.mr_where); }
                 else settings_open_page(slot == UI_OPT_VIDEO);
             }
             else if (act == ACT_UPDATE && !g_update_state) {

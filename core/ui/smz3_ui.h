@@ -130,6 +130,7 @@ typedef struct {
     int options_mask, options_cursor, player_opts;   /* UI_OPT_* rows the host can open / the row / the Player row was opened from Options */
     int menu_music;   /* the Menu music row's value: the host plays the menu's music while it is 1 */
     int seed_code;    /* the Seed code row's value: the RUN tab shows the seed's code while it is 1 */
+    int mr_where;     /* the Map Rando seeds row's value, a UI_MR_* */
     struct { int on, cursor, size, format, is_public, rooms_loaded, room_count, getting_ready, started, find_ms;   /* find_ms: since the list was last asked for */
              char code[8];                    /* the code typed to join, or the room picked in the list */
              char paused_code[8];             /* a paused race kept on this device ("" none), and when it goes on */
@@ -275,7 +276,7 @@ const char *ui_run_label(const SmzUi *u);
 /* The start menu: a logo for a fixed 2 seconds, then Start / Load game, the online modes and Options; B on the run list comes back
  * to it. mask holds the UI_OPT_* rows the host opens itself: picking one comes back as ACT_OPTIONS with the row in action_slot.
  * The Player row is there whenever ui_player_enable is on. ui_home_open shows the logo; the host calls ui_tick every frame. */
-enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8, UI_OPT_SEED = 16, UI_OPT_HOME_QUIT = 32 };   /* HOME_QUIT: Quit also on the start menu */
+enum { UI_OPT_BUTTONS = 1, UI_OPT_VIDEO = 2, UI_OPT_SOUND = 4, UI_OPT_QUIT = 8, UI_OPT_SEED = 16, UI_OPT_HOME_QUIT = 32, UI_OPT_MAPRANDO = 64 };   /* HOME_QUIT: Quit also on the start menu */
 void ui_home_enable(SmzUi *u, int mask);
 /* The UI_OPT_SOUND row is the Menu music toggle: A flips u->menu_music and comes back as ACT_OPTIONS for the host to save
  * and apply. ui_menu_music sets the saved value at start-up (default on). */
@@ -283,6 +284,11 @@ void ui_menu_music(SmzUi *u, int on);
 /* The UI_OPT_SEED row is the Seed code toggle: whether the tracker's RUN tab shows the seed's code (ALttP's five icons).
  * A flips u->seed_code and comes back as ACT_OPTIONS; ui_seed_code sets the saved value at start-up (default off). */
 void ui_seed_code(SmzUi *u, int on);
+/* The UI_OPT_MAPRANDO row, for a host that can build Map Rando seeds itself: where they are built. A steps u->mr_where
+ * through automatic (the host decides from its memory), this device and the server, and comes back as ACT_OPTIONS;
+ * ui_mr_where sets the saved value at start-up (default automatic). */
+enum { UI_MR_AUTO, UI_MR_DEVICE, UI_MR_SERVER };
+void ui_mr_where(SmzUi *u, int where);
 void ui_home_open(SmzUi *u);
 /* The game carousel, the first screen after the logo: the three games turn on a ring and A enters one (u->game_mode), which
  * opens the start menu above for that game; B there turns back to the carousel. The host sets each game's state. */

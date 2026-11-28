@@ -420,8 +420,12 @@ JNIEXPORT jstring JNICALL NATIVE(smLastSettings)(JNIEnv *env, jclass cls) { retu
 #ifdef SMZ_MAPRANDO
 #include "smz3_maprando.h"
 #include "smz3_bps.h"
+#include "smz3_ui.h"
 
 static char g_mr_dir[512];
+/* The Map Rando seeds option (a UI_MR_*), kept beside the data folder since the Kotlin side does not know it */
+static int g_mr_here, g_mr_where;
+static char g_mr_where_path[600];
 static volatile int g_mr_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it */
 
 /* Building a seed peaks near 130 MB (measured): a phone with less RAM than this in all, or free, downloads it instead. */
@@ -479,7 +483,7 @@ static int mr_generate(const char *settings, uint64_t seed, const uint8_t *sm, s
 {
     char err[300];
     long total_mb = meminfo_mb("MemTotal"), free_mb = meminfo_mb("MemAvailable");
-    if ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))
+    if (g_mr_where == UI_MR_SERVER || (g_mr_where == UI_MR_AUTO && ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))))
         return mr_download(settings, seed, sm, sm_len, out, cap, info, info_cap);
     g_mr_phase = 1;
     if (smz_mr_init(g_mr_dir, err, sizeof err)) {
@@ -502,6 +506,10 @@ JNIEXPORT jboolean JNICALL NATIVE(mapRandoSetup)(JNIEnv *env, jclass cls, jstrin
     const char *d = (*env)->GetStringUTFChars(env, dir, NULL);
     snprintf(g_mr_dir, sizeof g_mr_dir, "%s", d);
     (*env)->ReleaseStringUTFChars(env, dir, d);
+    snprintf(g_mr_where_path, sizeof g_mr_where_path, "%s.where", g_mr_dir);
+    FILE *f = fopen(g_mr_where_path, "r");
+    if (f) { if (fscanf(f, "%d", &g_mr_where) != 1 || g_mr_where < UI_MR_AUTO || g_mr_where > UI_MR_SERVER) g_mr_where = UI_MR_AUTO; fclose(f); }
+    g_mr_here = 1;
     smz_sm_set_maprando(mr_generate, SMZ_MR_READY);
     return JNI_TRUE;
 #else
@@ -665,10 +673,28 @@ JNIEXPORT void JNICALL NATIVE(uiSetSprites)(JNIEnv *env, jclass cls, jint game, 
 }
 
 static SmzUi g_ui_before;   /* the menu before an input, to tell which sound it makes */
-JNIEXPORT jint JNICALL NATIVE(uiInput)(JNIEnv *env, jclass cls, jint button) { g_ui_before = g_ui; ui_input(&g_ui, (UiButton)button); return ui_cue(&g_ui_before, &g_ui, button); }
-JNIEXPORT jint JNICALL NATIVE(uiTouch)(JNIEnv *env, jclass cls, jint x, jint y) { g_ui_before = g_ui; ui_touch(&g_ui, x, y); return ui_cue(&g_ui_before, &g_ui, -1); }
+#ifdef SMZ_MAPRANDO
+/* The Map Rando seeds row stepped: saved for the next start, and used by the next seed */
+static void mr_where_changed(void)
+{
+    if (g_ui.mr_where == g_ui_before.mr_where || !g_mr_here) return;
+    g_mr_where = g_ui.mr_where;
+    FILE *f = fopen(g_mr_where_path, "w");
+    if (f) { fprintf(f, "%d\n", g_mr_where); fclose(f); }
+}
+#else
+static void mr_where_changed(void) {}
+#endif
+JNIEXPORT jint JNICALL NATIVE(uiInput)(JNIEnv *env, jclass cls, jint button) { g_ui_before = g_ui; ui_input(&g_ui, (UiButton)button); mr_where_changed(); return ui_cue(&g_ui_before, &g_ui, button); }
+JNIEXPORT jint JNICALL NATIVE(uiTouch)(JNIEnv *env, jclass cls, jint x, jint y) { g_ui_before = g_ui; ui_touch(&g_ui, x, y); mr_where_changed(); return ui_cue(&g_ui_before, &g_ui, -1); }
 JNIEXPORT void JNICALL NATIVE(uiIdle)(JNIEnv *env, jclass cls) { ui_idle(&g_ui); }
-JNIEXPORT void JNICALL NATIVE(uiHomeEnable)(JNIEnv *env, jclass cls, jint mask) { ui_home_enable(&g_ui, mask); }
+JNIEXPORT void JNICALL NATIVE(uiHomeEnable)(JNIEnv *env, jclass cls, jint mask)
+{
+#ifdef SMZ_MAPRANDO
+    if (g_mr_here) { mask |= UI_OPT_MAPRANDO; ui_mr_where(&g_ui, g_mr_where); }
+#endif
+    ui_home_enable(&g_ui, mask);
+}
 JNIEXPORT void JNICALL NATIVE(uiMenuMusic)(JNIEnv *env, jclass cls, jboolean on) { ui_menu_music(&g_ui, on); }
 JNIEXPORT void JNICALL NATIVE(uiSeedCode)(JNIEnv *env, jclass cls, jboolean on) { ui_seed_code(&g_ui, on); }
 JNIEXPORT void JNICALL NATIVE(uiHomeOpen)(JNIEnv *env, jclass cls) { ui_home_open(&g_ui); }

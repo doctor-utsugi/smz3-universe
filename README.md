@@ -44,8 +44,9 @@ its row in the list shows the crystals and bosses you have so far.
   plando. You can save a setup and pick it again later. Changed rules keep the run off the online ladder.
 - Map Rando (Super Metroid runs): [Map Rando](https://maprando.com) rebuilds the whole map, as SM races play it.
   Pick Beginner, Season 5 or another preset and a skill level. A device with 768 MB of RAM and 400 MB of it free
-  (PCs, the Thor, phones, a 1 GB handheld) makes the seed itself, in a few seconds; the 3DS and smaller devices
-  download it from the server and say so. Offline, a run with a preset and the preset's own skill plays one of the 32 seeds the game comes with (8 per
+  (PCs, the Thor, phones, a 1 GB handheld) makes the seed itself, in a few seconds; a New 3DS running the CIA does too,
+  in one to three minutes. Smaller devices, an Old 3DS and the 3DS's Homebrew Launcher version download it from the
+  server and say so. Options > Map Rando seeds changes that: automatic, built here, or from the server. Offline, a run with a preset and the preset's own skill plays one of the 32 seeds the game comes with (8 per
   preset); races, the weekly and the monthly never do, so everyone there plays the same map. The tracker shows items
   and the hash only, since its map is the vanilla one. A Season 5 or Beginner run with the preset's own settings
   goes on that preset's online table.
@@ -173,7 +174,7 @@ On a handheld with one screen (the RG 40XXV):
 - With no R3, L3 opens the tracker and the menu button leaves the run. On the MAP tab only the D-pad moves the map.
 - The tracker's CONFIG tab has the settings (save slot, fast-forward speed, screen, the corner info and the daily
   challenge) and the button setup. The corner shows the % and the time, as the side panels don't fit.
-- Map Rando seeds are downloaded (1 GB of RAM is not enough to make one), or taken from the game's own when offline.
+- Map Rando seeds are made on the handheld, in 10 to 70 seconds.
 
 ---
 

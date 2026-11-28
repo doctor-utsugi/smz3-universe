@@ -37,7 +37,7 @@ static const char *const MM_SIZES[] = {"Small", "Medium", "Large"};
 static const char *const CORNERS[] = {"% and time", "% only", "Off"};
 static const char *const SCREENS[] = {"Auto", "Single", "Dual"};
 static int ff_speed = 4;
-static int menu_music = 1, seed_code;
+static int menu_music = 1, seed_code, mr_where;
 static int vid_size = 1, vid_aspect, vid_filter, mm_side, mm_size = 2, ch_hide, corner, screens;   /* screens: 0 auto, 1 single, 2 dual */   /* ch_hide: bits of the daily challenge info not shown in game */
 #define ROW_H 22
 #define SHOWN 8
@@ -91,7 +91,7 @@ const char *settings_aspect_name(void) { return ASPECTS[vid_aspect]; }
 static void video_save(void)
 {
     char t[200];
-    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\ncorner=%d\nscreens=%d\nff=%d\nmenu_music=%d\nseed_code=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, corner, screens, ff_speed, menu_music, seed_code);
+    int n = snprintf(t, sizeof t, "fs=%d\nsize=%d\naspect=%d\nfilter=%d\nminimap=%d\nminimap_size=%d\nchallenge_hide=%d\ncorner=%d\nscreens=%d\nff=%d\nmenu_music=%d\nseed_code=%d\nmaprando_where=%d\n", hk.is_fullscreen ? hk.is_fullscreen() : 0, vid_size, vid_aspect, vid_filter, mm_side, mm_size, ch_hide, corner, screens, ff_speed, menu_music, seed_code, mr_where);
     store_write(store_path("video.cfg"), t, (size_t)n);
 }
 
@@ -100,6 +100,8 @@ int settings_menu_music(void) { return menu_music; }
 void settings_set_menu_music(int on) { menu_music = on; video_save(); }
 int settings_seed_code(void) { return seed_code; }
 void settings_set_seed_code(int on) { seed_code = on; video_save(); }
+int settings_mr_where(void) { return mr_where; }
+void settings_set_mr_where(int where) { mr_where = where; video_save(); }
 
 static void apply_size(void)
 {
@@ -132,6 +134,7 @@ void settings_video_load(void)
             else if (!strncmp(line, "screens=", 8) && v >= 0 && v < 3) screens = v;
             else if (!strncmp(line, "menu_music=", 11)) menu_music = v != 0;
             else if (!strncmp(line, "seed_code=", 10)) seed_code = v != 0;
+            else if (!strncmp(line, "maprando_where=", 15)) mr_where = v >= 0 && v <= 2 ? v : 0;
             else if (!strncmp(line, "ff=", 3) && (v == 2 || v == 3 || v == 4 || v == 6 || v == 8)) ff_speed = v;
         }
         free(t);

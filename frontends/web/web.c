@@ -53,12 +53,13 @@ int web_http(const char *method, const char *url, const char *headers, const uin
     return status;
 }
 
-/* MemTotal for Map Rando's gate (768 MB in all, 400 MB free, pc_maprando.c): phones and tablets count as 1 GB, other
- * devices report navigator.deviceMemory. Free is what is left of the 4 GB a wasm32 program can address. */
+/* MemTotal for Map Rando's automatic choice (768 MB in all, 400 MB free, pc_maprando.c): navigator.deviceMemory where the
+ * browser gives it; where it does not, a phone or tablet counts as too little (the player can still pick "built here")
+ * and a computer as enough. Free is what is left of the 4 GB a wasm32 program can address. */
 EM_JS(int, web_device_mb, (void), {
+  if (navigator.deviceMemory) return navigator.deviceMemory * 1024;
   var ua = navigator.userAgentData;
-  if ((ua && ua.mobile) || /Android|iPhone|iPad|iPod|Mobile/.test(navigator.userAgent)) return 1024;
-  return navigator.deviceMemory ? navigator.deviceMemory * 1024 : 8192;
+  return (ua && ua.mobile) || /Android|iPhone|iPad|iPod|Mobile/.test(navigator.userAgent) ? 512 : 8192;
 });
 
 long web_meminfo_mb(const char *key)
