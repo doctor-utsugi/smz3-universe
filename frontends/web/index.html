@@ -9,6 +9,7 @@
   #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
   #bar { position: fixed; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 2; opacity: .3; transition: opacity .2s; }
   #bar:hover, #bar:focus-within { opacity: 1; }
+  body.idle #bar:not(:hover) { opacity: 0; pointer-events: none; }
   #bar button, #bar label { background: #1a2130; color: #e8e8f0; border: 1px solid #36405a; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
   #status { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 2em; z-index: 1; pointer-events: none; }
   #status.hide { display: none; }
@@ -35,6 +36,10 @@
     onAbort: function () { statusEl.classList.remove('hide'); statusEl.textContent = 'SMZ3 stopped. Your saves are kept: reload the page.'; },
     locateFile: function (p) { return p + '?v=@BUILD@'; }
   };
+  // The bar sits over the app's corner (the tracker, the Ladder button): it shows only while the mouse moves
+  var idle = 0;
+  function wake() { document.body.classList.remove('idle'); clearTimeout(idle); idle = setTimeout(function () { document.body.classList.add('idle'); }, 3000); }
+  addEventListener('mousemove', wake); wake();
   var roms = document.getElementById('roms');
   roms.addEventListener('change', function (e) { Module.smz3AddFiles(e.target.files); e.target.value = ''; Module.canvas.focus(); });
   document.getElementById('export').addEventListener('click', function () { Module.smz3Export(); Module.canvas.focus(); });

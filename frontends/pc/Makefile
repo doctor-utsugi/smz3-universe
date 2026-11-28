@@ -145,7 +145,7 @@ ifdef WEB
 PACKAGER := python3 $(EMSDK)/upstream/emscripten/tools/file_packager.py
 $(OUT)/sprites.data: $(wildcard $(ROOT)/assets/sprites/*/*)
 	cd $(ROOT)/assets && $(PACKAGER) $@ --preload sprites@/sprites --use-preload-cache --js-output=$(OUT)/sprites.js >/dev/null
-$(OUT)/maprando.data: $(wildcard $(ROOT)/assets/maprando/*)
+$(OUT)/maprando.data: $(wildcard $(ROOT)/assets/maprando/*) $(if $(MAPRANDO),$(wildcard $(ROOT)/build/maprando-data/rust/gamedata.bin))
 	cd $(ROOT) && $(PACKAGER) $@ --preload assets/maprando@/maprando-pool $(if $(MAPRANDO),--preload build/maprando-data@/maprando-data) \
 	  --use-preload-cache --js-output=$(OUT)/maprando.js >/dev/null
 # the build's id in the page's links, so a browser never mixes an old smz3.js with a new smz3.wasm

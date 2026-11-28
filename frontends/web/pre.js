@@ -41,7 +41,7 @@ Module.smz3AddFiles = function (files) {
 };
 
 // Export and import of the whole store as a tar file: the way to move runs to another browser or keep a copy.
-// The base ROMs are left out of the export; the other browser adds its own.
+// The base ROMs and the sprites the page ships are left out of the export; the other browser has its own.
 var SMZ3_TOP = '/data/smz3/';
 function smz3Tar(files) {
   var enc = new TextEncoder(), parts = [];
@@ -72,6 +72,7 @@ Module.smz3Export = function () {
       if (n === '.' || n === '..') return;
       var full = dir + n, r = rel + n, st = FS.stat(full);
       if (FS.isDir(st.mode)) { if (!/^(tmp|derived|base)$/.test(r)) walk(full + '/', r + '/'); }
+      else if (/^sprites\//.test(r) && FS.analyzePath('/' + r).exists) return; // shipped in sprites.data
       else if (FS.isFile(st.mode)) files.push({path: r, data: FS.readFile(full), mtime: +st.mtime});
     });
   })(SMZ3_TOP, '');
