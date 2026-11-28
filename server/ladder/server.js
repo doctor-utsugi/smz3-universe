@@ -13,6 +13,7 @@
 //   /api/race/...: online races, see race.js
 //   /api/player..., /api/sync/...: one player on every device and the RomM sync's hashes and holds, see players.js
 //   GET  /api/version                              -> {tag, base}   the newest GitHub release; its files are at base + name
+//   GET  /api/stats                                -> {online, weekPlayers}   for the landing page (stats.js)
 //   GET  /api/games                                -> {games:[...], presets:{game:[{key, name}]}}   the games with ladders
 //   GET  /api/maprando/seed ?settings=&seed=      -> a Map Rando seed as a BPS patch (maprando.js)
 //   GET  /download                                 -> 302 to the latest GitHub release page
@@ -226,7 +227,7 @@ const CLOCK_SHIFT = Number(process.env.DAILY_CLOCK_SHIFT_MS || 0);   // local te
 // Every route but players.js sees a device's player id in place of its install id (players.js, PLAN_ROMM_SYNC.md).
 let playerOf = install => install;
 const readPlayerJson = (req, res, then) => readJson(req, res, b => {
-  if (b && typeof b.install === 'string') b.install = playerOf(b.install);
+  if (b && typeof b.install === 'string') { b.install = playerOf(b.install); stats.heard(b.install); }
   then(b);
 });
 const dailyRoutes = require('./daily')({ DIR, hmac, send, readJson: readPlayerJson, onlyKeys, limited, clean, verifyProof: verifyChallenge, now: CLOCK_SHIFT ? () => Date.now() + CLOCK_SHIFT : undefined });
@@ -237,6 +238,7 @@ const raceRoutes = require('./race')({ DIR, hmac, send, readJson: readPlayerJson
 
 const playerRoutes = require('./players')({ DIR, send, readJson, onlyKeys, limited, validInstall: dailyRoutes.validInstall });
 playerOf = playerRoutes.of;
+const stats = require('./stats')({ DIR, send, daily: dailyRoutes, runs: () => db.runs });
 
 const mapRandoRoutes = require('./maprando')({ DIR, send, limited });
 
@@ -265,7 +267,7 @@ http.createServer((req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, '');
   if (req.method === 'GET' && url.pathname === '/') return send(res, 200, page, 'text/html');
   if (url.pathname === '/api/player' || url.pathname.startsWith('/api/player/') || url.pathname.startsWith('/api/sync/')) { if (playerRoutes(req, res, url, ip)) return; }
-  if (url.searchParams.has('install')) url.searchParams.set('install', playerOf(url.searchParams.get('install')));
+  if (url.searchParams.has('install')) { url.searchParams.set('install', playerOf(url.searchParams.get('install'))); stats.heard(url.searchParams.get('install')); }
   if (url.pathname.startsWith('/api/daily') || url.pathname === '/api/tokens') { if (dailyRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/goals')) { if (goalRoutes(req, res, url, ip)) return; }
   if (url.pathname.startsWith('/api/race/')) { if (raceRoutes(req, res, url, ip)) return; }
@@ -274,6 +276,7 @@ http.createServer((req, res) => {
     res.writeHead(302, { Location: `https://github.com/${RELEASES}/releases/latest` });
     return res.end();
   }
+  if (stats.routes(req, res, url)) return;
   if (req.method === 'GET' && url.pathname === '/api/version') {
     if (FAKE_TAG) return send(res, 200, { tag: FAKE_TAG, base: '' });   // nothing to download: the offer only
     refreshRelease();

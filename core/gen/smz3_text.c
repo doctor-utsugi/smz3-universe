@@ -94,7 +94,7 @@ int smz_dialog_simple(const char *text, uint8_t *out, int cap)
 
 typedef struct { U32 lines[MAXLINES]; int n; } Lines;
 
-static void wordwrap(const U32 *u, int width, Lines *out)
+static void wordwrap(const U32 *u, int width, Lines *out, U32 *stack)
 {
     Span sp[MAXLINES];
     int nl = split_lines(u, sp);
@@ -104,7 +104,7 @@ static void wordwrap(const U32 *u, int width, Lines *out)
         while (line.n > 0 && (line.c[line.n - 1] == ' ' || line.c[line.n - 1] == '\t' || line.c[line.n - 1] == '\r')) line.n--;
         if (line.n <= width) { out->lines[out->n++] = line; continue; }
         /* split at single spaces, like string.Split(' ') */
-        static U32 stack[MAXLINES]; int sn = 0;
+        int sn = 0;
         stack[sn].n = 0; sn++;
         int ws = 0;
         for (int i = 0; i <= line.n; i++) {
@@ -154,19 +154,19 @@ static const struct { const char *name; uint8_t n; uint8_t b[13]; } COMMANDS[] =
     { "{IBOX}", 9, { 0xFE, 0x6B, 0x02, 0xFE, 0x77, 0x07, 0xFC, 0x03, 0xF7 } },
 };
 
-int smz_dialog_compiled(const char *text, uint8_t *out, int cap)
+static int dialog_compiled(const char *text, uint8_t *out, int cap, Lines *lines, U32 *stack)
 {
     const int max_bytes = 2046, wrap = 19;
-    static U32 u; static Lines lines;
+    static U32 u;
     to_u32(text, &u);
-    wordwrap(&u, wrap, &lines);
+    wordwrap(&u, wrap, lines, stack);
     int pad_out = 0, pause = 1, line_count = 0;
-    for (int i = 0; i < lines.n; i++) if (!command_len(&lines.lines[i])) line_count++;
+    for (int i = 0; i < lines->n; i++) if (!command_len(&lines->lines[i])) line_count++;
     uint8_t tmp[8192]; int n = 0;
     tmp[n++] = 0xFB;
     int li = 0;
-    for (int i = 0; i < lines.n; i++) {
-        const U32 *l = &lines.lines[i];
+    for (int i = 0; i < lines->n; i++) {
+        const U32 *l = &lines->lines[i];
         int cl = command_len(l);
         if (cl) {
             char cmd[64];
@@ -195,6 +195,17 @@ int smz_dialog_compiled(const char *text, uint8_t *out, int cap)
     if (n > max_bytes) n = max_bytes;
     if (n > cap) n = cap;
     memcpy(out, tmp, n);
+    return n;
+}
+
+/* 8 MB of wrap buffers, on the heap only while a text compiles: in bss they would shrink the 3DS app's heap. */
+int smz_dialog_compiled(const char *text, uint8_t *out, int cap)
+{
+    Lines *lines = malloc(sizeof *lines);
+    U32 *stack = malloc(MAXLINES * sizeof *stack);
+    int n = lines && stack ? dialog_compiled(text, out, cap, lines, stack) : -1;
+    free(stack);
+    free(lines);
     return n;
 }
 

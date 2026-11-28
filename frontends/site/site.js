@@ -178,6 +178,17 @@
   const start = location.hash.slice(1);
   if (!select(start)) select('games');
 
+  // ---------- live counters (hidden while a number is 0) ----------
+  function loadStats() {
+    getJson('/api/stats').then(d => {
+      const show = (id, n) => { $(id + '-n').textContent = num(n); $(id).hidden = !(n > 0); return n > 0; };
+      const any = [show('live-online', d.online), show('live-week', d.weekPlayers)].some(Boolean);
+      $('live').hidden = !any;
+    }).catch(() => { $('live').hidden = true; });
+  }
+  loadStats();
+  setInterval(loadStats, 60000);
+
   loadDaily();
   loadGoals();
   loadVersion();

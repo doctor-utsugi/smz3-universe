@@ -1,5 +1,5 @@
 diff --git a/Makefile b/Makefile
-index 31fa536..24d5aa8 100644
+index 31fa536..39f27b9 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -90,13 +90,17 @@ LDFLAGS     = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
@@ -21,7 +21,23 @@ index 31fa536..24d5aa8 100644
  
  #---------------------------------------------------------------------------------
  # list of directories containing libraries, this must be the top level containing
-@@ -132,7 +136,7 @@ RCHEEVOS_CFILES    := $(foreach d,$(RCHEEVOS_SRCDIRS),$(patsubst $(SOURCES)/%,%,
+@@ -110,6 +114,15 @@ CITRO3D_PATCH     := $(TOPDIR)/patches/citro3d.patch
+ CITRO3D_LIB       := $(CITRO3D_CUSTOM)/lib/libcitro3d.a
+ LIBDIRS := $(CITRO3D_CUSTOM) $(PORTLIBS) $(CTRULIB)
+ 
++# Map Rando's generator (core/maprando, Rust), when build-3ds.sh built it: a New 3DS builds its seeds itself
++ifneq ($(wildcard $(TOPDIR)/smz3mr/lib/libsmz3_maprando.a),)
++LIBS     := -lsmz3_maprando $(LIBS)
++LIBDIRS  += $(TOPDIR)/smz3mr
++CFLAGS   += -DSMZ_MAPRANDO
++CXXFLAGS += -DSMZ_MAPRANDO
++LDFLAGS  += $(foreach f,linearAlloc linearMemAlign linearRealloc linearGetSize linearFree linearSpaceFree,-Wl,--wrap=$(f))
++endif
++
+ 
+ #---------------------------------------------------------------------------------
+ # no real need to edit anything past this point unless you need to add additional
+@@ -132,7 +145,7 @@ RCHEEVOS_CFILES    := $(foreach d,$(RCHEEVOS_SRCDIRS),$(patsubst $(SOURCES)/%,%,
  # exclude optional raintegration and libretro
  RCHEEVOS_CFILES    := $(filter-out rcheevos/src/rc_client_raintegration.c rcheevos/src/rc_libretro.c,$(RCHEEVOS_CFILES))
  
@@ -30,7 +46,7 @@ index 31fa536..24d5aa8 100644
  CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
  			Snes9x/fxinst.cpp Snes9x/fxemu.cpp \
  			Snes9x/ppu.cpp Snes9x/ppuvsect.cpp Snes9x/hwregisters.cpp \
-@@ -149,7 +153,7 @@ CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
+@@ -149,7 +162,7 @@ CPPFILES	:= Snes9x/cpuexec.cpp Snes9x/sa1cpu.cpp Snes9x/sa1.cpp \
  			3dsgpu.cpp 3dssound.cpp 3dsfont.cpp 3dsglyphs.cpp 3dsui.cpp 3dsui_notif.cpp 3dsui_img.cpp 3dsimg_cache.cpp 3dsexit.cpp \
  			3dsconfig.cpp 3dsfiles.cpp 3dsinput.cpp 3dslcd.cpp \
  			3dsimpl.cpp 3dsimpl_tilecache.cpp 3dsimpl_gpu.cpp 3dsthemes.cpp 3dssettings.cpp \
@@ -39,6 +55,15 @@ index 31fa536..24d5aa8 100644
  SFILES             := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
  PICAFILES          := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
  SHLISTFILES        := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
+@@ -318,7 +331,7 @@ DEPENDS	:=	$(OFILES:.o=.d)
+ COMMON_MAKEROM_PARAMS := -rsf $(RSF) -target t -exefslogo -elf $(OUTPUT_FILE).elf -icon $(OUTPUT_FILE).smdh \
+ -banner $(TOPDIR)/$(RESOURCES)/banner.bnr -DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" \
+ -DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)" -DAPP_ROMFS="$(APP_ROMFS)" -DAPP_SYSTEM_MODE="64MB" \
+--DAPP_SYSTEM_MODE_EXT="Legacy" -major "$(APP_VERSION_MAJOR)" -minor "$(APP_VERSION_MINOR)" \
++-DAPP_SYSTEM_MODE_EXT="178MB" -major "$(APP_VERSION_MAJOR)" -minor "$(APP_VERSION_MINOR)" \
+ -micro "$(APP_VERSION_MICRO)"
+ 
+ ifeq ($(OS),Windows_NT)
 diff --git a/resources/AppInfo b/resources/AppInfo
 index 1cbed11..cdfd311 100644
 --- a/resources/AppInfo
@@ -1186,10 +1211,10 @@ index 3004c87..4e0cc82 100644
          if (!RawFilePointer) return 0;
 diff --git a/source/smz3online.cpp b/source/smz3online.cpp
 new file mode 100644
-index 0000000..7c9c2e5
+index 0000000..505dd7c
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1493 @@
+@@ -0,0 +1,1679 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1212,6 +1237,9 @@ index 0000000..7c9c2e5
 +#include "smz3_version.h"
 +#include "smz3_bps.h"
 +#include "smz3_sync.h"
++#ifdef SMZ_MAPRANDO
++#include "smz3_maprando.h"
++#endif
 +}
 +
 +#define ONLINE_DIR SMZ_DIR "/online"
@@ -2570,7 +2598,7 @@ index 0000000..7c9c2e5
 +
 +struct MrSink { u8 *buf; size_t n, cap; char info[512]; };
 +static volatile s64 gMrGot, gMrTotal;
-+static volatile int gMrPhase;   // 0 idle, 1 waiting while the server builds the seed, 2 downloading
++static volatile int gMrPhase;   // 0 idle, 1 waiting while the server builds the seed, 2 downloading, 3 building it here
 +
 +static size_t mrWrite(char *data, size_t size, size_t count, void *arg)
 +{
@@ -2619,11 +2647,191 @@ index 0000000..7c9c2e5
 +    return -1;
 +}
 +
-+bool smzMapRandoOnline(void) { return onNetwork(); }
++// libctru's split of the app's memory (a linear heap of up to 32 MB, the rest the heap), but with the heap held to
++// its 96 MB address range: past that, as in the New 3DS's 178 MB mode, the heap fails to map and the app never starts.
++extern "C" {
++extern u32 __ctru_heap, __ctru_heap_size, __ctru_linear_heap, __ctru_linear_heap_size;
++extern char *fake_heap_start, *fake_heap_end;
++void mappableInit(u32 addrMin, u32 addrMax);
++
++void __system_allocateHeaps(void)
++{
++    Handle reslimit = 0;
++    if (R_FAILED(svcGetResourceLimit(&reslimit, CUR_PROCESS_HANDLE))) svcBreak(USERBREAK_PANIC);
++    s64 maxCommit = 0, currentCommit = 0;
++    ResourceLimitType type = RESLIMIT_COMMIT;
++    svcGetResourceLimitLimitValues(&maxCommit, reslimit, &type, 1);
++    svcGetResourceLimitCurrentValues(&currentCommit, reslimit, &type, 1);
++    svcCloseHandle(reslimit);
++    u32 remaining = (u32)(maxCommit - currentCommit) & ~0xFFF;
++    const u32 maxHeap = OS_HEAP_AREA_END - OS_HEAP_AREA_BEGIN;
++    u32 linear = (remaining / 2) & ~0xFFF;
++    if (remaining - linear > 24u << 20) linear = remaining - (24u << 20) > 32u << 20 ? 32u << 20 : remaining - (24u << 20);
++    if (remaining - linear > maxHeap) linear = remaining - maxHeap;
++    __ctru_linear_heap_size = linear;
++    __ctru_heap_size = remaining - linear;
++    if (R_FAILED(svcControlMemory(&__ctru_heap, OS_HEAP_AREA_BEGIN, 0x0, __ctru_heap_size, MEMOP_ALLOC, (MemPerm)(MEMPERM_READ | MEMPERM_WRITE))))
++        svcBreak(USERBREAK_PANIC);
++    if (R_FAILED(svcControlMemory(&__ctru_linear_heap, 0x0, 0x0, __ctru_linear_heap_size, MEMOP_ALLOC_LINEAR, (MemPerm)(MEMPERM_READ | MEMPERM_WRITE))))
++        svcBreak(USERBREAK_PANIC);
++    mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
++    fake_heap_start = (char *)__ctru_heap;
++    fake_heap_end = fake_heap_start + __ctru_heap_size;
++}
++}
++
++#ifdef SMZ_MAPRANDO
++extern "C" {
++
++// Rust's std seeds its hash maps with getrandom(), which the 3DS's newlib lacks; the seeds do not depend on it.
++ssize_t getrandom(void *buf, size_t len, unsigned flags)
++{
++    static bool ps;
++    if (!ps) ps = R_SUCCEEDED(psInit());
++    if (ps && R_SUCCEEDED(PS_GenerateRandomBytes(buf, len))) return (ssize_t)len;
++    u64 t = svcGetSystemTick();
++    for (size_t i = 0; i < len; i++) ((u8 *)buf)[i] = (u8)(t >> (i % 8 * 8)) ^ (u8)i;
++    return (ssize_t)len;
++}
++
++// libctru's linear heap allocator has no lock, and the generator's thread uses it too (smz_mr_mem_alloc): every
++// linear call in the app goes through these (-Wl,--wrap in the Makefile).
++static LightLock gLinearLock = 1;
++void *__real_linearAlloc(size_t size);
++void *__real_linearMemAlign(size_t size, size_t alignment);
++void *__real_linearRealloc(void *mem, size_t size);
++size_t __real_linearGetSize(void *mem);
++void __real_linearFree(void *mem);
++u32 __real_linearSpaceFree(void);
++#define LINEAR_LOCKED(T, call) { LightLock_Lock(&gLinearLock); T r_ = call; LightLock_Unlock(&gLinearLock); return r_; }
++void *__wrap_linearAlloc(size_t size) LINEAR_LOCKED(void *, __real_linearAlloc(size))
++void *__wrap_linearMemAlign(size_t size, size_t alignment) LINEAR_LOCKED(void *, __real_linearMemAlign(size, alignment))
++void *__wrap_linearRealloc(void *mem, size_t size) LINEAR_LOCKED(void *, __real_linearRealloc(mem, size))
++size_t __wrap_linearGetSize(void *mem) LINEAR_LOCKED(size_t, __real_linearGetSize(mem))
++u32 __wrap_linearSpaceFree(void) LINEAR_LOCKED(u32, __real_linearSpaceFree())
++void __wrap_linearFree(void *mem)
++{
++    LightLock_Lock(&gLinearLock);
++    __real_linearFree(mem);
++    LightLock_Unlock(&gLinearLock);
++}
++
++// The generator's blocks of 64 KB or more go to the linear heap while it keeps 3 MB free for the app's textures and
++// sound; the rest, and the big ones that do not fit there, go to the heap.
++#define MR_BIG (64u << 10)
++#define MR_LINEAR_RESERVE (3u << 20)
++static size_t gMrLive, gMrPeak;
++
++static bool inLinear(const void *p)
++{
++    return (u32)p - __ctru_linear_heap < __ctru_linear_heap_size;
++}
++
++static void *linearFit(size_t size, size_t align)
++{
++    LightLock_Lock(&gLinearLock);
++    void *p = __real_linearSpaceFree() >= size + MR_LINEAR_RESERVE ? __real_linearMemAlign(size, align < 0x80 ? 0x80 : align) : NULL;
++    LightLock_Unlock(&gLinearLock);
++    return p;
++}
++
++static void *heapAlloc(size_t size, size_t align)
++{
++    return align <= 8 ? malloc(size) : memalign(align, size);
++}
++
++static void mrCount(size_t add, size_t sub)
++{
++    gMrLive += add - sub;
++    if (gMrLive > gMrPeak) gMrPeak = gMrLive;
++}
++
++void *smz_mr_mem_alloc(size_t size, size_t align)
++{
++    void *p = size >= MR_BIG ? linearFit(size, align) : NULL;
++    if (!p) p = heapAlloc(size, align);
++    if (!p && size < MR_BIG) p = linearFit(size, align);
++    if (p) mrCount(size, 0);
++    return p;
++}
++
++void smz_mr_mem_free(void *p, size_t size)
++{
++    if (inLinear(p)) __wrap_linearFree(p);
++    else free(p);
++    mrCount(0, size);
++}
++
++void *smz_mr_mem_realloc(void *p, size_t oldSize, size_t align, size_t size)
++{
++    if (!inLinear(p) && align <= 8 && size < MR_BIG) {
++        void *q = realloc(p, size);
++        if (q) { mrCount(size, oldSize); return q; }
++    }
++    void *q = smz_mr_mem_alloc(size, align);
++    if (!q) return NULL;
++    memcpy(q, p, oldSize < size ? oldSize : size);
++    smz_mr_mem_free(p, oldSize);
++    return q;
++}
++}
++
++#define MR_DATA "romfs:/smz3/maprando-data"
++// The generator's peak in Azahar is up to 85 MB of live blocks for the heaviest shipped seeds, more with the heap's
++// overhead; running out of memory hangs the app instead of failing the seed, so only the 178 MB mode (136 MB free
++// at the menu) builds here, and the 124 MB one (80 MB) asks the server.
++#define MR_NEED_MB 112
++
++// The heap left (what sbrk has not handed out yet and the free blocks of what it has) and the linear heap's share.
++static size_t memLeft(void)
++{
++    struct mallinfo mi = mallinfo();
++    u32 lin = __wrap_linearSpaceFree();
++    return (__ctru_heap_size - mi.arena) + mi.fordblks + (lin > MR_LINEAR_RESERVE ? lin - MR_LINEAR_RESERVE : 0);
++}
++
++static bool mrLocal(void)
++{
++    struct stat st;
++    return memLeft() >= (size_t)MR_NEED_MB << 20 && stat(MR_DATA "/rust/gamedata.bin", &st) == 0;
++}
++
++static int mrBuild(const char *settings, uint64_t seed, const uint8_t *sm, size_t smLen, uint8_t *out, size_t cap, char *info, size_t infoCap)
++{
++    char err[300];
++    u64 t0 = osGetTime();
++    struct mallinfo mi = mallinfo();
++    size_t heap = (__ctru_heap_size - mi.arena) + mi.fordblks, lin = __wrap_linearSpaceFree();
++    gMrPeak = gMrLive = 0;
++    gMrPhase = 3;
++    int r = smz_mr_init(MR_DATA, err, sizeof err) ? mrFail(info, infoCap, err)
++        : smz_mr_generate(settings, seed, 0, sm, smLen, out, cap, info, infoCap);
++    smz_mr_free();
++    gMrPhase = 0;
++    if (FILE *lf = fopen(SMZ_DIR "/gen.log", "a")) {
++        fprintf(lf, "maprando built here: rc %d, %llu ms, peak %u KB, free before: heap %u KB, linear %u KB\n", r,
++                (unsigned long long)(osGetTime() - t0), (unsigned)(gMrPeak / 1024), (unsigned)(heap / 1024), (unsigned)(lin / 1024));
++        fclose(lf);
++    }
++    return r;
++}
++
++#endif
++
++bool smzMapRandoOnline(void)
++{
++#ifdef SMZ_MAPRANDO
++    if (mrLocal()) return true;
++#endif
++    return onNetwork();
++}
 +
 +int smzMapRandoFetch(const char *settings, uint64_t seed, const uint8_t *sm, size_t smLen, uint8_t *out, size_t cap, char *info, size_t infoCap)
 +{
 +    static bool curlReady;
++#ifdef SMZ_MAPRANDO
++    if (mrLocal()) return mrBuild(settings, seed, sm, smLen, out, cap, info, infoCap);
++#endif
 +    if (!onNetwork()) return mrFail(info, infoCap, "No internet connection");
 +    if (!curlReady) curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
 +    if (smLen % 0x8000 == 0x200) { sm += 0x200; smLen -= 0x200; }   // a copier header: the patch is made from the bare ROM
@@ -2679,6 +2887,9 @@ index 0000000..7c9c2e5
 +    int phase = gMrPhase;
 +    s64 got = gMrGot, total = gMrTotal;
 +    if (phase == 1) snprintf(out, cap, "Downloading the Map Rando seed");
++#ifdef SMZ_MAPRANDO
++    else if (phase == 3) snprintf(out, cap, "Building the Map Rando seed (try %u)", (unsigned)smz_mr_attempts() + 1);
++#endif
 +    else if (phase == 2 && total > 0) snprintf(out, cap, "Downloading the Map Rando seed %d%%", (int)(got * 100 / total));
 +    else if (phase == 2) snprintf(out, cap, "Downloading the Map Rando seed %lld KB", (long long)(got / 1024));
 +    return phase;

@@ -304,6 +304,11 @@ module.exports = function daily(ctx) {
     return best ? { player: best.player, country: best.country } : null;
   };
   handle.validInstall = validInstall;
+  handle.startedSince = since => {   // for stats.js: every install that started a daily window since then
+    const out = new Set();
+    for (const starts of Object.values(db.starts)) for (const [install, s] of Object.entries(starts)) if (s.startedAt >= since) out.add(install);
+    return out;
+  };
   // The settings smz3check rebuilds a window's seed from.
   handle.settingsOf = id => {
     if (!cache.has(id)) try { cache.set(id, JSON.parse(fs.readFileSync(path.join(CDIR, id + '.json'), 'utf8'))); } catch (e) { return '{"nologic":1}'; }

@@ -194,6 +194,10 @@ jobs:
           [ -f data/sm_rooms.json ] || echo '[]' > data/sm_rooms.json
           python3 -m pip install --break-system-packages pillow || python3 -m pip install pillow
           python3 tools/prepare_assets.py
+      - name: Map Rando sources and data (build-3ds.sh builds the generator for a New 3DS)
+        run: |
+          command -v zstd > /dev/null || (sudo apt-get update && sudo apt-get install -y zstd)
+          tools/maprando/fetch.sh
       - run: ./build-3ds.sh
       - run: cp build/snes9x_3ds.3dsx SMZ3-3ds.3dsx && cp build/snes9x_3ds.cia SMZ3-3ds.cia
       - uses: actions/upload-artifact@v4

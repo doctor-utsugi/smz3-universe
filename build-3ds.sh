@@ -54,6 +54,27 @@ IFS=. read -r MAJ MIN MIC <<< "$(echo "${VER#v}" | grep -E '^[0-9]+\.[0-9]+\.[0-
 # a local build is ahead of the last tag: the HOME menu keeps a title's name and icon until its version changes
 [[ "${GITHUB_REF_NAME:-}" == v* ]] || MIC=$((MIC < 15 ? MIC + 1 : 15))
 sed -i -E "s/^(APP_VERSION_MAJOR = ).*/\1$MAJ/; s/^(APP_VERSION_MINOR = ).*/\1$MIN/; s/^(APP_VERSION_MICRO = ).*/\1$MIC/" resources/AppInfo
+# Map Rando's generator (core/maprando), when its data is fetched (tools/maprando/fetch.sh): Rust's tier-3 3DS target with
+# its std built here, and zstd's C through devkitARM's gcc, copied out of the image once
+rm -rf smz3mr romfs/smz3/maprando-data
+if [ -d "$ROOT/build/maprando-data/rust" ] && command -v cargo > /dev/null; then
+    dka="$ROOT/build/devkitARM"
+    if [ ! -x "$dka/bin/arm-none-eabi-gcc" ]; then
+        id=$(docker create devkitpro/devkitarm:latest) && docker cp "$id:/opt/devkitpro/devkitARM" "$dka" && docker rm "$id" > /dev/null
+    fi
+    # zstd's legacy decoders want uint32_t to be unsigned int, which newlib's ARM headers make unsigned long
+    cc="$ROOT/build/cc-3ds"
+    printf '#!/bin/sh\nexec "%s/bin/arm-none-eabi-gcc" "$@" -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -std=gnu11 -Wno-incompatible-pointer-types -U__UINT32_TYPE__ "-D__UINT32_TYPE__=unsigned int" -U__INT32_TYPE__ -D__INT32_TYPE__=int\n' "$dka" > "$cc"
+    chmod +x "$cc"
+    (cd "$ROOT/core/maprando" && rustup component add rust-src > /dev/null 2>&1
+     CC_armv6k_nintendo_3ds="$cc" AR_armv6k_nintendo_3ds="$dka/bin/arm-none-eabi-ar" RUSTC_BOOTSTRAP=1 \
+         cargo build --release --lib -Z build-std=std,panic_abort --target armv6k-nintendo-3ds --target-dir "$ROOT/build/maprando-3ds")
+    mkdir -p smz3mr/lib && cp "$ROOT/build/maprando-3ds/armv6k-nintendo-3ds/release/libsmz3_maprando.a" smz3mr/lib/
+    cp "$ROOT/core/maprando/smz3_maprando.h" source/
+    # the packed data reads without sm-json-data's 11 MB of JSON
+    mkdir -p romfs/smz3/maprando-data
+    (cd "$ROOT/build/maprando-data" && tar cf - --exclude=./sm-json-data .) | tar xf - -C romfs/smz3/maprando-data
+fi
 docker run --rm -v "$PWD":/src -w /src devkitpro/devkitarm:latest \
     sh -c "make 3dsx -j$(nproc) && make cia -j$(nproc)"   # one after the other: each target is its own sub-make over the same objects
 mkdir -p ../../build && cp output/src.3dsx ../../build/snes9x_3ds.3dsx && cp output/src.cia ../../build/snes9x_3ds.cia

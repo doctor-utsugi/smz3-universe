@@ -1,6 +1,9 @@
 //! C interface to Map Rando's generator (see smz3_maprando.h). The flow follows upstream's maprando-test and
 //! maprando-cli: a map from a local pregenerated pool, its areas, objectives and doors, then item placement attempts.
 
+#[cfg(target_os = "horizon")]
+mod horizon;
+
 use anyhow::{Context, Result, bail};
 use maprando::customize::{
     ControllerConfig, CustomizeSettings, DoorTheme, FlashingSetting, ItemDotChange, MapTheme, MusicSettings,
