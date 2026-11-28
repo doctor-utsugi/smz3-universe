@@ -53,7 +53,7 @@ index 2b5eed3..1e3df3f 100644
  pub enum GlowPatchSection {
      Direct {
 diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
-index 2f74136..80b2c15 100644
+index 2f74136..9a8d2d2 100644
 --- a/rust/maprando-game/src/lib.rs
 +++ b/rust/maprando-game/src/lib.rs
 @@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Formatter};
@@ -64,6 +64,15 @@ index 2f74136..80b2c15 100644
  use strum::VariantNames;
  use strum_macros::{EnumString, VariantNames};
  
+@@ -118,7 +119,7 @@ pub type VertexId = usize; // Index into GameData.vertex_isv.keys: (room_id, nod
+ pub type ItemLocationId = usize; // Index into GameData.item_locations: 100 nodes each containing an item
+ pub type LinkLength = u32; // Length of a link (based on difficulty)
+ pub type ObstacleMask = usize; // Bitmask where `i`th bit (from least significant) indicates `i`th obstacle cleared within a room
+-pub type WeaponMask = usize; // Bitmask where `i`th bit indicates availability of (or vulnerability to) `i`th weapon.
++pub type WeaponMask = u64; // Bitmask where `i`th bit indicates availability of (or vulnerability to) `i`th weapon.
+ pub type Capacity = i16; // Data type used to represent quantities of energy, ammo, etc.
+ pub type ItemPtr = usize; // PC address of item in PLM list
+ pub type DoorPtr = usize; // PC address of door data for exiting given door
 @@ -129,7 +130,7 @@ pub type StepTrailId = i32;
  pub type LinkIdx = i32;
  pub type TraversalId = usize; // Index into Traversal.past_steps
@@ -1092,6 +1101,28 @@ index f1440c1..592099a 100644
 +[[bin]]
 +name = "maprando-test"
 +required-features = ["web"]
+diff --git a/rust/maprando/src/customize/retiling.rs b/rust/maprando/src/customize/retiling.rs
+index ed991ae..283401a 100644
+--- a/rust/maprando/src/customize/retiling.rs
++++ b/rust/maprando/src/customize/retiling.rs
+@@ -190,7 +190,7 @@ pub fn apply_retiling_and_palettes(
+                 if statues_hallway_tiling && tourian_neighbors_strict.contains(&room_idx) {
+                     "StatuesHallway".to_string()
+                 } else {
+-                    let theme_idx = rng.gen_range(0..mosaic_themes.len());
++                    let theme_idx = rng.gen_range(0..mosaic_themes.len() as u64) as usize;
+                     mosaic_themes[theme_idx].name.clone()
+                 }
+             }
+@@ -211,7 +211,7 @@ pub fn apply_retiling_and_palettes(
+                 }
+             }
+             PaletteTheme::AreaShuffled => area_palette_mapping[area],
+-            PaletteTheme::Scrambled => rng.gen_range(0..6),
++            PaletteTheme::Scrambled => rng.gen_range(0..6u64) as usize,
+             PaletteTheme::Constant(palette_index) => *palette_index as usize,
+         };
+ 
 diff --git a/rust/maprando/src/difficulty.rs b/rust/maprando/src/difficulty.rs
 index 330393a..8fd985d 100644
 --- a/rust/maprando/src/difficulty.rs
@@ -1127,7 +1158,7 @@ index 6d6c625..ecf8053 100644
  pub mod settings;
  pub mod spoiler_log;
 diff --git a/rust/maprando/src/map_repository.rs b/rust/maprando/src/map_repository.rs
-index 3f3fa5d..feb5224 100644
+index 3f3fa5d..1f95025 100644
 --- a/rust/maprando/src/map_repository.rs
 +++ b/rust/maprando/src/map_repository.rs
 @@ -1,3 +1,4 @@
@@ -1237,8 +1268,17 @@ index 3f3fa5d..feb5224 100644
  impl MapRepository for HttpMapRepository {
      fn get_map_batch(
          &self,
+@@ -889,7 +911,7 @@ fn normalize_toilet(map: &mut Map, game_data: &GameData) {
+ 
+ fn shuffle_maps(map_vec: &mut [Map], seed: usize) {
+     let mut rng_seed = [0u8; 32];
+-    rng_seed[..8].copy_from_slice(&seed.to_le_bytes());
++    rng_seed[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+     let mut rng = StdRng::from_seed(rng_seed);
+     map_vec.shuffle(&mut rng);
+ }
 diff --git a/rust/maprando/src/patch.rs b/rust/maprando/src/patch.rs
-index f01518c..d935e8c 100644
+index f01518c..d5a1ad3 100644
 --- a/rust/maprando/src/patch.rs
 +++ b/rust/maprando/src/patch.rs
 @@ -1931,26 +1931,34 @@ impl Patcher<'_> {
@@ -1254,21 +1294,22 @@ index f01518c..d935e8c 100644
 +            &game_data.title_screen_data
 +        };
          let mut rng_seed = [0u8; 32];
-         rng_seed[..8].copy_from_slice(&self.randomization.seed.to_le_bytes());
+-        rng_seed[..8].copy_from_slice(&self.randomization.seed.to_le_bytes());
++        rng_seed[..8].copy_from_slice(&(self.randomization.seed as u64).to_le_bytes());
          let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
  
          let mut img = Array3::<u8>::zeros((224, 256, 3));
          loop {
 -            let top_left_idx = rng.gen_range(0..self.game_data.title_screen_data.top_left.len());
 -            let top_right_idx = rng.gen_range(0..self.game_data.title_screen_data.top_right.len());
-+            let top_left_idx = rng.gen_range(0..tsd.top_left.len());
-+            let top_right_idx = rng.gen_range(0..tsd.top_right.len());
++            let top_left_idx = rng.gen_range(0..tsd.top_left.len() as u64) as usize;
++            let top_right_idx = rng.gen_range(0..tsd.top_right.len() as u64) as usize;
              let bottom_left_idx =
 -                rng.gen_range(0..self.game_data.title_screen_data.bottom_left.len());
-+                rng.gen_range(0..tsd.bottom_left.len());
++                rng.gen_range(0..tsd.bottom_left.len() as u64) as usize;
              let bottom_right_idx =
 -                rng.gen_range(0..self.game_data.title_screen_data.bottom_right.len());
-+                rng.gen_range(0..tsd.bottom_right.len());
++                rng.gen_range(0..tsd.bottom_right.len() as u64) as usize;
  
 -            let top_left_slice = self.game_data.title_screen_data.top_left[top_left_idx]
 +            let top_left_slice = tsd.top_left[top_left_idx]
@@ -1293,8 +1334,26 @@ index f01518c..d935e8c 100644
              for y in 0..224 {
                  for x in 0..256 {
                      if map[(y, x, 0)] == 0 && map[(y, x, 1)] == 0 && map[(y, x, 2)] == 0 {
+diff --git a/rust/maprando/src/patch/ips_write.rs b/rust/maprando/src/patch/ips_write.rs
+index 74e5b44..9494995 100644
+--- a/rust/maprando/src/patch/ips_write.rs
++++ b/rust/maprando/src/patch/ips_write.rs
+@@ -70,11 +70,11 @@ pub fn create_ips_patch(old_rom: &[u8], new_rom: &[u8]) -> Vec<u8> {
+     out.extend("PATCH".as_bytes());
+     let chunks = get_chunks(old_rom, new_rom);
+     for chunk in &chunks {
+-        out.extend(&chunk.start.to_be_bytes()[5..8]);
++        out.extend(&(chunk.start as u64).to_be_bytes()[5..8]);
+         let size = chunk.end - chunk.start;
+         assert!(size <= 0xFFFF); // TODO: Split into sub-chunks if necessary.
+         assert!(size > 0);
+-        out.extend(&size.to_be_bytes()[6..8]);
++        out.extend(&(size as u64).to_be_bytes()[6..8]);
+         out.extend(&new_rom[chunk.start..chunk.end]);
+     }
+     out.extend("EOF".as_bytes());
 diff --git a/rust/maprando/src/randomize.rs b/rust/maprando/src/randomize.rs
-index 2481576..9b2b761 100644
+index 2481576..37bdbfa 100644
 --- a/rust/maprando/src/randomize.rs
 +++ b/rust/maprando/src/randomize.rs
 @@ -53,6 +53,7 @@ use run_speed::{
@@ -1314,6 +1373,24 @@ index 2481576..9b2b761 100644
  }
  
  #[derive(Clone)]
+@@ -408,7 +411,7 @@ pub struct StartLocationData {
+ 
+ pub fn randomize_map_areas(map: &mut Map, seed: usize) {
+     let mut rng_seed = [0u8; 32];
+-    rng_seed[..8].copy_from_slice(&seed.to_le_bytes());
++    rng_seed[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+     let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
+ 
+     let mut area_mapping: Vec<usize> = (0..6).collect();
+@@ -528,7 +531,7 @@ pub fn assign_map_areas(
+         return true;
+     };
+     let mut rng_seed = [0u8; 32];
+-    rng_seed[..8].copy_from_slice(&seed.to_le_bytes());
++    rng_seed[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+     let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
+ 
+     let mut area_mapping: Vec<isize> = vec![-1; NUM_AREAS];
 @@ -651,8 +654,37 @@ pub struct Preprocessor<'a> {
      pub game_data: &'a GameData,
      pub door_map: HashMap<(RoomId, NodeId), (RoomId, NodeId)>,
@@ -1488,6 +1565,15 @@ index 2481576..9b2b761 100644
                          ]));
                      }
                      Requirement::make_or(immobile_req_or_vec)
+@@ -3407,7 +3515,7 @@ pub fn randomize_doors(
+     seed: usize,
+ ) -> LockedDoorData {
+     let mut rng_seed = [0u8; 32];
+-    rng_seed[..8].copy_from_slice(&seed.to_le_bytes());
++    rng_seed[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+     let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
+ 
+     let get_loc = |ptr_pair: DoorPtrPair| -> (RoomGeometryRoomIdx, usize, usize) {
 @@ -3822,6 +3930,24 @@ impl<'r> Randomizer<'r> {
          difficulty_tiers: &'r [DifficultyConfig],
          game_data: &'r GameData,
@@ -1531,6 +1617,33 @@ index 2481576..9b2b761 100644
          }
      }
  
+@@ -4941,7 +5069,7 @@ impl<'r> Randomizer<'r> {
+             .unwrap()
+             .as_nanos();
+         let mut rng_seed = [0u8; 32];
+-        rng_seed[..8].copy_from_slice(&seed.to_le_bytes());
++        rng_seed[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+         rng_seed[8..24].copy_from_slice(&t.to_le_bytes());
+         let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
+         // Leave out vowels and characters that could read like vowels, to minimize the chance
+@@ -4950,7 +5078,7 @@ impl<'r> Randomizer<'r> {
+         let mut out: String = String::new();
+         let num_chars = 9;
+         for _ in 0..num_chars {
+-            let i = rng.gen_range(0..alphabet.len());
++            let i = rng.gen_range(0..alphabet.len() as u64) as usize;
+             let c = alphabet.as_bytes()[i] as char;
+             out.push(c);
+         }
+@@ -5266,7 +5394,7 @@ impl<'r> Randomizer<'r> {
+         for i in 0..num_attempts {
+             info!("[attempt {attempt_num_rando}] start location attempt {i}");
+             let start_loc_idx = match self.settings.start_location_settings.mode {
+-                StartLocationMode::Random => rng.gen_range(0..self.game_data.start_locations.len()),
++                StartLocationMode::Random => rng.gen_range(0..self.game_data.start_locations.len() as u64) as usize,
+                 StartLocationMode::Custom => {
+                     let mut idx: Option<usize> = None;
+                     let room_id = self
 @@ -5478,7 +5606,7 @@ impl<'r> Randomizer<'r> {
          }
      }
@@ -1540,6 +1653,15 @@ index 2481576..9b2b761 100644
          let items = vec![false; self.game_data.item_isv.keys.len()];
          let weapon_mask = self
              .game_data
+@@ -5655,7 +5783,7 @@ impl<'r> Randomizer<'r> {
+         rebuild_traversals: bool,
+     ) -> Result<(Randomization, SpoilerLog)> {
+         let mut rng_seed = [0u8; 32];
+-        rng_seed[..8].copy_from_slice(&seed.to_le_bytes());
++        rng_seed[..8].copy_from_slice(&(seed as u64).to_le_bytes());
+         let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
+         if self.settings.start_location_settings.mode == StartLocationMode::Escape {
+             return self.dummy_randomize(seed, display_seed, &mut rng);
 diff --git a/rust/maprando/src/spoiler_log.rs b/rust/maprando/src/spoiler_log.rs
 index f5ed506..47f8910 100644
 --- a/rust/maprando/src/spoiler_log.rs
