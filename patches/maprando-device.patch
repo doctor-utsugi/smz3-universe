@@ -904,11 +904,94 @@ index f5ed506..f1c47ff 100644
          reverse_traversal,
      })
 diff --git a/rust/maprando/src/traverse.rs b/rust/maprando/src/traverse.rs
-index ba0c5b1..1f92cad 100644
+index ba0c5b1..eabcf73 100644
 --- a/rust/maprando/src/traverse.rs
 +++ b/rust/maprando/src/traverse.rs
-@@ -1139,6 +1139,21 @@ fn apply_requirement_complex(
-             reducer.local
+@@ -5,7 +5,7 @@ use std::{
+ };
+ 
+ use arrayvec::ArrayVec;
+-use hashbrown::{HashMap, HashSet};
++use hashbrown::HashMap;
+ use serde::{Deserialize, Serialize};
+ 
+ use crate::{
+@@ -586,26 +586,25 @@ pub struct LockedDoorData {
+ 
+ type LocalStateArray = ArrayVec<LocalState, NUM_COST_METRICS>;
+ 
+-fn apply_link(link: &Link, mut local: LocalStateArray, cx: &TraversalContext) -> LocalStateArray {
++fn apply_link(link: &Link, local: &mut LocalStateArray, cx: &TraversalContext) {
+     if cx.reverse && !link.end_with_shinecharge {
+         local.retain(|x| x.shinecharge_frames_remaining == 0);
+     } else if !cx.reverse && !link.start_with_shinecharge {
+-        for loc in &mut local {
++        for loc in local.iter_mut() {
+             loc.shinecharge_frames_remaining = 0;
+         }
+     }
+-    local = apply_requirement_complex(&link.requirement, local, cx);
++    apply_requirement_complex(&link.requirement, local, cx);
+     if cx.reverse && !link.start_with_shinecharge {
+         local.retain(|x| x.shinecharge_frames_remaining == 0);
+     } else if !cx.reverse && !link.end_with_shinecharge {
+-        for loc in &mut local {
++        for loc in local.iter_mut() {
+             loc.shinecharge_frames_remaining = 0;
+         }
+     }
+-    for loc in &mut local {
++    for loc in local.iter_mut() {
+         loc.length += link.length;
+     }
+-    local
+ }
+ 
+ fn has_beam(beam: BeamType, inventory: &Inventory) -> bool {
+@@ -1105,42 +1104,55 @@ impl From<bool> for SimpleResult {
+     }
+ }
+ 
+-fn apply_requirement_complex(
+-    req: &Requirement,
+-    mut local: ArrayVec<LocalState, NUM_COST_METRICS>,
+-    cx: &TraversalContext,
+-) -> ArrayVec<LocalState, NUM_COST_METRICS> {
++/// Applies `req` to each state of `local`, in place: what is left are the states it allows, reduced.
++fn apply_requirement_complex(req: &Requirement, local: &mut LocalStateArray, cx: &TraversalContext) {
+     match req {
+         Requirement::And(sub_reqs) => {
+             if cx.reverse {
+                 for r in sub_reqs.iter().rev() {
+-                    local = apply_requirement_complex(r, local, cx);
++                    apply_requirement_complex(r, local, cx);
+                     if local.is_empty() {
+                         break;
+                     }
+                 }
+             } else {
+                 for r in sub_reqs {
+-                    local = apply_requirement_complex(r, local, cx);
++                    apply_requirement_complex(r, local, cx);
+                     if local.is_empty() {
+                         break;
+                     }
+                 }
+             }
+-            local
+         }
+         Requirement::Or(sub_reqs) => {
+             let mut reducer: LocalStateReducer<()> = LocalStateReducer::default();
+             for r in sub_reqs {
+-                for loc in apply_requirement_complex(r, local.clone(), cx) {
++                let mut sub_local = local.clone();
++                apply_requirement_complex(r, &mut sub_local, cx);
++                for loc in sub_local {
+                     reducer.push(loc, &cx.global.inventory, (), &cx.cost_config, cx.reverse);
+                 }
+             }
+-            reducer.local
++            *local = reducer.local;
          }
          _ => {
 +            // A reducer given one state keeps it as it is.
@@ -921,15 +1004,27 @@ index ba0c5b1..1f92cad 100644
 +                        let mut reducer: LocalStateReducer<()> = LocalStateReducer::default();
 +                        reducer.push(loc, &cx.global.inventory, (), &cx.cost_config, cx.reverse);
 +                        reducer.push(extra_state, &cx.global.inventory, (), &cx.cost_config, cx.reverse);
-+                        return reducer.local;
++                        *local = reducer.local;
 +                    }
 +                }
-+                return local;
++                return;
 +            }
              let mut reducer: LocalStateReducer<()> = LocalStateReducer::default();
-             for mut loc in local {
+-            for mut loc in local {
++            for mut loc in local.drain(..) {
                  match apply_requirement_simple(req, &mut loc, cx) {
-@@ -2636,7 +2651,7 @@ impl Traverser {
+                     SimpleResult::Failure => {}
+                     SimpleResult::Success => {
+@@ -1158,7 +1170,7 @@ fn apply_requirement_complex(
+                     }
+                 }
+             }
+-            reducer.local
++            *local = reducer.local;
+         }
+     }
+ }
+@@ -2636,7 +2648,7 @@ impl Traverser {
          Self {
              reverse,
              initial_local_state,
@@ -938,10 +1033,23 @@ index ba0c5b1..1f92cad 100644
              lsr: vec![LocalStateReducer::default(); num_vertices],
              step: TraversalStep {
                  updates: vec![],
-@@ -2716,16 +2731,8 @@ impl Traverser {
-             }
-         }
+@@ -2708,24 +2720,14 @@ impl Traverser {
+         step_num: usize,
+     ) {
+         self.step.global_state = global.clone();
+-        let mut modified_vertices: HashSet<usize> = HashSet::new();
++        // The vertices modified in the last round, each once (`queued` marks those of the next round).
++        let mut modified_vertices_vec: Vec<usize> =
++            (0..self.lsr.len()).filter(|&v| !self.lsr[v].local.is_empty()).collect();
++        let mut next_modified: Vec<usize> = Vec::new();
++        let mut queued = vec![false; self.lsr.len()];
  
+-        for v in 0..self.lsr.len() {
+-            if !self.lsr[v].local.is_empty() {
+-                modified_vertices.insert(v);
+-            }
+-        }
+-
 -        let base_links_by_src: &Vec<Vec<(StepTrailId, Link)>> = if self.reverse {
 -            &base_links_data.links_by_dst
 -        } else {
@@ -957,7 +1065,27 @@ index ba0c5b1..1f92cad 100644
  
          let cx = TraversalContext {
              global,
-@@ -2753,18 +2760,14 @@ impl Traverser {
+@@ -2738,33 +2740,24 @@ impl Traverser {
+             objectives,
+             cost_config: self.cost_config.clone(),
+         };
+-        while !modified_vertices.is_empty() {
+-            let mut new_modified_vertices: HashSet<usize> = HashSet::new();
+-            let modified_vertices_vec = {
+-                // Process the vertices in sorted order, to make the traversal deterministic.
+-                // This also improves performance, possibly due to better locality:
+-                // neighboring vertices would tend to have their data stored next to each other.
+-                let mut m: Vec<usize> = modified_vertices.into_iter().collect();
+-                m.sort();
+-                m
+-            };
++        while !modified_vertices_vec.is_empty() {
++            // Process the vertices in sorted order, to make the traversal deterministic.
++            // This also improves performance, possibly due to better locality:
++            // neighboring vertices would tend to have their data stored next to each other.
++            modified_vertices_vec.sort_unstable();
+             for &src_id in &modified_vertices_vec {
+                 let mut src_local_arr = self.lsr[src_id].local.clone();
                  for (i, local) in src_local_arr.iter_mut().enumerate() {
                      local.prev_trail_id = self.lsr[src_id].trail_ids[i];
                  }
@@ -970,7 +1098,8 @@ index ba0c5b1..1f92cad 100644
                      let mut local_arr = src_local_arr.clone();
                      let mut any_improvement: bool = false;
 -                    let old_lsr = &self.lsr[dst_id];
-                     local_arr = apply_link(link, local_arr, &cx);
+-                    local_arr = apply_link(link, local_arr, &cx);
++                    apply_link(link, &mut local_arr, &cx);
                      if local_arr.is_empty() {
                          continue;
                      }
@@ -978,7 +1107,28 @@ index ba0c5b1..1f92cad 100644
                      let mut new_lsr = LocalStateReducer::default();
                      for i in 0..old_lsr.local.len() {
                          // Rebuild the LocalStateReducer in order to update costs, which
-@@ -2836,16 +2839,8 @@ impl Traverser {
+@@ -2798,11 +2791,18 @@ impl Traverser {
+                     if any_improvement {
+                         self.add_trail(dst_id);
+                         self.lsr[dst_id] = new_lsr;
+-                        new_modified_vertices.insert(dst_id);
++                        if !queued[dst_id] {
++                            queued[dst_id] = true;
++                            next_modified.push(dst_id);
++                        }
+                     }
+                 }
+             }
+-            modified_vertices = new_modified_vertices;
++            for &v in &next_modified {
++                queued[v] = false;
++            }
++            std::mem::swap(&mut modified_vertices_vec, &mut next_modified);
++            next_modified.clear();
+         }
+         self.finish_step(step_num);
+     }
+@@ -2836,16 +2836,8 @@ impl Traverser {
          });
          trail_ends.push((Reverse(0), start_trail_id));
  
@@ -997,7 +1147,7 @@ index ba0c5b1..1f92cad 100644
  
          let cx = TraversalContext {
              global,
-@@ -2878,11 +2873,7 @@ impl Traverser {
+@@ -2878,14 +2870,10 @@ impl Traverser {
              self.add_trail(src_vertex_id);
              self.lsr[src_vertex_id] = src_lsr;
  
@@ -1009,8 +1159,12 @@ index ba0c5b1..1f92cad 100644
 +            for (link_idx, link, dst_vertex_id) in links_at(src_vertex_id) {
                  let mut local_arr: ArrayVec<LocalState, NUM_COST_METRICS> = ArrayVec::new();
                  local_arr.push(src_local);
-                 local_arr = apply_link(link, local_arr, &cx);
-@@ -2903,6 +2894,23 @@ impl Traverser {
+-                local_arr = apply_link(link, local_arr, &cx);
++                apply_link(link, &mut local_arr, &cx);
+                 let dst_length = src_length + link.length;
+                 for local in local_arr {
+                     let new_trail_id = self.step_trails.len() as StepTrailId;
+@@ -2903,6 +2891,23 @@ impl Traverser {
      }
  }
  
