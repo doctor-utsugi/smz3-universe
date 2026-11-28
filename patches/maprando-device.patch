@@ -1369,9 +1369,18 @@ index 74e5b44..9494995 100644
      }
      out.extend("EOF".as_bytes());
 diff --git a/rust/maprando/src/randomize.rs b/rust/maprando/src/randomize.rs
-index 2481576..37bdbfa 100644
+index 2481576..91d2e12 100644
 --- a/rust/maprando/src/randomize.rs
 +++ b/rust/maprando/src/randomize.rs
+@@ -15,7 +15,7 @@ use crate::spoiler_log::{
+     SpoilerTraversal, get_spoiler_game_data, get_spoiler_log, get_spoiler_route,
+ };
+ use crate::traverse::{
+-    LocalStateReducer, LockedDoorData, TraversalUpdate, Traverser, apply_requirement,
++    LocalStateReducer, LockedDoorData, Traverser, apply_requirement,
+     get_bireachable_idxs, get_spoiler_trail_ids_by_idx, simple_cost_config,
+ };
+ use anyhow::{Context, Result, bail};
 @@ -53,6 +53,7 @@ use run_speed::{
  };
  use serde_derive::{Deserialize, Serialize};
@@ -1651,7 +1660,19 @@ index 2481576..37bdbfa 100644
              let c = alphabet.as_bytes()[i] as char;
              out.push(c);
          }
-@@ -5266,7 +5394,7 @@ impl<'r> Randomizer<'r> {
+@@ -5043,10 +5171,7 @@ impl<'r> Randomizer<'r> {
+         traverser.unfinish_step();
+ 
+         for (i, lsr) in &mut traverser.lsr.iter_mut().enumerate() {
+-            traverser.step.updates.push(TraversalUpdate {
+-                vertex_id: i,
+-                old_lsr: lsr.clone(),
+-            });
++            traverser.step.push_update(i, lsr);
+             *lsr = LocalStateReducer::default();
+         }
+ 
+@@ -5266,7 +5391,7 @@ impl<'r> Randomizer<'r> {
          for i in 0..num_attempts {
              info!("[attempt {attempt_num_rando}] start location attempt {i}");
              let start_loc_idx = match self.settings.start_location_settings.mode {
@@ -1660,7 +1681,7 @@ index 2481576..37bdbfa 100644
                  StartLocationMode::Custom => {
                      let mut idx: Option<usize> = None;
                      let room_id = self
-@@ -5478,7 +5606,7 @@ impl<'r> Randomizer<'r> {
+@@ -5478,7 +5603,7 @@ impl<'r> Randomizer<'r> {
          }
      }
  
@@ -1669,7 +1690,7 @@ index 2481576..37bdbfa 100644
          let items = vec![false; self.game_data.item_isv.keys.len()];
          let weapon_mask = self
              .game_data
-@@ -5655,7 +5783,7 @@ impl<'r> Randomizer<'r> {
+@@ -5655,7 +5780,7 @@ impl<'r> Randomizer<'r> {
          rebuild_traversals: bool,
      ) -> Result<(Randomization, SpoilerLog)> {
          let mut rng_seed = [0u8; 32];
@@ -1679,10 +1700,20 @@ index 2481576..37bdbfa 100644
          if self.settings.start_location_settings.mode == StartLocationMode::Escape {
              return self.dummy_randomize(seed, display_seed, &mut rng);
 diff --git a/rust/maprando/src/spoiler_log.rs b/rust/maprando/src/spoiler_log.rs
-index f5ed506..47f8910 100644
+index f5ed506..81f251d 100644
 --- a/rust/maprando/src/spoiler_log.rs
 +++ b/rust/maprando/src/spoiler_log.rs
-@@ -169,7 +169,7 @@ pub struct SpoilerNode {
+@@ -55,7 +55,8 @@ pub fn get_spoiler_traversal(tr: &Traverser) -> SpoilerTraversal {
+             let mut new_start_trail_id = get_start_trail_ids(&tr.lsr[u.vertex_id]);
+             for t1 in (t + 1)..num_traversals {
+                 if let Some(&j) = first_updates_by_vertex.get(&(u.vertex_id, t1)) {
+-                    new_start_trail_id = get_start_trail_ids(&tr.past_steps[t1].updates[j].old_lsr);
++                    let step = &tr.past_steps[t1];
++                    new_start_trail_id = get_start_trail_ids(&step.old_lsr(&step.updates[j]));
+                     break;
+                 }
+             }
+@@ -169,7 +170,7 @@ pub struct SpoilerNode {
      pub name: String,
  }
  
@@ -1691,7 +1722,7 @@ index f5ed506..47f8910 100644
  pub struct SpoilerGameData {
      rooms: Vec<SpoilerRoom>,
      nodes: Vec<SpoilerNode>,
-@@ -184,7 +184,7 @@ pub struct SpoilerTraversalStep {
+@@ -184,7 +185,7 @@ pub struct SpoilerTraversalStep {
      pub updated_start_trail_ids: Vec<[StepTrailId; NUM_COST_METRICS]>,
  }
  
@@ -1700,7 +1731,7 @@ index f5ed506..47f8910 100644
  pub struct SpoilerTraversal {
      pub initial_local_state: SpoilerLocalState,
      pub prev_trail_ids: Vec<StepTrailId>,
-@@ -588,7 +588,7 @@ pub fn get_spoiler_route(
+@@ -588,7 +589,7 @@ pub fn get_spoiler_route(
              strat_difficulty: strat_difficulty as usize,
              obstacles_bitmask: to_obstacles_mask,
              coords,
@@ -1709,7 +1740,7 @@ index f5ed506..47f8910 100644
              strat_notes: link.strat_notes.clone(),
              energy: Some(new_local_state.energy.0),
              reserves: Some(new_local_state.reserves.0),
-@@ -946,7 +946,7 @@ pub fn get_spoiler_game_data(randomizer: &Randomizer) -> SpoilerGameData {
+@@ -946,7 +947,7 @@ pub fn get_spoiler_game_data(randomizer: &Randomizer) -> SpoilerGameData {
              from_vertex_id: link.from_vertex_id,
              to_vertex_id: link.to_vertex_id,
              strat_id: link.strat_id,
@@ -1718,7 +1749,22 @@ index f5ed506..47f8910 100644
          });
      }
      SpoilerGameData {
-@@ -983,8 +983,16 @@ pub fn get_spoiler_log(
+@@ -965,11 +966,12 @@ pub fn get_step_trails_by_vertex(traverser: &Traverser) -> HashMap<VertexId, Vec
+             .or_default()
+             .extend(lsr.trail_ids.iter());
+     }
+-    for update in &traverser.past_steps.last().unwrap().updates {
++    let step = traverser.past_steps.last().unwrap();
++    for update in &step.updates {
+         trails_by_vertex
+             .entry(update.vertex_id)
+             .or_default()
+-            .extend(update.old_lsr.trail_ids.iter());
++            .extend(step.old_lsr(update).trail_ids.iter());
+     }
+     trails_by_vertex
+ }
+@@ -983,8 +985,16 @@ pub fn get_spoiler_log(
      tolerate_escape_failure: bool,
      rebuild_traversals: bool,
  ) -> Result<SpoilerLog> {
@@ -1737,7 +1783,7 @@ index f5ed506..47f8910 100644
  
      let cost_config = CostConfig {};
      traverser_pair.forward.cost_config = cost_config.clone();
-@@ -1022,13 +1030,19 @@ pub fn get_spoiler_log(
+@@ -1022,13 +1032,19 @@ pub fn get_spoiler_log(
                  .clone();
  
              // Rebuild the traversal step to make the spoiler routes cleaner, by using shorter paths.
@@ -1760,7 +1806,7 @@ index f5ed506..47f8910 100644
  
              for (i, item_state) in state.item_location_state.iter().enumerate() {
                  if item_state.bireachable_traversal != Some(traversal_num) {
-@@ -1042,6 +1056,9 @@ pub fn get_spoiler_log(
+@@ -1042,6 +1058,9 @@ pub fn get_spoiler_log(
                  }
                  let item_summary = get_spoiler_item_summary(randomizer, item, i);
                  spoiler_item_summaries.push(item_summary);
@@ -1770,7 +1816,7 @@ index f5ed506..47f8910 100644
                  let item_details = get_spoiler_item_details(
                      randomizer,
                      state,
-@@ -1064,6 +1081,9 @@ pub fn get_spoiler_log(
+@@ -1064,6 +1083,9 @@ pub fn get_spoiler_log(
                      }
                      let flag_summary = get_spoiler_flag_summary(randomizer, state, flag_id);
                      spoiler_flag_summaries.push(flag_summary);
@@ -1780,7 +1826,7 @@ index f5ed506..47f8910 100644
                      let flag_details = get_spoiler_flag_details_one_way(
                          randomizer,
                          state,
-@@ -1079,6 +1099,9 @@ pub fn get_spoiler_log(
+@@ -1079,6 +1101,9 @@ pub fn get_spoiler_log(
                      }
                      let flag_summary = get_spoiler_flag_summary(randomizer, state, flag_id);
                      spoiler_flag_summaries.push(flag_summary);
@@ -1790,7 +1836,7 @@ index f5ed506..47f8910 100644
                      let flag_details = get_spoiler_flag_details(
                          randomizer,
                          state,
-@@ -1099,6 +1122,9 @@ pub fn get_spoiler_log(
+@@ -1099,6 +1124,9 @@ pub fn get_spoiler_log(
                  }
                  let door_summary = get_spoiler_door_summary(randomizer, i);
                  spoiler_door_summaries.push(door_summary);
@@ -1800,7 +1846,7 @@ index f5ed506..47f8910 100644
                  let door_details = get_spoiler_door_details(
                      randomizer,
                      &global_state,
-@@ -1111,12 +1137,13 @@ pub fn get_spoiler_log(
+@@ -1111,12 +1139,13 @@ pub fn get_spoiler_log(
              }
  
              let forward_step = &traverser_pair.forward.past_steps[traversal_num];
@@ -1815,7 +1861,7 @@ index f5ed506..47f8910 100644
              {
                  if get_short_bireachable_trails(
                      &forward_step.global_state,
-@@ -1209,8 +1236,8 @@ pub fn get_spoiler_log(
+@@ -1209,8 +1238,8 @@ pub fn get_spoiler_log(
      spoiler_summaries.reverse();
      spoiler_details.reverse();
  
@@ -1826,7 +1872,7 @@ index f5ed506..47f8910 100644
          .iter()
          .enumerate()
          .map(|(i, x)| {
-@@ -1241,7 +1268,7 @@ pub fn get_spoiler_log(
+@@ -1241,7 +1270,7 @@ pub fn get_spoiler_log(
  
      let mut spoiler_all_rooms: Vec<SpoilerRoomLoc> = Vec::new();
      for (room_idx, room_coords) in randomizer.map.rooms.iter().enumerate() {
@@ -1835,7 +1881,7 @@ index f5ed506..47f8910 100644
              continue;
          }
          let room_geom = &randomizer.game_data.room_geometry[room_idx];
-@@ -1346,7 +1373,7 @@ pub fn get_spoiler_log(
+@@ -1346,7 +1375,7 @@ pub fn get_spoiler_log(
          details: spoiler_details,
          all_items: spoiler_all_items,
          all_rooms: spoiler_all_rooms,
@@ -1845,7 +1891,7 @@ index f5ed506..47f8910 100644
          reverse_traversal,
      })
 diff --git a/rust/maprando/src/traverse.rs b/rust/maprando/src/traverse.rs
-index ba0c5b1..eabcf73 100644
+index ba0c5b1..60b1a0e 100644
 --- a/rust/maprando/src/traverse.rs
 +++ b/rust/maprando/src/traverse.rs
 @@ -5,7 +5,7 @@ use std::{
@@ -1889,7 +1935,21 @@ index ba0c5b1..eabcf73 100644
  }
  
  fn has_beam(beam: BeamType, inventory: &Inventory) -> bool {
-@@ -1105,42 +1104,55 @@ impl From<bool> for SimpleResult {
+@@ -968,6 +967,13 @@ impl<T: Copy + Debug> Default for LocalStateReducer<T> {
+ }
+ 
+ impl<T: Copy + Debug> LocalStateReducer<T> {
++    fn is_default(&self) -> bool {
++        self.local.is_empty()
++            && self.trail_ids.is_empty()
++            && self.best_cost_values == [CostValue::MAX; NUM_COST_METRICS]
++            && self.best_cost_idxs == [0; NUM_COST_METRICS]
++    }
++
+     pub fn push(
+         &mut self,
+         local: LocalState,
+@@ -1105,42 +1111,55 @@ impl From<bool> for SimpleResult {
      }
  }
  
@@ -1956,7 +2016,7 @@ index ba0c5b1..eabcf73 100644
                  match apply_requirement_simple(req, &mut loc, cx) {
                      SimpleResult::Failure => {}
                      SimpleResult::Success => {
-@@ -1158,7 +1170,7 @@ fn apply_requirement_complex(
+@@ -1158,7 +1177,7 @@ fn apply_requirement_complex(
                      }
                  }
              }
@@ -1965,7 +2025,56 @@ index ba0c5b1..eabcf73 100644
          }
      }
  }
-@@ -2636,7 +2648,7 @@ impl Traverser {
+@@ -2601,15 +2620,20 @@ pub struct StepTrail {
+     pub local_state: LocalState,
+ }
+ 
+-#[derive(Clone)]
++/// A vertex's reducer before a step changed it: an index into the step's `old_lsrs`, or `EMPTY_LSR` for an empty
++/// reducer (most of them), which is not stored.
++#[derive(Clone, Copy)]
+ pub struct TraversalUpdate {
+     pub vertex_id: VertexId,
+-    pub old_lsr: LocalStateReducer<StepTrailId>,
++    old_lsr: u32,
+ }
+ 
++const EMPTY_LSR: u32 = u32::MAX;
++
+ #[derive(Clone)]
+ pub struct TraversalStep {
+     pub updates: Vec<TraversalUpdate>,
++    old_lsrs: Vec<LocalStateReducer<StepTrailId>>,
+     pub start_step_trail_idx: usize,
+     pub step_num: usize,
+     pub global_state: GlobalState,
+@@ -2626,6 +2650,25 @@ pub struct Traverser {
+     pub past_steps: Vec<TraversalStep>,
+ }
+ 
++impl TraversalStep {
++    pub fn push_update(&mut self, vertex_id: VertexId, old_lsr: &LocalStateReducer<StepTrailId>) {
++        let old_lsr = if old_lsr.is_default() {
++            EMPTY_LSR
++        } else {
++            self.old_lsrs.push(old_lsr.clone());
++            self.old_lsrs.len() as u32 - 1
++        };
++        self.updates.push(TraversalUpdate { vertex_id, old_lsr });
++    }
++
++    pub fn old_lsr(&self, u: &TraversalUpdate) -> LocalStateReducer<StepTrailId> {
++        match u.old_lsr {
++            EMPTY_LSR => LocalStateReducer::default(),
++            i => self.old_lsrs[i as usize].clone(),
++        }
++    }
++}
++
+ impl Traverser {
+     pub fn new(
+         num_vertices: usize,
+@@ -2636,10 +2679,11 @@ impl Traverser {
          Self {
              reverse,
              initial_local_state,
@@ -1974,7 +2083,49 @@ index ba0c5b1..eabcf73 100644
              lsr: vec![LocalStateReducer::default(); num_vertices],
              step: TraversalStep {
                  updates: vec![],
-@@ -2708,24 +2720,14 @@ impl Traverser {
++                old_lsrs: vec![],
+                 start_step_trail_idx: 0,
+                 step_num: 0,
+                 global_state: global_state.clone(),
+@@ -2650,11 +2694,7 @@ impl Traverser {
+     }
+ 
+     fn add_trail(&mut self, vertex_id: VertexId) {
+-        let u = TraversalUpdate {
+-            vertex_id,
+-            old_lsr: self.lsr[vertex_id].clone(),
+-        };
+-        self.step.updates.push(u);
++        self.step.push_update(vertex_id, &self.lsr[vertex_id]);
+     }
+ 
+     pub fn add_origin(
+@@ -2672,12 +2712,15 @@ impl Traverser {
+     pub fn finish_step(&mut self, step_num: usize) {
+         let mut step = TraversalStep {
+             updates: vec![],
++            old_lsrs: vec![],
+             start_step_trail_idx: self.step_trails.len(),
+             step_num: 0,
+             global_state: self.step.global_state.clone(),
+         };
+         std::mem::swap(&mut self.step, &mut step);
+         step.step_num = step_num;
++        step.updates.shrink_to_fit();
++        step.old_lsrs.shrink_to_fit();
+         self.past_steps.push(step);
+     }
+ 
+@@ -2688,7 +2731,7 @@ impl Traverser {
+     pub fn pop_step(&mut self) {
+         let step = self.past_steps.pop().unwrap();
+         for u in step.updates.iter().rev() {
+-            self.lsr[u.vertex_id] = u.old_lsr.clone();
++            self.lsr[u.vertex_id] = step.old_lsr(u);
+         }
+         self.step_trails.truncate(step.start_step_trail_idx);
+         self.step.start_step_trail_idx = self.step_trails.len();
+@@ -2708,24 +2751,14 @@ impl Traverser {
          step_num: usize,
      ) {
          self.step.global_state = global.clone();
@@ -2006,7 +2157,7 @@ index ba0c5b1..eabcf73 100644
  
          let cx = TraversalContext {
              global,
-@@ -2738,33 +2740,24 @@ impl Traverser {
+@@ -2738,33 +2771,24 @@ impl Traverser {
              objectives,
              cost_config: self.cost_config.clone(),
          };
@@ -2048,7 +2199,7 @@ index ba0c5b1..eabcf73 100644
                      let mut new_lsr = LocalStateReducer::default();
                      for i in 0..old_lsr.local.len() {
                          // Rebuild the LocalStateReducer in order to update costs, which
-@@ -2798,11 +2791,18 @@ impl Traverser {
+@@ -2798,11 +2822,18 @@ impl Traverser {
                      if any_improvement {
                          self.add_trail(dst_id);
                          self.lsr[dst_id] = new_lsr;
@@ -2069,7 +2220,7 @@ index ba0c5b1..eabcf73 100644
          }
          self.finish_step(step_num);
      }
-@@ -2836,16 +2836,8 @@ impl Traverser {
+@@ -2836,16 +2867,8 @@ impl Traverser {
          });
          trail_ends.push((Reverse(0), start_trail_id));
  
@@ -2088,7 +2239,7 @@ index ba0c5b1..eabcf73 100644
  
          let cx = TraversalContext {
              global,
-@@ -2878,14 +2870,10 @@ impl Traverser {
+@@ -2878,14 +2901,10 @@ impl Traverser {
              self.add_trail(src_vertex_id);
              self.lsr[src_vertex_id] = src_lsr;
  
@@ -2105,7 +2256,7 @@ index ba0c5b1..eabcf73 100644
                  let dst_length = src_length + link.length;
                  for local in local_arr {
                      let new_trail_id = self.step_trails.len() as StepTrailId;
-@@ -2903,6 +2891,23 @@ impl Traverser {
+@@ -2903,6 +2922,23 @@ impl Traverser {
      }
  }
  
