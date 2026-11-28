@@ -82,20 +82,20 @@ Rollback: remove the drop-in, `daemon-reload`, `restart caddy`.
 
 ## 8. Caddyfile
 
-Origin files (Cloudflare origin certificate for `smz3.com, *.smz3.com`; the Authenticated Origin Pulls CA from
-https://developers.cloudflare.com/ssl/static/authenticated_origin_pull_ca.pem):
+Origin files: the Cloudflare origin certificate for `smz3.com, *.smz3.com`, and the CA of our own Authenticated
+Origin Pulls client certificate (made in step 9; until then use `mode verify_if_given` with any CA file):
 
 ```sh
 sudo install -d -m 0750 -o root -g caddy /etc/caddy/cf
 sudo install -m 0644 origin.pem /etc/caddy/cf/origin.pem
 sudo install -m 0640 -g caddy origin.key /etc/caddy/cf/origin.key
-sudo install -m 0644 authenticated_origin_pull_ca.pem /etc/caddy/cf/origin-pull-ca.pem
+sudo install -m 0644 aop-ca.pem /etc/caddy/cf/origin-pull-ca.pem
 sudo install -d -m 0755 /srv/smz3-site       # the landing page: frontends/site/deploy.sh puts its files here
 sudo install -m 0644 $D/Caddyfile $D/cloudflare-ips.caddy /etc/caddy/
 ```
 
-Until Authenticated Origin Pulls is on at Cloudflare, Cloudflare sends no client certificate, which is why
-`(cf_origin_tls)` starts with `mode verify_if_given`.
+With `mode require_and_verify`, HTTPS on the Cloudflare names fails until step 9 is done, so a first install
+starts with `mode verify_if_given`.
 
 ```sh
 sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy
@@ -116,8 +116,7 @@ curl -s  http://api.smz3.com/api/version ; curl -s https://api.smz3.com/api/vers
 curl -sk --resolve smz3.com:443:<VM> https://smz3.com/ ; echo $?          # from outside Cloudflare: no answer
 tail -n 3 /var/log/caddy/access.log              # client_ip is the visitor, remote_ip a Cloudflare address
 ```
-Then Cloudflare steps 3-4 (SSL strict, Authenticated Origin Pulls on), set `mode require_and_verify`, validate and
-reload again, and repeat the smz3.com and api.smz3.com checks.
+Then Cloudflare steps 3-4 (SSL strict, Authenticated Origin Pulls on) and step 9.
 Rollback: `sudo cp -a /root/pre-deploy/caddy/. /etc/caddy/ && sudo systemctl reload caddy`.
 
 Refreshing the Cloudflare ranges (then validate and reload; same list in `fail2ban/jail.local` and the firewall):
@@ -127,7 +126,36 @@ Refreshing the Cloudflare ranges (then validate and reload; same list in `fail2b
   printf '\n}\n'; } | sudo tee /etc/caddy/cloudflare-ips.caddy >/dev/null
 ```
 
-## 9. fail2ban
+## 9. Authenticated Origin Pulls with our own certificate
+
+With the global setting alone Cloudflare presents its shared certificate, the same for every Cloudflare zone, so
+anyone could point a zone of their own at the VM and get through; in practice it sent no certificate at all (520
+with `require_and_verify`). So the zone uploads a client certificate signed by a CA of our own, and Caddy trusts
+only that CA. Make both on the admin machine, never in the repo (EC P-256, 10 years):
+
+```sh
+umask 077; mkdir aop && cd aop
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+  -keyout ca.key -out ca.pem -subj "/CN=smz3.com origin pull CA"
+openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -keyout client.key -out client.csr -subj "/CN=cloudflare origin pull smz3.com"
+printf 'basicConstraints=CA:FALSE\nkeyUsage=digitalSignature\nextendedKeyUsage=clientAuth\n' > ext.cnf
+openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 3650 -extfile ext.cnf -out client.pem
+python3 - <<'PY' > upload.json
+import json; print(json.dumps({"certificate": open("client.pem").read(), "private_key": open("client.key").read()}))
+PY
+python3 $CF --yes raw POST /zones/<zone id>/origin_tls_client_auth upload.json && rm upload.json
+python3 $CF raw GET /zones/<zone id>/origin_tls_client_auth        # status: active
+```
+
+Then `aop-ca.pem` (= `ca.pem`) to `/etc/caddy/cf/origin-pull-ca.pem`, `mode require_and_verify`, validate,
+`chown caddy:caddy /var/log/caddy/access.log` (a validate run as root can leave it root-owned and the reload fails),
+reload, and repeat the smz3.com and api.smz3.com checks. The access log shows
+`"client_common_name":"cloudflare origin pull smz3.com"`. Before the client certificate expires, sign a new one with the
+same CA and upload it; delete the old one with `DELETE /zones/<zone id>/origin_tls_client_auth/<id>`.
+Rollback: `mode verify_if_given`, validate, reload.
+
+## 10. fail2ban
 
 After step 8, so `/var/log/caddy/access.log` exists.
 ```sh
@@ -140,6 +168,6 @@ Check: `sudo fail2ban-client status sshd`, `sudo fail2ban-client status caddy-4x
 `sudo fail2ban-regex /var/log/caddy/access.log /etc/fail2ban/filter.d/caddy-4xx.conf` (matches only duckdns 4xx lines).
 Unban: `sudo fail2ban-client set <jail> unbanip <ip>`. Rollback: `sudo systemctl disable --now fail2ban`.
 
-## 10. Firewall phase B
+## 11. Firewall phase B
 
 Not now: only once no client uses duckdns. `firewall/README.md`.

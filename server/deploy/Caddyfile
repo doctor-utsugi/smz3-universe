@@ -28,12 +28,12 @@ import cloudflare-ips.caddy
 	}
 }
 
-# Cloudflare's origin certificate, and only Cloudflare's Authenticated Origin Pulls client certificate gets in.
-# verify_if_given until Authenticated Origin Pulls is on at Cloudflare, then require_and_verify (APPLY.md).
+# Cloudflare's origin certificate; only our own zone's Authenticated Origin Pulls client certificate gets in
+# (origin-pull-ca.pem is our CA, not Cloudflare's shared one, which any Cloudflare zone could present; APPLY.md).
 (cf_origin_tls) {
 	tls /etc/caddy/cf/origin.pem /etc/caddy/cf/origin.key {
 		client_auth {
-			mode verify_if_given
+			mode require_and_verify
 			trust_pool file /etc/caddy/cf/origin-pull-ca.pem
 		}
 	}
