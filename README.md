@@ -43,9 +43,9 @@ its row in the list shows the crystals and bosses you have so far.
 - Custom: every option of the web generator, from item placement and keysanity to logic tweaks, starting items and
   plando. You can save a setup and pick it again later. Changed rules keep the run off the online ladder.
 - Map Rando (Super Metroid runs): [Map Rando](https://maprando.com) rebuilds the whole map, as SM races play it.
-  Pick Beginner, Season 5 or another preset and a skill level. A device with 2 GB of RAM or more (most PCs, the Thor,
-  most phones) makes the seed itself; the 3DS and smaller devices (a 1 GB handheld) download it from the server and
-  say so. Offline, a run with a preset and the preset's own skill plays one of the 32 seeds the game comes with (8 per
+  Pick Beginner, Season 5 or another preset and a skill level. A device with 768 MB of RAM and 400 MB of it free
+  (PCs, the Thor, phones, a 1 GB handheld) makes the seed itself, in a few seconds; the 3DS and smaller devices
+  download it from the server and say so. Offline, a run with a preset and the preset's own skill plays one of the 32 seeds the game comes with (8 per
   preset); races, the weekly and the monthly never do, so everyone there plays the same map. The tracker shows items
   and the hash only, since its map is the vanilla one. A Season 5 or Beginner run with the preset's own settings
   goes on that preset's online table.

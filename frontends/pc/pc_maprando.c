@@ -34,10 +34,10 @@ static void pool_setup(void)
 static char g_dir[1100];
 static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it from the server */
 
-/* Building a seed peaks near 780 MB (measured), on top of the game: only a device with this much RAM in all and free builds
+/* Building a seed peaks near 215 MB (measured), on top of the game: only a device with this much RAM in all and free builds
  * it, any other downloads it. */
-#define MR_TOTAL_MB 2048
-#define MR_FREE_MB 1100
+#define MR_TOTAL_MB 768
+#define MR_FREE_MB 400
 
 /* A line of /proc/meminfo ("MemTotal", "MemAvailable") in MB (Linux), or -1 where it is not known. */
 static long meminfo_mb(const char *key)
@@ -158,12 +158,12 @@ static int generate(const char *settings, uint64_t seed, const uint8_t *sm, size
     char err[300];
     long total_mb = meminfo_mb("MemTotal"), free_mb = meminfo_mb("MemAvailable");
     if ((total_mb >= 0 && total_mb < MR_TOTAL_MB) || (free_mb >= 0 && free_mb < MR_FREE_MB))
-        return from_server(settings, seed, sm, sm_len, out, cap, info, info_cap);   /* a 1 GB handheld */
+        return from_server(settings, seed, sm, sm_len, out, cap, info, info_cap);
     g_phase = 1;
     if (smz_mr_init(g_dir, err, sizeof err)) { g_phase = 0; error_json(info, info_cap, err); return -1; }
     g_phase = 2;
     int rc = smz_mr_generate(settings, seed, 0, sm, sm_len, out, cap, info, info_cap);
-    smz_mr_free();   /* about 780 MB the game does not need */
+    smz_mr_free();   /* about 60 MB the game does not need */
     g_phase = 0;
     return rc;
 }

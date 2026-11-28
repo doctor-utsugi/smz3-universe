@@ -424,9 +424,9 @@ JNIEXPORT jstring JNICALL NATIVE(smLastSettings)(JNIEnv *env, jclass cls) { retu
 static char g_mr_dir[512];
 static volatile int g_mr_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it */
 
-/* Building a seed peaks near 780 MB (measured): a phone with less RAM than this in all, or free, downloads it instead. */
-#define MR_TOTAL_MB 2048
-#define MR_FREE_MB 1100
+/* Building a seed peaks near 215 MB (measured): a phone with less RAM than this in all, or free, downloads it instead. */
+#define MR_TOTAL_MB 768
+#define MR_FREE_MB 400
 
 static long meminfo_mb(const char *key)
 {
@@ -490,7 +490,7 @@ static int mr_generate(const char *settings, uint64_t seed, const uint8_t *sm, s
     }
     g_mr_phase = 2;
     int rc = smz_mr_generate(settings, seed, 0, sm, sm_len, out, cap, info, info_cap);
-    smz_mr_free();   /* about 780 MB the game does not need */
+    smz_mr_free();   /* about 60 MB the game does not need */
     g_mr_phase = 0;
     return rc;
 }
