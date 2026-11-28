@@ -1,8 +1,299 @@
 diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
-index 2f74136..e699eb8 100644
+index 2f74136..8bd822f 100644
 --- a/rust/maprando-game/src/lib.rs
 +++ b/rust/maprando-game/src/lib.rs
-@@ -5326,8 +5326,10 @@ impl GameData {
+@@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Formatter};
+ use std::fs::File;
+ use std::hash::Hash;
+ use std::path::{Path, PathBuf};
++use std::sync::Arc;
+ use strum::VariantNames;
+ use strum_macros::{EnumString, VariantNames};
+ 
+@@ -592,7 +593,8 @@ impl Requirement {
+ pub struct Link {
+     pub from_vertex_id: VertexId,
+     pub to_vertex_id: VertexId,
+-    pub requirement: Requirement,
++    // Shared: a link is kept in several lists and many links have the same requirement.
++    pub requirement: Arc<Requirement>,
+     pub start_with_shinecharge: bool,
+     pub end_with_shinecharge: bool,
+     pub difficulty: u8,
+@@ -1229,34 +1231,58 @@ fn compute_runway_effective_length(geom: &RunwayGeometry) -> f32 {
+         + 5.0 / 59.0 * geom.gentle_down_tiles
+ }
+ 
++/// The links, and for each vertex the indices of the links leaving it (`by_src`) and entering it (`by_dst`), in link
++/// order, as offsets into one flat array each.
+ #[derive(Default, Clone)]
+ pub struct LinksDataGroup {
+     pub links: Vec<Link>,
+-    pub links_by_src: Vec<Vec<(LinkIdx, Link)>>,
+-    pub links_by_dst: Vec<Vec<(LinkIdx, Link)>>,
++    pub start_idx: usize,
++    src_offsets: Vec<u32>,
++    src_links: Vec<u32>,
++    dst_offsets: Vec<u32>,
++    dst_links: Vec<u32>,
++}
++
++fn link_buckets(n: usize, keys: impl Iterator<Item = usize> + Clone) -> (Vec<u32>, Vec<u32>) {
++    let mut offsets = vec![0u32; n + 1];
++    for k in keys.clone() {
++        offsets[k + 1] += 1;
++    }
++    for i in 0..n {
++        offsets[i + 1] += offsets[i];
++    }
++    let mut next = offsets.clone();
++    let mut flat = vec![0u32; offsets[n] as usize];
++    for (idx, k) in keys.enumerate() {
++        flat[next[k] as usize] = idx as u32;
++        next[k] += 1;
++    }
++    (offsets, flat)
+ }
+ 
+ impl LinksDataGroup {
+     pub fn new(links: Vec<Link>, num_vertices: usize, start_idx: usize) -> Self {
+-        let mut links_by_src: Vec<Vec<(LinkIdx, Link)>> = vec![Vec::new(); num_vertices];
+-        let mut links_by_dst: Vec<Vec<(LinkIdx, Link)>> = vec![Vec::new(); num_vertices];
+-
+-        for (idx, link) in links.iter().enumerate() {
+-            let mut reversed_link = link.clone();
+-            std::mem::swap(
+-                &mut reversed_link.from_vertex_id,
+-                &mut reversed_link.to_vertex_id,
+-            );
+-            links_by_dst[reversed_link.from_vertex_id]
+-                .push(((start_idx + idx) as LinkIdx, reversed_link));
+-            links_by_src[link.from_vertex_id].push(((start_idx + idx) as LinkIdx, link.clone()));
+-        }
++        let (src_offsets, src_links) = link_buckets(num_vertices, links.iter().map(|l| l.from_vertex_id));
++        let (dst_offsets, dst_links) = link_buckets(num_vertices, links.iter().map(|l| l.to_vertex_id));
+         Self {
+             links,
+-            links_by_src,
+-            links_by_dst,
++            start_idx,
++            src_offsets,
++            src_links,
++            dst_offsets,
++            dst_links,
+         }
+     }
++
++    /// Indices into `links` of the links leaving `v`, or entering it when `reverse`.
++    pub fn adjacent(&self, v: VertexId, reverse: bool) -> &[u32] {
++        let (o, f) = if reverse {
++            (&self.dst_offsets, &self.dst_links)
++        } else {
++            (&self.src_offsets, &self.src_links)
++        };
++        &f[o[v] as usize..o[v + 1] as usize]
++    }
+ }
+ 
+ fn get_logical_gray_door_node_ids() -> Vec<(RoomId, NodeId)> {
+@@ -3175,14 +3201,25 @@ impl GameData {
+ 
+         let mut room_id_vec: Vec<usize> = room_json_map.keys().cloned().collect();
+         room_id_vec.sort();
++        let mut shared: HashSet<Arc<Requirement>> = HashSet::new();
+         for room_id in room_id_vec {
+             let room_json = &room_json_map[&room_id];
+             let room_name = room_json["name"].clone();
+             let preprocessed_room_json = self
+                 .preprocess_room(room_json)
+                 .with_context(|| format!("Preprocessing room {room_name}"))?;
++            let first_link = self.links.len();
+             self.process_room(&preprocessed_room_json)
+                 .with_context(|| format!("Processing room {room_name}"))?;
++            // Equal requirements share one allocation (about 10k distinct among 90k links).
++            for link in &mut self.links[first_link..] {
++                match shared.get(&link.requirement) {
++                    Some(r) => link.requirement = r.clone(),
++                    None => {
++                        shared.insert(link.requirement.clone());
++                    }
++                }
++            }
+         }
+ 
+         self.populate_target_locations()?;
+@@ -3597,10 +3634,10 @@ impl GameData {
+         let mut links = self.links.clone();
+         for (link, _) in self.node_gmode_regain_mobility.values().flatten() {
+             let mut new_link = link.clone();
+-            new_link.requirement = Requirement::make_and(vec![
+-                link.requirement.clone(),
++            new_link.requirement = Arc::new(Requirement::make_and(vec![
++                (*link.requirement).clone(),
+                 Requirement::Tech(self.tech_isv.index_by_key[&TECH_ID_CAN_ENTER_G_MODE_IMMOBILE]),
+-            ]);
++            ]));
+             links.push(new_link);
+         }
+         links
+@@ -4441,7 +4478,7 @@ impl GameData {
+             let link = Link {
+                 from_vertex_id,
+                 to_vertex_id,
+-                requirement: requirement.clone(),
++                requirement: Arc::new(requirement.clone()),
+                 start_with_shinecharge,
+                 end_with_shinecharge,
+                 difficulty: 0,
+@@ -4522,7 +4559,7 @@ impl GameData {
+                                 if full_power_bombs {
+                                     farm_link.strat_name.push_str("- Full Power Bombs");
+                                 }
+-                                farm_link.requirement = Requirement::Farm {
++                                farm_link.requirement = Arc::new(Requirement::Farm {
+                                     requirement: Box::new(requirement.clone()),
+                                     enemy_drops: enemy_drops.clone(),
+                                     enemy_drops_buffed: enemy_drops_buffed.clone(),
+@@ -4530,7 +4567,7 @@ impl GameData {
+                                     full_missiles,
+                                     full_supers,
+                                     full_power_bombs,
+-                                };
++                                });
+                                 self.links.push(farm_link.clone());
+                             }
+                         }
+@@ -4552,7 +4589,7 @@ impl GameData {
+                 self.links.push(Link {
+                     from_vertex_id: to_vertex_id,
+                     to_vertex_id: plain_to_vertex_id,
+-                    requirement: Requirement::Free,
++                    requirement: Arc::new(Requirement::Free),
+                     start_with_shinecharge: end_with_shinecharge,
+                     end_with_shinecharge,
+                     difficulty: 0,
+@@ -4574,7 +4611,7 @@ impl GameData {
+                     self.links.push(Link {
+                         from_vertex_id: to_vertex_id,
+                         to_vertex_id: unlock_vertex_id,
+-                        requirement: unlock_req.clone(),
++                        requirement: Arc::new(unlock_req.clone()),
+                         start_with_shinecharge: end_with_shinecharge,
+                         end_with_shinecharge,
+                         difficulty: 0,
+@@ -4586,7 +4623,7 @@ impl GameData {
+                     self.links.push(Link {
+                         from_vertex_id: unlock_vertex_id,
+                         to_vertex_id,
+-                        requirement: Requirement::Free,
++                        requirement: Arc::new(Requirement::Free),
+                         start_with_shinecharge: end_with_shinecharge,
+                         end_with_shinecharge,
+                         difficulty: 0,
+@@ -4760,7 +4797,7 @@ impl GameData {
+                     let link = Link {
+                         from_vertex_id,
+                         to_vertex_id,
+-                        requirement: Requirement::Free,
++                        requirement: Arc::new(Requirement::Free),
+                         start_with_shinecharge: false,
+                         end_with_shinecharge: false,
+                         difficulty: 0,
+@@ -5112,7 +5149,7 @@ impl GameData {
+                 continue;
+             }
+             if Self::has_energy_fill(&link.requirement) {
+-                hub_farms.push((link.from_vertex_id, link.requirement.clone()));
++                hub_farms.push((link.from_vertex_id, (*link.requirement).clone()));
+             }
+         }
+ 
+@@ -5207,6 +5244,45 @@ impl GameData {
+         self.make_reset_room_requirements();
+     }
+ 
++    /// Drops what only the website's logic pages, the spoiler's strat notes and the making of links read, once the
++    /// links are made: room JSON keeps the names and node ids the patcher and spoiler log use, node JSON its name and
++    /// door orientation.
++    pub fn drop_web_data(&mut self) {
++        let keep = |j: &JsonValue, keys: &[&str]| {
++            let mut o = JsonValue::new_object();
++            for &k in keys {
++                if !j[k].is_null() {
++                    o[k] = j[k].clone();
++                }
++            }
++            o
++        };
++        for room in self.room_json_map.values_mut() {
++            let mut slim = keep(room, &["name"]);
++            let nodes: Vec<JsonValue> = room["nodes"].members().map(|n| keep(n, &["id", "name"])).collect();
++            slim["nodes"] = JsonValue::Array(nodes);
++            *room = slim;
++        }
++        for node in self.node_json_map.values_mut() {
++            *node = keep(node, &["name", "doorOrientation"]);
++        }
++        self.room_json_source = HashMap::new();
++        self.helpers_json_source = String::new();
++        self.helper_json_map = HashMap::new();
++        self.tech_json_map = HashMap::new();
++        self.strat_videos = HashMap::new();
++        // Vertex actions only shape the links' difficulty; lookups after this are by room, node and obstacles.
++        self.vertex_isv.index_by_key.retain(|k, _| k.actions.is_empty());
++        self.vertex_isv.index_by_key.shrink_to_fit();
++        for k in &mut self.vertex_isv.keys {
++            k.actions = vec![];
++        }
++        self.links = vec![];
++        for link in &mut self.base_links_data.links {
++            link.strat_notes = vec![];
++        }
++    }
++
+     fn process_reset_room_req(req: &Requirement, free_unlock_id: (RoomId, NodeId)) -> Requirement {
+         match req {
+             &Requirement::DoorUnlocked { room_id, node_id }
+@@ -5267,30 +5343,31 @@ impl GameData {
+             let mut req_or: Vec<Requirement> = vec![];
+             let mut entrance_reqs_map: HashMap<VertexId, Vec<Requirement>> = HashMap::new();
+             for &entrance_id in &entrance_vertex_ids {
+-                for (_, link) in &self.base_links_data.links_by_src[entrance_id] {
++                for &i in self.base_links_data.adjacent(entrance_id, false) {
++                    let link = &self.base_links_data.links[i as usize];
+                     if exit_vertex_ids.contains(&link.to_vertex_id) {
+                         // Handle links that directly connect a comeInNormally vertex to a leaveNormally vertex:
+                         // This is for the case where comeInNormally+leaveNormally is in the same strat.
+                         // Here we assume that any heat frame requirements are included explicitly in the strat.
+-                        req_or.push(link.requirement.clone());
++                        req_or.push((*link.requirement).clone());
+                     } else {
+                         // Handle links from a comeInNormally vertex to an intermediate vertex
+                         entrance_reqs_map
+                             .entry(link.to_vertex_id)
+                             .or_default()
+-                            .push(link.requirement.clone());
++                            .push((*link.requirement).clone());
+                     }
+                 }
+             }
+ 
+             let mut exit_reqs_map: HashMap<VertexId, Vec<Requirement>> = HashMap::new();
+             for &exit_id in &exit_vertex_ids {
+-                for (_, link) in &self.base_links_data.links_by_dst[exit_id] {
+-                    // Note: links in `links_by_dst` have their `from_vertex_id`` and `to_vertex_id`` swapped.
++                for &i in self.base_links_data.adjacent(exit_id, true) {
++                    let link = &self.base_links_data.links[i as usize];
+                     exit_reqs_map
+-                        .entry(link.to_vertex_id)
++                        .entry(link.from_vertex_id)
+                         .or_default()
+-                        .push(link.requirement.clone());
++                        .push((*link.requirement).clone());
+                 }
+             }
+ 
+@@ -5326,8 +5403,10 @@ impl GameData {
                  path.display()
              )
          })?;
@@ -50,6 +341,19 @@ index f1440c1..592099a 100644
 +[[bin]]
 +name = "maprando-test"
 +required-features = ["web"]
+diff --git a/rust/maprando/src/difficulty.rs b/rust/maprando/src/difficulty.rs
+index 330393a..676a617 100644
+--- a/rust/maprando/src/difficulty.rs
++++ b/rust/maprando/src/difficulty.rs
+@@ -54,7 +54,7 @@ pub fn get_link_difficulty(
+     global: &GlobalState,
+ ) -> u8 {
+     let extra_req = get_cross_room_reqs(link, game_data);
+-    let main_req = strip_cross_room_reqs(link.requirement.clone());
++    let main_req = strip_cross_room_reqs((*link.requirement).clone());
+     let combined_req = Requirement::make_and(vec![extra_req, main_req]);
+ 
+     let locked_door_data = LockedDoorData {
 diff --git a/rust/maprando/src/lib.rs b/rust/maprando/src/lib.rs
 index 6d6c625..ecf8053 100644
 --- a/rust/maprando/src/lib.rs
@@ -174,10 +478,177 @@ index 3f3fa5d..feb5224 100644
      fn get_map_batch(
          &self,
 diff --git a/rust/maprando/src/randomize.rs b/rust/maprando/src/randomize.rs
-index 2481576..8c65cd2 100644
+index 2481576..1e85b8f 100644
 --- a/rust/maprando/src/randomize.rs
 +++ b/rust/maprando/src/randomize.rs
-@@ -5478,7 +5478,7 @@ impl<'r> Randomizer<'r> {
+@@ -53,6 +53,7 @@ use run_speed::{
+ };
+ use serde_derive::{Deserialize, Serialize};
+ use std::cell::RefCell;
++use std::sync::Arc;
+ use std::{cmp::min, convert::TryFrom, hash::Hash, iter, time::SystemTime};
+ use strum::VariantNames;
+ 
+@@ -651,6 +652,47 @@ pub struct Preprocessor<'a> {
+     pub game_data: &'a GameData,
+     pub door_map: HashMap<(RoomId, NodeId), (RoomId, NodeId)>,
+     pub difficulty: &'a DifficultyConfig,
++    door_link_cache: Option<&'a DoorLinkCache>,
++}
++
++/// The cross-room links of each door pair (source door, destination door, through the Toilet), which depend only on
++/// the pair, the game data and the difficulty: kept across the maps of one seed's attempts, for one difficulty, with
++/// equal requirements shared. Emptied when it holds `DOOR_LINK_CACHE_MAX` links.
++#[derive(Default)]
++pub struct DoorLinkCache(RefCell<DoorLinkCacheInner>);
++
++const DOOR_LINK_CACHE_MAX: usize = 2_000_000;
++
++#[derive(Default)]
++struct DoorLinkCacheInner {
++    pairs: HashMap<(RoomId, NodeId, RoomId, NodeId, bool), Vec<CachedDoorLink>>,
++    requirements: HashSet<Arc<Requirement>>,
++    links: usize,
++}
++
++struct CachedDoorLink {
++    from: u32,
++    to: u32,
++    requirement: Arc<Requirement>,
++    start_with_shinecharge: bool,
++    end_with_shinecharge: bool,
++}
++
++impl CachedDoorLink {
++    fn link(&self) -> Link {
++        Link {
++            from_vertex_id: self.from as VertexId,
++            to_vertex_id: self.to as VertexId,
++            requirement: self.requirement.clone(),
++            start_with_shinecharge: self.start_with_shinecharge,
++            end_with_shinecharge: self.end_with_shinecharge,
++            difficulty: 0,
++            length: 1,
++            strat_id: None,
++            strat_name: "Base (Cross Room)".to_string(),
++            strat_notes: vec![],
++        }
++    }
+ }
+ 
+ fn compute_shinecharge_frames(
+@@ -705,6 +747,7 @@ impl<'a> Preprocessor<'a> {
+             game_data,
+             door_map,
+             difficulty,
++            door_link_cache: None,
+         }
+     }
+ 
+@@ -716,6 +759,49 @@ impl<'a> Preprocessor<'a> {
+         dst_node_id: usize,
+         is_toilet: bool,
+         door_links: &mut Vec<Link>,
++    ) {
++        let Some(cache) = self.door_link_cache else {
++            return self.make_door_links(src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet, door_links);
++        };
++        let key = (src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet);
++        let mut c = cache.0.borrow_mut();
++        if let Some(links) = c.pairs.get(&key) {
++            door_links.extend(links.iter().map(CachedDoorLink::link));
++            return;
++        }
++        let start = door_links.len();
++        self.make_door_links(src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet, door_links);
++        if c.links + door_links.len() - start > DOOR_LINK_CACHE_MAX {
++            *c = DoorLinkCacheInner::default();
++        }
++        let mut cached = Vec::with_capacity(door_links.len() - start);
++        for link in &mut door_links[start..] {
++            match c.requirements.get(&link.requirement) {
++                Some(r) => link.requirement = r.clone(),
++                None => {
++                    c.requirements.insert(link.requirement.clone());
++                }
++            }
++            cached.push(CachedDoorLink {
++                from: link.from_vertex_id as u32,
++                to: link.to_vertex_id as u32,
++                requirement: link.requirement.clone(),
++                start_with_shinecharge: link.start_with_shinecharge,
++                end_with_shinecharge: link.end_with_shinecharge,
++            });
++        }
++        c.links += cached.len();
++        c.pairs.insert(key, cached);
++    }
++
++    fn make_door_links(
++        &self,
++        src_room_id: usize,
++        src_node_id: usize,
++        dst_room_id: usize,
++        dst_node_id: usize,
++        is_toilet: bool,
++        door_links: &mut Vec<Link>,
+     ) {
+         let empty_vec_exits = vec![];
+         let empty_vec_entrances = vec![];
+@@ -778,7 +864,7 @@ impl<'a> Preprocessor<'a> {
+                     door_links.push(Link {
+                         from_vertex_id: src_vertex_id,
+                         to_vertex_id: dst_vertex_id,
+-                        requirement: Requirement::make_and(vec![req, exit_req.clone()]),
++                        requirement: Requirement::make_and(vec![req, exit_req.clone()]).into(),
+                         start_with_shinecharge: exit_with_shinecharge,
+                         end_with_shinecharge: enter_with_shinecharge,
+                         difficulty: 0,
+@@ -2845,7 +2931,7 @@ impl<'a> Preprocessor<'a> {
+                                 max_reserve_energy: 400.into(),
+                                 heat: ReserveTriggerHeat::No,
+                             },
+-                            regain_mobility_link.requirement.clone(),
++                            (*regain_mobility_link.requirement).clone(),
+                         ]));
+                     }
+                     Requirement::make_or(immobile_req_or_vec)
+@@ -3822,6 +3908,24 @@ impl<'r> Randomizer<'r> {
+         difficulty_tiers: &'r [DifficultyConfig],
+         game_data: &'r GameData,
+         base_links_data: &'r LinksDataGroup,
++        rng: &mut R,
++    ) -> Randomizer<'r> {
++        Self::new_with_door_cache(
++            map, locked_door_data, objectives, settings, difficulty_tiers, game_data, base_links_data, None, rng,
++        )
++    }
++
++    /// As `new`, reusing the cross-room links of door pairs already seen with the same difficulty tiers.
++    #[allow(clippy::too_many_arguments)]
++    pub fn new_with_door_cache<R: Rng>(
++        map: &'r Map,
++        locked_door_data: &'r LockedDoorData,
++        objectives: Vec<Objective>,
++        settings: &'r RandomizerSettings,
++        difficulty_tiers: &'r [DifficultyConfig],
++        game_data: &'r GameData,
++        base_links_data: &'r LinksDataGroup,
++        door_link_cache: Option<&'r DoorLinkCache>,
+         _rng: &mut R,
+     ) -> Randomizer<'r> {
+         let mut available_items: usize = 0;
+@@ -3834,7 +3938,8 @@ impl<'r> Randomizer<'r> {
+ 
+         let starting_items = get_starting_items(settings);
+ 
+-        let preprocessor = Preprocessor::new(game_data, map, &difficulty_tiers[0]);
++        let mut preprocessor = Preprocessor::new(game_data, map, &difficulty_tiers[0]);
++        preprocessor.door_link_cache = door_link_cache;
+         let preprocessed_seed_links: Vec<Link> = preprocessor.get_all_door_links();
+         info!(
+             "{} base links, {} door links",
+@@ -5478,7 +5583,7 @@ impl<'r> Randomizer<'r> {
          }
      }
  
@@ -186,3 +657,125 @@ index 2481576..8c65cd2 100644
          let items = vec![false; self.game_data.item_isv.keys.len()];
          let weapon_mask = self
              .game_data
+diff --git a/rust/maprando/src/traverse.rs b/rust/maprando/src/traverse.rs
+index ba0c5b1..c5f2202 100644
+--- a/rust/maprando/src/traverse.rs
++++ b/rust/maprando/src/traverse.rs
+@@ -1139,6 +1139,21 @@ fn apply_requirement_complex(
+             reducer.local
+         }
+         _ => {
++            // A reducer given one state keeps it as it is.
++            if local.len() == 1 {
++                let mut loc = local[0];
++                match apply_requirement_simple(req, &mut loc, cx) {
++                    SimpleResult::Failure => local.clear(),
++                    SimpleResult::Success => local[0] = loc,
++                    SimpleResult::ExtraState(extra_state) => {
++                        let mut reducer: LocalStateReducer<()> = LocalStateReducer::default();
++                        reducer.push(loc, &cx.global.inventory, (), &cx.cost_config, cx.reverse);
++                        reducer.push(extra_state, &cx.global.inventory, (), &cx.cost_config, cx.reverse);
++                        return reducer.local;
++                    }
++                }
++                return local;
++            }
+             let mut reducer: LocalStateReducer<()> = LocalStateReducer::default();
+             for mut loc in local {
+                 match apply_requirement_simple(req, &mut loc, cx) {
+@@ -2716,16 +2731,8 @@ impl Traverser {
+             }
+         }
+ 
+-        let base_links_by_src: &Vec<Vec<(StepTrailId, Link)>> = if self.reverse {
+-            &base_links_data.links_by_dst
+-        } else {
+-            &base_links_data.links_by_src
+-        };
+-        let seed_links_by_src: &Vec<Vec<(StepTrailId, Link)>> = if self.reverse {
+-            &seed_links_data.links_by_dst
+-        } else {
+-            &seed_links_data.links_by_src
+-        };
++        let reverse = self.reverse;
++        let links_at = |v: VertexId| links_at(base_links_data, seed_links_data, v, reverse);
+ 
+         let cx = TraversalContext {
+             global,
+@@ -2753,18 +2760,14 @@ impl Traverser {
+                 for (i, local) in src_local_arr.iter_mut().enumerate() {
+                     local.prev_trail_id = self.lsr[src_id].trail_ids[i];
+                 }
+-                let all_src_links = base_links_by_src[src_id]
+-                    .iter()
+-                    .chain(seed_links_by_src[src_id].iter());
+-                for &(link_idx, ref link) in all_src_links {
+-                    let dst_id = link.to_vertex_id;
++                for (link_idx, link, dst_id) in links_at(src_id) {
+                     let mut local_arr = src_local_arr.clone();
+                     let mut any_improvement: bool = false;
+-                    let old_lsr = &self.lsr[dst_id];
+                     local_arr = apply_link(link, local_arr, &cx);
+                     if local_arr.is_empty() {
+                         continue;
+                     }
++                    let old_lsr = &self.lsr[dst_id];
+                     let mut new_lsr = LocalStateReducer::default();
+                     for i in 0..old_lsr.local.len() {
+                         // Rebuild the LocalStateReducer in order to update costs, which
+@@ -2836,16 +2839,8 @@ impl Traverser {
+         });
+         trail_ends.push((Reverse(0), start_trail_id));
+ 
+-        let base_links_by_src: &Vec<Vec<(StepTrailId, Link)>> = if self.reverse {
+-            &base_links_data.links_by_dst
+-        } else {
+-            &base_links_data.links_by_src
+-        };
+-        let seed_links_by_src: &Vec<Vec<(StepTrailId, Link)>> = if self.reverse {
+-            &seed_links_data.links_by_dst
+-        } else {
+-            &seed_links_data.links_by_src
+-        };
++        let reverse = self.reverse;
++        let links_at = |v: VertexId| links_at(base_links_data, seed_links_data, v, reverse);
+ 
+         let cx = TraversalContext {
+             global,
+@@ -2878,11 +2873,7 @@ impl Traverser {
+             self.add_trail(src_vertex_id);
+             self.lsr[src_vertex_id] = src_lsr;
+ 
+-            let all_src_links = base_links_by_src[src_vertex_id]
+-                .iter()
+-                .chain(seed_links_by_src[src_vertex_id].iter());
+-            for &(link_idx, ref link) in all_src_links {
+-                let dst_vertex_id = link.to_vertex_id;
++            for (link_idx, link, dst_vertex_id) in links_at(src_vertex_id) {
+                 let mut local_arr: ArrayVec<LocalState, NUM_COST_METRICS> = ArrayVec::new();
+                 local_arr.push(src_local);
+                 local_arr = apply_link(link, local_arr, &cx);
+@@ -2903,6 +2894,23 @@ impl Traverser {
+     }
+ }
+ 
++/// The links out of `v` (into it when `reverse`): their index, the link and the vertex they lead to.
++fn links_at<'a>(
++    base: &'a LinksDataGroup,
++    seed: &'a LinksDataGroup,
++    v: VertexId,
++    reverse: bool,
++) -> impl Iterator<Item = (StepTrailId, &'a Link, VertexId)> + 'a {
++    let side = move |g: &'a LinksDataGroup| {
++        g.adjacent(v, reverse).iter().map(move |&i| {
++            let link = &g.links[i as usize];
++            let dst = if reverse { link.from_vertex_id } else { link.to_vertex_id };
++            ((g.start_idx + i as usize) as StepTrailId, link, dst)
++        })
++    };
++    side(base).chain(side(seed))
++}
++
+ pub fn get_link<'a>(
+     idx: usize,
+     base_links_data: &'a LinksDataGroup,

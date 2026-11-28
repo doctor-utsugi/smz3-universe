@@ -11,8 +11,9 @@ use maprando::map_repository::{MapPoolsConfig, MapRepository, PregeneratedMapRep
 use maprando::patch::{Rom, make_rom};
 use maprando::preset::PresetData;
 use maprando::randomize::{
-    DoorState, FlagLocationState, ItemLocationState, Randomization, RandomizationState, Randomizer, SaveLocationState,
-    TraverserPair, assign_map_areas, get_difficulty_tiers, get_objectives, make_locked_door_data, randomize_doors,
+    DoorLinkCache, DoorState, FlagLocationState, ItemLocationState, Randomization, RandomizationState, Randomizer,
+    SaveLocationState, TraverserPair, assign_map_areas, get_difficulty_tiers, get_objectives, make_locked_door_data,
+    randomize_doors,
 };
 use maprando::settings::{RandomizerSettings, StartLocationMode};
 use maprando::traverse::Traverser;
@@ -74,6 +75,7 @@ fn load(dir: &Path) -> Result<State> {
         )?;
         let global = get_full_global(&game_data);
         game_data.make_links_data(&|link, gd| get_link_difficulty_length(link, gd, &preset_data, &global));
+        game_data.drop_web_data();
         let (cfg, pools) = local_pools()?;
         let maps = PregeneratedMapRepository::new(&cfg)?;
         Ok(State { dir: dir.to_path_buf(), game_data, preset_data, maps, pools })
@@ -172,6 +174,7 @@ fn find(st: &State, json: &str, seed: u64, max_attempts: u32) -> Result<Found> {
     let max_attempts = if max_attempts == 0 { 10000 } else { max_attempts as usize };
     let per_map = if settings.start_location_settings.mode == StartLocationMode::Random { 10 } else { 1 };
     let mut batch = vec![];
+    let door_cache = DoorLinkCache::default();
     let mut attempt = 0;
     for _ in 0..max_attempts.div_ceil(per_map) {
         let map_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
@@ -185,12 +188,23 @@ fn find(st: &State, json: &str, seed: u64, max_attempts: u32) -> Result<Found> {
         }
         let objectives = get_objectives(&settings, Some(&map), gd, &mut rng);
         let doors = randomize_doors(gd, &map, &settings, &objectives, door_seed);
-        let r = Randomizer::new(&map, &doors, objectives, &settings, &tiers, gd, &gd.base_links_data, &mut rng);
+        let r = Randomizer::new_with_door_cache(
+            &map,
+            &doors,
+            objectives,
+            &settings,
+            &tiers,
+            gd,
+            &gd.base_links_data,
+            Some(&door_cache),
+            &mut rng,
+        );
         for _ in 0..per_map {
             attempt += 1;
             ATTEMPTS.store(attempt as u32, Ordering::Relaxed);
             let item_seed = (rng.next_u64() & 0xFFFFFFFF) as usize;
-            if let Ok((mut randomization, _spoiler)) = r.randomize(attempt, item_seed, display_seed, true) {
+            // No spoiler routes: rebuilding them changes nothing the ROM holds and took most of a seed's time.
+            if let Ok((mut randomization, _spoiler)) = r.randomize(attempt, item_seed, display_seed, false) {
                 // Upstream names a seed from the clock (its storage key); here the name follows the seed so every host agrees.
                 randomization.seed_name = format!("smz{:x}", seed & 0xFFFF_FFFF_FFFF);
                 return Ok(Found { settings, randomization, attempt, item_seed });
