@@ -234,4 +234,5 @@ SMZ3 and Super Metroid generators: tewtal (MIT). A Link to the Past: sporchia an
 KatDevsGames (MIT), Enemizer by Zarby89 (MIT). Map Rando: maddo and kyleb (MIT). Map Rando's logic data is
 [sm-json-data](https://github.com/vg-json-data/sm-json-data), developed by the A Link to the Past Randomizer & Super
 Metroid Randomizer communities, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Emulation by Snes9x,
-snes9x_3ds, Lemuroid and LibretroDroid. [THIRD_PARTY.md](THIRD_PARTY.md) has the notices.
+snes9x_3ds, Lemuroid and LibretroDroid. Dan ([danisreallycool](https://github.com/danisreallycool)) made the first
+web version and Map Rando's fix for 32-bit hosts. [THIRD_PARTY.md](THIRD_PARTY.md) has the notices.

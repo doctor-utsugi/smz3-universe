@@ -169,6 +169,9 @@ static const struct { int bit; const char *name, *desc; } OPTION_ROWS[] = {   /*
 static const char *const CREDITS_LINES[] = {
     "#SMZ3 Universe made by Doctor Utsugi",
     "",
+    "#Contributors",
+    "Dan (danisreallycool): the first web",
+    "  version and Map Rando on 32-bit hosts",
     "#Randomizers",
     "SMZ3 and Super Metroid randomizers:",
     "  Thomas Backmark (tewtal) - MIT",
@@ -208,6 +211,7 @@ static const char *const CREDITS_LINES[] = {
     "asar: Alcaro, based on xkas by byuu",
     "  - LGPL-3.0",
     "SDL2: Sam Lantinga - zlib",
+    "Emscripten (web version) - MIT",
     "stb_image: Sean Barrett - public domain",
     "dr_mp3: David Reid - public domain",
     "libctru, citro3d: devkitPro - zlib",

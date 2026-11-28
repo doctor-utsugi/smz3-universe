@@ -33,6 +33,7 @@ ones their repositories carry. The Credits screen (Options > Credits) on every h
 |---|---|---|
 | [RPGHacker/asar](https://github.com/RPGHacker/asar) 1.81 | Assembling the Super Metroid base patch (`tools/build_sm_ips.sh`) | LGPL-3.0, by Alcaro, based on xkas by byuu |
 | [SDL2](https://www.libsdl.org) | PC window, input and audio | zlib, Copyright (C) Sam Lantinga |
+| [Emscripten](https://emscripten.org) | The web version (`frontends/web`) and the runtime it links in | MIT |
 | [stb_image](https://github.com/nothings/stb) v2.30 | PC image loading (`frontends/pc/stb_image.h`) | Public domain, Sean Barrett |
 | rcheevos, libctru, citro3d, libpng, zlib | 3DS build (see `vendor/snes9x_3ds/THIRD_PARTY_NOTICES.md`) | MIT (rcheevos), zlib and their own licences |
 
