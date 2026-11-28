@@ -188,7 +188,7 @@ fn find(st: &State, json: &str, seed: u64, max_attempts: u32) -> Result<Found> {
         }
         let objectives = get_objectives(&settings, Some(&map), gd, &mut rng);
         let doors = randomize_doors(gd, &map, &settings, &objectives, door_seed);
-        let r = Randomizer::new_with_door_cache(
+        let mut r = Randomizer::new_with_door_cache(
             &map,
             &doors,
             objectives,
@@ -199,6 +199,7 @@ fn find(st: &State, json: &str, seed: u64, max_attempts: u32) -> Result<Found> {
             Some(&door_cache),
             &mut rng,
         );
+        r.spoiler_details = false;
         for _ in 0..per_map {
             attempt += 1;
             ATTEMPTS.store(attempt as u32, Ordering::Relaxed);

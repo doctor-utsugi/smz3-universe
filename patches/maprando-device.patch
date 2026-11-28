@@ -1,5 +1,5 @@
 diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
-index 2f74136..8bd822f 100644
+index 2f74136..7ddac20 100644
 --- a/rust/maprando-game/src/lib.rs
 +++ b/rust/maprando-game/src/lib.rs
 @@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Formatter};
@@ -96,13 +96,77 @@ index 2f74136..8bd822f 100644
  }
  
  fn get_logical_gray_door_node_ids() -> Vec<(RoomId, NodeId)> {
-@@ -3175,14 +3201,25 @@ impl GameData {
+@@ -1689,6 +1715,35 @@ impl<T: Hash + Eq> IndexedVec<T> {
+     }
+ }
  
-         let mut room_id_vec: Vec<usize> = room_json_map.keys().cloned().collect();
++/// The number under the top-level "id" key of a JSON object, read without parsing the rest.
++fn top_level_id(src: &str) -> Option<usize> {
++    let b = src.as_bytes();
++    let (mut depth, mut i) = (0, 0);
++    while i < b.len() {
++        match b[i] {
++            b'{' | b'[' => depth += 1,
++            b'}' | b']' => depth -= 1,
++            b'"' => {
++                let start = i + 1;
++                i += 1;
++                while b[i] != b'"' {
++                    i += if b[i] == b'\\' { 2 } else { 1 };
++                }
++                if depth == 1 && &b[start..i] == b"id" {
++                    if let Some(rest) = src[i + 1..].trim_start().strip_prefix(':') {
++                        let rest = rest.trim_start();
++                        let n = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
++                        return rest[..n].parse().ok();
++                    }
++                }
++            }
++            _ => {}
++        }
++        i += 1;
++    }
++    None
++}
++
+ fn read_json(path: &Path) -> Result<JsonValue> {
+     let file = File::open(path).with_context(|| format!("unable to open {}", path.display()))?;
+     let json_str = std::io::read_to_string(file)
+@@ -3151,7 +3206,8 @@ impl GameData {
+     }
+ 
+     pub fn load_rooms(&mut self, room_pattern: &str) -> Result<()> {
+-        let mut room_json_map: HashMap<usize, JsonValue> = HashMap::new();
++        // Each room is parsed when it is processed, so the parsed rooms are not all held at once.
++        let mut room_paths: HashMap<usize, PathBuf> = HashMap::new();
+         for entry in glob::glob(room_pattern).unwrap() {
+             if let Ok(path) = entry {
+                 let path_str = path.to_str().with_context(|| {
+@@ -3163,26 +3219,37 @@ impl GameData {
+ 
+                 let source = std::fs::read_to_string(&path)
+                     .with_context(|| format!("unable to read {}", path.display()))?;
+-                let room_json = json::parse(&source)
+-                    .with_context(|| format!("unable to parse {}", path.display()))?;
+-                let room_id = room_json["id"].as_usize().unwrap();
++                let room_id = top_level_id(&source)
++                    .with_context(|| format!("no room id in {}", path.display()))?;
+                 self.room_json_source.insert(room_id, source);
+-                room_json_map.insert(room_id, room_json);
++                room_paths.insert(room_id, path);
+             } else {
+                 bail!("Error processing region path: {}", entry.err().unwrap());
+             }
+         }
+ 
+-        let mut room_id_vec: Vec<usize> = room_json_map.keys().cloned().collect();
++        let mut room_id_vec: Vec<usize> = room_paths.keys().cloned().collect();
          room_id_vec.sort();
 +        let mut shared: HashSet<Arc<Requirement>> = HashSet::new();
          for room_id in room_id_vec {
-             let room_json = &room_json_map[&room_id];
+-            let room_json = &room_json_map[&room_id];
++            let room_json = &json::parse(&self.room_json_source[&room_id])
++                .with_context(|| format!("unable to parse {}", room_paths[&room_id].display()))?;
              let room_name = room_json["name"].clone();
              let preprocessed_room_json = self
                  .preprocess_room(room_json)
@@ -122,7 +186,7 @@ index 2f74136..8bd822f 100644
          }
  
          self.populate_target_locations()?;
-@@ -3597,10 +3634,10 @@ impl GameData {
+@@ -3597,10 +3664,10 @@ impl GameData {
          let mut links = self.links.clone();
          for (link, _) in self.node_gmode_regain_mobility.values().flatten() {
              let mut new_link = link.clone();
@@ -136,7 +200,7 @@ index 2f74136..8bd822f 100644
              links.push(new_link);
          }
          links
-@@ -4441,7 +4478,7 @@ impl GameData {
+@@ -4441,7 +4508,7 @@ impl GameData {
              let link = Link {
                  from_vertex_id,
                  to_vertex_id,
@@ -145,7 +209,7 @@ index 2f74136..8bd822f 100644
                  start_with_shinecharge,
                  end_with_shinecharge,
                  difficulty: 0,
-@@ -4522,7 +4559,7 @@ impl GameData {
+@@ -4522,7 +4589,7 @@ impl GameData {
                                  if full_power_bombs {
                                      farm_link.strat_name.push_str("- Full Power Bombs");
                                  }
@@ -154,7 +218,7 @@ index 2f74136..8bd822f 100644
                                      requirement: Box::new(requirement.clone()),
                                      enemy_drops: enemy_drops.clone(),
                                      enemy_drops_buffed: enemy_drops_buffed.clone(),
-@@ -4530,7 +4567,7 @@ impl GameData {
+@@ -4530,7 +4597,7 @@ impl GameData {
                                      full_missiles,
                                      full_supers,
                                      full_power_bombs,
@@ -163,7 +227,7 @@ index 2f74136..8bd822f 100644
                                  self.links.push(farm_link.clone());
                              }
                          }
-@@ -4552,7 +4589,7 @@ impl GameData {
+@@ -4552,7 +4619,7 @@ impl GameData {
                  self.links.push(Link {
                      from_vertex_id: to_vertex_id,
                      to_vertex_id: plain_to_vertex_id,
@@ -172,7 +236,7 @@ index 2f74136..8bd822f 100644
                      start_with_shinecharge: end_with_shinecharge,
                      end_with_shinecharge,
                      difficulty: 0,
-@@ -4574,7 +4611,7 @@ impl GameData {
+@@ -4574,7 +4641,7 @@ impl GameData {
                      self.links.push(Link {
                          from_vertex_id: to_vertex_id,
                          to_vertex_id: unlock_vertex_id,
@@ -181,7 +245,7 @@ index 2f74136..8bd822f 100644
                          start_with_shinecharge: end_with_shinecharge,
                          end_with_shinecharge,
                          difficulty: 0,
-@@ -4586,7 +4623,7 @@ impl GameData {
+@@ -4586,7 +4653,7 @@ impl GameData {
                      self.links.push(Link {
                          from_vertex_id: unlock_vertex_id,
                          to_vertex_id,
@@ -190,7 +254,7 @@ index 2f74136..8bd822f 100644
                          start_with_shinecharge: end_with_shinecharge,
                          end_with_shinecharge,
                          difficulty: 0,
-@@ -4760,7 +4797,7 @@ impl GameData {
+@@ -4760,7 +4827,7 @@ impl GameData {
                      let link = Link {
                          from_vertex_id,
                          to_vertex_id,
@@ -199,7 +263,7 @@ index 2f74136..8bd822f 100644
                          start_with_shinecharge: false,
                          end_with_shinecharge: false,
                          difficulty: 0,
-@@ -5112,7 +5149,7 @@ impl GameData {
+@@ -5112,7 +5179,7 @@ impl GameData {
                  continue;
              }
              if Self::has_energy_fill(&link.requirement) {
@@ -208,7 +272,24 @@ index 2f74136..8bd822f 100644
              }
          }
  
-@@ -5207,6 +5244,45 @@ impl GameData {
+@@ -5194,19 +5261,55 @@ impl GameData {
+         &mut self,
+         link_difficulty_length_fn: &dyn Fn(&Link, &GameData) -> (u8, LinkLength),
+     ) {
+-        let mut new_links = Vec::new();
+-        for link in &self.links {
+-            let mut link = link.clone();
+-            let (difficulty, length) = link_difficulty_length_fn(&link, self);
++        let costs: Vec<(u8, LinkLength)> =
++            self.links.iter().map(|link| link_difficulty_length_fn(link, self)).collect();
++        for (link, (difficulty, length)) in self.links.iter_mut().zip(costs) {
+             link.difficulty = difficulty;
+             link.length = length;
+-            new_links.push(link);
+         }
+-        self.links = new_links.clone();
+-        self.base_links_data = LinksDataGroup::new(new_links, self.vertex_isv.keys.len(), 0);
++        self.base_links_data = LinksDataGroup::new(self.links.clone(), self.vertex_isv.keys.len(), 0);
          self.make_reset_room_requirements();
      }
  
@@ -254,7 +335,7 @@ index 2f74136..8bd822f 100644
      fn process_reset_room_req(req: &Requirement, free_unlock_id: (RoomId, NodeId)) -> Requirement {
          match req {
              &Requirement::DoorUnlocked { room_id, node_id }
-@@ -5267,30 +5343,31 @@ impl GameData {
+@@ -5267,30 +5370,31 @@ impl GameData {
              let mut req_or: Vec<Requirement> = vec![];
              let mut entrance_reqs_map: HashMap<VertexId, Vec<Requirement>> = HashMap::new();
              for &entrance_id in &entrance_vertex_ids {
@@ -293,7 +374,7 @@ index 2f74136..8bd822f 100644
                  }
              }
  
-@@ -5326,8 +5403,10 @@ impl GameData {
+@@ -5326,8 +5430,10 @@ impl GameData {
                  path.display()
              )
          })?;
@@ -478,7 +559,7 @@ index 3f3fa5d..feb5224 100644
      fn get_map_batch(
          &self,
 diff --git a/rust/maprando/src/randomize.rs b/rust/maprando/src/randomize.rs
-index 2481576..1e85b8f 100644
+index 2481576..3710b09 100644
 --- a/rust/maprando/src/randomize.rs
 +++ b/rust/maprando/src/randomize.rs
 @@ -53,6 +53,7 @@ use run_speed::{
@@ -489,7 +570,16 @@ index 2481576..1e85b8f 100644
  use std::{cmp::min, convert::TryFrom, hash::Hash, iter, time::SystemTime};
  use strum::VariantNames;
  
-@@ -651,6 +652,47 @@ pub struct Preprocessor<'a> {
+@@ -300,6 +301,8 @@ pub struct Randomizer<'a> {
+     pub seed_links_data: LinksDataGroup,
+     pub initial_items_remaining: Vec<usize>, // Corresponds to GameData.items_isv (one count per distinct item name)
+     pub next_traversal_number: RefCell<usize>,
++    /// Off, the spoiler log holds only what a ROM reads: the summary of each step and the escape.
++    pub spoiler_details: bool,
+ }
+ 
+ #[derive(Clone)]
+@@ -651,6 +654,47 @@ pub struct Preprocessor<'a> {
      pub game_data: &'a GameData,
      pub door_map: HashMap<(RoomId, NodeId), (RoomId, NodeId)>,
      pub difficulty: &'a DifficultyConfig,
@@ -537,7 +627,7 @@ index 2481576..1e85b8f 100644
  }
  
  fn compute_shinecharge_frames(
-@@ -705,6 +747,7 @@ impl<'a> Preprocessor<'a> {
+@@ -705,6 +749,7 @@ impl<'a> Preprocessor<'a> {
              game_data,
              door_map,
              difficulty,
@@ -545,7 +635,7 @@ index 2481576..1e85b8f 100644
          }
      }
  
-@@ -716,6 +759,49 @@ impl<'a> Preprocessor<'a> {
+@@ -716,6 +761,49 @@ impl<'a> Preprocessor<'a> {
          dst_node_id: usize,
          is_toilet: bool,
          door_links: &mut Vec<Link>,
@@ -595,7 +685,7 @@ index 2481576..1e85b8f 100644
      ) {
          let empty_vec_exits = vec![];
          let empty_vec_entrances = vec![];
-@@ -778,7 +864,7 @@ impl<'a> Preprocessor<'a> {
+@@ -778,7 +866,7 @@ impl<'a> Preprocessor<'a> {
                      door_links.push(Link {
                          from_vertex_id: src_vertex_id,
                          to_vertex_id: dst_vertex_id,
@@ -604,7 +694,7 @@ index 2481576..1e85b8f 100644
                          start_with_shinecharge: exit_with_shinecharge,
                          end_with_shinecharge: enter_with_shinecharge,
                          difficulty: 0,
-@@ -2845,7 +2931,7 @@ impl<'a> Preprocessor<'a> {
+@@ -2845,7 +2933,7 @@ impl<'a> Preprocessor<'a> {
                                  max_reserve_energy: 400.into(),
                                  heat: ReserveTriggerHeat::No,
                              },
@@ -613,7 +703,7 @@ index 2481576..1e85b8f 100644
                          ]));
                      }
                      Requirement::make_or(immobile_req_or_vec)
-@@ -3822,6 +3908,24 @@ impl<'r> Randomizer<'r> {
+@@ -3822,6 +3910,24 @@ impl<'r> Randomizer<'r> {
          difficulty_tiers: &'r [DifficultyConfig],
          game_data: &'r GameData,
          base_links_data: &'r LinksDataGroup,
@@ -638,7 +728,7 @@ index 2481576..1e85b8f 100644
          _rng: &mut R,
      ) -> Randomizer<'r> {
          let mut available_items: usize = 0;
-@@ -3834,7 +3938,8 @@ impl<'r> Randomizer<'r> {
+@@ -3834,7 +3940,8 @@ impl<'r> Randomizer<'r> {
  
          let starting_items = get_starting_items(settings);
  
@@ -648,7 +738,15 @@ index 2481576..1e85b8f 100644
          let preprocessed_seed_links: Vec<Link> = preprocessor.get_all_door_links();
          info!(
              "{} base links, {} door links",
-@@ -5478,7 +5583,7 @@ impl<'r> Randomizer<'r> {
+@@ -4013,6 +4120,7 @@ impl<'r> Randomizer<'r> {
+             ),
+             difficulty_tiers,
+             next_traversal_number: RefCell::new(0),
++            spoiler_details: true,
+         }
+     }
+ 
+@@ -5478,7 +5586,7 @@ impl<'r> Randomizer<'r> {
          }
      }
  
@@ -657,8 +755,156 @@ index 2481576..1e85b8f 100644
          let items = vec![false; self.game_data.item_isv.keys.len()];
          let weapon_mask = self
              .game_data
+diff --git a/rust/maprando/src/spoiler_log.rs b/rust/maprando/src/spoiler_log.rs
+index f5ed506..f1c47ff 100644
+--- a/rust/maprando/src/spoiler_log.rs
++++ b/rust/maprando/src/spoiler_log.rs
+@@ -169,7 +169,7 @@ pub struct SpoilerNode {
+     pub name: String,
+ }
+ 
+-#[derive(Serialize, Deserialize)]
++#[derive(Serialize, Deserialize, Default)]
+ pub struct SpoilerGameData {
+     rooms: Vec<SpoilerRoom>,
+     nodes: Vec<SpoilerNode>,
+@@ -184,7 +184,7 @@ pub struct SpoilerTraversalStep {
+     pub updated_start_trail_ids: Vec<[StepTrailId; NUM_COST_METRICS]>,
+ }
+ 
+-#[derive(Serialize, Deserialize)]
++#[derive(Serialize, Deserialize, Default)]
+ pub struct SpoilerTraversal {
+     pub initial_local_state: SpoilerLocalState,
+     pub prev_trail_ids: Vec<StepTrailId>,
+@@ -983,8 +983,16 @@ pub fn get_spoiler_log(
+     tolerate_escape_failure: bool,
+     rebuild_traversals: bool,
+ ) -> Result<SpoilerLog> {
+-    let forward_traversal = get_spoiler_traversal(&traverser_pair.forward);
+-    let reverse_traversal = get_spoiler_traversal(&traverser_pair.reverse);
++    // Without details, only what a ROM reads: the summary of each step and the escape.
++    let details = randomizer.spoiler_details;
++    let (forward_traversal, reverse_traversal) = if details {
++        (
++            get_spoiler_traversal(&traverser_pair.forward),
++            get_spoiler_traversal(&traverser_pair.reverse),
++        )
++    } else {
++        Default::default()
++    };
+ 
+     let cost_config = CostConfig {};
+     traverser_pair.forward.cost_config = cost_config.clone();
+@@ -1022,13 +1030,19 @@ pub fn get_spoiler_log(
+                 .clone();
+ 
+             // Rebuild the traversal step to make the spoiler routes cleaner, by using shorter paths.
+-            if rebuild_traversals {
++            if rebuild_traversals && details {
+                 randomizer.rebuild_step(state, &mut traverser_pair.forward);
+                 randomizer.rebuild_step(state, &mut traverser_pair.reverse);
+             }
+ 
+-            let forward_trails_by_vertex = get_step_trails_by_vertex(&traverser_pair.forward);
+-            let reverse_trails_by_vertex = get_step_trails_by_vertex(&traverser_pair.reverse);
++            let (forward_trails_by_vertex, reverse_trails_by_vertex) = if details {
++                (
++                    get_step_trails_by_vertex(&traverser_pair.forward),
++                    get_step_trails_by_vertex(&traverser_pair.reverse),
++                )
++            } else {
++                Default::default()
++            };
+ 
+             for (i, item_state) in state.item_location_state.iter().enumerate() {
+                 if item_state.bireachable_traversal != Some(traversal_num) {
+@@ -1042,6 +1056,9 @@ pub fn get_spoiler_log(
+                 }
+                 let item_summary = get_spoiler_item_summary(randomizer, item, i);
+                 spoiler_item_summaries.push(item_summary);
++                if !details {
++                    continue;
++                }
+                 let item_details = get_spoiler_item_details(
+                     randomizer,
+                     state,
+@@ -1064,6 +1081,9 @@ pub fn get_spoiler_log(
+                     }
+                     let flag_summary = get_spoiler_flag_summary(randomizer, state, flag_id);
+                     spoiler_flag_summaries.push(flag_summary);
++                    if !details {
++                        continue;
++                    }
+                     let flag_details = get_spoiler_flag_details_one_way(
+                         randomizer,
+                         state,
+@@ -1079,6 +1099,9 @@ pub fn get_spoiler_log(
+                     }
+                     let flag_summary = get_spoiler_flag_summary(randomizer, state, flag_id);
+                     spoiler_flag_summaries.push(flag_summary);
++                    if !details {
++                        continue;
++                    }
+                     let flag_details = get_spoiler_flag_details(
+                         randomizer,
+                         state,
+@@ -1099,6 +1122,9 @@ pub fn get_spoiler_log(
+                 }
+                 let door_summary = get_spoiler_door_summary(randomizer, i);
+                 spoiler_door_summaries.push(door_summary);
++                if !details {
++                    continue;
++                }
+                 let door_details = get_spoiler_door_details(
+                     randomizer,
+                     &global_state,
+@@ -1111,12 +1137,13 @@ pub fn get_spoiler_log(
+             }
+ 
+             let forward_step = &traverser_pair.forward.past_steps[traversal_num];
++            let spoiler_vertices: &[VertexKey] = if details { &randomizer.game_data.vertex_isv.keys } else { &[] };
+             for (
+                 v,
+                 VertexKey {
+                     room_id, node_id, ..
+                 },
+-            ) in randomizer.game_data.vertex_isv.keys.iter().enumerate()
++            ) in spoiler_vertices.iter().enumerate()
+             {
+                 if get_short_bireachable_trails(
+                     &forward_step.global_state,
+@@ -1209,8 +1236,8 @@ pub fn get_spoiler_log(
+     spoiler_summaries.reverse();
+     spoiler_details.reverse();
+ 
+-    let spoiler_all_items = state
+-        .item_location_state
++    let all_item_states: &[crate::randomize::ItemLocationState] = if details { &state.item_location_state } else { &[] };
++    let spoiler_all_items = all_item_states
+         .iter()
+         .enumerate()
+         .map(|(i, x)| {
+@@ -1241,7 +1268,7 @@ pub fn get_spoiler_log(
+ 
+     let mut spoiler_all_rooms: Vec<SpoilerRoomLoc> = Vec::new();
+     for (room_idx, room_coords) in randomizer.map.rooms.iter().enumerate() {
+-        if !randomizer.map.room_mask[room_idx] {
++        if !details || !randomizer.map.room_mask[room_idx] {
+             continue;
+         }
+         let room_geom = &randomizer.game_data.room_geometry[room_idx];
+@@ -1346,7 +1373,7 @@ pub fn get_spoiler_log(
+         details: spoiler_details,
+         all_items: spoiler_all_items,
+         all_rooms: spoiler_all_rooms,
+-        game_data: get_spoiler_game_data(randomizer),
++        game_data: if details { get_spoiler_game_data(randomizer) } else { Default::default() },
+         forward_traversal,
+         reverse_traversal,
+     })
 diff --git a/rust/maprando/src/traverse.rs b/rust/maprando/src/traverse.rs
-index ba0c5b1..c5f2202 100644
+index ba0c5b1..1f92cad 100644
 --- a/rust/maprando/src/traverse.rs
 +++ b/rust/maprando/src/traverse.rs
 @@ -1139,6 +1139,21 @@ fn apply_requirement_complex(
@@ -683,6 +929,15 @@ index ba0c5b1..c5f2202 100644
              let mut reducer: LocalStateReducer<()> = LocalStateReducer::default();
              for mut loc in local {
                  match apply_requirement_simple(req, &mut loc, cx) {
+@@ -2636,7 +2651,7 @@ impl Traverser {
+         Self {
+             reverse,
+             initial_local_state,
+-            step_trails: Vec::with_capacity(num_vertices * 10),
++            step_trails: Vec::with_capacity(num_vertices),
+             lsr: vec![LocalStateReducer::default(); num_vertices],
+             step: TraversalStep {
+                 updates: vec![],
 @@ -2716,16 +2731,8 @@ impl Traverser {
              }
          }
