@@ -1,5 +1,6 @@
 //! smz3-maprando <data dir> <vanilla SM ROM> <settings json> <seed> <out> [--bps]: a seed as smz_mr_generate builds it, or
 //! with --bps its patch from the headerless vanilla ROM (what the server sends the 3DS). Prints the info JSON last.
+//! --pack <data dir>: writes <data dir>/rust/gamedata.bin, the game data the generator loads instead of the JSON.
 //! --check <data dir> <rom> <settings json> <seed> <cache file>: stdin item bits in order -> {"inLogic":"1 0 ..."} (proof check).
 use anyhow::{Context, Result, bail};
 use std::io::Read;
@@ -7,6 +8,12 @@ use std::path::Path;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--pack") {
+        let dir = args.get(2).context("usage: smz3-maprando --pack <data dir>")?;
+        let n = smz3_maprando::pack(Path::new(dir))?;
+        println!("{dir}/rust/gamedata.bin: {n} bytes");
+        return Ok(());
+    }
     if args.get(1).map(String::as_str) == Some("--check") {
         if args.len() < 7 {
             bail!("usage: smz3-maprando --check <data dir> <rom> <settings json> <seed> <cache file>");

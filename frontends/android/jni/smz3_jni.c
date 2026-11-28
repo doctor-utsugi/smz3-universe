@@ -424,7 +424,7 @@ JNIEXPORT jstring JNICALL NATIVE(smLastSettings)(JNIEnv *env, jclass cls) { retu
 static char g_mr_dir[512];
 static volatile int g_mr_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it */
 
-/* Building a seed peaks near 215 MB (measured): a phone with less RAM than this in all, or free, downloads it instead. */
+/* Building a seed peaks near 155 MB (measured): a phone with less RAM than this in all, or free, downloads it instead. */
 #define MR_TOTAL_MB 768
 #define MR_FREE_MB 400
 

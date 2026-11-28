@@ -64,18 +64,115 @@ fn local_pools() -> Result<(MapPoolsConfig, Vec<String>)> {
     Ok((cfg, names))
 }
 
+/// The game data as the generator uses it, made from the JSON (with the links' difficulties, web-only data dropped).
+fn game_data_from_json() -> Result<GameData> {
+    let mut game_data = GameData::load(Path::new("."))?;
+    let preset_data = presets(&game_data)?;
+    let global = get_full_global(&game_data);
+    game_data.make_links_data(&|link, gd| get_link_difficulty_length(link, gd, &preset_data, &global));
+    game_data.drop_web_data();
+    Ok(game_data)
+}
+
+fn presets(game_data: &GameData) -> Result<PresetData> {
+    PresetData::load(
+        Path::new("data/tech_data.json"),
+        Path::new("data/notable_data.json"),
+        Path::new("data/presets"),
+        game_data,
+    )
+}
+
+/// `rust/gamedata.bin`: what game_data_from_json makes, packed by `smz3-maprando --pack` so a device does not parse the
+/// JSON. It holds the key of the code that wrote it and the names and sizes of the data files it was made from; with
+/// either different it is not used.
+const PACK: &str = "gamedata.bin";
+const PACK_MAGIC: &[u8; 8] = b"SMZMRPK1";
+
+fn data_fingerprint() -> u64 {
+    fn walk(p: &Path, out: &mut Vec<(String, u64)>) {
+        if let Ok(rd) = std::fs::read_dir(p) {
+            for e in rd.flatten() {
+                walk(&e.path(), out);
+            }
+        } else if let Ok(m) = std::fs::metadata(p) {
+            out.push((p.to_string_lossy().replace('\\', "/"), m.len()));
+        }
+    }
+    let mut files = vec![];
+    for p in ["../sm-json-data", "data", "../room_geometry.json", "../TitleScreen"] {
+        walk(Path::new(p), &mut files);
+    }
+    files.sort();
+    let mut h = crc32fast::Hasher::new();
+    for (name, len) in &files {
+        h.update(name.as_bytes());
+        h.update(&len.to_le_bytes());
+    }
+    h.finalize() as u64 | (files.len() as u64) << 32
+}
+
+fn pack_header() -> Vec<u8> {
+    let mut v = PACK_MAGIC.to_vec();
+    v.extend_from_slice(env!("SMZ_MR_PACK_KEY").as_bytes());
+    v.extend_from_slice(&data_fingerprint().to_le_bytes());
+    v
+}
+
+fn pack_bytes(gd: &GameData) -> Result<(Vec<u8>, Vec<u8>)> {
+    let (body, reqs) = maprando_game::shared_requirement::writing(|| bincode::serialize(gd));
+    Ok((bincode::serialize(&reqs)?, body?))
+}
+
+fn game_data_from_pack() -> Option<GameData> {
+    use std::io::Read;
+    let mut f = std::io::BufReader::new(std::fs::File::open(PACK).ok()?);
+    let header = pack_header();
+    let mut got = vec![0; header.len()];
+    f.read_exact(&mut got).ok()?;
+    if got != header {
+        return None;
+    }
+    let reqs: Vec<maprando_game::Requirement> = bincode::deserialize_from(&mut f).ok()?;
+    let mut gd: GameData = maprando_game::shared_requirement::reading(reqs, || bincode::deserialize_from(&mut f).ok())?;
+    gd.replay_insertion_order();
+    Some(gd)
+}
+
+/// Writes `rust/gamedata.bin` into a data folder, after checking that it reads back and that the maps the randomizer
+/// iterates come back in the order loading from JSON gives.
+pub fn pack(dir: &Path) -> Result<usize> {
+    in_dir(dir, || {
+        let gd = game_data_from_json()?;
+        let (reqs, body) = pack_bytes(&gd)?;
+        let mut out = pack_header();
+        out.extend_from_slice(&reqs);
+        out.extend_from_slice(&body);
+        drop((reqs, body));
+        let tmp = format!("{PACK}.tmp");
+        std::fs::write(&tmp, &out)?;
+        std::fs::rename(&tmp, PACK)?;
+        let back = game_data_from_pack();
+        let same = back.as_ref().is_some_and(|b| {
+            gd.raw_room_id_by_ptr.keys().eq(b.raw_room_id_by_ptr.keys())
+                && gd.door_ptr_pair_map.keys().eq(b.door_ptr_pair_map.keys())
+                && gd.node_door_unlock.keys().eq(b.node_door_unlock.keys())
+        });
+        if !same {
+            let _ = std::fs::remove_file(PACK);
+            bail!("The packed game data does not read back as the loaded one");
+        }
+        Ok(out.len())
+    })
+}
+
 fn load(dir: &Path) -> Result<State> {
     in_dir(dir, || {
-        let mut game_data = GameData::load(Path::new("."))?;
-        let preset_data = PresetData::load(
-            Path::new("data/tech_data.json"),
-            Path::new("data/notable_data.json"),
-            Path::new("data/presets"),
-            &game_data,
-        )?;
-        let global = get_full_global(&game_data);
-        game_data.make_links_data(&|link, gd| get_link_difficulty_length(link, gd, &preset_data, &global));
-        game_data.drop_web_data();
+        let game_data = match game_data_from_pack() {
+            Some(gd) => gd,
+            None => game_data_from_json()?,
+        };
+        let preset_data = presets(&game_data)?;
         let (cfg, pools) = local_pools()?;
         let maps = PregeneratedMapRepository::new(&cfg)?;
         Ok(State { dir: dir.to_path_buf(), game_data, preset_data, maps, pools })

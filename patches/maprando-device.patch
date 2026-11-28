@@ -1,5 +1,55 @@
+diff --git a/rust/Cargo.lock b/rust/Cargo.lock
+index d708535..9ae16eb 100644
+--- a/rust/Cargo.lock
++++ b/rust/Cargo.lock
+@@ -1962,6 +1962,7 @@ dependencies = [
+  "num-integer",
+  "num-traits",
+  "rawpointer",
++ "serde",
+ ]
+ 
+ [[package]]
+diff --git a/rust/maprando-game/Cargo.toml b/rust/maprando-game/Cargo.toml
+index aa88d36..f75f70e 100644
+--- a/rust/maprando-game/Cargo.toml
++++ b/rust/maprando-game/Cargo.toml
+@@ -6,11 +6,11 @@ edition = "2024"
+ [dependencies]
+ anyhow = { version = "1.0.68", features = ["backtrace"] }
+ glob = "0.3.1"
+-hashbrown = "0.14.5"
++hashbrown = { version = "0.14.5", features = ["serde"] }
+ image = "0.24.5"
+ json = "0.12.4"
+ log = "0.4.17"
+-ndarray = "0.15.6"
++ndarray = { version = "0.15.6", features = ["serde"] }
+ num_enum = "0.5.7"
+ parse_int = "0.6.0"
+ serde = { version = "1.0.152", features = ["derive"] }
+diff --git a/rust/maprando-game/src/glowpatch.rs b/rust/maprando-game/src/glowpatch.rs
+index 2b5eed3..1e3df3f 100644
+--- a/rust/maprando-game/src/glowpatch.rs
++++ b/rust/maprando-game/src/glowpatch.rs
+@@ -1,12 +1,12 @@
+-use serde::Deserialize;
++use serde::{Deserialize, Serialize};
+ use serde_hex::{CompactPfx, SerHex, SerHexSeq, StrictPfx};
+ 
+-#[derive(Deserialize, Default, Clone)]
++#[derive(Deserialize, Default, Clone, Serialize)]
+ pub struct GlowPatch {
+     pub sections: Vec<GlowPatchSection>,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ #[serde(rename_all = "lowercase")]
+ pub enum GlowPatchSection {
+     Direct {
 diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
-index 2f74136..7ddac20 100644
+index 2f74136..824a07a 100644
 --- a/rust/maprando-game/src/lib.rs
 +++ b/rust/maprando-game/src/lib.rs
 @@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Formatter};
@@ -10,23 +60,126 @@ index 2f74136..7ddac20 100644
  use strum::VariantNames;
  use strum_macros::{EnumString, VariantNames};
  
-@@ -592,7 +593,8 @@ impl Requirement {
+@@ -129,7 +130,7 @@ pub type StepTrailId = i32;
+ pub type LinkIdx = i32;
+ pub type TraversalId = usize; // Index into Traversal.past_steps
+ 
+-#[derive(Default, Clone)]
++#[derive(Default, Clone, Serialize, Deserialize)]
+ pub struct IndexedVec<T: Hash + Eq> {
+     pub keys: Vec<T>,
+     pub index_by_key: HashMap<T, usize>,
+@@ -588,11 +589,13 @@ impl Requirement {
+     }
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Serialize, Deserialize)]
  pub struct Link {
      pub from_vertex_id: VertexId,
      pub to_vertex_id: VertexId,
 -    pub requirement: Requirement,
 +    // Shared: a link is kept in several lists and many links have the same requirement.
++    #[serde(with = "shared_requirement")]
 +    pub requirement: Arc<Requirement>,
      pub start_with_shinecharge: bool,
      pub end_with_shinecharge: bool,
      pub difficulty: u8,
-@@ -1229,34 +1231,58 @@ fn compute_runway_effective_length(geom: &RunwayGeometry) -> f32 {
+@@ -603,7 +606,7 @@ pub struct Link {
+     pub strat_notes: Vec<String>,
+ }
+ 
+-#[derive(Deserialize, Default, Clone, Debug)]
++#[derive(Deserialize, Default, Clone, Debug, Serialize)]
+ pub struct RoomGeometryDoor {
+     pub direction: String,
+     pub x: usize,
+@@ -614,7 +617,7 @@ pub struct RoomGeometryDoor {
+     pub offset: Option<usize>,
+ }
+ 
+-#[derive(Deserialize, Default, Clone, Debug)]
++#[derive(Deserialize, Default, Clone, Debug, Serialize)]
+ pub struct RoomGeometryItem {
+     pub x: usize,
+     pub y: usize,
+@@ -626,7 +629,7 @@ pub type RoomGeometryDoorIdx = usize;
+ pub type RoomGeometryPartIdx = usize;
+ 
+ #[allow(clippy::type_complexity)]
+-#[derive(Deserialize, Default, Clone, Debug)]
++#[derive(Deserialize, Default, Clone, Debug, Serialize)]
+ pub struct RoomGeometry {
+     pub room_id: usize,
+     pub name: String,
+@@ -644,7 +647,7 @@ pub struct RoomGeometry {
+     pub heated: bool,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ pub struct EscapeTimingDoor {
+     pub name: String,
+     pub direction: String,
+@@ -655,7 +658,7 @@ pub struct EscapeTimingDoor {
+     pub node_id: usize,
+ }
+ 
+-#[derive(Deserialize, Copy, Clone)]
++#[derive(Deserialize, Copy, Clone, Serialize)]
+ #[serde(rename_all = "snake_case")]
+ pub enum EscapeConditionRequirement {
+     EnemiesCleared,
+@@ -670,14 +673,14 @@ pub enum EscapeConditionRequirement {
+     CanOneTapShortcharge,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ pub struct EscapeTimingCondition {
+     pub requires: Vec<EscapeConditionRequirement>,
+     pub in_game_time: f32,
+     pub simple_fraction: Option<f32>,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ pub struct EscapeTiming {
+     pub to_door: EscapeTimingDoor,
+     pub in_game_time: Option<f32>,
+@@ -686,13 +689,13 @@ pub struct EscapeTiming {
+     pub conditions: Vec<EscapeTimingCondition>,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ pub struct EscapeTimingGroup {
+     pub from_door: EscapeTimingDoor,
+     pub to: Vec<EscapeTiming>,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ pub struct EscapeTimingRoom {
+     pub room_id: RoomId,
+     pub room_name: String,
+@@ -786,7 +789,7 @@ fn parse_door_orientation(door_orientation: &str) -> Result<DoorOrientation> {
+     })
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct GModeRegainMobility {}
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+@@ -1229,34 +1232,58 @@ fn compute_runway_effective_length(geom: &RunwayGeometry) -> f32 {
          + 5.0 / 59.0 * geom.gentle_down_tiles
  }
  
+-#[derive(Default, Clone)]
 +/// The links, and for each vertex the indices of the links leaving it (`by_src`) and entering it (`by_dst`), in link
 +/// order, as offsets into one flat array each.
- #[derive(Default, Clone)]
++#[derive(Default, Clone, Serialize, Deserialize)]
  pub struct LinksDataGroup {
      pub links: Vec<Link>,
 -    pub links_by_src: Vec<Vec<(LinkIdx, Link)>>,
@@ -96,10 +249,343 @@ index 2f74136..7ddac20 100644
  }
  
  fn get_logical_gray_door_node_ids() -> Vec<(RoomId, NodeId)> {
-@@ -1689,6 +1715,35 @@ impl<T: Hash + Eq> IndexedVec<T> {
+@@ -1326,7 +1353,7 @@ fn parse_hex(v: &JsonValue, default: f32) -> Result<f32> {
+ 
+ type TitleScreenImage = ndarray::Array3<u8>;
+ 
+-#[derive(Default, Clone)]
++#[derive(Default, Clone, Serialize, Deserialize)]
+ pub struct TitleScreenData {
+     pub top_left: Vec<TitleScreenImage>,
+     pub top_right: Vec<TitleScreenImage>,
+@@ -1381,7 +1408,7 @@ pub struct VertexKey {
+     pub actions: Vec<VertexAction>,
+ }
+ 
+-#[derive(Clone)]
++#[derive(Clone, Serialize, Deserialize)]
+ pub struct NotableInfo {
+     pub room_id: RoomId,
+     pub notable_id: NotableId,
+@@ -1389,7 +1416,7 @@ pub struct NotableInfo {
+     pub note: String,
+ }
+ 
+-#[derive(Deserialize, Clone)]
++#[derive(Deserialize, Clone, Serialize)]
+ pub struct StratVideo {
+     pub room_id: usize,
+     pub strat_id: usize,
+@@ -1399,7 +1426,7 @@ pub struct StratVideo {
+     pub dev_note: String,
+ }
+ 
+-#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq)]
++#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum DoorLockType {
+     Gray,
+@@ -1416,7 +1443,7 @@ pub enum DoorLockType {
+     Plasma,
+ }
+ 
+-#[derive(Copy, Clone, Debug, Deserialize, Default, PartialEq, Eq)]
++#[derive(Copy, Clone, Debug, Deserialize, Default, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum MapTileEdge {
+     #[default]
+@@ -1435,7 +1462,7 @@ pub enum MapTileEdge {
+     LockedDoor(DoorLockType),
+ }
+ 
+-#[derive(Copy, Clone, Debug, Deserialize, Default, PartialEq, Eq)]
++#[derive(Copy, Clone, Debug, Deserialize, Default, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum MapTileInterior {
+     #[default]
+@@ -1469,7 +1496,7 @@ impl MapTileInterior {
      }
  }
  
+-#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq)]
++#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum Direction {
+     Left,
+@@ -1478,7 +1505,7 @@ pub enum Direction {
+     Down,
+ }
+ 
+-#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq)]
++#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum MapTileSpecialType {
+     SlopeUpFloorLow,
+@@ -1496,7 +1523,7 @@ pub enum MapTileSpecialType {
+     AreaTransition(AreaIdx, Direction),
+ }
+ 
+-#[derive(Clone, Copy, Debug, Deserialize, Default, PartialEq)]
++#[derive(Clone, Copy, Debug, Deserialize, Default, PartialEq, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub enum MapLiquidType {
+     #[default]
+@@ -1506,7 +1533,7 @@ pub enum MapLiquidType {
+     Acid,
+ }
+ 
+-#[derive(Clone, Copy, Debug, Deserialize, Default, PartialEq, Eq)]
++#[derive(Clone, Copy, Debug, Deserialize, Default, PartialEq, Eq, Serialize)]
+ pub enum MapTileFade {
+     #[default]
+     None,
+@@ -1514,7 +1541,7 @@ pub enum MapTileFade {
+     Disappeared,
+ }
+ 
+-#[derive(Clone, Debug, Deserialize, Default)]
++#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub struct MapTile {
+     pub coords: (usize, usize),
+@@ -1540,7 +1567,7 @@ pub struct MapTile {
+     pub faded: MapTileFade,
+ }
+ 
+-#[derive(Clone, Debug, Deserialize)]
++#[derive(Clone, Debug, Deserialize, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub struct MapTileData {
+     pub room_id: usize,
+@@ -1560,14 +1587,14 @@ struct MapTileDataFile {
+ 
+ type GfxTile1Bpp = [u8; 8];
+ 
+-#[derive(Default, Clone)]
++#[derive(Default, Clone, Serialize, Deserialize)]
+ pub struct VariableWidthFont {
+     pub gfx: Vec<GfxTile1Bpp>,
+     pub widths: Vec<u8>,
+     pub char_isv: IndexedVec<char>,
+ }
+ 
+-#[derive(Clone)]
++#[derive(Clone, Serialize, Deserialize)]
+ pub struct ExitInfo {
+     pub vertex_id: VertexId,
+     pub exit_condition: ExitCondition,
+@@ -1580,7 +1607,7 @@ pub struct ExitInfo {
+ // more structured; combine maps with the same keys; also maybe unify the room geometry data
+ // with sm-json-data and cut back on the amount of different
+ // keys/IDs/indexes for rooms, nodes, and doors.
+-#[derive(Default, Clone)]
++#[derive(Default, Clone, Serialize, Deserialize)]
+ pub struct GameData {
+     sm_json_data_path: PathBuf,
+     pub tech_isv: IndexedVec<TechId>,
+@@ -1592,13 +1619,17 @@ pub struct GameData {
+     weapon_categories: HashMap<String, Vec<String>>, // map from weapon category to specific weapons with that category
+     enemy_attack_damage: HashMap<(String, String), Capacity>,
+     enemy_vulnerabilities: HashMap<String, EnemyVulnerabilities>,
++    #[serde(with = "json_text::map")]
+     enemy_json: HashMap<String, JsonValue>,
++    #[serde(with = "json_text::map")]
+     weapon_json_map: HashMap<String, JsonValue>,
+     non_ammo_weapon_mask: WeaponMask,
++    #[serde(with = "json_text::map")]
+     pub tech_json_map: HashMap<TechId, JsonValue>,
+     pub tech_names: HashMap<TechId, String>,
+     pub tech_id_by_name: HashMap<String, TechId>,
+     pub notable_id_by_name: HashMap<(RoomId, String), NotableId>,
++    #[serde(with = "json_text::map")]
+     pub helper_json_map: HashMap<String, JsonValue>,
+     // Original helper definitions for formatted logic-page display.
+     pub helpers_json_source: String,
+@@ -1606,8 +1637,10 @@ pub struct GameData {
+     pub tech_requirement: HashMap<(TechId, bool), Option<Requirement>>,
+     pub helpers: HashMap<String, Option<Requirement>>,
+     pub numeric_isv: IndexedVec<String>,
++    #[serde(with = "json_text::vec")]
+     pub numeric_json: Vec<JsonValue>,
+     pub numeric_values: Vec<Numeric>,
++    #[serde(with = "json_text::map")]
+     pub room_json_map: HashMap<RoomId, JsonValue>,
+     // Original file contents for logic-page display, before preprocessing.
+     // TODO: we should probably remove this from the logic page, and instead just
+@@ -1615,6 +1648,7 @@ pub struct GameData {
+     pub room_json_source: HashMap<RoomId, String>,
+     pub room_obstacle_idx_map: HashMap<RoomId, HashMap<String, usize>>,
+     pub room_full_area: HashMap<RoomId, String>,
++    #[serde(with = "json_text::map")]
+     pub node_json_map: HashMap<(RoomId, NodeId), JsonValue>,
+     pub node_spawn_at_map: HashMap<(RoomId, NodeId), NodeId>,
+     pub reverse_node_ptr_map: HashMap<NodePtr, (RoomId, NodeId)>,
+@@ -1629,6 +1663,7 @@ pub struct GameData {
+     pub reverse_door_ptr_pair_map: HashMap<(RoomId, NodeId), DoorPtrPair>,
+     pub door_position: HashMap<(RoomId, NodeId), DoorOrientation>,
+     pub vertex_isv: IndexedVec<VertexKey>,
++    #[serde(with = "json_text::map")]
+     pub grey_lock_map: HashMap<(RoomId, NodeId), JsonValue>,
+     pub item_locations: Vec<(RoomId, NodeId)>,
+     pub item_vertex_ids: Vec<Vec<VertexId>>,
+@@ -1639,6 +1674,10 @@ pub struct GameData {
+     pub base_links_data: LinksDataGroup,
+     pub room_geometry: Vec<RoomGeometry>,
+     pub room_ptrs: Vec<RoomPtr>,
++    /// First-insertion order of the keys of `door_ptr_pair_map` and `node_door_unlock`, which the randomizer iterates
++    /// (with `room_ptrs` for `raw_room_id_by_ptr`), so a packed `GameData` rebuilds them iterating the same way.
++    pub door_ptr_pair_order: Vec<DoorPtrPair>,
++    pub door_unlock_order: Vec<(RoomId, NodeId)>,
+     pub room_and_door_idxs_by_door_ptr_pair:
+         HashMap<DoorPtrPair, (RoomGeometryRoomIdx, RoomGeometryDoorIdx)>,
+     pub room_ptr_by_id: HashMap<RoomId, RoomPtr>,
+@@ -1657,6 +1696,7 @@ pub struct GameData {
+     pub tech_description: HashMap<TechId, String>,
+     pub tech_dependencies: HashMap<TechId, Vec<TechId>>,
+     pub escape_timings: Vec<EscapeTimingRoom>,
++    #[serde(with = "start_locations_pack")]
+     pub start_locations: Vec<StartLocation>,
+     pub start_location_id_map: HashMap<(RoomId, NodeId), StartLocationId>,
+     pub hub_farms: Vec<(VertexId, Requirement)>,
+@@ -1670,6 +1710,7 @@ pub struct GameData {
+     pub mother_brain_defeated_flag_id: usize,
+     pub title_screen_data: TitleScreenData,
+     pub room_name_font: VariableWidthFont,
++    #[serde(with = "json_text::glow")]
+     pub reduced_flashing_patch: GlowPatch,
+     pub strat_videos: HashMap<(RoomId, StratId), Vec<StratVideo>>,
+     pub map_tile_data: Vec<MapTileData>,
+@@ -1689,6 +1730,162 @@ impl<T: Hash + Eq> IndexedVec<T> {
+     }
+ }
+ 
++/// JSON values in a packed `GameData`, as their text.
++mod json_text {
++    use super::*;
++    use serde::de::Error;
++    use serde::{Deserializer, Serializer};
++
++    pub mod map {
++        use super::*;
++        pub fn serialize<K: Serialize, S: Serializer>(m: &HashMap<K, JsonValue>, s: S) -> Result<S::Ok, S::Error> {
++            let pairs: Vec<(&K, String)> = m.iter().map(|(k, v)| (k, v.dump())).collect();
++            (m.capacity() as u64, pairs).serialize(s)
++        }
++        pub fn deserialize<'de, K: Deserialize<'de> + Hash + Eq, D: Deserializer<'de>>(
++            d: D,
++        ) -> Result<HashMap<K, JsonValue>, D::Error> {
++            let (cap, pairs): (u64, Vec<(K, String)>) = Deserialize::deserialize(d)?;
++            let mut m = HashMap::with_capacity(cap as usize);
++            for (k, t) in pairs {
++                m.insert(k, json::parse(&t).map_err(D::Error::custom)?);
++            }
++            Ok(m)
++        }
++    }
++
++    /// serde_hex reads only borrowed bytes, which a reader cannot lend.
++    pub mod glow {
++        use super::*;
++        pub fn serialize<S: Serializer>(g: &GlowPatch, s: S) -> Result<S::Ok, S::Error> {
++            serde_json::to_string(g).map_err(serde::ser::Error::custom)?.serialize(s)
++        }
++        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<GlowPatch, D::Error> {
++            serde_json::from_str(&String::deserialize(d)?).map_err(D::Error::custom)
++        }
++    }
++
++    pub mod vec {
++        use super::*;
++        pub fn serialize<S: Serializer>(v: &[JsonValue], s: S) -> Result<S::Ok, S::Error> {
++            s.collect_seq(v.iter().map(|j| j.dump()))
++        }
++        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<JsonValue>, D::Error> {
++            let texts: Vec<String> = Vec::deserialize(d)?;
++            texts.iter().map(|t| json::parse(t).map_err(D::Error::custom)).collect()
++        }
++    }
++}
++
++/// Start locations in a packed `GameData`: as their JSON (their `requires` is free-form JSON), with the
++/// requirements parsed from it.
++mod start_locations_pack {
++    use super::*;
++    use serde::de::Error;
++    use serde::{Deserializer, Serializer};
++
++    pub fn serialize<S: Serializer>(v: &[StartLocation], s: S) -> Result<S::Ok, S::Error> {
++        let text = serde_json::to_string(v).map_err(serde::ser::Error::custom)?;
++        let parsed: Vec<&Option<Requirement>> = v.iter().map(|x| &x.requires_parsed).collect();
++        (text, parsed).serialize(s)
++    }
++
++    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<StartLocation>, D::Error> {
++        let (text, parsed): (String, Vec<Option<Requirement>>) = Deserialize::deserialize(d)?;
++        let mut v: Vec<StartLocation> = serde_json::from_str(&text).map_err(D::Error::custom)?;
++        for (x, p) in v.iter_mut().zip(parsed) {
++            x.requires_parsed = p;
++        }
++        Ok(v)
++    }
++}
++
++/// Link requirements in a packed `GameData`: an index into one table of the distinct requirements, written and read
++/// within `shared_requirement::writing` and `shared_requirement::reading`, so they stay shared.
++pub mod shared_requirement {
++    use super::*;
++    use serde::de::Error;
++    use serde::{Deserializer, Serializer};
++    use std::cell::RefCell;
++
++    enum Table {
++        Writing(HashMap<Arc<Requirement>, u32>, Vec<Arc<Requirement>>),
++        Reading(Vec<Arc<Requirement>>),
++    }
++
++    thread_local! {
++        static TABLE: RefCell<Option<Table>> = const { RefCell::new(None) };
++    }
++
++    /// Runs `f` (a serialization) and returns its result with the table of the requirements it wrote.
++    pub fn writing<T>(f: impl FnOnce() -> T) -> (T, Vec<Requirement>) {
++        TABLE.with(|t| *t.borrow_mut() = Some(Table::Writing(HashMap::new(), vec![])));
++        let out = f();
++        let table = TABLE.with(|t| t.borrow_mut().take());
++        let Some(Table::Writing(_, reqs)) = table else { unreachable!() };
++        (out, reqs.iter().map(|r| (**r).clone()).collect())
++    }
++
++    /// Runs `f` (a deserialization) with the requirements table written next to it.
++    pub fn reading<T>(reqs: Vec<Requirement>, f: impl FnOnce() -> T) -> T {
++        TABLE.with(|t| *t.borrow_mut() = Some(Table::Reading(reqs.into_iter().map(Arc::new).collect())));
++        let out = f();
++        TABLE.with(|t| *t.borrow_mut() = None);
++        out
++    }
++
++    pub fn serialize<S: Serializer>(r: &Arc<Requirement>, s: S) -> Result<S::Ok, S::Error> {
++        let idx = TABLE.with(|t| match t.borrow_mut().as_mut() {
++            Some(Table::Writing(index, reqs)) => Some(*index.entry(r.clone()).or_insert_with(|| {
++                reqs.push(r.clone());
++                reqs.len() as u32 - 1
++            })),
++            _ => None,
++        });
++        match idx {
++            Some(i) => s.serialize_u32(i),
++            None => Err(serde::ser::Error::custom("link requirement outside shared_requirement::writing")),
++        }
++    }
++
++    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Arc<Requirement>, D::Error> {
++        let i = u32::deserialize(d)? as usize;
++        TABLE.with(|t| match t.borrow().as_ref() {
++            Some(Table::Reading(reqs)) => reqs.get(i).cloned().ok_or_else(|| D::Error::custom("bad requirement index")),
++            _ => Err(D::Error::custom("link requirement outside shared_requirement::reading")),
++        })
++    }
++}
++
 +/// The number under the top-level "id" key of a JSON object, read without parsing the rest.
 +fn top_level_id(src: &str) -> Option<usize> {
 +    let b = src.as_bytes();
@@ -132,7 +618,7 @@ index 2f74136..7ddac20 100644
  fn read_json(path: &Path) -> Result<JsonValue> {
      let file = File::open(path).with_context(|| format!("unable to open {}", path.display()))?;
      let json_str = std::io::read_to_string(file)
-@@ -3151,7 +3206,8 @@ impl GameData {
+@@ -3151,7 +3348,8 @@ impl GameData {
      }
  
      pub fn load_rooms(&mut self, room_pattern: &str) -> Result<()> {
@@ -142,7 +628,7 @@ index 2f74136..7ddac20 100644
          for entry in glob::glob(room_pattern).unwrap() {
              if let Ok(path) = entry {
                  let path_str = path.to_str().with_context(|| {
-@@ -3163,26 +3219,37 @@ impl GameData {
+@@ -3163,26 +3361,37 @@ impl GameData {
  
                  let source = std::fs::read_to_string(&path)
                      .with_context(|| format!("unable to read {}", path.display()))?;
@@ -186,7 +672,7 @@ index 2f74136..7ddac20 100644
          }
  
          self.populate_target_locations()?;
-@@ -3597,10 +3664,10 @@ impl GameData {
+@@ -3597,10 +3806,10 @@ impl GameData {
          let mut links = self.links.clone();
          for (link, _) in self.node_gmode_regain_mobility.values().flatten() {
              let mut new_link = link.clone();
@@ -200,7 +686,7 @@ index 2f74136..7ddac20 100644
              links.push(new_link);
          }
          links
-@@ -4441,7 +4508,7 @@ impl GameData {
+@@ -4441,7 +4650,7 @@ impl GameData {
              let link = Link {
                  from_vertex_id,
                  to_vertex_id,
@@ -209,7 +695,7 @@ index 2f74136..7ddac20 100644
                  start_with_shinecharge,
                  end_with_shinecharge,
                  difficulty: 0,
-@@ -4522,7 +4589,7 @@ impl GameData {
+@@ -4522,7 +4731,7 @@ impl GameData {
                                  if full_power_bombs {
                                      farm_link.strat_name.push_str("- Full Power Bombs");
                                  }
@@ -218,7 +704,7 @@ index 2f74136..7ddac20 100644
                                      requirement: Box::new(requirement.clone()),
                                      enemy_drops: enemy_drops.clone(),
                                      enemy_drops_buffed: enemy_drops_buffed.clone(),
-@@ -4530,7 +4597,7 @@ impl GameData {
+@@ -4530,7 +4739,7 @@ impl GameData {
                                      full_missiles,
                                      full_supers,
                                      full_power_bombs,
@@ -227,7 +713,7 @@ index 2f74136..7ddac20 100644
                                  self.links.push(farm_link.clone());
                              }
                          }
-@@ -4552,7 +4619,7 @@ impl GameData {
+@@ -4552,7 +4761,7 @@ impl GameData {
                  self.links.push(Link {
                      from_vertex_id: to_vertex_id,
                      to_vertex_id: plain_to_vertex_id,
@@ -236,7 +722,7 @@ index 2f74136..7ddac20 100644
                      start_with_shinecharge: end_with_shinecharge,
                      end_with_shinecharge,
                      difficulty: 0,
-@@ -4574,7 +4641,7 @@ impl GameData {
+@@ -4574,7 +4783,7 @@ impl GameData {
                      self.links.push(Link {
                          from_vertex_id: to_vertex_id,
                          to_vertex_id: unlock_vertex_id,
@@ -245,7 +731,7 @@ index 2f74136..7ddac20 100644
                          start_with_shinecharge: end_with_shinecharge,
                          end_with_shinecharge,
                          difficulty: 0,
-@@ -4586,7 +4653,7 @@ impl GameData {
+@@ -4586,7 +4795,7 @@ impl GameData {
                      self.links.push(Link {
                          from_vertex_id: unlock_vertex_id,
                          to_vertex_id,
@@ -254,7 +740,7 @@ index 2f74136..7ddac20 100644
                          start_with_shinecharge: end_with_shinecharge,
                          end_with_shinecharge,
                          difficulty: 0,
-@@ -4760,7 +4827,7 @@ impl GameData {
+@@ -4760,7 +4969,7 @@ impl GameData {
                      let link = Link {
                          from_vertex_id,
                          to_vertex_id,
@@ -263,7 +749,37 @@ index 2f74136..7ddac20 100644
                          start_with_shinecharge: false,
                          end_with_shinecharge: false,
                          difficulty: 0,
-@@ -5112,7 +5179,7 @@ impl GameData {
+@@ -4863,7 +5072,9 @@ impl GameData {
+         let dst_ptr = self.node_ptr_map.get(&dst).copied();
+         let is_west_ocean_bridge = src == (32, 7) || src == (32, 8);
+         if (src_ptr.is_some() || dst_ptr.is_some()) && !is_west_ocean_bridge {
+-            self.door_ptr_pair_map.insert((src_ptr, dst_ptr), src);
++            if self.door_ptr_pair_map.insert((src_ptr, dst_ptr), src).is_none() {
++                self.door_ptr_pair_order.push((src_ptr, dst_ptr));
++            }
+             self.reverse_door_ptr_pair_map
+                 .insert(src, (src_ptr, dst_ptr));
+         }
+@@ -4952,11 +5163,13 @@ impl GameData {
+                         .entry((vertex_key.room_id, vertex_key.node_id))
+                         .or_default()
+                         .push((vertex_id, entrance_condition.clone())),
+-                    VertexAction::DoorUnlock(door_node_id, _) => self
+-                        .node_door_unlock
+-                        .entry((vertex_key.room_id, *door_node_id))
+-                        .or_default()
+-                        .push(vertex_id),
++                    VertexAction::DoorUnlock(door_node_id, _) => {
++                        let key = (vertex_key.room_id, *door_node_id);
++                        if !self.node_door_unlock.contains_key(&key) {
++                            self.door_unlock_order.push(key);
++                        }
++                        self.node_door_unlock.entry(key).or_default().push(vertex_id)
++                    }
+                     VertexAction::ItemCollect(node_id) => {
+                         item_location_vertex_map
+                             .entry((vertex_key.room_id, *node_id))
+@@ -5112,7 +5325,7 @@ impl GameData {
                  continue;
              }
              if Self::has_energy_fill(&link.requirement) {
@@ -272,7 +788,7 @@ index 2f74136..7ddac20 100644
              }
          }
  
-@@ -5194,19 +5261,55 @@ impl GameData {
+@@ -5194,19 +5407,72 @@ impl GameData {
          &mut self,
          link_difficulty_length_fn: &dyn Fn(&Link, &GameData) -> (u8, LinkLength),
      ) {
@@ -293,6 +809,23 @@ index 2f74136..7ddac20 100644
          self.make_reset_room_requirements();
      }
  
++    /// Rebuilds the hash maps the randomizer iterates by inserting their keys in the order loading from JSON did, so
++    /// a `GameData` read from a pack iterates them as a loaded one does, on any platform.
++    pub fn replay_insertion_order(&mut self) {
++        fn replay<K: Hash + Eq + Clone, V>(m: &mut HashMap<K, V>, order: &[K]) {
++            let mut old = std::mem::take(m);
++            for k in order {
++                if let Some(v) = old.remove(k) {
++                    m.insert(k.clone(), v);
++                }
++            }
++            assert!(old.is_empty());
++        }
++        replay(&mut self.raw_room_id_by_ptr, &self.room_ptrs);
++        replay(&mut self.door_ptr_pair_map, &self.door_ptr_pair_order);
++        replay(&mut self.node_door_unlock, &self.door_unlock_order);
++    }
++
 +    /// Drops what only the website's logic pages, the spoiler's strat notes and the making of links read, once the
 +    /// links are made: room JSON keeps the names and node ids the patcher and spoiler log use, node JSON its name and
 +    /// door orientation.
@@ -335,7 +868,7 @@ index 2f74136..7ddac20 100644
      fn process_reset_room_req(req: &Requirement, free_unlock_id: (RoomId, NodeId)) -> Requirement {
          match req {
              &Requirement::DoorUnlocked { room_id, node_id }
-@@ -5267,30 +5370,31 @@ impl GameData {
+@@ -5267,30 +5533,31 @@ impl GameData {
              let mut req_or: Vec<Requirement> = vec![];
              let mut entrance_reqs_map: HashMap<VertexId, Vec<Requirement>> = HashMap::new();
              for &entrance_id in &entrance_vertex_ids {
@@ -374,7 +907,7 @@ index 2f74136..7ddac20 100644
                  }
              }
  
-@@ -5326,8 +5430,10 @@ impl GameData {
+@@ -5326,8 +5593,10 @@ impl GameData {
                  path.display()
              )
          })?;

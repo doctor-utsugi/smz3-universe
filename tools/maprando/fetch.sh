@@ -59,4 +59,10 @@ for pool in $POOLS; do
     done
     echo "{\"maps_per_file\":100,\"files\":[$files]}" > "$dir/manifest.json"
 done
+# The game data parsed ahead of time (rust/gamedata.bin): the generator loads it in place of the JSON, faster and in
+# less memory, and falls back to the JSON when the pack was written by other code
+if command -v cargo >/dev/null; then
+    (cd "$ROOT/core/maprando" && cargo build -q --release --bin smz3-maprando --target-dir "$ROOT/build/maprando-tool")
+    "$ROOT/build/maprando-tool/release/smz3-maprando" --pack "$OUT"
+fi
 du -sh "$OUT"
