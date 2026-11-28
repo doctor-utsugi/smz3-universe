@@ -92,7 +92,8 @@ fn presets(game_data: &GameData) -> Result<PresetData> {
 const PACK: &str = "gamedata.bin";
 const PACK_MAGIC: &[u8; 8] = b"SMZMRPK1";
 
-fn data_fingerprint() -> u64 {
+/// The data files' names and sizes, with or without the sm-json-data JSON, which a pack makes unneeded.
+fn data_fingerprint(json: bool) -> u64 {
     fn walk(p: &Path, out: &mut Vec<(String, u64)>) {
         if let Ok(rd) = std::fs::read_dir(p) {
             for e in rd.flatten() {
@@ -104,7 +105,9 @@ fn data_fingerprint() -> u64 {
     }
     let mut files = vec![];
     for p in ["../sm-json-data", "data", "../room_geometry.json", "../TitleScreen"] {
-        walk(Path::new(p), &mut files);
+        if json || p != "../sm-json-data" {
+            walk(Path::new(p), &mut files);
+        }
     }
     files.sort();
     let mut h = crc32fast::Hasher::new();
@@ -115,10 +118,18 @@ fn data_fingerprint() -> u64 {
     h.finalize() as u64 | (files.len() as u64) << 32
 }
 
-fn pack_header() -> Vec<u8> {
+fn pack_key() -> Vec<u8> {
     let mut v = PACK_MAGIC.to_vec();
     v.extend_from_slice(env!("SMZ_MR_PACK_KEY").as_bytes());
-    v.extend_from_slice(&data_fingerprint().to_le_bytes());
+    v
+}
+
+/// The pack's key, then the data fingerprint with the JSON and without it: a data folder that leaves the JSON out (a
+/// console's, where it is 11 MB of nothing) reads the same pack.
+fn pack_header() -> Vec<u8> {
+    let mut v = pack_key();
+    v.extend_from_slice(&data_fingerprint(true).to_le_bytes());
+    v.extend_from_slice(&data_fingerprint(false).to_le_bytes());
     v
 }
 
@@ -130,10 +141,12 @@ fn pack_bytes(gd: &GameData) -> Result<(Vec<u8>, Vec<u8>)> {
 fn game_data_from_pack() -> Option<GameData> {
     use std::io::Read;
     let mut f = std::io::BufReader::new(std::fs::File::open(PACK).ok()?);
-    let header = pack_header();
-    let mut got = vec![0; header.len()];
+    let key = pack_key();
+    let mut got = vec![0; key.len() + 16];
     f.read_exact(&mut got).ok()?;
-    if got != header {
+    let json = Path::new("../sm-json-data").is_dir();
+    let at = key.len() + if json { 0 } else { 8 };
+    if got[..key.len()] != key[..] || got[at..at + 8] != data_fingerprint(json).to_le_bytes() {
         return None;
     }
     let reqs: Vec<maprando_game::Requirement> = bincode::deserialize_from(&mut f).ok()?;
