@@ -64,13 +64,16 @@ fn local_pools() -> Result<(MapPoolsConfig, Vec<String>)> {
     Ok((cfg, names))
 }
 
-/// The game data as the generator uses it, made from the JSON (with the links' difficulties, web-only data dropped).
+/// The game data as the generator uses it, made from the JSON (with the links' difficulties, web-only data and title
+/// screen images dropped).
 fn game_data_from_json() -> Result<GameData> {
     let mut game_data = GameData::load(Path::new("."))?;
     let preset_data = presets(&game_data)?;
     let global = get_full_global(&game_data);
     game_data.make_links_data(&|link, gd| get_link_difficulty_length(link, gd, &preset_data, &global));
     game_data.drop_web_data();
+    // 9 MB of images only patching reads, after the search: it loads them from title_screen_path then.
+    game_data.title_screen_data = Default::default();
     Ok(game_data)
 }
 
@@ -135,7 +138,7 @@ fn game_data_from_pack() -> Option<GameData> {
     }
     let reqs: Vec<maprando_game::Requirement> = bincode::deserialize_from(&mut f).ok()?;
     let mut gd: GameData = maprando_game::shared_requirement::reading(reqs, || bincode::deserialize_from(&mut f).ok())?;
-    gd.replay_insertion_order();
+    gd.after_unpack();
     Some(gd)
 }
 

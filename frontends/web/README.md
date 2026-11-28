@@ -37,7 +37,7 @@ Everything is in `__EMSCRIPTEN__` blocks of `frontends/pc` or in this folder; th
   only with a RomM that sends CORS headers for the page's origin.
 - Sound: SDL's browser backend has one output device and the app opens three (menu music, menu sounds, the game);
   `web_audio.c` mixes them into one.
-- Map Rando: built in the browser where there is memory for it (about 155 MB at its peak); desktops that report less
+- Map Rando: built in the browser where there is memory for it (about 130 MB at its peak); desktops that report less
   than 768 MB get the seed from the server as a BPS patch, like the 3DS.
 - No update check: the page is always the newest build. One window: the dual-screen mode does not exist here.
 

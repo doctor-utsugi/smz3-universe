@@ -11,10 +11,10 @@ index d708535..9ae16eb 100644
  
  [[package]]
 diff --git a/rust/maprando-game/Cargo.toml b/rust/maprando-game/Cargo.toml
-index aa88d36..f75f70e 100644
+index aa88d36..5c32b94 100644
 --- a/rust/maprando-game/Cargo.toml
 +++ b/rust/maprando-game/Cargo.toml
-@@ -6,11 +6,11 @@ edition = "2024"
+@@ -6,14 +6,14 @@ edition = "2024"
  [dependencies]
  anyhow = { version = "1.0.68", features = ["backtrace"] }
  glob = "0.3.1"
@@ -27,7 +27,11 @@ index aa88d36..f75f70e 100644
 +ndarray = { version = "0.15.6", features = ["serde"] }
  num_enum = "0.5.7"
  parse_int = "0.6.0"
- serde = { version = "1.0.152", features = ["derive"] }
+-serde = { version = "1.0.152", features = ["derive"] }
++serde = { version = "1.0.152", features = ["derive", "rc"] }
+ serde-hex = "0.1.0"
+ serde_json = "1.0.91"
+ strum = "0.27.2"
 diff --git a/rust/maprando-game/src/glowpatch.rs b/rust/maprando-game/src/glowpatch.rs
 index 2b5eed3..1e3df3f 100644
 --- a/rust/maprando-game/src/glowpatch.rs
@@ -49,7 +53,7 @@ index 2b5eed3..1e3df3f 100644
  pub enum GlowPatchSection {
      Direct {
 diff --git a/rust/maprando-game/src/lib.rs b/rust/maprando-game/src/lib.rs
-index 2f74136..824a07a 100644
+index 2f74136..80b2c15 100644
 --- a/rust/maprando-game/src/lib.rs
 +++ b/rust/maprando-game/src/lib.rs
 @@ -21,6 +21,7 @@ use std::fmt::{self, Debug, Formatter};
@@ -69,7 +73,7 @@ index 2f74136..824a07a 100644
  pub struct IndexedVec<T: Hash + Eq> {
      pub keys: Vec<T>,
      pub index_by_key: HashMap<T, usize>,
-@@ -588,11 +589,13 @@ impl Requirement {
+@@ -588,22 +589,24 @@ impl Requirement {
      }
  }
  
@@ -85,7 +89,11 @@ index 2f74136..824a07a 100644
      pub start_with_shinecharge: bool,
      pub end_with_shinecharge: bool,
      pub difficulty: u8,
-@@ -603,7 +606,7 @@ pub struct Link {
+     pub length: LinkLength,
+     pub strat_id: Option<usize>,
+-    pub strat_name: String,
++    pub strat_name: Arc<str>,
+     // TODO: Remove this field since this data can be looked up elsewhere:
      pub strat_notes: Vec<String>,
  }
  
@@ -258,7 +266,47 @@ index 2f74136..824a07a 100644
  pub struct TitleScreenData {
      pub top_left: Vec<TitleScreenImage>,
      pub top_right: Vec<TitleScreenImage>,
-@@ -1381,7 +1408,7 @@ pub struct VertexKey {
+@@ -1335,6 +1362,39 @@ pub struct TitleScreenData {
+     pub map_station: TitleScreenImage,
+ }
+ 
++impl TitleScreenData {
++    pub fn load(path: &Path) -> Result<Self> {
++        info!("Loading title screens");
++        let file_it = path.read_dir().with_context(|| {
++            format!(
++                "Unable to read title screen directory at {}",
++                path.display()
++            )
++        })?;
++        // Sorted, so a seed's title screen does not depend on the filesystem's directory order.
++        let mut files = file_it.collect::<std::io::Result<Vec<_>>>()?;
++        files.sort_by_key(|f| f.file_name());
++        let mut data = Self::default();
++        for file in files {
++            let filename = file.file_name().into_string().unwrap();
++            let img = read_image(&file.path())?;
++
++            if filename.starts_with("TL") {
++                data.top_left.push(img);
++            } else if filename.starts_with("TR") {
++                data.top_right.push(img);
++            } else if filename.starts_with("BL") {
++                data.bottom_left.push(img);
++            } else if filename.starts_with("BR") {
++                data.bottom_right.push(img);
++            } else if filename == "map.png" {
++                data.map_station = img;
++            }
++        }
++        Ok(data)
++    }
++}
++
+ pub fn read_image(path: &Path) -> Result<Array3<u8>> {
+     let img = ImageReader::open(path)
+         .with_context(|| format!("Unable to open image: {}", path.display()))?
+@@ -1381,7 +1441,7 @@ pub struct VertexKey {
      pub actions: Vec<VertexAction>,
  }
  
@@ -267,7 +315,7 @@ index 2f74136..824a07a 100644
  pub struct NotableInfo {
      pub room_id: RoomId,
      pub notable_id: NotableId,
-@@ -1389,7 +1416,7 @@ pub struct NotableInfo {
+@@ -1389,7 +1449,7 @@ pub struct NotableInfo {
      pub note: String,
  }
  
@@ -276,7 +324,7 @@ index 2f74136..824a07a 100644
  pub struct StratVideo {
      pub room_id: usize,
      pub strat_id: usize,
-@@ -1399,7 +1426,7 @@ pub struct StratVideo {
+@@ -1399,7 +1459,7 @@ pub struct StratVideo {
      pub dev_note: String,
  }
  
@@ -285,7 +333,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub enum DoorLockType {
      Gray,
-@@ -1416,7 +1443,7 @@ pub enum DoorLockType {
+@@ -1416,7 +1476,7 @@ pub enum DoorLockType {
      Plasma,
  }
  
@@ -294,7 +342,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub enum MapTileEdge {
      #[default]
-@@ -1435,7 +1462,7 @@ pub enum MapTileEdge {
+@@ -1435,7 +1495,7 @@ pub enum MapTileEdge {
      LockedDoor(DoorLockType),
  }
  
@@ -303,7 +351,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub enum MapTileInterior {
      #[default]
-@@ -1469,7 +1496,7 @@ impl MapTileInterior {
+@@ -1469,7 +1529,7 @@ impl MapTileInterior {
      }
  }
  
@@ -312,7 +360,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub enum Direction {
      Left,
-@@ -1478,7 +1505,7 @@ pub enum Direction {
+@@ -1478,7 +1538,7 @@ pub enum Direction {
      Down,
  }
  
@@ -321,7 +369,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub enum MapTileSpecialType {
      SlopeUpFloorLow,
-@@ -1496,7 +1523,7 @@ pub enum MapTileSpecialType {
+@@ -1496,7 +1556,7 @@ pub enum MapTileSpecialType {
      AreaTransition(AreaIdx, Direction),
  }
  
@@ -330,7 +378,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub enum MapLiquidType {
      #[default]
-@@ -1506,7 +1533,7 @@ pub enum MapLiquidType {
+@@ -1506,7 +1566,7 @@ pub enum MapLiquidType {
      Acid,
  }
  
@@ -339,7 +387,7 @@ index 2f74136..824a07a 100644
  pub enum MapTileFade {
      #[default]
      None,
-@@ -1514,7 +1541,7 @@ pub enum MapTileFade {
+@@ -1514,7 +1574,7 @@ pub enum MapTileFade {
      Disappeared,
  }
  
@@ -348,7 +396,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub struct MapTile {
      pub coords: (usize, usize),
-@@ -1540,7 +1567,7 @@ pub struct MapTile {
+@@ -1540,7 +1600,7 @@ pub struct MapTile {
      pub faded: MapTileFade,
  }
  
@@ -357,7 +405,7 @@ index 2f74136..824a07a 100644
  #[serde(rename_all = "camelCase")]
  pub struct MapTileData {
      pub room_id: usize,
-@@ -1560,14 +1587,14 @@ struct MapTileDataFile {
+@@ -1560,14 +1620,14 @@ struct MapTileDataFile {
  
  type GfxTile1Bpp = [u8; 8];
  
@@ -374,7 +422,7 @@ index 2f74136..824a07a 100644
  pub struct ExitInfo {
      pub vertex_id: VertexId,
      pub exit_condition: ExitCondition,
-@@ -1580,7 +1607,7 @@ pub struct ExitInfo {
+@@ -1580,7 +1640,7 @@ pub struct ExitInfo {
  // more structured; combine maps with the same keys; also maybe unify the room geometry data
  // with sm-json-data and cut back on the amount of different
  // keys/IDs/indexes for rooms, nodes, and doors.
@@ -383,7 +431,7 @@ index 2f74136..824a07a 100644
  pub struct GameData {
      sm_json_data_path: PathBuf,
      pub tech_isv: IndexedVec<TechId>,
-@@ -1592,13 +1619,17 @@ pub struct GameData {
+@@ -1592,13 +1652,17 @@ pub struct GameData {
      weapon_categories: HashMap<String, Vec<String>>, // map from weapon category to specific weapons with that category
      enemy_attack_damage: HashMap<(String, String), Capacity>,
      enemy_vulnerabilities: HashMap<String, EnemyVulnerabilities>,
@@ -401,7 +449,7 @@ index 2f74136..824a07a 100644
      pub helper_json_map: HashMap<String, JsonValue>,
      // Original helper definitions for formatted logic-page display.
      pub helpers_json_source: String,
-@@ -1606,8 +1637,10 @@ pub struct GameData {
+@@ -1606,8 +1670,10 @@ pub struct GameData {
      pub tech_requirement: HashMap<(TechId, bool), Option<Requirement>>,
      pub helpers: HashMap<String, Option<Requirement>>,
      pub numeric_isv: IndexedVec<String>,
@@ -412,7 +460,7 @@ index 2f74136..824a07a 100644
      pub room_json_map: HashMap<RoomId, JsonValue>,
      // Original file contents for logic-page display, before preprocessing.
      // TODO: we should probably remove this from the logic page, and instead just
-@@ -1615,6 +1648,7 @@ pub struct GameData {
+@@ -1615,6 +1681,7 @@ pub struct GameData {
      pub room_json_source: HashMap<RoomId, String>,
      pub room_obstacle_idx_map: HashMap<RoomId, HashMap<String, usize>>,
      pub room_full_area: HashMap<RoomId, String>,
@@ -420,7 +468,7 @@ index 2f74136..824a07a 100644
      pub node_json_map: HashMap<(RoomId, NodeId), JsonValue>,
      pub node_spawn_at_map: HashMap<(RoomId, NodeId), NodeId>,
      pub reverse_node_ptr_map: HashMap<NodePtr, (RoomId, NodeId)>,
-@@ -1629,6 +1663,7 @@ pub struct GameData {
+@@ -1629,6 +1696,7 @@ pub struct GameData {
      pub reverse_door_ptr_pair_map: HashMap<(RoomId, NodeId), DoorPtrPair>,
      pub door_position: HashMap<(RoomId, NodeId), DoorOrientation>,
      pub vertex_isv: IndexedVec<VertexKey>,
@@ -428,7 +476,7 @@ index 2f74136..824a07a 100644
      pub grey_lock_map: HashMap<(RoomId, NodeId), JsonValue>,
      pub item_locations: Vec<(RoomId, NodeId)>,
      pub item_vertex_ids: Vec<Vec<VertexId>>,
-@@ -1639,6 +1674,10 @@ pub struct GameData {
+@@ -1639,6 +1707,10 @@ pub struct GameData {
      pub base_links_data: LinksDataGroup,
      pub room_geometry: Vec<RoomGeometry>,
      pub room_ptrs: Vec<RoomPtr>,
@@ -439,7 +487,7 @@ index 2f74136..824a07a 100644
      pub room_and_door_idxs_by_door_ptr_pair:
          HashMap<DoorPtrPair, (RoomGeometryRoomIdx, RoomGeometryDoorIdx)>,
      pub room_ptr_by_id: HashMap<RoomId, RoomPtr>,
-@@ -1657,6 +1696,7 @@ pub struct GameData {
+@@ -1657,6 +1729,7 @@ pub struct GameData {
      pub tech_description: HashMap<TechId, String>,
      pub tech_dependencies: HashMap<TechId, Vec<TechId>>,
      pub escape_timings: Vec<EscapeTimingRoom>,
@@ -447,15 +495,18 @@ index 2f74136..824a07a 100644
      pub start_locations: Vec<StartLocation>,
      pub start_location_id_map: HashMap<(RoomId, NodeId), StartLocationId>,
      pub hub_farms: Vec<(VertexId, Requirement)>,
-@@ -1670,6 +1710,7 @@ pub struct GameData {
+@@ -1669,7 +1742,10 @@ pub struct GameData {
+     pub carry_blue_suit_tech_idx: TechIdx,
      pub mother_brain_defeated_flag_id: usize,
      pub title_screen_data: TitleScreenData,
++    /// Where `title_screen_data` was read from: patching reads it from there again when it has been emptied.
++    pub title_screen_path: PathBuf,
      pub room_name_font: VariableWidthFont,
 +    #[serde(with = "json_text::glow")]
      pub reduced_flashing_patch: GlowPatch,
      pub strat_videos: HashMap<(RoomId, StratId), Vec<StratVideo>>,
      pub map_tile_data: Vec<MapTileData>,
-@@ -1689,6 +1730,162 @@ impl<T: Hash + Eq> IndexedVec<T> {
+@@ -1689,6 +1765,162 @@ impl<T: Hash + Eq> IndexedVec<T> {
      }
  }
  
@@ -618,7 +669,7 @@ index 2f74136..824a07a 100644
  fn read_json(path: &Path) -> Result<JsonValue> {
      let file = File::open(path).with_context(|| format!("unable to open {}", path.display()))?;
      let json_str = std::io::read_to_string(file)
-@@ -3151,7 +3348,8 @@ impl GameData {
+@@ -3151,7 +3383,8 @@ impl GameData {
      }
  
      pub fn load_rooms(&mut self, room_pattern: &str) -> Result<()> {
@@ -628,7 +679,7 @@ index 2f74136..824a07a 100644
          for entry in glob::glob(room_pattern).unwrap() {
              if let Ok(path) = entry {
                  let path_str = path.to_str().with_context(|| {
-@@ -3163,26 +3361,37 @@ impl GameData {
+@@ -3163,26 +3396,37 @@ impl GameData {
  
                  let source = std::fs::read_to_string(&path)
                      .with_context(|| format!("unable to read {}", path.display()))?;
@@ -672,7 +723,7 @@ index 2f74136..824a07a 100644
          }
  
          self.populate_target_locations()?;
-@@ -3597,10 +3806,10 @@ impl GameData {
+@@ -3597,10 +3841,10 @@ impl GameData {
          let mut links = self.links.clone();
          for (link, _) in self.node_gmode_regain_mobility.values().flatten() {
              let mut new_link = link.clone();
@@ -686,7 +737,16 @@ index 2f74136..824a07a 100644
              links.push(new_link);
          }
          links
-@@ -4441,7 +4650,7 @@ impl GameData {
+@@ -4322,7 +4566,7 @@ impl GameData {
+                 requires_vec.push(r.clone());
+             }
+             requires_vec.extend(self.parse_requires_list(&requires_json, &ctx)?);
+-            let strat_name = strat_json["name"].as_str().unwrap().to_string();
++            let strat_name: Arc<str> = strat_json["name"].as_str().unwrap().into();
+             let strat_notes = self.parse_note(&strat_json["note"]);
+ 
+             if strat_json["bypassesDoorShell"].as_str().unwrap_or("no") == "yes" {
+@@ -4441,7 +4685,7 @@ impl GameData {
              let link = Link {
                  from_vertex_id,
                  to_vertex_id,
@@ -695,16 +755,34 @@ index 2f74136..824a07a 100644
                  start_with_shinecharge,
                  end_with_shinecharge,
                  difficulty: 0,
-@@ -4522,7 +4731,7 @@ impl GameData {
+@@ -4510,19 +4754,21 @@ impl GameData {
+                                 }
+ 
+                                 let mut farm_link = link.clone();
++                                let mut strat_name = farm_link.strat_name.to_string();
+                                 if full_energy {
+-                                    farm_link.strat_name.push_str("- Full Energy");
++                                    strat_name.push_str("- Full Energy");
+                                 }
+                                 if full_missiles {
+-                                    farm_link.strat_name.push_str("- Full Missiles");
++                                    strat_name.push_str("- Full Missiles");
+                                 }
+                                 if full_supers {
+-                                    farm_link.strat_name.push_str("- Full Supers");
++                                    strat_name.push_str("- Full Supers");
+                                 }
                                  if full_power_bombs {
-                                     farm_link.strat_name.push_str("- Full Power Bombs");
+-                                    farm_link.strat_name.push_str("- Full Power Bombs");
++                                    strat_name.push_str("- Full Power Bombs");
                                  }
 -                                farm_link.requirement = Requirement::Farm {
++                                farm_link.strat_name = strat_name.into();
 +                                farm_link.requirement = Arc::new(Requirement::Farm {
                                      requirement: Box::new(requirement.clone()),
                                      enemy_drops: enemy_drops.clone(),
                                      enemy_drops_buffed: enemy_drops_buffed.clone(),
-@@ -4530,7 +4739,7 @@ impl GameData {
+@@ -4530,7 +4776,7 @@ impl GameData {
                                      full_missiles,
                                      full_supers,
                                      full_power_bombs,
@@ -713,7 +791,7 @@ index 2f74136..824a07a 100644
                                  self.links.push(farm_link.clone());
                              }
                          }
-@@ -4552,7 +4761,7 @@ impl GameData {
+@@ -4552,13 +4798,13 @@ impl GameData {
                  self.links.push(Link {
                      from_vertex_id: to_vertex_id,
                      to_vertex_id: plain_to_vertex_id,
@@ -722,7 +800,14 @@ index 2f74136..824a07a 100644
                      start_with_shinecharge: end_with_shinecharge,
                      end_with_shinecharge,
                      difficulty: 0,
-@@ -4574,7 +4783,7 @@ impl GameData {
+                     length: 1,
+                     strat_id: None,
+-                    strat_name: "Base (Action -> Plain)".to_string(),
++                    strat_name: "Base (Action -> Plain)".into(),
+                     strat_notes: vec![],
+                 });
+             }
+@@ -4574,25 +4820,25 @@ impl GameData {
                      self.links.push(Link {
                          from_vertex_id: to_vertex_id,
                          to_vertex_id: unlock_vertex_id,
@@ -731,7 +816,12 @@ index 2f74136..824a07a 100644
                          start_with_shinecharge: end_with_shinecharge,
                          end_with_shinecharge,
                          difficulty: 0,
-@@ -4586,7 +4795,7 @@ impl GameData {
+                         length: 1,
+                         strat_id: None,
+-                        strat_name: "Base (Unlock)".to_string(),
++                        strat_name: "Base (Unlock)".into(),
+                         strat_notes: vec![],
+                     });
                      self.links.push(Link {
                          from_vertex_id: unlock_vertex_id,
                          to_vertex_id,
@@ -740,7 +830,14 @@ index 2f74136..824a07a 100644
                          start_with_shinecharge: end_with_shinecharge,
                          end_with_shinecharge,
                          difficulty: 0,
-@@ -4760,7 +4969,7 @@ impl GameData {
+                         length: 1,
+                         strat_id: None,
+-                        strat_name: "Base (Return from Unlock)".to_string(),
++                        strat_name: "Base (Return from Unlock)".into(),
+                         strat_notes: vec![],
+                     });
+                 }
+@@ -4760,16 +5006,16 @@ impl GameData {
                      let link = Link {
                          from_vertex_id,
                          to_vertex_id,
@@ -749,7 +846,18 @@ index 2f74136..824a07a 100644
                          start_with_shinecharge: false,
                          end_with_shinecharge: false,
                          difficulty: 0,
-@@ -4863,7 +5072,9 @@ impl GameData {
+                         length: 1,
+                         strat_id: None,
+                         strat_name: if morphed {
+-                            "Carry G-Mode Morph Back Through".to_string()
++                            "Carry G-Mode Morph Back Through".into()
+                         } else {
+-                            "Carry G-Mode Back Through".to_string()
++                            "Carry G-Mode Back Through".into()
+                         },
+                         strat_notes: vec![],
+                     };
+@@ -4863,7 +5109,9 @@ impl GameData {
          let dst_ptr = self.node_ptr_map.get(&dst).copied();
          let is_west_ocean_bridge = src == (32, 7) || src == (32, 8);
          if (src_ptr.is_some() || dst_ptr.is_some()) && !is_west_ocean_bridge {
@@ -760,7 +868,7 @@ index 2f74136..824a07a 100644
              self.reverse_door_ptr_pair_map
                  .insert(src, (src_ptr, dst_ptr));
          }
-@@ -4952,11 +5163,13 @@ impl GameData {
+@@ -4952,11 +5200,13 @@ impl GameData {
                          .entry((vertex_key.room_id, vertex_key.node_id))
                          .or_default()
                          .push((vertex_id, entrance_condition.clone())),
@@ -779,7 +887,7 @@ index 2f74136..824a07a 100644
                      VertexAction::ItemCollect(node_id) => {
                          item_location_vertex_map
                              .entry((vertex_key.room_id, *node_id))
-@@ -5112,7 +5325,7 @@ impl GameData {
+@@ -5112,7 +5362,7 @@ impl GameData {
                  continue;
              }
              if Self::has_energy_fill(&link.requirement) {
@@ -788,7 +896,7 @@ index 2f74136..824a07a 100644
              }
          }
  
-@@ -5194,19 +5407,72 @@ impl GameData {
+@@ -5194,19 +5444,81 @@ impl GameData {
          &mut self,
          link_difficulty_length_fn: &dyn Fn(&Link, &GameData) -> (u8, LinkLength),
      ) {
@@ -809,9 +917,9 @@ index 2f74136..824a07a 100644
          self.make_reset_room_requirements();
      }
  
-+    /// Rebuilds the hash maps the randomizer iterates by inserting their keys in the order loading from JSON did, so
-+    /// a `GameData` read from a pack iterates them as a loaded one does, on any platform.
-+    pub fn replay_insertion_order(&mut self) {
++    /// After reading a pack: shares equal strat names again, and rebuilds the hash maps the randomizer iterates by
++    /// inserting their keys in the order loading from JSON did, so they iterate as a loaded `GameData`'s do.
++    pub fn after_unpack(&mut self) {
 +        fn replay<K: Hash + Eq + Clone, V>(m: &mut HashMap<K, V>, order: &[K]) {
 +            let mut old = std::mem::take(m);
 +            for k in order {
@@ -820,6 +928,15 @@ index 2f74136..824a07a 100644
 +                }
 +            }
 +            assert!(old.is_empty());
++        }
++        let mut names: HashSet<Arc<str>> = HashSet::new();
++        for link in &mut self.base_links_data.links {
++            match names.get(&link.strat_name) {
++                Some(n) => link.strat_name = n.clone(),
++                None => {
++                    names.insert(link.strat_name.clone());
++                }
++            }
 +        }
 +        replay(&mut self.raw_room_id_by_ptr, &self.room_ptrs);
 +        replay(&mut self.door_ptr_pair_map, &self.door_ptr_pair_order);
@@ -868,7 +985,7 @@ index 2f74136..824a07a 100644
      fn process_reset_room_req(req: &Requirement, free_unlock_id: (RoomId, NodeId)) -> Requirement {
          match req {
              &Requirement::DoorUnlocked { room_id, node_id }
-@@ -5267,30 +5533,31 @@ impl GameData {
+@@ -5267,30 +5579,31 @@ impl GameData {
              let mut req_or: Vec<Requirement> = vec![];
              let mut entrance_reqs_map: HashMap<VertexId, Vec<Requirement>> = HashMap::new();
              for &entrance_id in &entrance_vertex_ids {
@@ -907,18 +1024,38 @@ index 2f74136..824a07a 100644
                  }
              }
  
-@@ -5326,8 +5593,10 @@ impl GameData {
-                 path.display()
-             )
-         })?;
+@@ -5319,30 +5632,8 @@ impl GameData {
+     }
+ 
+     pub fn load_title_screens(&mut self, path: &Path) -> Result<()> {
+-        info!("Loading title screens");
+-        let file_it = path.read_dir().with_context(|| {
+-            format!(
+-                "Unable to read title screen directory at {}",
+-                path.display()
+-            )
+-        })?;
 -        for file in file_it {
 -            let file = file?;
-+        // Sorted, so a seed's title screen does not depend on the filesystem's directory order.
-+        let mut files = file_it.collect::<std::io::Result<Vec<_>>>()?;
-+        files.sort_by_key(|f| f.file_name());
-+        for file in files {
-             let filename = file.file_name().into_string().unwrap();
-             let img = read_image(&file.path())?;
+-            let filename = file.file_name().into_string().unwrap();
+-            let img = read_image(&file.path())?;
+-
+-            if filename.starts_with("TL") {
+-                self.title_screen_data.top_left.push(img);
+-            } else if filename.starts_with("TR") {
+-                self.title_screen_data.top_right.push(img);
+-            } else if filename.starts_with("BL") {
+-                self.title_screen_data.bottom_left.push(img);
+-            } else if filename.starts_with("BR") {
+-                self.title_screen_data.bottom_right.push(img);
+-            } else if filename == "map.png" {
+-                self.title_screen_data.map_station = img;
+-            }
+-        }
++        self.title_screen_data = TitleScreenData::load(path)?;
++        self.title_screen_path = path.to_owned();
+         Ok(())
+     }
  
 diff --git a/rust/maprando/Cargo.toml b/rust/maprando/Cargo.toml
 index f1440c1..592099a 100644
@@ -956,7 +1093,7 @@ index f1440c1..592099a 100644
 +name = "maprando-test"
 +required-features = ["web"]
 diff --git a/rust/maprando/src/difficulty.rs b/rust/maprando/src/difficulty.rs
-index 330393a..676a617 100644
+index 330393a..8fd985d 100644
 --- a/rust/maprando/src/difficulty.rs
 +++ b/rust/maprando/src/difficulty.rs
 @@ -54,7 +54,7 @@ pub fn get_link_difficulty(
@@ -968,6 +1105,15 @@ index 330393a..676a617 100644
      let combined_req = Requirement::make_and(vec![extra_req, main_req]);
  
      let locked_door_data = LockedDoorData {
+@@ -108,7 +108,7 @@ pub fn get_link_difficulty_length(
+ ) -> (u8, LinkLength) {
+     let tier = get_link_difficulty(link, game_data, preset_data, global);
+     let mut difficulty = 1 << tier;
+-    if !link.strat_name.starts_with("Base ") && link.strat_name != "Base" {
++    if !link.strat_name.starts_with("Base ") && &*link.strat_name != "Base" {
+         difficulty += 1;
+     }
+     (tier, difficulty)
 diff --git a/rust/maprando/src/lib.rs b/rust/maprando/src/lib.rs
 index 6d6c625..ecf8053 100644
 --- a/rust/maprando/src/lib.rs
@@ -1091,8 +1237,64 @@ index 3f3fa5d..feb5224 100644
  impl MapRepository for HttpMapRepository {
      fn get_map_batch(
          &self,
+diff --git a/rust/maprando/src/patch.rs b/rust/maprando/src/patch.rs
+index f01518c..d935e8c 100644
+--- a/rust/maprando/src/patch.rs
++++ b/rust/maprando/src/patch.rs
+@@ -1931,26 +1931,34 @@ impl Patcher<'_> {
+     }
+ 
+     fn apply_title_screen_patches(&mut self) -> Result<()> {
++        let game_data = self.game_data;
++        let loaded;
++        let tsd = if game_data.title_screen_data.top_left.is_empty() {
++            loaded = maprando_game::TitleScreenData::load(&game_data.title_screen_path)?;
++            &loaded
++        } else {
++            &game_data.title_screen_data
++        };
+         let mut rng_seed = [0u8; 32];
+         rng_seed[..8].copy_from_slice(&self.randomization.seed.to_le_bytes());
+         let mut rng = rand::rngs::StdRng::from_seed(rng_seed);
+ 
+         let mut img = Array3::<u8>::zeros((224, 256, 3));
+         loop {
+-            let top_left_idx = rng.gen_range(0..self.game_data.title_screen_data.top_left.len());
+-            let top_right_idx = rng.gen_range(0..self.game_data.title_screen_data.top_right.len());
++            let top_left_idx = rng.gen_range(0..tsd.top_left.len());
++            let top_right_idx = rng.gen_range(0..tsd.top_right.len());
+             let bottom_left_idx =
+-                rng.gen_range(0..self.game_data.title_screen_data.bottom_left.len());
++                rng.gen_range(0..tsd.bottom_left.len());
+             let bottom_right_idx =
+-                rng.gen_range(0..self.game_data.title_screen_data.bottom_right.len());
++                rng.gen_range(0..tsd.bottom_right.len());
+ 
+-            let top_left_slice = self.game_data.title_screen_data.top_left[top_left_idx]
++            let top_left_slice = tsd.top_left[top_left_idx]
+                 .slice(ndarray::s![32..144, 0..128, ..]);
+-            let top_right_slice = self.game_data.title_screen_data.top_right[top_right_idx]
++            let top_right_slice = tsd.top_right[top_right_idx]
+                 .slice(ndarray::s![32..144, 128..256, ..]);
+-            let bottom_left_slice = self.game_data.title_screen_data.bottom_left[bottom_left_idx]
++            let bottom_left_slice = tsd.bottom_left[bottom_left_idx]
+                 .slice(ndarray::s![112..224, 0..128, ..]);
+-            let bottom_right_slice = self.game_data.title_screen_data.bottom_right
++            let bottom_right_slice = tsd.bottom_right
+                 [bottom_right_idx]
+                 .slice(ndarray::s![112..224, 128..256, ..]);
+ 
+@@ -1963,7 +1971,7 @@ impl Patcher<'_> {
+             img.slice_mut(ndarray::s![112..224, 128..256, ..])
+                 .assign(&bottom_right_slice);
+ 
+-            let map = &self.game_data.title_screen_data.map_station;
++            let map = &tsd.map_station;
+             for y in 0..224 {
+                 for x in 0..256 {
+                     if map[(y, x, 0)] == 0 && map[(y, x, 1)] == 0 && map[(y, x, 2)] == 0 {
 diff --git a/rust/maprando/src/randomize.rs b/rust/maprando/src/randomize.rs
-index 2481576..3710b09 100644
+index 2481576..9b2b761 100644
 --- a/rust/maprando/src/randomize.rs
 +++ b/rust/maprando/src/randomize.rs
 @@ -53,6 +53,7 @@ use run_speed::{
@@ -1112,13 +1314,14 @@ index 2481576..3710b09 100644
  }
  
  #[derive(Clone)]
-@@ -651,6 +654,47 @@ pub struct Preprocessor<'a> {
+@@ -651,8 +654,37 @@ pub struct Preprocessor<'a> {
      pub game_data: &'a GameData,
      pub door_map: HashMap<(RoomId, NodeId), (RoomId, NodeId)>,
      pub difficulty: &'a DifficultyConfig,
 +    door_link_cache: Option<&'a DoorLinkCache>,
-+}
-+
++    cross_room_name: Arc<str>,
+ }
+ 
 +/// The cross-room links of each door pair (source door, destination door, through the Toilet), which depend only on
 +/// the pair, the game data and the difficulty: kept across the maps of one seed's attempts, for one difficulty, with
 +/// equal requirements shared. Emptied when it holds `DOOR_LINK_CACHE_MAX` links.
@@ -1130,78 +1333,91 @@ index 2481576..3710b09 100644
 +#[derive(Default)]
 +struct DoorLinkCacheInner {
 +    pairs: HashMap<(RoomId, NodeId, RoomId, NodeId, bool), Vec<CachedDoorLink>>,
-+    requirements: HashSet<Arc<Requirement>>,
++    requirement_idx: HashMap<Arc<Requirement>, u32>,
++    requirements: Vec<Arc<Requirement>>,
 +    links: usize,
 +}
 +
++/// A cached link, as indices into the source door's exits, the destination door's entrances and the cache's
++/// requirements (its low 30 bits; the top two are the shinecharge flags).
 +struct CachedDoorLink {
-+    from: u32,
-+    to: u32,
-+    requirement: Arc<Requirement>,
-+    start_with_shinecharge: bool,
-+    end_with_shinecharge: bool,
++    exit: u16,
++    entrance: u16,
++    requirement: u32,
 +}
 +
-+impl CachedDoorLink {
-+    fn link(&self) -> Link {
-+        Link {
-+            from_vertex_id: self.from as VertexId,
-+            to_vertex_id: self.to as VertexId,
-+            requirement: self.requirement.clone(),
-+            start_with_shinecharge: self.start_with_shinecharge,
-+            end_with_shinecharge: self.end_with_shinecharge,
-+            difficulty: 0,
-+            length: 1,
-+            strat_id: None,
-+            strat_name: "Base (Cross Room)".to_string(),
-+            strat_notes: vec![],
-+        }
-+    }
- }
- 
++const CACHED_START_SHINECHARGED: u32 = 1 << 31;
++const CACHED_END_SHINECHARGED: u32 = 1 << 30;
++
  fn compute_shinecharge_frames(
-@@ -705,6 +749,7 @@ impl<'a> Preprocessor<'a> {
+     other_runway_length: f32,
+     runway_length: f32,
+@@ -705,6 +737,8 @@ impl<'a> Preprocessor<'a> {
              game_data,
              door_map,
              difficulty,
 +            door_link_cache: None,
++            cross_room_name: "Base (Cross Room)".into(),
          }
      }
  
-@@ -716,6 +761,49 @@ impl<'a> Preprocessor<'a> {
+@@ -716,23 +750,94 @@ impl<'a> Preprocessor<'a> {
          dst_node_id: usize,
          is_toilet: bool,
          door_links: &mut Vec<Link>,
 +    ) {
 +        let Some(cache) = self.door_link_cache else {
-+            return self.make_door_links(src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet, door_links);
++            return self.make_door_links(src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet, door_links, None);
 +        };
 +        let key = (src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet);
 +        let mut c = cache.0.borrow_mut();
 +        if let Some(links) = c.pairs.get(&key) {
-+            door_links.extend(links.iter().map(CachedDoorLink::link));
++            if links.is_empty() {
++                return;
++            }
++            let exits = &self.game_data.node_exit_conditions[&(src_room_id, src_node_id)];
++            let entrances = &self.game_data.node_entrance_conditions[&(dst_room_id, dst_node_id)];
++            door_links.extend(links.iter().map(|l| {
++                let exit_info = &exits[l.exit as usize];
++                let (dst_vertex_id, _) = &entrances[l.entrance as usize];
++                Link {
++                    from_vertex_id: exit_info.vertex_id,
++                    to_vertex_id: *dst_vertex_id,
++                    requirement: c.requirements[(l.requirement & (CACHED_END_SHINECHARGED - 1)) as usize].clone(),
++                    start_with_shinecharge: l.requirement & CACHED_START_SHINECHARGED != 0,
++                    end_with_shinecharge: l.requirement & CACHED_END_SHINECHARGED != 0,
++                    difficulty: 0,
++                    length: 1,
++                    strat_id: None,
++                    strat_name: self.cross_room_name.clone(),
++                    strat_notes: vec![],
++                }
++            }));
 +            return;
 +        }
 +        let start = door_links.len();
-+        self.make_door_links(src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet, door_links);
-+        if c.links + door_links.len() - start > DOOR_LINK_CACHE_MAX {
++        let mut origins = vec![];
++        self.make_door_links(src_room_id, src_node_id, dst_room_id, dst_node_id, is_toilet, door_links, Some(&mut origins));
++        if c.links + origins.len() > DOOR_LINK_CACHE_MAX {
 +            *c = DoorLinkCacheInner::default();
 +        }
-+        let mut cached = Vec::with_capacity(door_links.len() - start);
-+        for link in &mut door_links[start..] {
-+            match c.requirements.get(&link.requirement) {
-+                Some(r) => link.requirement = r.clone(),
-+                None => {
-+                    c.requirements.insert(link.requirement.clone());
++        let mut cached = Vec::with_capacity(origins.len());
++        for (link, &(exit, entrance)) in door_links[start..].iter_mut().zip(&origins) {
++            let idx = match c.requirement_idx.get_key_value(&link.requirement) {
++                Some((r, &i)) => {
++                    link.requirement = r.clone();
++                    i
 +                }
-+            }
-+            cached.push(CachedDoorLink {
-+                from: link.from_vertex_id as u32,
-+                to: link.to_vertex_id as u32,
-+                requirement: link.requirement.clone(),
-+                start_with_shinecharge: link.start_with_shinecharge,
-+                end_with_shinecharge: link.end_with_shinecharge,
-+            });
++                None => {
++                    let i = c.requirements.len() as u32;
++                    c.requirements.push(link.requirement.clone());
++                    c.requirement_idx.insert(link.requirement.clone(), i);
++                    i
++                }
++            };
++            let flags = if link.start_with_shinecharge { CACHED_START_SHINECHARGED } else { 0 }
++                | if link.end_with_shinecharge { CACHED_END_SHINECHARGED } else { 0 };
++            cached.push(CachedDoorLink { exit, entrance, requirement: idx | flags });
 +        }
 +        c.links += cached.len();
 +        c.pairs.insert(key, cached);
@@ -1215,10 +1431,34 @@ index 2481576..3710b09 100644
 +        dst_node_id: usize,
 +        is_toilet: bool,
 +        door_links: &mut Vec<Link>,
++        mut origins: Option<&mut Vec<(u16, u16)>>,
      ) {
          let empty_vec_exits = vec![];
          let empty_vec_entrances = vec![];
-@@ -778,7 +866,7 @@ impl<'a> Preprocessor<'a> {
+-        for exit_info in self
++        for (exit_idx, exit_info) in self
+             .game_data
+             .node_exit_conditions
+             .get(&(src_room_id, src_node_id))
+             .unwrap_or(&empty_vec_exits)
++            .iter()
++            .enumerate()
+         {
+             let src_vertex_id = exit_info.vertex_id;
+             let exit_condition = &exit_info.exit_condition;
+             let exit_req = &exit_info.exit_req;
+-            for &(dst_vertex_id, ref entrance_condition) in self
++            for (entrance_idx, &(dst_vertex_id, ref entrance_condition)) in self
+                 .game_data
+                 .node_entrance_conditions
+                 .get(&(dst_room_id, dst_node_id))
+                 .unwrap_or(&empty_vec_entrances)
++                .iter()
++                .enumerate()
+             {
+                 if entrance_condition.through_toilet == maprando_game::ToiletCondition::Yes
+                     && !is_toilet
+@@ -778,15 +883,18 @@ impl<'a> Preprocessor<'a> {
                      door_links.push(Link {
                          from_vertex_id: src_vertex_id,
                          to_vertex_id: dst_vertex_id,
@@ -1227,7 +1467,19 @@ index 2481576..3710b09 100644
                          start_with_shinecharge: exit_with_shinecharge,
                          end_with_shinecharge: enter_with_shinecharge,
                          difficulty: 0,
-@@ -2845,7 +2933,7 @@ impl<'a> Preprocessor<'a> {
+                         length: 1,
+                         strat_id: None,
+-                        strat_name: "Base (Cross Room)".to_string(),
++                        strat_name: self.cross_room_name.clone(),
+                         strat_notes: vec![],
+                     });
++                    if let Some(o) = origins.as_deref_mut() {
++                        o.push((exit_idx as u16, entrance_idx as u16));
++                    }
+                 }
+             }
+         }
+@@ -2845,7 +2953,7 @@ impl<'a> Preprocessor<'a> {
                                  max_reserve_energy: 400.into(),
                                  heat: ReserveTriggerHeat::No,
                              },
@@ -1236,7 +1488,7 @@ index 2481576..3710b09 100644
                          ]));
                      }
                      Requirement::make_or(immobile_req_or_vec)
-@@ -3822,6 +3910,24 @@ impl<'r> Randomizer<'r> {
+@@ -3822,6 +3930,24 @@ impl<'r> Randomizer<'r> {
          difficulty_tiers: &'r [DifficultyConfig],
          game_data: &'r GameData,
          base_links_data: &'r LinksDataGroup,
@@ -1261,7 +1513,7 @@ index 2481576..3710b09 100644
          _rng: &mut R,
      ) -> Randomizer<'r> {
          let mut available_items: usize = 0;
-@@ -3834,7 +3940,8 @@ impl<'r> Randomizer<'r> {
+@@ -3834,7 +3960,8 @@ impl<'r> Randomizer<'r> {
  
          let starting_items = get_starting_items(settings);
  
@@ -1271,7 +1523,7 @@ index 2481576..3710b09 100644
          let preprocessed_seed_links: Vec<Link> = preprocessor.get_all_door_links();
          info!(
              "{} base links, {} door links",
-@@ -4013,6 +4120,7 @@ impl<'r> Randomizer<'r> {
+@@ -4013,6 +4140,7 @@ impl<'r> Randomizer<'r> {
              ),
              difficulty_tiers,
              next_traversal_number: RefCell::new(0),
@@ -1279,7 +1531,7 @@ index 2481576..3710b09 100644
          }
      }
  
-@@ -5478,7 +5586,7 @@ impl<'r> Randomizer<'r> {
+@@ -5478,7 +5606,7 @@ impl<'r> Randomizer<'r> {
          }
      }
  
@@ -1289,7 +1541,7 @@ index 2481576..3710b09 100644
          let weapon_mask = self
              .game_data
 diff --git a/rust/maprando/src/spoiler_log.rs b/rust/maprando/src/spoiler_log.rs
-index f5ed506..f1c47ff 100644
+index f5ed506..47f8910 100644
 --- a/rust/maprando/src/spoiler_log.rs
 +++ b/rust/maprando/src/spoiler_log.rs
 @@ -169,7 +169,7 @@ pub struct SpoilerNode {
@@ -1310,6 +1562,24 @@ index f5ed506..f1c47ff 100644
  pub struct SpoilerTraversal {
      pub initial_local_state: SpoilerLocalState,
      pub prev_trail_ids: Vec<StepTrailId>,
+@@ -588,7 +588,7 @@ pub fn get_spoiler_route(
+             strat_difficulty: strat_difficulty as usize,
+             obstacles_bitmask: to_obstacles_mask,
+             coords,
+-            strat_name: link.strat_name.clone(),
++            strat_name: link.strat_name.to_string(),
+             strat_notes: link.strat_notes.clone(),
+             energy: Some(new_local_state.energy.0),
+             reserves: Some(new_local_state.reserves.0),
+@@ -946,7 +946,7 @@ pub fn get_spoiler_game_data(randomizer: &Randomizer) -> SpoilerGameData {
+             from_vertex_id: link.from_vertex_id,
+             to_vertex_id: link.to_vertex_id,
+             strat_id: link.strat_id,
+-            strat_name: link.strat_name.clone(),
++            strat_name: link.strat_name.to_string(),
+         });
+     }
+     SpoilerGameData {
 @@ -983,8 +983,16 @@ pub fn get_spoiler_log(
      tolerate_escape_failure: bool,
      rebuild_traversals: bool,

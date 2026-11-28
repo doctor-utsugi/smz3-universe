@@ -34,7 +34,7 @@ static void pool_setup(void)
 static char g_dir[1100];
 static volatile int g_phase;   /* 0 idle, 1 loading the data, 2 building the seed, 3 downloading it from the server */
 
-/* Building a seed peaks near 155 MB (measured), on top of the game: only a device with this much RAM in all and free builds
+/* Building a seed peaks near 130 MB (measured), on top of the game: only a device with this much RAM in all and free builds
  * it, any other downloads it. */
 #define MR_TOTAL_MB 768
 #define MR_FREE_MB 400
