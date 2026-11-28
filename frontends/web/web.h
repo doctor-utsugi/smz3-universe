@@ -14,5 +14,7 @@ long web_meminfo_mb(const char *key);
 void web_pick_files(void);
 /* writes the store to IndexedDB now, as after a save */
 void web_store_save(void);
+/* the page's origin, "https://host": the game's server serves the page, so the API is same-origin */
+void web_origin(char *out, int cap);
 #define WEB_INCOMING "/incoming"
 #endif

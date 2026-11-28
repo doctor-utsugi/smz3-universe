@@ -87,11 +87,17 @@ static int server(SmzSync *s, const char *method, const char *path, const char *
 {
     if (!s->server[0]) return -1;
     char url[384];
-    snprintf(url, sizeof url, "%s%s", s->server, path);
     uint8_t *o = NULL;
-    size_t n = 0;
-    int st = s->romm->http(s->romm->ctx, method, url, json ? "Content-Type: application/json\n" : NULL,
+    int st = -1;
+    for (int old = 0; old < 2 && smz_server_unreached(st); old++) {
+        if (old && strcmp(s->server, SMZ_SERVER)) break;   /* a server the player named is never swapped */
+        snprintf(url, sizeof url, "%s%s", old ? SMZ_SERVER_OLD : s->server, path);
+        free(o);
+        o = NULL;
+        size_t n = 0;
+        st = s->romm->http(s->romm->ctx, method, url, json ? "Content-Type: application/json\n" : NULL,
                            (const uint8_t *)json, json ? strlen(json) : 0, &o, &n);
+    }
     if (out) *out = o;
     else free(o);
     return st;

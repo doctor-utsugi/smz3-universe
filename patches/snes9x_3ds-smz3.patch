@@ -1189,7 +1189,7 @@ new file mode 100644
 index 0000000..7c9c2e5
 --- /dev/null
 +++ b/source/smz3online.cpp
-@@ -0,0 +1,1484 @@
+@@ -0,0 +1,1493 @@
 +#include "smz3online.h"
 +#include "3dslog.h"
 +#include "smz3run.h"
@@ -1211,12 +1211,14 @@ index 0000000..7c9c2e5
 +#include "smz3_run.h"
 +#include "smz3_version.h"
 +#include "smz3_bps.h"
++#include "smz3_sync.h"
 +}
 +
 +#define ONLINE_DIR SMZ_DIR "/online"
 +// plain HTTP: the console's SSL module never got through to the server (no request reached it), and the ladder holds
 +// no secrets, a name, a country and times
-+#define BASE_URL "http://smz3-universe.duckdns.org"
++#define BASE_URL "http://api.smz3.com"
++#define OLD_BASE_URL "http://smz3-universe.duckdns.org"
 +
 +int smzRunMode;
 +// A thread spawned here keeps the game it was started for (-1: the menu's smzRunMode), so its files and requests stay that game's
@@ -1318,12 +1320,12 @@ index 0000000..7c9c2e5
 +}
 +
 +// t1, when given: this clock when the answer's head is in
-+static int httpRequest(const char *method, const char *path, const char *body, char *out, size_t cap, int64_t *t1 = nullptr)
++static int httpAt(const char *base, const char *method, const char *path, const char *body, char *out, size_t cap, int64_t *t1)
 +{
 +    out[0] = 0;
 +    if (!onNetwork()) { log3dsWrite("http %s: no wifi", path); return -1; }
 +    char url[480];
-+    snprintf(url, sizeof url, "%s%s", baseUrl(), path);
++    snprintf(url, sizeof url, "%s%s", base, path);
 +    static bool noVerify;   // the check failed once and the second try worked: the races poll every second, so it is not tried again
 +    for (int attempt = noVerify ? 1 : 0; attempt < 2; attempt++) {
 +        httpcContext ctx;
@@ -1354,6 +1356,13 @@ index 0000000..7c9c2e5
 +        return (int)status;
 +    }
 +    return -1;
++}
++
++static int httpRequest(const char *method, const char *path, const char *body, char *out, size_t cap, int64_t *t1 = nullptr)
++{
++    int status = httpAt(baseUrl(), method, path, body, out, cap, t1);
++    if (!smzOnlineStaging() && smz_server_unreached(status)) status = httpAt(OLD_BASE_URL, method, path, body, out, cap, t1);
++    return status;
 +}
 +
 +static bool jsonStr(const char *json, const char *key, char *out, size_t cap)
@@ -4308,7 +4317,7 @@ index 0000000..21ee854
 +                ui_idle(&ui);
 +                ui.screen = UI_OPTIONS;
 +                ui.update_install = 0;
-+                snprintf(ui.notice, sizeof ui.notice, "smz3-universe.duckdns.org/download");
++                snprintf(ui.notice, sizeof ui.notice, "smz3.com/download");
 +            }
 +        }
 +        if (ui.action != ACT_NONE) {
@@ -9327,7 +9336,7 @@ index 0000000..2945b8e
 +#include "smz3_version.h"
 +}
 +
-+#define DEFAULT_SERVER "https://smz3-universe.duckdns.org"
++#define DEFAULT_SERVER SMZ_SERVER
 +#define SYNC_TXT SMZ_DIR "/sync.txt"
 +#define SOC_SIZE 0x100000
 +

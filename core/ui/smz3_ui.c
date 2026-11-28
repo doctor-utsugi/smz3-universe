@@ -451,7 +451,7 @@ static void options_input(SmzUi *u, UiButton b)
         if (bit == -3) { u->cloud.cursor = 0; u->cloud.msg[0] = 0; u->screen = UI_CLOUD; return; }
         if (bit < 0) {
             if (u->update_install) u->action = ACT_UPDATE;
-            else snprintf(u->notice, sizeof u->notice, "smz3-universe.duckdns.org/download");
+            else snprintf(u->notice, sizeof u->notice, "smz3.com/download");
             return;
         }
         if (bit == UI_OPT_SOUND) u->menu_music = !u->menu_music;

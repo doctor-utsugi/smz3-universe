@@ -30,6 +30,8 @@ EM_JS(int, web_http_send, (const char *method, const char *url, const char *head
   return x.status ? x.status : -1;
 });
 
+EM_JS(void, web_origin, (char *out, int cap), { stringToUTF8(globalThis.location.origin, out, cap); });
+
 EM_JS(void, web_http_take, (uint8_t *dst, int n, char *hdr, int hdr_cap), {
   var t = globalThis.smz3Reply;
   for (var i = 0; i < n; i++) HEAPU8[dst + i] = t.charCodeAt(i) & 255;

@@ -14,19 +14,18 @@
 #endif
 #include "pc_online.h"
 #include "pc_store.h"
-
-#define BASE "https://smz3-universe.duckdns.org"
+#include "smz3_sync.h"
 
 static char *read_text(const char *path);
 
 /* Runs curl without a shell. Returns the HTTP status (-1 when curl failed) and the body in out. */
 #ifdef __EMSCRIPTEN__
 #include "web.h"
-static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
+static int http_at(const char *base, const char *method, const char *path, const char *body, char *out, size_t cap)
 {
     char url[256];
     uint8_t *o = NULL;
-    snprintf(url, sizeof url, "%s%s", online_server(), path);
+    snprintf(url, sizeof url, "%s%s", base, path);
     int code = web_http(method, url, body ? "Content-Type: application/json\n" : NULL, (const uint8_t *)body, body ? strlen(body) : 0,
                         &o, NULL, NULL, NULL, 0);
     snprintf(out, cap, "%s", o ? (char *)o : "");
@@ -34,12 +33,12 @@ static int http(const char *method, const char *path, const char *body, char *ou
     return code;
 }
 #elif defined(_WIN32)
-static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
+static int http_at(const char *base, const char *method, const char *path, const char *body, char *out, size_t cap)
 {
     char req[600], res[600], cmd[2048], url[256];
     snprintf(req, sizeof req, "%s", store_path("tmp/request%lu.json", (unsigned long)GetCurrentThreadId()));   /* requests run on several threads */
     snprintf(res, sizeof res, "%s", store_path("tmp/response%lu.txt", (unsigned long)GetCurrentThreadId()));
-    snprintf(url, sizeof url, "%s%s", online_server(), path);
+    snprintf(url, sizeof url, "%s%s", base, path);
     out[0] = 0;
     if (body && store_write(req, body, strlen(body))) return -1;
     int n = snprintf(cmd, sizeof cmd, "curl.exe -s -m 8 -X %s -H \"Content-Type: application/json\" ", method);
@@ -75,13 +74,13 @@ static int http(const char *method, const char *path, const char *body, char *ou
     return code;
 }
 #else
-static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
+static int http_at(const char *base, const char *method, const char *path, const char *body, char *out, size_t cap)
 {
     int in_pipe[2], out_pipe[2];
     out[0] = 0;
     if (pipe(in_pipe) || pipe(out_pipe)) return -1;
     char url[256];
-    snprintf(url, sizeof url, "%s%s", online_server(), path);
+    snprintf(url, sizeof url, "%s%s", base, path);
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -113,6 +112,13 @@ static int http(const char *method, const char *path, const char *body, char *ou
 }
 
 #endif
+
+static int http(const char *method, const char *path, const char *body, char *out, size_t cap)
+{
+    int code = http_at(online_server(), method, path, body, out, cap);
+    if (!strcmp(online_server(), SMZ_SERVER) && smz_server_unreached(code)) code = http_at(SMZ_SERVER_OLD, method, path, body, out, cap);
+    return code;
+}
 
 /* The game of the runs this thread reaches (store_get_mode): SMZ3 sends no game, so its requests stay as they always were.
  * game_query gives "" or "<sep>game=sm" for a path, game_field "" or ",\"game\":\"sm\"" for a JSON body. */
@@ -157,6 +163,18 @@ static char *read_text(const char *path)
     return t;
 }
 
+/* The real server: the browser build asks the host that served its page (a cross-origin API would need CORS preflights). */
+static const char *default_server(void)
+{
+#ifdef __EMSCRIPTEN__
+    static char origin[200];
+    if (!origin[0]) web_origin(origin, sizeof origin);
+    return origin;
+#else
+    return SMZ_SERVER;
+#endif
+}
+
 const char *online_server(void)
 {
     static char kept[200];
@@ -167,10 +185,10 @@ const char *online_server(void)
         char *t = read_text(store_path("server.txt"));
         if (t) { t[strcspn(t, " \t\r\n")] = 0; if (!strncmp(t, "http", 4)) snprintf(kept, sizeof kept, "%s", t); free(t); }
     }
-    return kept[0] ? kept : BASE;
+    return kept[0] ? kept : default_server();
 }
 
-int online_staging(void) { return strcmp(online_server(), BASE) != 0; }
+int online_staging(void) { return strcmp(online_server(), default_server()) != 0; }
 
 /* Windows builds before 2026-11-25 had no /dev/urandom and all wrote this id, so every Windows player was one install. */
 #define ZERO_ID "00000000-0000-0000-0000-000000000000"

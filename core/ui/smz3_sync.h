@@ -36,6 +36,12 @@ void smz_sync_delete(SmzRomm *r, const SmzSyncRecord *rec);
 /* Call whenever SMZ3's emulator writes a run file (kind < SMZ_SYNC_FILES): an upload whose hash differs goes up unranked. */
 void smz_sync_own(const SmzSyncFiles *fs, int kind, const uint8_t *data, size_t len);
 
+/* The SMZ3 server by default and its old address: a call to the default that fails is sent once more to the old one. */
+#define SMZ_SERVER "https://api.smz3.com"
+#define SMZ_SERVER_OLD "https://smz3-universe.duckdns.org"
+/* No answer, or Cloudflare's own error for an origin it could not reach. */
+static inline int smz_server_unreached(int status) { return status <= 0 || status == 502 || (status >= 520 && status <= 526); }
+
 typedef struct {
     SmzRomm *romm;
     char server[128];      /* the SMZ3 server, "https://..." ("" skips the hash and hold calls) */

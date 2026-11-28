@@ -236,7 +236,7 @@ the discovery map logic.
   `z3:YYYY-MM` / `sm:YYYY-MM` for the others. `GET /api/goals?game=` picks the game; a report's game is its run id's
   first letter (`z`, `m`, else SMZ3). Z3 draws from zelda and shared, SM from metroid and shared; `swaps` is SMZ3's
   only. The `daily` goal counts that game's daily windows. Payouts go to the one gem balance.
-- **Web** (`smz3-universe.duckdns.org`): a game switch at the top of every table.
+- **Web** (`smz3.com/ladder`): a game switch at the top of every table.
 - **Preset tables** (built and deployed): `PRESETS` in `server.js` lists each game's presets with the settings the
   proof checker regenerates the seed from. `/api/games` lists them; `/api/start` takes `preset` for an original run
   only and adds it to the token (`...startedAt.game.preset.sig`, so SMZ3 and Original tokens are unchanged);
@@ -258,7 +258,7 @@ release is out the carousel says so, with Options > Update.
 
 - **PC (Windows, macOS, AppImage) and Android/Thor** download and install the release themselves, as today.
 - **Linux built from source** says where to get it.
-- **3DS** today only says where: `smz3-universe.duckdns.org/download`, which the server redirects to the latest
+- **3DS** today only says where: `smz3.com/download`, which the server redirects to the latest
   release. Step 1b makes it download itself: the `.3dsx` written over the running file (its path from `argv[0]`),
   the `.cia` downloaded and installed through the AM service (as FBI does), then a restart. If the console refuses,
   the link stays.

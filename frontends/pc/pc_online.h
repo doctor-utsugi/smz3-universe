@@ -1,4 +1,4 @@
-/* The online ladder (https://smz3-universe.duckdns.org), the PC twin of OnlineLadder.kt. Requests go through the curl program, so
+/* The online ladder (https://api.smz3.com), the PC twin of OnlineLadder.kt. Requests go through the curl program, so
  * nothing is linked; without curl or a connection the run simply stays off the ladder. Slots are the 1-based numbers of the run files. */
 #ifndef PC_ONLINE_H
 #define PC_ONLINE_H

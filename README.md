@@ -30,7 +30,7 @@ Seeds are made on the device itself from your two ROMs, offline. The generator i
 | ![Dungeon map with keys](docs/shots/3ds-tracker-dungeon-keys.png) | **Dungeon maps.** Inside a Zelda dungeon you get the game's own map of it, read from your ROM, with the keys under pots and on enemies marked until you take them. |
 | ![A hint](docs/shots/3ds-tracker-help-hint2.png) | **Hints.** All of them, none, or a few you spend when you're stuck: where an item is, or how many checks are left in a region. |
 | ![Shortcut row](docs/shots/3ds-tracker-shortcuts-zelda.png) | **Shortcuts.** On the Thor and the 3DS, tap a row over the map to equip a Zelda item, switch a beam, or pick missiles, supers or power bombs. |
-| ![Daily challenge](docs/shots/3ds-tracker-daily-tab.png) | **Daily challenge and ladders.** Three windows a day where everyone plays the same start with one goal. Original-rules, monthly and weekly runs go on the online ladder at [smz3-universe.duckdns.org](https://smz3-universe.duckdns.org). |
+| ![Daily challenge](docs/shots/3ds-tracker-daily-tab.png) | **Daily challenge and ladders.** Three windows a day where everyone plays the same start with one goal. Original-rules, monthly and weekly runs go on the online ladder at [smz3.com/ladder](https://smz3.com/ladder). |
 
 ## Runs
 
@@ -59,7 +59,7 @@ its row in the list shows the crystals and bosses you have so far.
   when you press Start, with no fast forward and no save states. Hints come out on a schedule during the attempt,
   vague at first and exact later.
 
-Online times go to [smz3-universe.duckdns.org](https://smz3-universe.duckdns.org), and each finish carries a proof of the checks
+Online times go to [smz3.com/ladder](https://smz3.com/ladder), and each finish carries a proof of the checks
 made along the way. The daily and the world goals pay rupeergies, a balance kept per install. Every month the
 players also share a few world goals, like "defeat 30 Kraids": anyone who helped enough with a goal gets paid when
 the month ends. Offline play works too; the run stays off the tables.

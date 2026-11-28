@@ -1178,15 +1178,13 @@ new file mode 100644
 index 0000000..04ae4c3
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/DailyChallenge.kt
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,201 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
 +import org.json.JSONArray
 +import org.json.JSONObject
 +import java.io.File
-+import java.net.HttpURLConnection
-+import java.net.URL
 +
 +/** One attempt at a daily challenge, its times in the device clock (ms since 1970). */
 +data class DailyAttempt(
@@ -1220,19 +1218,16 @@ index 0000000..04ae4c3
 +    private fun resultFile(context: Context) = File(dir(context), "daily.result")
 +    fun proofFile(context: Context, game: String = RunStore.mode) = File(dir(context, game), "slot$SLOT.proof")
 +
-+    private fun base(): String = OnlineLadder.server()
-+
 +    private fun installId(context: Context): String = OnlineLadder.installIdFor(context)
 +
 +    private fun request(method: String, path: String, body: JSONObject? = null): Pair<Int, String> = runCatching {
-+        val c = URL(base() + path).openConnection() as HttpURLConnection
-+        c.requestMethod = method
-+        c.connectTimeout = 8000
-+        c.readTimeout = 8000
-+        if (body != null) {
-+            c.doOutput = true
-+            c.setRequestProperty("Content-Type", "application/json")
-+            c.outputStream.use { it.write(body.toString().toByteArray()) }
++        val c = OnlineLadder.open(path) {
++            it.requestMethod = method
++            if (body != null) {
++                it.doOutput = true
++                it.setRequestProperty("Content-Type", "application/json")
++                it.outputStream.use { o -> o.write(body.toString().toByteArray()) }
++            }
 +        }
 +        val text = runCatching { (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().use { it.readText() } }.getOrDefault("")
 +        Pair(c.responseCode, text).also { c.disconnect() }
@@ -2662,7 +2657,7 @@ new file mode 100644
 index 0000000..0d253d2
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/OnlineLadder.kt
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,309 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -2678,7 +2673,9 @@ index 0000000..0d253d2
 + * games has its own tables: requests for a game other than SMZ3 carry its id.
 + */
 +object OnlineLadder {
-+    const val BASE = "https://smz3-universe.duckdns.org"
++    const val BASE = "https://api.smz3.com"
++    /** The server's address before [BASE]: [open] sends a request here once more when [BASE] could not be reached. */
++    const val OLD_BASE = "https://smz3-universe.duckdns.org"
 +
 +    /** The app's own folder on the shared storage (Android/data/<package>/files): it can always read a file put there. */
 +    @Volatile var ownDir: File? = null
@@ -2689,6 +2686,23 @@ index 0000000..0d253d2
 +        .firstNotNullOfOrNull { f -> runCatching { f.readText().trim() }.getOrNull()?.takeIf { it.startsWith("http") } } ?: BASE
 +
 +    fun staging(): Boolean = server() != BASE
++
++    /** [path] on [server] with [setup] (method, headers, body) applied and its status in. No answer or a Cloudflare error for
++     * an unreachable origin (502, 520-526) from [BASE] sends the same request once to [OLD_BASE]; a staging server never does. */
++    fun open(path: String, connectMs: Int = 8000, readMs: Int = 8000, setup: (HttpURLConnection) -> Unit = {}): HttpURLConnection {
++        fun at(base: String) = (URL(base + path).openConnection() as HttpURLConnection).also {
++            it.connectTimeout = connectMs
++            it.readTimeout = readMs
++            setup(it)
++            it.responseCode
++        }
++        val base = server()
++        if (base != BASE) return at(base)
++        val c = runCatching { at(base) }.getOrNull()
++        if (c != null && c.responseCode > 0 && c.responseCode != 502 && c.responseCode !in 520..526) return c
++        c?.disconnect()
++        return at(OLD_BASE)
++    }
 +
 +    private fun dir(context: Context) = File(context.filesDir, "runs").apply { mkdirs() }
 +    private fun tokenFile(context: Context, slot: Int, game: String = RunStore.mode) = File(RunStore.runsDir(context, game), "slot$slot.token")
@@ -2784,9 +2798,7 @@ index 0000000..0d253d2
 +        val f = gameFile(context, "monthly.json", game)
 +        playingNow["$game:monthly"] = 0
 +        runCatching {
-+            val c = URL("${server()}/api/monthly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
-+            c.connectTimeout = 8000
-+            c.readTimeout = 8000
++            val c = open("/api/monthly" + RunStore.gameQuery(game, true))
 +            val text = c.inputStream.bufferedReader().use { it.readText() }
 +            c.disconnect()
 +            JSONObject(text).getString("seed").toInt()
@@ -2806,9 +2818,7 @@ index 0000000..0d253d2
 +        val f = gameFile(context, "weekly.json", game)
 +        playingNow["$game:weekly"] = 0
 +        runCatching {
-+            val c = URL("${server()}/api/weekly" + RunStore.gameQuery(game, true)).openConnection() as HttpURLConnection
-+            c.connectTimeout = 8000
-+            c.readTimeout = 8000
++            val c = open("/api/weekly" + RunStore.gameQuery(game, true))
 +            val text = c.inputStream.bufferedReader().use { it.readText() }
 +            c.disconnect()
 +            JSONObject(text).getString("seed").toInt()
@@ -2887,13 +2897,12 @@ index 0000000..0d253d2
 +    }
 +
 +    private fun post(path: String, body: JSONObject): Pair<Int, String> = runCatching {
-+        val c = URL(server() + path).openConnection() as HttpURLConnection
-+        c.requestMethod = "POST"
-+        c.connectTimeout = 8000
-+        c.readTimeout = 8000
-+        c.doOutput = true
-+        c.setRequestProperty("Content-Type", "application/json")
-+        c.outputStream.use { it.write(body.toString().toByteArray()) }
++        val c = open(path) {
++            it.requestMethod = "POST"
++            it.doOutput = true
++            it.setRequestProperty("Content-Type", "application/json")
++            it.outputStream.use { o -> o.write(body.toString().toByteArray()) }
++        }
 +        val text = runCatching { (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().use { it.readText() } }.getOrDefault("")
 +        Pair(c.responseCode, text).also { c.disconnect() }
 +    }.getOrDefault(Pair(-1, ""))
@@ -2919,17 +2928,13 @@ index 0000000..0d253d2
 +     *  cannot be reached. Call off the main thread. */
 +    fun ladderJson(tab: Int, game: String = RunStore.mode, preset: String = ""): String? = runCatching {
 +        val p = if (tab == 0 && preset.isNotEmpty()) "&preset=" + java.net.URLEncoder.encode(preset, "UTF-8") else ""
-+        val c = URL("${server()}/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game) + p).openConnection() as HttpURLConnection
-+        c.connectTimeout = 8000
-+        c.readTimeout = 8000
++        val c = open("/api/ladder?kind=" + arrayOf("original", "monthly", "weekly")[tab] + RunStore.gameQuery(game) + p)
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
 +    }.getOrNull()
 +
 +    /** One game's world goals of the month for this install, null when the server cannot be reached. Call off the main thread. */
 +    fun goalsJson(context: Context, game: String = RunStore.mode): String? = runCatching {
-+        val c = URL("${server()}/api/goals?install=" + installId(context) + RunStore.gameQuery(game)).openConnection() as HttpURLConnection
-+        c.connectTimeout = 8000
-+        c.readTimeout = 8000
++        val c = open("/api/goals?install=" + installId(context) + RunStore.gameQuery(game))
 +        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
 +    }.getOrNull()
 +
@@ -13307,7 +13312,7 @@ new file mode 100644
 index 0000000..387684b
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/RaceClient.kt
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,202 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -13316,8 +13321,6 @@ index 0000000..387684b
 +import org.json.JSONArray
 +import org.json.JSONObject
 +import java.io.File
-+import java.net.HttpURLConnection
-+import java.net.URL
 +
 +/**
 + * The online race's requests (server/ladder/race.js), as the PC's pc_race.c: one thread sends them in order and polls the
@@ -13346,8 +13349,6 @@ index 0000000..387684b
 +    private var offlineSince = 0L   // elapsedRealtime of the first failed poll in a row; 0 while the server answers
 +    private var worker: Thread? = null
 +    @Volatile private var busy = false
-+
-+    private fun base(): String = OnlineLadder.server()
 +
 +    fun proofFile(context: Context) = File(RunStore.runsDir(context), "slot$SLOT.proof")   // where OnlineLadder.noteChecks writes it
 +
@@ -13437,14 +13438,13 @@ index 0000000..387684b
 +    }
 +
 +    private fun http(method: String, path: String, body: String?): Pair<Int, String> = runCatching {
-+        val c = URL(base() + path).openConnection() as HttpURLConnection
-+        c.requestMethod = method
-+        c.connectTimeout = 8000
-+        c.readTimeout = 8000
-+        if (body != null) {
-+            c.doOutput = true
-+            c.setRequestProperty("Content-Type", "application/json")
-+            c.outputStream.use { it.write(body.toByteArray()) }
++        val c = OnlineLadder.open(path) {
++            it.requestMethod = method
++            if (body != null) {
++                it.doOutput = true
++                it.setRequestProperty("Content-Type", "application/json")
++                it.outputStream.use { o -> o.write(body.toByteArray()) }
++            }
 +        }
 +        val text = runCatching { (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().use { it.readText() } }.getOrDefault("")
 +        Pair(c.responseCode, text).also { c.disconnect() }
@@ -14243,7 +14243,7 @@ new file mode 100644
 index 0000000..fa51cc8
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/AppUpdate.kt
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,87 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
@@ -14264,8 +14264,6 @@ index 0000000..fa51cc8
 +object AppUpdate {
 +    private const val APK = "SMZ3-android-arm64.apk"
 +
-+    private fun base(): String = OnlineLadder.server()
-+
 +    /** The last /api/version answer, kept for the menu's next opening. */
 +    @Volatile var latest: String? = null
 +        private set
@@ -14276,9 +14274,7 @@ index 0000000..fa51cc8
 +        if (System.currentTimeMillis() - checkedAt < 30 * 60_000L) return null
 +        checkedAt = System.currentTimeMillis()
 +        return runCatching {
-+            val c = URL(base() + "/api/version").openConnection() as HttpURLConnection
-+            c.connectTimeout = 8000
-+            c.readTimeout = 8000
++            val c = OnlineLadder.open("/api/version")
 +            try { if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() } else null } finally { c.disconnect() }
 +        }.getOrNull()?.also { latest = it }
 +    }
@@ -14489,15 +14485,13 @@ new file mode 100644
 index 0000000..89c8b19
 --- /dev/null
 +++ b/lemuroid-app/src/main/java/com/swordfish/lemuroid/app/mobile/feature/runs/MapRando.kt
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,89 @@
 +package com.swordfish.lemuroid.app.mobile.feature.runs
 +
 +import android.content.Context
 +import com.swordfish.lemuroid.app.shared.game.viewmodel.Smz3Native
 +import java.io.File
 +import java.io.IOException
-+import java.net.HttpURLConnection
-+import java.net.URL
 +import java.net.URLEncoder
 +import org.json.JSONObject
 +import java.util.zip.ZipInputStream
@@ -14568,9 +14562,7 @@ index 0000000..89c8b19
 +        fun fail(why: String): ByteArray? { downloadInfo = JSONObject().put("error", why).toString(); return null }
 +        return try {
 +            val q = URLEncoder.encode(settings, "UTF-8")
-+            val c = URL("${OnlineLadder.server()}/api/maprando/seed?settings=$q&seed=$seed").openConnection() as HttpURLConnection
-+            c.connectTimeout = 15000
-+            c.readTimeout = 300000
++            val c = OnlineLadder.open("/api/maprando/seed?settings=$q&seed=$seed", 15000, 300000)
 +            when (c.responseCode) {
 +                200 -> { downloadInfo = c.getHeaderField("X-Seed-Info") ?: "{}"; c.inputStream.use { it.readBytes() } }
 +                503 -> fail("The server is busy, try again in a minute")

@@ -27,7 +27,7 @@ Short online runs with one goal. Three windows a day, the same challenge for eve
 
 - **Recovery code.** Rupeergies belong to `install_id`, so a reinstall would lose them. A short code shown in the menu, which another install can enter, moves the history and the rupeergies over.
 - **Practice.** Past challenges can be replayed offline (same seed, same hints unlocked at once), with no rupeergies and no table.
-- **Window table on the web.** `smz3-universe.duckdns.org` gets a Daily tab: per window the times, the completion rate and the median, so the length estimate can be checked in public.
+- **Window table on the web.** `smz3.com/ladder` gets a Daily tab: per window the times, the completion rate and the median, so the length estimate can be checked in public.
 - **Difficulty tag.** Each challenge shows Easy / Normal / Hard from the estimate, plus which game it starts in.
 - **Spoiler safety.** The client never receives hints that are not unlocked yet; the server answers with the hints released so far for that token.
 - **Streak shield.** Missing one window does not break the streak as long as one window a day is completed.
@@ -276,7 +276,7 @@ It needs real times: the first public window is 2026-10-30-2. After a week, comp
 4. **Done.** PC: menu row, start screen, overlay, FAILED flow, ending card, rupeergies. Checked with screenshots and against the local server.
 5. **Done.** Android: the same, checked on the Thor.
 6. **Done.** 3DS: online row, start screen, timers, rupeergies. Checked on Azahar.
-7. **Done (deployed).** Web: Daily section on `smz3-universe.duckdns.org`.
+7. **Done (deployed).** Web: Daily section on `smz3.com/ladder`.
 8. **Started (deployed).** Mid-game starts: Super Metroid bosses already dead. The rest of a prepared save waits for phase 9.
 9. **Calibration**: after a week of windows, compare the real times with the estimates and adjust the formula.
 
