@@ -1631,7 +1631,8 @@ static void start_input(SmzUi *u, UiButton b)
     else if (b == BTN_RIGHT) u->start_col = *cur == 2 && u->online_mode == 1 ? (u->start_col < 2 ? u->start_col + 1 : 2) : *cur < START_ROW;
     else if (b == BTN_A) {
         if (*cur == START_ROW) {
-            if (u->player_on && u->online_mode == 0 && ui_run_ladder(u)) { u->online_cursor = 0; u->online_gen = 1; u->screen = UI_ONLINE; }
+            /* offline (the World goals did not load) the question has no answer: the run starts off the ladder */
+            if (u->player_on && u->online_mode == 0 && ui_run_ladder(u) && u->world.loaded >= 0) { u->online_cursor = 0; u->online_gen = 1; u->screen = UI_ONLINE; }
             else { u->action = ACT_GENERATE; u->action_slot = u->active_slot; }
         }
         else if (*cur == 2 && u->online_mode != 1) { u->online_cursor = u->online_mode == 2 ? 2 : 0; u->online_gen = 0; u->screen = UI_ONLINE; }
